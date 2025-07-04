@@ -12,6 +12,7 @@ from blueprints.bookmarks import bookmarks_bp
 from blueprints.recommendations import recommendations_bp
 from blueprints.feedback import feedback_bp
 from blueprints.profile import profile_bp
+from blueprints.search import search_bp
 
 # Load environment variables
 load_dotenv()
@@ -35,6 +36,7 @@ def create_app():
     app.register_blueprint(recommendations_bp)
     app.register_blueprint(feedback_bp)
     app.register_blueprint(profile_bp)
+    app.register_blueprint(search_bp)
     
     # Basic route
     @app.route('/')

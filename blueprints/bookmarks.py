@@ -1,8 +1,36 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent, User
+import requests
+from readability import Document
+from bs4 import BeautifulSoup
+import numpy as np
+
+# Import embedding function
+try:
+    from app_old import get_embedding
+except ImportError:
+    def get_embedding(text):
+        return np.zeros(384)
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
+
+def extract_article_content(url):
+    """Extract main content from a URL"""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        doc = Document(response.text)
+        summary_html = doc.summary()
+        soup = BeautifulSoup(summary_html, "html.parser")
+        text = soup.get_text(separator=" ", strip=True)
+        
+        return text[:5000]  # Limit to 5000 chars
+    except Exception as e:
+        print(f"Error extracting content from {url}: {e}")
+        return ""
 
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
@@ -19,16 +47,29 @@ def save_bookmark():
     if not title or not title.strip():
         title = 'Untitled Bookmark'
     
+    # Extract content from URL
+    extracted_text = extract_article_content(url)
+    
+    # Generate embedding for semantic search
+    content_for_embedding = f"{title} {description} {extracted_text}"
+    embedding = get_embedding(content_for_embedding)
+    
     new_bm = SavedContent(
         user_id=user_id,
         url=url.strip(),
         title=title.strip(),
-        notes=description.strip() if isinstance(description, str) else ''  # Use 'notes' field
+        notes=description.strip() if isinstance(description, str) else '',
+        extracted_text=extracted_text,
+        embedding=embedding
     )
     try:
         db.session.add(new_bm)
         db.session.commit()
-        return jsonify({'message': 'Bookmark saved', 'bookmark_id': new_bm.id}), 201
+        return jsonify({
+            'message': 'Bookmark saved', 
+            'bookmark_id': new_bm.id,
+            'content_extracted': len(extracted_text) > 0
+        }), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'message': f'Error: {str(e)}'}), 500
@@ -45,7 +86,8 @@ def list_bookmarks():
         'url': b.url,
         'title': b.title,
         'description': b.notes,  # Map 'notes' to 'description' for API consistency
-        'saved_at': b.saved_at.isoformat()
+        'saved_at': b.saved_at.isoformat(),
+        'has_content': bool(b.extracted_text)
     } for b in pagination.items]
     return jsonify({
         'bookmarks': bookmarks,
