@@ -11,14 +11,19 @@ def save_bookmark():
     data = request.get_json()
     url = data.get('url')
     title = data.get('title', '')
-    description = data.get('description', '')
+    description = data.get('description', '')  # Keep for API compatibility
     if not url:
         return jsonify({'message': 'URL is required'}), 400
+    
+    # Ensure title is not empty (required field)
+    if not title or not title.strip():
+        title = 'Untitled Bookmark'
+    
     new_bm = SavedContent(
         user_id=user_id,
         url=url.strip(),
-        title=title.strip() if isinstance(title, str) else '',
-        description=description.strip() if isinstance(description, str) else ''
+        title=title.strip(),
+        notes=description.strip() if isinstance(description, str) else ''  # Use 'notes' field
     )
     try:
         db.session.add(new_bm)
@@ -34,13 +39,13 @@ def list_bookmarks():
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
-    pagination = SavedContent.query.filter_by(user_id=user_id).order_by(SavedContent.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    pagination = SavedContent.query.filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     bookmarks = [{
         'id': b.id,
         'url': b.url,
         'title': b.title,
-        'description': b.description,
-        'created_at': b.created_at.isoformat()
+        'description': b.notes,  # Map 'notes' to 'description' for API consistency
+        'saved_at': b.saved_at.isoformat()
     } for b in pagination.items]
     return jsonify({
         'bookmarks': bookmarks,

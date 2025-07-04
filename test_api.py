@@ -1,40 +1,68 @@
 import requests
 import json
+import random
+import string
 
 BASE_URL = "http://localhost:5000"
+
+def generate_username():
+    """Generate a unique username for testing"""
+    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return f"testuser_{random_suffix}"
 
 def test_api():
     print("🧪 Testing Fuze API...\n")
     
-    # Test 1: Register user
-    print("1. Testing user registration...")
-    register_data = {
-        "username": "testuser",
-        "password": "password123"
-    }
-    response = requests.post(f"{BASE_URL}/api/auth/register", json=register_data)
-    print(f"   Status: {response.status_code}")
-    print(f"   Response: {response.json()}\n")
+    # Generate unique username
+    username = generate_username()
+    password = "password123"
     
-    # Test 2: Login
-    print("2. Testing user login...")
+    print(f"Using test username: {username}\n")
+    
+    # Test 1: Try to login first (in case user exists)
+    print("1. Testing user login...")
     login_data = {
-        "username": "testuser",
-        "password": "password123"
+        "username": username,
+        "password": password
     }
     response = requests.post(f"{BASE_URL}/api/auth/login", json=login_data)
     print(f"   Status: {response.status_code}")
+    
     if response.status_code == 200:
         token = response.json().get('access_token')
-        print(f"   ✅ Login successful! Token received.\n")
+        print(f"   ✅ Login successful! User already exists.\n")
     else:
-        print(f"   ❌ Login failed: {response.json()}\n")
-        return
+        print(f"   User doesn't exist, creating new user...\n")
+        
+        # Test 2: Register user
+        print("2. Testing user registration...")
+        register_data = {
+            "username": username,
+            "password": password
+        }
+        response = requests.post(f"{BASE_URL}/api/auth/register", json=register_data)
+        print(f"   Status: {response.status_code}")
+        print(f"   Response: {response.json()}\n")
+        
+        if response.status_code == 201:
+            # Test 3: Login with new user
+            print("3. Testing login with new user...")
+            response = requests.post(f"{BASE_URL}/api/auth/login", json=login_data)
+            print(f"   Status: {response.status_code}")
+            if response.status_code == 200:
+                token = response.json().get('access_token')
+                print(f"   ✅ Login successful! Token received.\n")
+            else:
+                print(f"   ❌ Login failed: {response.json()}\n")
+                return
+        else:
+            print(f"   ❌ Registration failed: {response.json()}\n")
+            return
     
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Test 3: Create project
-    print("3. Testing project creation...")
+    # Test 4: Create project
+    print("4. Testing project creation...")
     project_data = {
         "title": "Test Project",
         "description": "A test project for API testing",
@@ -49,8 +77,8 @@ def test_api():
         print(f"   ❌ Project creation failed: {response.json()}\n")
         return
     
-    # Test 4: Save bookmark
-    print("4. Testing bookmark saving...")
+    # Test 5: Save bookmark
+    print("5. Testing bookmark saving...")
     bookmark_data = {
         "url": "https://example.com",
         "title": "Example Website",
@@ -64,14 +92,14 @@ def test_api():
     else:
         print(f"   ❌ Bookmark saving failed: {response.json()}\n")
     
-    # Test 5: Get user projects
-    print("5. Testing get user projects...")
+    # Test 6: Get user projects
+    print("6. Testing get user projects...")
     response = requests.get(f"{BASE_URL}/api/projects/1", headers=headers)
     print(f"   Status: {response.status_code}")
     print(f"   Response: {response.json()}\n")
     
-    # Test 6: Get bookmarks
-    print("6. Testing get bookmarks...")
+    # Test 7: Get bookmarks
+    print("7. Testing get bookmarks...")
     response = requests.get(f"{BASE_URL}/api/bookmarks", headers=headers)
     print(f"   Status: {response.status_code}")
     print(f"   Response: {response.json()}\n")
