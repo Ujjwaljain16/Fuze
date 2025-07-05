@@ -1,4 +1,5 @@
 import os
+print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from blueprints.search import search_bp
 
 # Load environment variables
 load_dotenv()
+print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 
 def create_app():
     """Application factory pattern for better testing and modularity"""
@@ -42,6 +44,25 @@ def create_app():
     @app.route('/')
     def index():
         return {'message': 'Fuze API running', 'version': '1.0.0'}
+    
+    # Health check endpoint for Chrome extension
+    @app.route('/api/health')
+    def health_check():
+        try:
+            # Test database connection
+            db.session.execute('SELECT 1')
+            return {
+                'status': 'healthy',
+                'message': 'Fuze API is running',
+                'version': '1.0.0',
+                'database': 'connected'
+            }, 200
+        except Exception as e:
+            return {
+                'status': 'unhealthy',
+                'message': 'Database connection failed',
+                'error': str(e)
+            }, 500
     
     # Error handlers
     @app.errorhandler(400)
