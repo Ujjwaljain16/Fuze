@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { Eye, EyeOff, Mail, Lock, User, Github, Chrome } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import './auth-styles.css'
 
 const Register = () => {
+  const navigate = useNavigate()
+  const { register } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -65,20 +68,19 @@ const Register = () => {
     }
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const result = await register(formData.email, formData.password, formData.name)
       
-      // Replace this with your actual registration logic
-      setSuccess('Registration successful! Please check your email to verify your account.')
-      setLoading(false)
-      
-      setTimeout(() => {
-        setSuccess('')
-        // Redirect to login page
-        // navigate('/login')
-      }, 3000)
+      if (result.success) {
+        setSuccess('Registration successful! Please check your email to verify your account.')
+        setTimeout(() => {
+          navigate('/login')
+        }, 2000)
+      } else {
+        setError(result.error || 'Registration failed. Please try again.')
+      }
     } catch (err) {
       setError('Registration failed. Please try again.')
+    } finally {
       setLoading(false)
     }
   }
