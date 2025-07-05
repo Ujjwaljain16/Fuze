@@ -5,6 +5,7 @@ from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 from models import db
 from sqlalchemy import text
+from flask_cors import CORS
 
 # Import blueprints
 from blueprints.auth import auth_bp
@@ -26,6 +27,9 @@ def create_app():
     
     # Configuration
     app.config.from_object('config.Config')
+    
+    # Enable CORS for all origins (development only)
+    CORS(app)
     
     # Initialize extensions
     db.init_app(app)

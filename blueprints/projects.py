@@ -4,6 +4,31 @@ from models import db, Project, User
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/api/projects')
 
+@projects_bp.route('', methods=['GET'])
+@jwt_required()
+def get_projects():
+    """Get projects for the current authenticated user"""
+    user_id = int(get_jwt_identity())
+    page = request.args.get('page', default=1, type=int)
+    per_page = request.args.get('per_page', default=10, type=int)
+    
+    pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    projects_data = [{
+        "id": project.id,
+        "title": project.title,
+        "description": project.description,
+        "technologies": project.technologies,
+        "created_at": project.created_at.isoformat()
+    } for project in pagination.items]
+    
+    return jsonify({
+        "projects": projects_data,
+        "total": pagination.total,
+        "page": pagination.page,
+        "per_page": pagination.per_page,
+        "pages": pagination.pages
+    }), 200
+
 @projects_bp.route('', methods=['POST'])
 @jwt_required()
 def create_project():

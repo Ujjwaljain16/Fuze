@@ -4,6 +4,7 @@ import Navbar from './components/Navbar'
 import Dashboard from './pages/Dashboard'
 import Bookmarks from './pages/Bookmarks'
 import Projects from './pages/Projects'
+import Recommendations from './pages/Recommendations'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import { AuthProvider } from './contexts/AuthContext'
@@ -20,6 +21,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/bookmarks" element={<Bookmarks />} />
               <Route path="/projects" element={<Projects />} />
+              <Route path="/recommendations" element={<Recommendations />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
             </Routes>

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { Bookmark, FolderOpen, Home, LogOut, User } from 'lucide-react'
+import { Bookmark, FolderOpen, Home, LogOut, User, Sparkles } from 'lucide-react'
 
 const Navbar = () => {
   const { isAuthenticated, logout } = useAuth()
@@ -32,6 +32,10 @@ const Navbar = () => {
             <Link to="/projects" className="nav-link">
               <FolderOpen size={20} />
               <span>Projects</span>
+            </Link>
+            <Link to="/recommendations" className="nav-link">
+              <Sparkles size={20} />
+              <span>Recommendations</span>
             </Link>
             <button onClick={handleLogout} className="nav-link logout-btn">
               <LogOut size={20} />

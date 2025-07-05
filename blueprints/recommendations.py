@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Project, Task, User, SavedContent, Feedback
+from models import db, Project, Task, User, SavedContent, Feedback, Bookmark
 from sqlalchemy import func
 import numpy as np
 
@@ -12,6 +12,103 @@ except ImportError:
         return np.zeros(384)
 
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
+
+@recommendations_bp.route('/general', methods=['GET'])
+@jwt_required()
+def general_recommendations():
+    """Get general recommendations based on user's interests and saved content"""
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+    
+    # Get user's interests and recent bookmarks
+    user_interests = user.technology_interests or ""
+    recent_bookmarks = Bookmark.query.filter_by(user_id=user_id).order_by(Bookmark.created_at.desc()).limit(5).all()
+    
+    # Create context from user interests and recent bookmarks
+    context_parts = [user_interests]
+    for bookmark in recent_bookmarks:
+        context_parts.append(f"{bookmark.title} {bookmark.description or ''}")
+    
+    query_context = " ".join(context_parts)
+    
+    # Generate embedding for the context
+    query_embedding = get_embedding(query_context)
+    if query_embedding is None or (isinstance(query_embedding, list) and all(v == 0 for v in query_embedding)):
+        # Fallback to mock recommendations if embedding fails
+        return jsonify({
+            "recommendations": [
+                {
+                    "id": 1,
+                    "title": "Getting Started with React Development",
+                    "url": "https://react.dev/learn",
+                    "description": "Learn the fundamentals of React development with this comprehensive guide.",
+                    "score": 95,
+                    "reason": "Based on your interest in web development"
+                },
+                {
+                    "id": 2,
+                    "title": "Python Best Practices for 2024",
+                    "url": "https://realpython.com/python-best-practices/",
+                    "description": "Discover the latest Python best practices and coding standards.",
+                    "score": 88,
+                    "reason": "Matches your technology interests"
+                },
+                {
+                    "id": 3,
+                    "title": "Modern JavaScript ES6+ Features",
+                    "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
+                    "description": "Explore modern JavaScript features and how to use them effectively.",
+                    "score": 82,
+                    "reason": "Related to your recent bookmarks"
+                }
+            ]
+        }), 200
+    
+    # Get recommendations from saved content
+    recommendations = db.session.query(SavedContent).filter_by(user_id=user_id).order_by(
+        SavedContent.embedding.op('<=>')(query_embedding)
+    ).limit(10).all()
+    
+    if not recommendations:
+        # Return mock recommendations if no saved content
+        return jsonify({
+            "recommendations": [
+                {
+                    "id": 1,
+                    "title": "Welcome to Fuze - Your Smart Bookmark Manager",
+                    "url": "https://github.com/your-repo/fuze",
+                    "description": "Learn how to make the most of your intelligent bookmark manager.",
+                    "score": 100,
+                    "reason": "Perfect for new users"
+                },
+                {
+                    "id": 2,
+                    "title": "Productivity Tips for Developers",
+                    "url": "https://dev.to/productivity-tips",
+                    "description": "Boost your development workflow with these proven productivity techniques.",
+                    "score": 90,
+                    "reason": "Based on your profile"
+                }
+            ]
+        }), 200
+    
+    # Convert to response format
+    recommendations_data = []
+    for i, content in enumerate(recommendations):
+        score = max(60, 100 - (i * 5))  # Score based on position
+        recommendations_data.append({
+            "id": content.id,
+            "title": content.title,
+            "url": content.url,
+            "description": content.notes or content.description or "",
+            "score": score,
+            "reason": f"Similar to your saved content about {content.category or 'technology'}"
+        })
+    
+    return jsonify({"recommendations": recommendations_data}), 200
 
 @recommendations_bp.route('/project/<int:project_id>', methods=['GET'])
 @jwt_required()
