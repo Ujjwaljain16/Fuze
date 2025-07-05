@@ -4,6 +4,7 @@ from flask import Flask
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 from models import db
+from sqlalchemy import text
 
 # Import blueprints
 from blueprints.auth import auth_bp
@@ -49,8 +50,8 @@ def create_app():
     @app.route('/api/health')
     def health_check():
         try:
-            # Test database connection
-            db.session.execute('SELECT 1')
+            # Test database connection using proper SQLAlchemy syntax
+            db.session.execute(text('SELECT 1'))
             return {
                 'status': 'healthy',
                 'message': 'Fuze API is running',
