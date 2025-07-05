@@ -1,8 +1,9 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Project, Task, User, SavedContent, Feedback, Bookmark
+from models import db, Project, Task, User, SavedContent, Feedback
 from sqlalchemy import func
 import numpy as np
+from datetime import datetime
 
 # Import the embedding function from the main app context
 try:
@@ -23,14 +24,14 @@ def general_recommendations():
     if not user:
         return jsonify({"message": "User not found"}), 404
     
-    # Get user's interests and recent bookmarks
+    # Get user's interests and recent saved content
     user_interests = user.technology_interests or ""
-    recent_bookmarks = Bookmark.query.filter_by(user_id=user_id).order_by(Bookmark.created_at.desc()).limit(5).all()
+    recent_content = SavedContent.query.filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).limit(5).all()
     
-    # Create context from user interests and recent bookmarks
+    # Create context from user interests and recent content
     context_parts = [user_interests]
-    for bookmark in recent_bookmarks:
-        context_parts.append(f"{bookmark.title} {bookmark.description or ''}")
+    for content in recent_content:
+        context_parts.append(f"{content.title} {content.notes or ''}")
     
     query_context = " ".join(context_parts)
     
@@ -103,7 +104,7 @@ def general_recommendations():
             "id": content.id,
             "title": content.title,
             "url": content.url,
-            "description": content.notes or content.description or "",
+            "description": content.notes or "",
             "score": score,
             "reason": f"Similar to your saved content about {content.category or 'technology'}"
         })
@@ -196,3 +197,49 @@ def recommend_for_task(task_id):
         "saved_at": c.saved_at.isoformat()
     } for c in results]
     return jsonify(output), 200 
+
+@recommendations_bp.route('/feedback', methods=['POST'])
+@jwt_required()
+def submit_feedback():
+    """Submit feedback on recommendations to improve future suggestions"""
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    if not data or 'content_id' not in data or 'feedback_type' not in data:
+        return jsonify({"message": "Missing required fields"}), 400
+    
+    content_id = data['content_id']
+    feedback_type = data['feedback_type']
+    project_id = data.get('project_id')  # Optional
+    
+    # Validate feedback type
+    if feedback_type not in ['relevant', 'not_relevant']:
+        return jsonify({"message": "Invalid feedback type"}), 400
+    
+    # Check if feedback already exists
+    existing_feedback = Feedback.query.filter_by(
+        user_id=user_id,
+        content_id=content_id,
+        project_id=project_id
+    ).first()
+    
+    if existing_feedback:
+        # Update existing feedback
+        existing_feedback.feedback_type = feedback_type
+        existing_feedback.updated_at = datetime.utcnow()
+    else:
+        # Create new feedback
+        new_feedback = Feedback(
+            user_id=user_id,
+            content_id=content_id,
+            project_id=project_id,
+            feedback_type=feedback_type
+        )
+        db.session.add(new_feedback)
+    
+    try:
+        db.session.commit()
+        return jsonify({"message": "Feedback submitted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error submitting feedback"}), 500 

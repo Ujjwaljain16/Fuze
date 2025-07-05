@@ -41,7 +41,7 @@ const Recommendations = () => {
 
   const handleFeedback = async (recommendationId, feedbackType) => {
     try {
-      await api.post('/api/feedback', {
+      await api.post('/api/recommendations/feedback', {
         content_id: recommendationId,
         feedback_type: feedbackType
       })

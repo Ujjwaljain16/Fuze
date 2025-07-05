@@ -1,8 +1,8 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { Bookmark, FolderOpen, Home, LogOut, User, Sparkles } from 'lucide-react'
+import { Bookmark, FolderOpen, Home, LogOut, User, Sparkles, Menu } from 'lucide-react'
 
-const Navbar = () => {
+const Navbar = ({ onMenuClick }) => {
   const { isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -14,10 +14,20 @@ const Navbar = () => {
   return (
     <nav className="navbar">
       <div className="nav-container">
-        <Link to="/" className="nav-brand">
-          <Bookmark className="nav-logo" />
-          <span>Fuze</span>
-        </Link>
+        <div className="nav-left">
+          {isAuthenticated && (
+            <button 
+              className="nav-menu-btn"
+              onClick={onMenuClick}
+            >
+              <Menu size={20} />
+            </button>
+          )}
+          <Link to="/" className="nav-brand">
+            <Bookmark className="nav-logo" />
+            <span>Fuze</span>
+          </Link>
+        </div>
 
         {isAuthenticated ? (
           <div className="nav-menu">

@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
-import { Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb } from 'lucide-react'
+import { Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, Search, Settings, User } from 'lucide-react'
 
 const Dashboard = () => {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [stats, setStats] = useState({
     bookmarks: 0,
     projects: 0
   })
   const [recentBookmarks, setRecentBookmarks] = useState([])
+  const [recentProjects, setRecentProjects] = useState([])
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -24,10 +25,11 @@ const Dashboard = () => {
       const [bookmarksRes, projectsRes, recommendationsRes] = await Promise.all([
         api.get('/api/bookmarks?per_page=5'),
         api.get('/api/projects'),
-        api.get('/api/recommendations/general') // New endpoint for general recommendations
+        api.get('/api/recommendations/general')
       ])
 
       setRecentBookmarks(bookmarksRes.data.bookmarks || [])
+      setRecentProjects(projectsRes.data.projects?.slice(0, 3) || [])
       setStats({
         bookmarks: bookmarksRes.data.total || 0,
         projects: projectsRes.data.projects?.length || 0
@@ -35,7 +37,6 @@ const Dashboard = () => {
       setRecommendations(recommendationsRes.data.recommendations || [])
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
-      // If recommendations fail, just continue without them
       setRecommendations([])
     } finally {
       setLoading(false)
@@ -46,8 +47,12 @@ const Dashboard = () => {
     return (
       <div className="dashboard-container">
         <div className="welcome-card">
-          <h1>Welcome to Fuze</h1>
-          <p>Your intelligent bookmark manager with semantic search and Chrome extension integration.</p>
+          <div className="welcome-header">
+            <Bookmark className="welcome-logo" />
+            <h1>Welcome to Fuze</h1>
+          </div>
+          <p className="welcome-subtitle">Your intelligent bookmark manager with semantic search and Chrome extension integration.</p>
+          
           <div className="feature-grid">
             <div className="feature-card">
               <Bookmark className="feature-icon" />
@@ -78,18 +83,41 @@ const Dashboard = () => {
   if (loading) {
     return (
       <div className="dashboard-container">
-        <div className="loading">Loading dashboard...</div>
+        <div className="loading">
+          <Sparkles className="loading-icon" />
+          <p>Loading your dashboard...</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="dashboard-container">
+      {/* Welcome Header */}
       <div className="dashboard-header">
-        <h1>Dashboard</h1>
-        <p>Welcome back! Here's what's happening with your bookmarks.</p>
+        <div className="welcome-section">
+          <h1>Welcome back, {user?.username || 'User'}!</h1>
+          <p>Here's what's happening with your bookmarks and projects.</p>
+        </div>
+        
+        {/* Quick Actions */}
+        <div className="quick-actions">
+          <button className="quick-action-btn primary">
+            <Plus size={16} />
+            <span>Save New Content</span>
+          </button>
+          <button className="quick-action-btn secondary">
+            <FolderOpen size={16} />
+            <span>Create Project</span>
+          </button>
+          <button className="quick-action-btn secondary">
+            <ExternalLink size={16} />
+            <span>Install Extension</span>
+          </button>
+        </div>
       </div>
 
+      {/* Stats Overview */}
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon">
@@ -112,15 +140,15 @@ const Dashboard = () => {
       </div>
 
       <div className="dashboard-sections">
-        {/* Recommendations Section */}
+        {/* AI Recommendations Section */}
         {recommendations.length > 0 && (
-          <div className="section">
+          <div className="section recommendations-section">
             <div className="section-header">
-              <h2>
+              <div className="section-title">
                 <Sparkles className="section-icon" />
-                AI Recommendations
-              </h2>
-              <p className="section-subtitle">Content suggestions based on your interests</p>
+                <h2>Intelligent Recommendations</h2>
+              </div>
+              <p className="section-subtitle">Content suggestions powered by AI, tailored to your interests</p>
             </div>
             
             <div className="recommendations-grid">
@@ -130,10 +158,15 @@ const Dashboard = () => {
                     <Lightbulb className="recommendation-icon" />
                     <span className="recommendation-score">Match: {rec.score}%</span>
                   </div>
-                  <h4>{rec.title}</h4>
+                  <h4 className="recommendation-title">{rec.title}</h4>
                   <p className="recommendation-url">{rec.url}</p>
                   {rec.description && (
                     <p className="recommendation-description">{rec.description}</p>
+                  )}
+                  {rec.reason && (
+                    <div className="recommendation-reason">
+                      <strong>Why recommended:</strong> {rec.reason}
+                    </div>
                   )}
                   <div className="recommendation-actions">
                     <a 
@@ -153,17 +186,78 @@ const Dashboard = () => {
                 </div>
               ))}
             </div>
+            <div className="section-footer">
+              <a href="/recommendations" className="view-all-link">
+                View All Recommendations
+                <ExternalLink size={16} />
+              </a>
+            </div>
           </div>
         )}
+
+        {/* Recent Projects Section */}
+        <div className="section">
+          <div className="section-header">
+            <div className="section-title">
+              <FolderOpen className="section-icon" />
+              <h2>Recent Projects</h2>
+            </div>
+            <a href="/projects" className="view-all-link">View All Projects</a>
+          </div>
+          
+          {recentProjects.length > 0 ? (
+            <div className="projects-grid">
+              {recentProjects.map((project) => (
+                <div key={project.id} className="project-card">
+                  <div className="project-content">
+                    <h4 className="project-title">{project.title}</h4>
+                    {project.description && (
+                      <p className="project-description">{project.description}</p>
+                    )}
+                    {project.technologies && (
+                      <div className="project-technologies">
+                        {project.technologies.split(',').map((tech, index) => (
+                          <span key={index} className="tech-tag">{tech.trim()}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="project-meta">
+                      <Calendar size={14} />
+                      <span>Updated {new Date(project.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div className="project-actions">
+                    <a 
+                      href={`/projects/${project.id}`}
+                      className="project-link"
+                    >
+                      <ExternalLink size={16} />
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <FolderOpen className="empty-icon" />
+              <h3>No projects yet</h3>
+              <p>Create your first project to start organizing your bookmarks and tasks.</p>
+              <button className="create-project-btn">
+                <Plus size={16} />
+                Create Project
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Recent Bookmarks Section */}
         <div className="section">
           <div className="section-header">
-            <h2>Recent Bookmarks</h2>
-            <button className="add-button">
-              <Plus size={16} />
-              Add Bookmark
-            </button>
+            <div className="section-title">
+              <Bookmark className="section-icon" />
+              <h2>Recent Bookmarks</h2>
+            </div>
+            <a href="/bookmarks" className="view-all-link">View All Bookmarks</a>
           </div>
           
           {recentBookmarks.length > 0 ? (
@@ -171,10 +265,13 @@ const Dashboard = () => {
               {recentBookmarks.map((bookmark) => (
                 <div key={bookmark.id} className="bookmark-item">
                   <div className="bookmark-content">
-                    <h4>{bookmark.title}</h4>
+                    <h4 className="bookmark-title">{bookmark.title}</h4>
                     <p className="bookmark-url">{bookmark.url}</p>
                     {bookmark.description && (
                       <p className="bookmark-description">{bookmark.description}</p>
+                    )}
+                    {bookmark.category && (
+                      <span className="bookmark-category">{bookmark.category}</span>
                     )}
                   </div>
                   <div className="bookmark-actions">
@@ -193,7 +290,12 @@ const Dashboard = () => {
           ) : (
             <div className="empty-state">
               <Bookmark className="empty-icon" />
-              <p>No bookmarks yet. Start by adding your first bookmark!</p>
+              <h3>No bookmarks yet</h3>
+              <p>Start by adding your first bookmark using the Chrome extension or web form.</p>
+              <button className="save-content-btn">
+                <Plus size={16} />
+                Save New Content
+              </button>
             </div>
           )}
         </div>

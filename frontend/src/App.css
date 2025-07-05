@@ -1,42 +1,102 @@
-#root {
-  max-width: 1280px;
+/* App Layout */
+.app {
+  min-height: 100vh;
+  background-color: var(--bg-secondary);
+}
+
+.app-layout {
+  display: flex;
+  min-height: calc(100vh - 64px);
+}
+
+.main-content {
+  flex: 1;
+  padding: var(--space-6);
+  background-color: var(--bg-secondary);
+}
+
+/* Navbar Styles */
+.navbar {
+  background-color: var(--white);
+  border-bottom: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.nav-container {
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.nav-menu-btn {
+  display: none;
+  padding: var(--space-2);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.nav-menu-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--gray-50);
 }
 
-.card {
-  padding: 2em;
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-xl);
+  color: var(--primary-color);
+  text-decoration: none;
 }
 
-.read-the-docs {
-  color: #888;
+.nav-logo {
+  color: var(--primary-color);
+}
+
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+  background-color: var(--gray-50);
+}
+
+.nav-link.logout-btn {
+  color: var(--error-color);
+}
+
+.nav-link.logout-btn:hover {
+  background-color: #FEF2F2;
 }
