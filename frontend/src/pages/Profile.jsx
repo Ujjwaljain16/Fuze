@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
 import { User, Settings, Save, LogOut, Eye, EyeOff } from 'lucide-react'
+import './profile-styles.css'
 
 const Profile = () => {
   const { isAuthenticated, user, logout } = useAuth()

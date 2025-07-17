@@ -17,6 +17,7 @@ class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
     username = Column(String(80), unique=True, nullable=False)
+    email = Column(String(120), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False) # <--- CORRECTED: Increased length to 256
     technology_interests = Column(TEXT)
     created_at = Column(DateTime, default=func.now())

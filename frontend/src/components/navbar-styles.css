@@ -1,0 +1,227 @@
+/* Navbar Styles - Matching Dashboard Design */
+nav.navbar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95)) !important;
+    backdrop-filter: blur(20px) !important;
+    border-bottom: 1px solid rgba(102, 126, 234, 0.2) !important;
+    padding: 0.75rem 0 !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+    animation: fadeIn 0.5s ease;
+}
+
+nav.navbar .nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+nav.navbar .nav-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+nav.navbar .nav-menu-btn {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)) !important;
+    border: 1px solid rgba(102, 126, 234, 0.2) !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    cursor: pointer;
+    padding: 0.75rem !important;
+    border-radius: 0.75rem !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px) !important;
+    border: none;
+}
+
+nav.navbar .nav-menu-btn:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2)) !important;
+    color: #fff !important;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3) !important;
+    border: 1px solid rgba(102, 126, 234, 0.4) !important;
+}
+
+nav.navbar .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none !important;
+    color: #fff !important;
+    font-weight: 700;
+    font-size: 1.25rem;
+    transition: all 0.3s ease;
+}
+
+nav.navbar .nav-brand:hover {
+    transform: translateY(-2px);
+}
+
+nav.navbar .nav-logo {
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    padding: 0.25rem;
+    border-radius: 0.375rem;
+    color: #fff !important;
+}
+
+nav.navbar .nav-menu {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+nav.navbar .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem !important;
+    border-radius: 0.75rem !important;
+    text-decoration: none !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid transparent;
+    background: none !important;
+}
+
+nav.navbar .nav-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: -1;
+}
+
+nav.navbar .nav-link:hover {
+    color: #fff !important;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2)) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3) !important;
+    border: 1px solid rgba(102, 126, 234, 0.3) !important;
+}
+
+nav.navbar .nav-link:hover::before {
+    left: 0;
+}
+
+nav.navbar .nav-link.active {
+    color: #fff !important;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+nav.navbar .logout-btn {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.1)) !important;
+    border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.8) !important;
+    margin-left: 0.5rem;
+    position: relative;
+    backdrop-filter: blur(10px) !important;
+}
+
+nav.navbar .logout-btn:hover {
+    color: #fff !important;
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.2)) !important;
+    box-shadow: 0 8px 25px rgba(239, 68, 68, 0.3) !important;
+    border: 1px solid rgba(239, 68, 68, 0.4) !important;
+    transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+    nav.navbar .nav-container {
+        padding: 0 1rem;
+    }
+    nav.navbar .nav-menu {
+        gap: 0.25rem;
+    }
+    nav.navbar .nav-link span {
+        display: none;
+    }
+    nav.navbar .nav-link {
+        padding: 0.5rem !important;
+        min-width: 40px;
+        justify-content: center;
+    }
+    nav.navbar .nav-brand span {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    nav.navbar .nav-menu {
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 0.75rem;
+        padding: 0.5rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+}
+
+/* Smooth animations */
+@keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Glassmorphism enhancements */
+  .nav-link:hover {
+    backdrop-filter: blur(10px);
+  }
+  
+  .nav-menu-btn:hover {
+    backdrop-filter: blur(10px);
+  }
+  
+  /* Focus states for accessibility */
+  .nav-link:focus,
+  .nav-menu-btn:focus,
+  .logout-btn:focus {
+    outline: 2px solid rgba(102, 126, 234, 0.5);
+    outline-offset: 2px;
+  }
+  
+  /* Brand hover effect */
+  .nav-brand:hover .nav-logo {
+    transform: rotate(5deg) scale(1.1);
+  }
+  
+  /* Active link indicator */
+  .nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.8);
+  }

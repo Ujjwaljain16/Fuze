@@ -68,7 +68,8 @@ const Register = () => {
     }
 
     try {
-      const result = await register(formData.email, formData.password, formData.name)
+      // Pass username, email, password, and name to register
+      const result = await register(formData.username, formData.email, formData.password, formData.name)
       
       if (result.success) {
         setSuccess('Registration successful! Please check your email to verify your account.')
@@ -115,10 +116,11 @@ const Register = () => {
           {success && <div className="message success-message">{success}</div>}
 
           <div className="form-group">
-            <label className="form-label">Full Name</label>
+            <label className="form-label" htmlFor="register-name">Full Name</label>
             <div className="input-wrapper">
               <User className="input-icon" size={20} />
               <input
+                id="register-name"
                 type="text"
                 name="name"
                 value={formData.name}
@@ -126,15 +128,18 @@ const Register = () => {
                 className="form-input"
                 placeholder="Enter your full name"
                 required
+                autoComplete="name"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Username</label>
+            <label className="form-label" htmlFor="register-username">Username</label>
             <div className="input-wrapper">
+              {/* Use AtSign icon for username if available, else User */}
               <User className="input-icon" size={20} />
               <input
+                id="register-username"
                 type="text"
                 name="username"
                 value={formData.username}
@@ -142,15 +147,17 @@ const Register = () => {
                 className="form-input"
                 placeholder="Choose a username"
                 required
+                autoComplete="username"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Email Address</label>
+            <label className="form-label" htmlFor="register-email">Email Address</label>
             <div className="input-wrapper">
               <Mail className="input-icon" size={20} />
               <input
+                id="register-email"
                 type="email"
                 name="email"
                 value={formData.email}
@@ -158,15 +165,17 @@ const Register = () => {
                 className="form-input"
                 placeholder="Enter your email"
                 required
+                autoComplete="email"
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label className="form-label" htmlFor="register-password">Password</label>
             <div className="input-wrapper">
               <Lock className="input-icon" size={20} />
               <input
+                id="register-password"
                 type={showPassword ? 'text' : 'password'}
                 name="password"
                 value={formData.password}
@@ -174,11 +183,14 @@ const Register = () => {
                 className="form-input"
                 placeholder="Enter your password"
                 required
+                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="password-toggle"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                tabIndex={0}
               >
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
@@ -186,10 +198,11 @@ const Register = () => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Confirm Password</label>
+            <label className="form-label" htmlFor="register-confirm-password">Confirm Password</label>
             <div className="input-wrapper">
               <Lock className="input-icon" size={20} />
               <input
+                id="register-confirm-password"
                 type={showConfirmPassword ? 'text' : 'password'}
                 name="confirmPassword"
                 value={formData.confirmPassword}
@@ -197,11 +210,14 @@ const Register = () => {
                 className="form-input"
                 placeholder="Confirm your password"
                 required
+                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="password-toggle"
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                tabIndex={0}
               >
                 {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
@@ -222,20 +238,30 @@ const Register = () => {
           <button 
             className="social-button"
             onClick={() => handleSocialLogin('github')}
+            title="Sign up with GitHub"
+            aria-label="Sign up with GitHub"
+            type="button"
           >
             <Github size={20} />
           </button>
           <button 
             className="social-button"
             onClick={() => handleSocialLogin('google')}
+            title="Sign up with Google"
+            aria-label="Sign up with Google"
+            type="button"
           >
             <Chrome size={20} />
           </button>
           <button 
             className="social-button"
             onClick={() => handleSocialLogin('twitter')}
+            title="Sign up with Twitter"
+            aria-label="Sign up with Twitter"
+            type="button"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            {/* Replace with Lucide Twitter icon for consistency if available */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M22.46 6c-.77.35-1.6.58-2.46.69.88-.53 1.56-1.37 1.88-2.38-.83.5-1.75.85-2.72 1.05C18.37 4.5 17.26 4 16 4c-2.35 0-4.27 1.92-4.27 4.29 0 .34.04.67.11.98C8.28 9.09 5.11 7.38 3 4.79c-.37.63-.58 1.37-.58 2.15 0 1.49.75 2.81 1.91 3.56-.71 0-1.37-.2-1.95-.5v.03c0 2.08 1.48 3.82 3.44 4.21a4.22 4.22 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.98 8.521 8.521 0 0 1-5.33 1.84c-.34 0-.68-.02-1.02-.06C3.44 20.29 5.7 21 8.12 21 16 21 20.33 14.46 20.33 8.79c0-.19 0-.37-.01-.56.84-.6 1.56-1.36 2.14-2.23z"/>
             </svg>
           </button>

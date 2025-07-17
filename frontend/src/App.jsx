@@ -16,6 +16,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
 import './App.css'
 
+
 // Component to redirect authenticated users away from auth pages
 const AuthRedirect = ({ children }) => {
   const { isAuthenticated, loading } = useAuth()
@@ -45,6 +46,39 @@ const AuthRedirect = ({ children }) => {
 
 function AppRoutes() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 900)
+      if (window.innerWidth > 900) {
+        setSidebarOpen(false)
+        setCollapsed(true)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Add sidebar state class to body
+  useEffect(() => {
+    if (isMobile) {
+      document.body.classList.remove('sidebar-collapsed', 'sidebar-expanded')
+    } else {
+      document.body.classList.toggle('sidebar-collapsed', collapsed)
+      document.body.classList.toggle('sidebar-expanded', !collapsed)
+    }
+  }, [collapsed, isMobile])
+
+  // Hamburger menu click handler
+  const handleMenuClick = () => {
+    if (isMobile) {
+      setSidebarOpen(!sidebarOpen)
+    } else {
+      setCollapsed((prev) => !prev)
+    }
+  }
 
   return (
     <Router>
@@ -65,9 +99,15 @@ function AppRoutes() {
         <Route path="/*" element={
           <ProtectedRoute>
             <div className="app">
-              <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+              <Navbar onMenuClick={handleMenuClick} />
               <div className="app-layout">
-                <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+                <Sidebar
+                  isOpen={isMobile ? sidebarOpen : true}
+                  onClose={() => setSidebarOpen(false)}
+                  collapsed={!isMobile && collapsed}
+                  setCollapsed={setCollapsed}
+                  isMobile={isMobile}
+                />
                 <main className="main-content">
                   <Routes>
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -19,10 +19,24 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      // You could verify the token here if needed
+      // Fetch user data when token is available
+      fetchUser()
     }
     setLoading(false)
   }, [token])
+
+  const fetchUser = async () => {
+    try {
+      const response = await api.get('/api/profile')
+      setUser(response.data)
+    } catch (error) {
+      console.error('Error fetching user data:', error)
+      // If token is invalid, logout
+      if (error.response?.status === 401) {
+        logout()
+      }
+    }
+  }
 
   const login = async (email, password) => {
     try {
@@ -33,6 +47,9 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', access_token)
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
       
+      // Fetch user data after successful login
+      await fetchUser()
+      
       return { success: true }
     } catch (error) {
       return { 
@@ -42,9 +59,10 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const register = async (email, password, name) => {
+  const register = async (username, email, password, name) => {
     try {
       const response = await api.post('/api/auth/register', { 
+        username, 
         email, 
         password,
         name 

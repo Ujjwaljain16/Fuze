@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 import { Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, Filter, RefreshCw } from 'lucide-react'
+import './recommendations-styles.css'
+import Select from 'react-select'
+
+const filterOptions = [
+  { value: 'all', label: 'All Recommendations' },
+  { value: 'general', label: 'General' },
+  // Add more project-specific options here if needed
+]
 
 const Recommendations = () => {
   const { isAuthenticated } = useAuth()
@@ -14,7 +22,7 @@ const Recommendations = () => {
     if (isAuthenticated) {
       fetchRecommendations()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, filter])
 
   const fetchRecommendations = async () => {
     try {
@@ -92,6 +100,8 @@ const Recommendations = () => {
           onClick={handleRefresh}
           disabled={refreshing}
           className="refresh-button"
+          aria-label="Refresh Recommendations"
+          title="Refresh Recommendations"
         >
           <RefreshCw size={16} className={refreshing ? 'spinning' : ''} />
           {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -101,21 +111,49 @@ const Recommendations = () => {
       <div className="recommendations-controls">
         <div className="filter-controls">
           <Filter size={16} />
-          <select 
-            value={filter} 
-            onChange={(e) => setFilter(e.target.value)}
-            className="filter-select"
-          >
-            <option value="all">All Recommendations</option>
-            <option value="general">General</option>
-            {/* You can add project-specific filters here */}
-          </select>
+          <div style={{ minWidth: 180, flex: 1 }}>
+            <Select
+              classNamePrefix="react-select"
+              className="filter-select"
+              value={filterOptions.find(opt => opt.value === filter)}
+              onChange={option => setFilter(option.value)}
+              options={filterOptions}
+              isSearchable={false}
+              inputId="recommendations-filter"
+              aria-label="Filter recommendations"
+              styles={{
+                control: (base, state) => ({
+                  ...base,
+                  background: 'rgba(30,32,48,0.9)',
+                  borderColor: state.isFocused ? '#667eea' : 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  borderRadius: 8,
+                  minHeight: 40,
+                  boxShadow: state.isFocused ? '0 0 0 3px rgba(102,126,234,0.1)' : 'none',
+                  fontWeight: 500,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }),
+                singleValue: base => ({ ...base, color: '#fff' }),
+                menu: base => ({ ...base, background: '#232136', color: '#fff', borderRadius: 8, zIndex: 20 }),
+                option: (base, state) => ({
+                  ...base,
+                  background: state.isFocused ? 'rgba(102,126,234,0.15)' : 'transparent',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }),
+                dropdownIndicator: base => ({ ...base, color: '#aaa' }),
+                indicatorSeparator: base => ({ ...base, display: 'none' }),
+                input: base => ({ ...base, color: '#fff' }),
+              }}
+            />
+          </div>
         </div>
       </div>
 
       {loading ? (
         <div className="loading">
-          <Sparkles className="loading-icon" />
+          <Sparkles className="loading-icon" aria-label="Loading recommendations" />
           <p>Finding the best content for you...</p>
         </div>
       ) : recommendations.length > 0 ? (
@@ -131,14 +169,16 @@ const Recommendations = () => {
                   <button 
                     onClick={() => handleFeedback(rec.id, 'relevant')}
                     className="feedback-button positive"
-                    title="This is relevant"
+                    title="Mark as relevant"
+                    aria-label={`Mark ${rec.title} as relevant`}
                   >
                     <ThumbsUp size={16} />
                   </button>
                   <button 
                     onClick={() => handleFeedback(rec.id, 'not_relevant')}
                     className="feedback-button negative"
-                    title="This is not relevant"
+                    title="Mark as not relevant"
+                    aria-label={`Mark ${rec.title} as not relevant`}
                   >
                     <ThumbsDown size={16} />
                   </button>
@@ -164,6 +204,8 @@ const Recommendations = () => {
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="recommendation-link"
+                  aria-label={`Open ${rec.title}`}
+                  title="Open link"
                 >
                   <ExternalLink size={16} />
                   View Content
@@ -171,6 +213,8 @@ const Recommendations = () => {
                 <button 
                   onClick={() => handleSaveRecommendation(rec)}
                   className="save-recommendation-btn"
+                  aria-label={`Save ${rec.title} to bookmarks`}
+                  title="Save to Bookmarks"
                 >
                   <Bookmark size={16} />
                   Save to Bookmarks
@@ -181,7 +225,7 @@ const Recommendations = () => {
         </div>
       ) : (
         <div className="empty-state">
-          <Sparkles className="empty-icon" />
+          <Sparkles className="empty-icon" aria-label="No recommendations found" />
           <h3>No recommendations yet</h3>
           <p>
             {filter === 'all' 

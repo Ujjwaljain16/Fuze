@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 import { Bookmark, Search, Plus, ExternalLink, Trash2, Filter } from 'lucide-react'
+import './bookmarks-styles.css'
+import Select from 'react-select'
+
+const categoryOptions = [
+  { value: 'all', label: 'All Categories' },
+  { value: 'work', label: 'Work' },
+  { value: 'personal', label: 'Personal' },
+  { value: 'research', label: 'Research' },
+  { value: 'entertainment', label: 'Entertainment' },
+  { value: 'other', label: 'Other' },
+]
 
 const Bookmarks = () => {
   const { isAuthenticated } = useAuth()
@@ -70,7 +81,7 @@ const Bookmarks = () => {
     <div className="bookmarks-container">
       <div className="bookmarks-header">
         <h1>My Bookmarks</h1>
-        <button className="add-button">
+        <button className="add-button" aria-label="Add Bookmark" title="Add Bookmark">
           <Plus size={16} />
           Add Bookmark
         </button>
@@ -85,27 +96,53 @@ const Bookmarks = () => {
               placeholder="Search bookmarks..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              aria-label="Search bookmarks"
             />
           </div>
-          <button type="submit" className="search-button">
+          <button type="submit" className="search-button" aria-label="Search Bookmarks">
             Search
           </button>
         </form>
 
         <div className="filter-controls">
           <Filter size={16} />
-          <select 
-            value={filter} 
-            onChange={(e) => setFilter(e.target.value)}
-            className="filter-select"
-          >
-            <option value="all">All Categories</option>
-            <option value="work">Work</option>
-            <option value="personal">Personal</option>
-            <option value="research">Research</option>
-            <option value="entertainment">Entertainment</option>
-            <option value="other">Other</option>
-          </select>
+          <div style={{ minWidth: 180, flex: 1 }}>
+            <Select
+              classNamePrefix="react-select"
+              className="filter-select"
+              value={categoryOptions.find(opt => opt.value === filter)}
+              onChange={option => setFilter(option.value)}
+              options={categoryOptions}
+              isSearchable={false}
+              inputId="bookmark-category-filter"
+              aria-label="Filter by category"
+              styles={{
+                control: (base, state) => ({
+                  ...base,
+                  background: 'rgba(30,32,48,0.9)',
+                  borderColor: state.isFocused ? '#667eea' : 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  borderRadius: 8,
+                  minHeight: 40,
+                  boxShadow: state.isFocused ? '0 0 0 3px rgba(102,126,234,0.1)' : 'none',
+                  fontWeight: 500,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }),
+                singleValue: base => ({ ...base, color: '#fff' }),
+                menu: base => ({ ...base, background: '#232136', color: '#fff', borderRadius: 8, zIndex: 20 }),
+                option: (base, state) => ({
+                  ...base,
+                  background: state.isFocused ? 'rgba(102,126,234,0.15)' : 'transparent',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }),
+                dropdownIndicator: base => ({ ...base, color: '#aaa' }),
+                indicatorSeparator: base => ({ ...base, display: 'none' }),
+                input: base => ({ ...base, color: '#fff' }),
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -125,6 +162,7 @@ const Bookmarks = () => {
                       rel="noopener noreferrer"
                       className="action-button"
                       title="Open link"
+                      aria-label={`Open ${bookmark.title}`}
                     >
                       <ExternalLink size={16} />
                     </a>
@@ -132,6 +170,7 @@ const Bookmarks = () => {
                       onClick={() => handleDelete(bookmark.id)}
                       className="action-button delete"
                       title="Delete bookmark"
+                      aria-label={`Delete ${bookmark.title}`}
                     >
                       <Trash2 size={16} />
                     </button>

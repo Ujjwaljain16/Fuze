@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
 import { Bookmark, ExternalLink, Loader2, Plus, Tag } from 'lucide-react'
+import './save-content-styles.css'
 
 const SaveContent = () => {
   const { isAuthenticated } = useAuth()
@@ -20,7 +21,7 @@ const SaveContent = () => {
   })
 
   // Fetch projects on component mount
-  useState(() => {
+  useEffect(() => {
     if (isAuthenticated) {
       fetchProjects()
     }

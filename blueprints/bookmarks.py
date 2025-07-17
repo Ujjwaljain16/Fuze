@@ -23,10 +23,19 @@ def extract_article_content(url):
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        doc = Document(response.text)
-        summary_html = doc.summary()
-        soup = BeautifulSoup(summary_html, "html.parser")
-        text = soup.get_text(separator=" ", strip=True)
+        # Try to use readability-lxml if available
+        try:
+            doc = Document(response.text)
+            summary_html = doc.summary()
+            soup = BeautifulSoup(summary_html, "html.parser")
+            text = soup.get_text(separator=" ", strip=True)
+        except (ImportError, NameError):
+            # Fallback to simple extraction if readability is not available
+            soup = BeautifulSoup(response.text, "html.parser")
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            text = soup.get_text(separator=" ", strip=True)
         
         return text[:5000]  # Limit to 5000 chars
     except Exception as e:
@@ -160,15 +169,39 @@ def list_bookmarks():
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
-    pagination = SavedContent.query.filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    search = request.args.get('search', '').strip()
+    category = request.args.get('category', '').strip()
+    
+    # Build query
+    query = SavedContent.query.filter_by(user_id=user_id)
+    
+    # Add search filter
+    if search:
+        query = query.filter(
+            db.or_(
+                SavedContent.title.ilike(f'%{search}%'),
+                SavedContent.notes.ilike(f'%{search}%'),
+                SavedContent.url.ilike(f'%{search}%')
+            )
+        )
+    
+    # Add category filter
+    if category and category != 'all':
+        query = query.filter(SavedContent.category == category)
+    
+    # Order by saved date and paginate
+    pagination = query.order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
     bookmarks = [{
         'id': b.id,
         'url': b.url,
         'title': b.title,
         'description': b.notes,  # Map 'notes' to 'description' for API consistency
         'saved_at': b.saved_at.isoformat(),
+        'category': b.category,
         'has_content': bool(b.extracted_text)
     } for b in pagination.items]
+    
     return jsonify({
         'bookmarks': bookmarks,
         'total': pagination.total,
@@ -209,4 +242,48 @@ def delete_bookmark_by_url(url):
         return jsonify({'message': 'Bookmark deleted'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500 
+        return jsonify({'message': f'Error: {str(e)}'}), 500
+
+@bookmarks_bp.route('/extract-url', methods=['POST'])
+@jwt_required()
+def extract_url_content():
+    """Extract content from a URL for preview purposes"""
+    data = request.get_json()
+    url = data.get('url')
+    
+    if not url:
+        return jsonify({'message': 'URL is required'}), 400
+    
+    try:
+        # Extract content from URL
+        extracted_text = extract_article_content(url)
+        
+        # Try to get title from the page
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, "html.parser")
+            title = soup.find('title')
+            page_title = title.get_text().strip() if title else 'Untitled'
+        except Exception as e:
+            print(f"Error getting title: {e}")
+            page_title = 'Untitled'
+        
+        return jsonify({
+            'title': page_title,
+            'description': extracted_text[:1000],  # Limit preview content
+            'url': url,
+            'success': True
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in extract_url_content: {e}")
+        return jsonify({
+            'title': 'Untitled',
+            'description': '',
+            'url': url,
+            'success': False,
+            'message': f'Error extracting content: {str(e)}'
+        }), 200  # Return 200 instead of 500 to avoid breaking the frontend 
