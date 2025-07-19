@@ -5,34 +5,68 @@ import { Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, Filt
 import './recommendations-styles.css'
 import Select from 'react-select'
 
-const filterOptions = [
-  { value: 'all', label: 'All Recommendations' },
-  { value: 'general', label: 'General' },
-  // Add more project-specific options here if needed
-]
-
 const Recommendations = () => {
   const { isAuthenticated } = useAuth()
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [refreshing, setRefreshing] = useState(false)
+  const [projects, setProjects] = useState([])
+  const [filterOptions, setFilterOptions] = useState([
+    { value: 'all', label: 'All Recommendations' },
+    { value: 'general', label: 'General' }
+  ])
 
   useEffect(() => {
     if (isAuthenticated) {
+      fetchProjects()
       fetchRecommendations()
     }
-  }, [isAuthenticated, filter])
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    if (isAuthenticated && filter) {
+      fetchRecommendations()
+    }
+  }, [filter])
+
+  const fetchProjects = async () => {
+    try {
+      const response = await api.get('/api/projects')
+      const userProjects = response.data.projects || []
+      setProjects(userProjects)
+      
+      // Update filter options to include projects
+      const projectOptions = userProjects.map(project => ({
+        value: project.id.toString(),
+        label: `Project: ${project.title}`
+      }))
+      
+      setFilterOptions([
+        { value: 'all', label: 'All Recommendations' },
+        { value: 'general', label: 'General' },
+        ...projectOptions
+      ])
+    } catch (error) {
+      console.error('Error fetching projects:', error)
+    }
+  }
 
   const fetchRecommendations = async () => {
     try {
       setLoading(true)
-      const endpoint = filter === 'all' 
-        ? '/api/recommendations/general'
-        : `/api/recommendations/project/${filter}`
+      let endpoint
+      if (filter === 'all' || filter === 'general') {
+        endpoint = '/api/recommendations/general'
+      } else {
+        // For project-specific recommendations
+        endpoint = `/api/recommendations/project/${filter}`
+      }
       
       const response = await api.get(endpoint)
-      setRecommendations(response.data.recommendations || [])
+      // Handle different response formats
+      const recommendations = response.data.recommendations || response.data || []
+      setRecommendations(recommendations)
     } catch (error) {
       console.error('Error fetching recommendations:', error)
       setRecommendations([])
@@ -159,68 +193,7 @@ const Recommendations = () => {
       ) : recommendations.length > 0 ? (
         <div className="recommendations-grid">
           {recommendations.map((rec) => (
-            <div key={rec.id} className="recommendation-card">
-              <div className="recommendation-header">
-                <div className="recommendation-meta">
-                  <Lightbulb className="recommendation-icon" />
-                  <span className="recommendation-score">Match: {rec.score || 'High'}%</span>
-                </div>
-                <div className="recommendation-actions">
-                  <button 
-                    onClick={() => handleFeedback(rec.id, 'relevant')}
-                    className="feedback-button positive"
-                    title="Mark as relevant"
-                    aria-label={`Mark ${rec.title} as relevant`}
-                  >
-                    <ThumbsUp size={16} />
-                  </button>
-                  <button 
-                    onClick={() => handleFeedback(rec.id, 'not_relevant')}
-                    className="feedback-button negative"
-                    title="Mark as not relevant"
-                    aria-label={`Mark ${rec.title} as not relevant`}
-                  >
-                    <ThumbsDown size={16} />
-                  </button>
-                </div>
-              </div>
-              
-              <h3 className="recommendation-title">{rec.title}</h3>
-              <p className="recommendation-url">{rec.url}</p>
-              
-              {rec.description && (
-                <p className="recommendation-description">{rec.description}</p>
-              )}
-              
-              {rec.reason && (
-                <div className="recommendation-reason">
-                  <strong>Why recommended:</strong> {rec.reason}
-                </div>
-              )}
-              
-              <div className="recommendation-footer">
-                <a 
-                  href={rec.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="recommendation-link"
-                  aria-label={`Open ${rec.title}`}
-                  title="Open link"
-                >
-                  <ExternalLink size={16} />
-                  View Content
-                </a>
-                <button 
-                  onClick={() => handleSaveRecommendation(rec)}
-                  className="save-recommendation-btn"
-                  aria-label={`Save ${rec.title} to bookmarks`}
-                  title="Save to Bookmarks"
-                >
-                  <Bookmark size={16} />
-                  Save to Bookmarks
-                </button>
-              </div>
-            </div>
+            <RecommendationCard key={rec.id} recommendation={rec} />
           ))}
         </div>
       ) : (
@@ -242,5 +215,123 @@ const Recommendations = () => {
     </div>
   )
 }
+
+const RecommendationCard = ({ recommendation }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="recommendation-card">
+      <div className="recommendation-header" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className="recommendation-title">
+          <h3>{recommendation.title}</h3>
+          {recommendation.score && (
+            <span className="score-badge">
+              {Math.round(recommendation.score)}/100
+            </span>
+          )}
+        </div>
+        <div className="recommendation-meta">
+          <span className="reason">{recommendation.reason}</span>
+          <button className="expand-btn">
+            {isExpanded ? '▼' : '▶'}
+          </button>
+        </div>
+      </div>
+      
+      {isExpanded && recommendation.analysis && (
+        <div className="ai-analysis">
+          <h4>AI Analysis</h4>
+          <div className="score-breakdown">
+            <div className="score-item">
+              <span>Technology Match:</span>
+              <div className="score-bar">
+                <div 
+                  className="score-fill" 
+                  style={{width: `${(recommendation.analysis.tech_score/30)*100}%`}}
+                ></div>
+                <span>{Math.round(recommendation.analysis.tech_score)}/30</span>
+              </div>
+            </div>
+            <div className="score-item">
+              <span>Content Relevance:</span>
+              <div className="score-bar">
+                <div 
+                  className="score-fill" 
+                  style={{width: `${(recommendation.analysis.content_score/20)*100}%`}}
+                ></div>
+                <span>{Math.round(recommendation.analysis.content_score)}/20</span>
+              </div>
+            </div>
+            <div className="score-item">
+              <span>Difficulty Match:</span>
+              <div className="score-bar">
+                <div 
+                  className="score-fill" 
+                  style={{width: `${(recommendation.analysis.difficulty_score/15)*100}%`}}
+                ></div>
+                <span>{Math.round(recommendation.analysis.difficulty_score)}/15</span>
+              </div>
+            </div>
+            <div className="score-item">
+              <span>Intent Alignment:</span>
+              <div className="score-bar">
+                <div 
+                  className="score-fill" 
+                  style={{width: `${(recommendation.analysis.intent_score/15)*100}%`}}
+                ></div>
+                <span>{Math.round(recommendation.analysis.intent_score)}/15</span>
+              </div>
+            </div>
+            <div className="score-item">
+              <span>Semantic Similarity:</span>
+              <div className="score-bar">
+                <div 
+                  className="score-fill" 
+                  style={{width: `${(recommendation.analysis.semantic_score/20)*100}%`}}
+                ></div>
+                <span>{Math.round(recommendation.analysis.semantic_score)}/20</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="content-details">
+            <div className="detail-item">
+              <strong>Technologies:</strong> 
+              {recommendation.analysis.technologies.length > 0 
+                ? recommendation.analysis.technologies.join(', ') 
+                : 'None detected'
+              }
+            </div>
+            <div className="detail-item">
+              <strong>Content Type:</strong> {recommendation.analysis.content_type}
+            </div>
+            <div className="detail-item">
+              <strong>Difficulty:</strong> {recommendation.analysis.difficulty}
+            </div>
+            <div className="detail-item">
+              <strong>Intent:</strong> {recommendation.analysis.intent}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="recommendation-actions">
+        <a 
+          href={recommendation.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="visit-btn"
+        >
+          Visit Link
+        </a>
+        {recommendation.notes && (
+          <div className="notes">
+            <strong>Notes:</strong> {recommendation.notes}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export default Recommendations 

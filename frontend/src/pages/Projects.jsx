@@ -292,22 +292,6 @@ const Projects = () => {
             <div key={project.id} className="project-card">
               <div className="project-header">
                 <h3>{project.title}</h3>
-                <div className="project-actions">
-                  <button 
-                    className="action-button" 
-                    title="Edit project"
-                    onClick={() => openEditForm(project)}
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button 
-                    onClick={() => openDeleteModal(project)}
-                    className="action-button delete"
-                    title="Delete project"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
               </div>
               
               <p className="project-description">{project.description}</p>
@@ -317,12 +301,30 @@ const Projects = () => {
                   <strong>Technologies:</strong> {project.technologies}
                 </div>
               )}
-              
-              <div className="project-meta">
-                <span className="project-date">
-                  <Calendar size={14} />
-                  {new Date(project.created_at).toLocaleDateString()}
-                </span>
+              <div className="project-meta-row">
+                {/* Remove divider for a cleaner look */}
+                <div className="project-meta-bottom">
+                  <span className="project-date">
+                    <Calendar size={14} />
+                    {new Date(project.created_at).toLocaleDateString()}
+                  </span>
+                  <div className="project-actions">
+                    <button 
+                      className="action-button" 
+                      title="Edit project"
+                      onClick={() => openEditForm(project)}
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button 
+                      onClick={() => openDeleteModal(project)}
+                      className="action-button delete"
+                      title="Delete project"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           ))}

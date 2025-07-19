@@ -3,13 +3,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent
 import numpy as np
 import os
+from supabase import create_client
+import os
+from embedding_utils import get_embedding
 
-# Import embedding function
-try:
-    from app_old import get_embedding
-except ImportError:
-    def get_embedding(text):
-        return np.zeros(384)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://xyzcompany.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "your-supabase-service-role-key")
+SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")  # Use saved_content table
+supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Check if we're using PostgreSQL (for pgvector support)
 def is_postgresql():
@@ -101,3 +102,34 @@ def text_search():
         'results': search_results,
         'total': len(search_results)
     }), 200 
+
+@search_bp.route('/supabase-semantic', methods=['POST'])
+@jwt_required()
+def supabase_semantic_search():
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    query = data.get('query', '').strip()
+    limit = data.get('limit', 10)
+    if not query:
+        return jsonify({'message': 'Query is required'}), 400
+    query_emb = get_embedding(query)
+    query_emb_list = query_emb.tolist() if hasattr(query_emb, 'tolist') else list(query_emb)
+    # Updated SQL for saved_content table
+    sql = f"""
+        SELECT id, user_id, url, title, extracted_text as content_snippet, 
+               embedding <=> ARRAY{query_emb_list} AS distance
+        FROM {SUPABASE_TABLE}
+        WHERE user_id = {user_id}
+        ORDER BY distance ASC
+        LIMIT {limit};
+    """
+    resp = supabase_client.rpc('execute_sql', {"sql": sql}).execute()
+    if resp.status_code == 200:
+        results = resp.data
+        return jsonify({
+            'query': query,
+            'results': results,
+            'total': len(results)
+        }), 200
+    else:
+        return jsonify({'message': f'Semantic search failed: {resp.status_code} {resp.data}'}), 500 

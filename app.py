@@ -2,10 +2,14 @@ import os
 print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 from flask import Flask
 from flask_jwt_extended import JWTManager
+from datetime import timedelta
 from dotenv import load_dotenv
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
+# Remove embedding_model and get_embedding from here
+# If needed, import from embedding_utils
+import numpy as np
 
 # Import blueprints
 from blueprints.auth import auth_bp
@@ -21,12 +25,27 @@ from blueprints.search import search_bp
 load_dotenv()
 print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 
+# Global embedding model
+# embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# def get_embedding(text):
+#     if not text:
+#         return np.zeros(384)
+#     return embedding_model.encode([text])[0]
+
 def create_app():
     """Application factory pattern for better testing and modularity"""
     app = Flask(__name__)
     
     # Configuration
     app.config.from_object('config.Config')
+    app.config['JWT_SECRET_KEY'] = 'your-secret-key'  # Change this in production
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=15)
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=14)
+    app.config['JWT_TOKEN_LOCATION'] = ['headers', 'cookies']
+    app.config['JWT_COOKIE_SECURE'] = True  # Set to True in production (HTTPS)
+    app.config['JWT_COOKIE_SAMESITE'] = 'Strict'
+    app.config['JWT_COOKIE_CSRF_PROTECT'] = False  # Set to True and handle CSRF in production
     
     # Enable CORS for all origins (development only)
     CORS(app)

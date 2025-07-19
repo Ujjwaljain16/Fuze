@@ -24,10 +24,25 @@ api.interceptors.request.use(
 // Response interceptor to handle errors
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+  async (error) => {
+    const originalRequest = error.config
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      try {
+        // Attempt to refresh the access token
+        const res = await axios.post(
+          'http://localhost:5000/api/auth/refresh',
+          {},
+          { withCredentials: true }
+        )
+        const newToken = res.data.access_token
+        localStorage.setItem('token', newToken)
+        originalRequest.headers['Authorization'] = `Bearer ${newToken}`
+        return api(originalRequest)
+      } catch (refreshError) {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

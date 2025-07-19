@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
-import { Bookmark, Search, Plus, ExternalLink, Trash2, Filter } from 'lucide-react'
+import { Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles } from 'lucide-react'
 import './bookmarks-styles.css'
 import Select from 'react-select'
 
@@ -22,6 +22,10 @@ const Bookmarks = () => {
   const [filter, setFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [semanticQuery, setSemanticQuery] = useState('')
+  const [semanticResults, setSemanticResults] = useState([])
+  const [semanticLoading, setSemanticLoading] = useState(false)
+  const [semanticError, setSemanticError] = useState('')
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -60,10 +64,42 @@ const Bookmarks = () => {
     }
   }
 
+  const handleDeleteAll = async () => {
+    if (bookmarks.length === 0) return;
+    if (window.confirm('Are you sure you want to delete ALL your bookmarks? This cannot be undone.')) {
+      try {
+        await api.delete('/api/bookmarks/all')
+        setPage(1)
+        fetchBookmarks()
+      } catch (error) {
+        console.error('Error deleting all bookmarks:', error)
+      }
+    }
+  }
+
   const handleSearch = (e) => {
     e.preventDefault()
     setPage(1) // Reset to first page when searching
     fetchBookmarks()
+  }
+
+  const handleSemanticSearch = async (e) => {
+    e.preventDefault()
+    setSemanticLoading(true)
+    setSemanticError('')
+    setSemanticResults([])
+    try {
+      const response = await api.post('/api/search/supabase-semantic', {
+        query: semanticQuery,
+        limit: 8
+      })
+      setSemanticResults(response.data.results || [])
+    } catch (error) {
+      setSemanticError('Semantic search failed. Try again.')
+      setSemanticResults([])
+    } finally {
+      setSemanticLoading(false)
+    }
   }
 
   if (!isAuthenticated) {
@@ -79,12 +115,67 @@ const Bookmarks = () => {
 
   return (
     <div className="bookmarks-container">
+      {/* Semantic Search UI */}
+      <div className="semantic-search-section">
+        <form onSubmit={handleSemanticSearch} className="semantic-search-form">
+          <Sparkles size={24} className="semantic-search-icon" />
+          <input
+            type="text"
+            placeholder="Semantic search (e.g. 'OAuth2 login flow', 'React hooks best practices')..."
+            value={semanticQuery}
+            onChange={e => setSemanticQuery(e.target.value)}
+            className="semantic-search-input"
+            aria-label="Semantic search bookmarks"
+          />
+          <button type="submit" className="semantic-search-button" disabled={semanticLoading || !semanticQuery.trim()}>
+            {semanticLoading ? 'Searching...' : 'Semantic Search'}
+          </button>
+        </form>
+        {semanticError && <div className="semantic-search-error">{semanticError}</div>}
+        {semanticLoading && <div className="semantic-search-loading">Finding the most relevant bookmarks...</div>}
+        {!semanticLoading && semanticResults.length > 0 && (
+          <div className="semantic-results-grid">
+            {semanticResults.map((result, idx) => (
+              <div key={result.id || idx} className="semantic-result-card">
+                <div className="semantic-result-header">
+                  <Sparkles size={18} className="semantic-result-icon" />
+                  <span className="semantic-result-score">Relevance: {result.distance ? (100 - Math.round(result.distance * 100)).toString() + '%' : 'High'}</span>
+                </div>
+                <h3 className="semantic-result-title">{result.title}</h3>
+                <p className="semantic-result-url">{result.url}</p>
+                {result.content_snippet && <p className="semantic-result-snippet">{result.content_snippet}</p>}
+                <div className="semantic-result-footer">
+                  <a href={result.url} target="_blank" rel="noopener noreferrer" className="semantic-result-link">
+                    <ExternalLink size={16} /> View Content
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!semanticLoading && semanticResults.length === 0 && semanticQuery && !semanticError && (
+          <div className="semantic-search-empty">No semantically relevant bookmarks found.</div>
+        )}
+      </div>
       <div className="bookmarks-header">
         <h1>My Bookmarks</h1>
-        <button className="add-button" aria-label="Add Bookmark" title="Add Bookmark">
-          <Plus size={16} />
-          Add Bookmark
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button className="add-button" aria-label="Add Bookmark" title="Add Bookmark">
+            <Plus size={16} />
+            Add Bookmark
+          </button>
+          <button
+            className="delete-all-button"
+            aria-label="Delete All Bookmarks"
+            title="Delete All Bookmarks"
+            onClick={handleDeleteAll}
+            disabled={bookmarks.length === 0}
+            style={{ background: '#e53e3e', color: '#fff', borderRadius: 8, padding: '0 16px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, opacity: bookmarks.length === 0 ? 0.6 : 1, cursor: bookmarks.length === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            <Trash2 size={16} />
+            Delete All
+          </button>
+        </div>
       </div>
 
       <div className="bookmarks-controls">

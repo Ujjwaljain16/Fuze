@@ -4,112 +4,97 @@ from models import db, Project, Task, User, SavedContent, Feedback
 from sqlalchemy import func
 import numpy as np
 from datetime import datetime
-
-# Import the embedding function from the main app context
-try:
-    from app_old import get_embedding
-except ImportError:
-    def get_embedding(text):
-        return np.zeros(384)
+from sentence_transformers import SentenceTransformer
+from supabase import create_client
+import os
+from embedding_utils import get_embedding
+from ai_recommendation_engine import SmartRecommendationEngine
 
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://xyzcompany.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "your-supabase-service-role-key")
+SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")  # Use saved_content table
+supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Initialize the smart recommendation engine
+smart_engine = SmartRecommendationEngine()
 
 @recommendations_bp.route('/general', methods=['GET'])
 @jwt_required()
 def general_recommendations():
-    """Get general recommendations based on user's interests and saved content"""
+    """Get robust recommendations using semantic embeddings and feedback"""
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
-    
     if not user:
         return jsonify({"message": "User not found"}), 404
+
+    # Get all user's saved content
+    user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+    if not user_bookmarks:
+        return jsonify({"recommendations": []}), 200
+
+    # Build user profile vector (average of all their bookmark embeddings)
+    user_embs = [np.array(sc.embedding) for sc in user_bookmarks if sc.embedding is not None]
+    if not user_embs:
+        return jsonify({"recommendations": []}), 200
+    user_profile = np.mean(user_embs, axis=0)
+
+    # Get all content except user's own bookmarks
+    all_content = SavedContent.query.filter(SavedContent.user_id != user_id).all()
+    if not all_content:
+        return jsonify({"recommendations": []}), 200
+
+    # Compute similarity to user profile
+    content_embs = [np.array(c.embedding) for c in all_content if c.embedding is not None]
+    content_ids = [c.id for c in all_content if c.embedding is not None]
+    if not content_embs:
+        return jsonify({"recommendations": []}), 200
+    content_embs = np.stack(content_embs)
+    user_profile_norm = np.linalg.norm(user_profile)
+    content_norms = np.linalg.norm(content_embs, axis=1)
+    similarities = np.dot(content_embs, user_profile) / (content_norms * user_profile_norm + 1e-8)
+
+    # Feedback boosting/demotion
+    feedbacks = Feedback.query.filter(Feedback.user_id==user_id, Feedback.content_id.in_(content_ids)).all()
+    feedback_map = {(f.content_id, f.feedback_type): f for f in feedbacks}
+    for i, cid in enumerate(content_ids):
+        if (cid, 'relevant') in feedback_map:
+            similarities[i] += 0.15  # Boost relevant
+        if (cid, 'not_relevant') in feedback_map:
+            similarities[i] -= 0.15  # Demote not relevant
+
+    # Add relevance threshold - only show recommendations above 0.25 (25%)
+    RELEVANCE_THRESHOLD = 0.25
+    relevant_indices = [i for i, sim in enumerate(similarities) if sim >= RELEVANCE_THRESHOLD]
     
-    # Get user's interests and recent saved content
-    user_interests = user.technology_interests or ""
-    recent_content = SavedContent.query.filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).limit(5).all()
-    
-    # Create context from user interests and recent content
-    context_parts = [user_interests]
-    for content in recent_content:
-        context_parts.append(f"{content.title} {content.notes or ''}")
-    
-    query_context = " ".join(context_parts)
-    
-    # Generate embedding for the context
-    query_embedding = get_embedding(query_context)
-    if query_embedding is None or (isinstance(query_embedding, list) and all(v == 0 for v in query_embedding)):
-        # Fallback to mock recommendations if embedding fails
-        return jsonify({
-            "recommendations": [
-                {
-                    "id": 1,
-                    "title": "Getting Started with React Development",
-                    "url": "https://react.dev/learn",
-                    "description": "Learn the fundamentals of React development with this comprehensive guide.",
-                    "score": 95,
-                    "reason": "Based on your interest in web development"
-                },
-                {
-                    "id": 2,
-                    "title": "Python Best Practices for 2024",
-                    "url": "https://realpython.com/python-best-practices/",
-                    "description": "Discover the latest Python best practices and coding standards.",
-                    "score": 88,
-                    "reason": "Matches your technology interests"
-                },
-                {
-                    "id": 3,
-                    "title": "Modern JavaScript ES6+ Features",
-                    "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
-                    "description": "Explore modern JavaScript features and how to use them effectively.",
-                    "score": 82,
-                    "reason": "Related to your recent bookmarks"
-                }
-            ]
-        }), 200
-    
-    # Get recommendations from saved content
-    recommendations = db.session.query(SavedContent).filter_by(user_id=user_id).order_by(
-        SavedContent.embedding.op('<=>')(query_embedding)
-    ).limit(10).all()
-    
-    if not recommendations:
-        # Return mock recommendations if no saved content
-        return jsonify({
-            "recommendations": [
-                {
-                    "id": 1,
-                    "title": "Welcome to Fuze - Your Smart Bookmark Manager",
-                    "url": "https://github.com/your-repo/fuze",
-                    "description": "Learn how to make the most of your intelligent bookmark manager.",
-                    "score": 100,
-                    "reason": "Perfect for new users"
-                },
-                {
-                    "id": 2,
-                    "title": "Productivity Tips for Developers",
-                    "url": "https://dev.to/productivity-tips",
-                    "description": "Boost your development workflow with these proven productivity techniques.",
-                    "score": 90,
-                    "reason": "Based on your profile"
-                }
-            ]
-        }), 200
-    
-    # Convert to response format
-    recommendations_data = []
-    for i, content in enumerate(recommendations):
-        score = max(60, 100 - (i * 5))  # Score based on position
-        recommendations_data.append({
-            "id": content.id,
-            "title": content.title,
-            "url": content.url,
-            "description": content.notes or "",
-            "score": score,
-            "reason": f"Similar to your saved content about {content.category or 'technology'}"
+    if not relevant_indices:
+        return jsonify({"recommendations": []}), 200
+
+    # Sort and diversify (top N, avoid near-duplicates)
+    N = 10
+    sorted_indices = np.argsort(similarities)[::-1]
+    seen_urls = set()
+    recommendations = []
+    for idx in sorted_indices:
+        if idx not in relevant_indices:  # Skip irrelevant ones
+            continue
+        c = all_content[idx]
+        if c.url in seen_urls:
+            continue
+        seen_urls.add(c.url)
+        recommendations.append({
+            "id": c.id,
+            "title": c.title,
+            "url": c.url,
+            "description": c.notes or c.extracted_text or "",
+            "score": float(similarities[idx]),
+            "reason": "Similar to your saved content about {}".format(c.category or 'technology')
         })
-    
-    return jsonify({"recommendations": recommendations_data}), 200
+        if len(recommendations) >= N:
+            break
+
+    return jsonify({"recommendations": recommendations}), 200
 
 @recommendations_bp.route('/project/<int:project_id>', methods=['GET'])
 @jwt_required()
@@ -117,46 +102,95 @@ def recommend_for_project(project_id):
     project = Project.query.get(project_id)
     if not project:
         return jsonify({"message": "Project not found"}), 404
+    
     user_id = project.user_id
     user = User.query.get(user_id)
     user_interests = user.technology_interests if user else ""
-    if (not project.description or not project.description.strip()) and (not project.technologies or not project.technologies.strip()):
-        query_context = user_interests or project.title or ""
-    else:
-        query_context = (
-            f"Project Title: {project.title}. "
-            f"Project Description: {project.description}. "
-            f"Project Technologies: {project.technologies}. "
-            f"User Interests: {user_interests}"
-        )
-    query_embedding = get_embedding(query_context)
-    if query_embedding is None or (isinstance(query_embedding, list) and all(v == 0 for v in query_embedding)):
-        return jsonify({"message": "Failed to generate query embedding or empty embedding."}), 500
-    recommendations = db.session.query(SavedContent).filter_by(user_id=user_id).order_by(
-        SavedContent.embedding.op('<=>')(query_embedding)
-    ).limit(10).all()
+    
+    # Get all user's bookmarks with embeddings
+    bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+    bookmarks_with_emb = [b for b in bookmarks if b.embedding is not None]
+    
+    if not bookmarks_with_emb:
+        return jsonify({"message": "No bookmarks with embeddings found."}), 200
+    
+    # Prepare project context for AI analysis
+    project_context = {
+        'title': project.title,
+        'description': project.description or '',
+        'technologies': project.technologies or '',
+        'user_interests': user_interests
+    }
+    
+    # Convert bookmarks to dict format for AI engine
+    bookmark_dicts = []
+    for bookmark in bookmarks_with_emb:
+        bookmark_dicts.append({
+            'id': bookmark.id,
+            'title': bookmark.title,
+            'url': bookmark.url,
+            'notes': bookmark.notes or '',
+            'category': bookmark.category or '',
+            'extracted_text': bookmark.extracted_text or '',
+            'embedding': bookmark.embedding
+        })
+    
+    # Get smart recommendations using AI engine
+    smart_recommendations = smart_engine.get_smart_recommendations(
+        bookmark_dicts, 
+        project_context, 
+        max_recommendations=5
+    )
+    
+    # Format recommendations for frontend
+    recommendations = []
+    for rec in smart_recommendations:
+        recommendations.append({
+            "id": rec['id'],
+            "title": rec['title'],
+            "url": rec['url'],
+            "notes": rec['notes'],
+            "category": rec['category'],
+            "score": rec['score_data']['total_score'],
+            "reason": rec['score_data']['reason'],
+            "analysis": {
+                "tech_score": rec['score_data']['tech_score'],
+                "content_score": rec['score_data']['content_score'],
+                "difficulty_score": rec['score_data']['difficulty_score'],
+                "intent_score": rec['score_data']['intent_score'],
+                "semantic_score": rec['score_data']['semantic_score'],
+                "technologies": rec['score_data']['bookmark_analysis']['technologies'],
+                "content_type": rec['score_data']['bookmark_analysis']['content_type'],
+                "difficulty": rec['score_data']['bookmark_analysis']['difficulty'],
+                "intent": rec['score_data']['bookmark_analysis']['intent']
+            }
+        })
+    
     if not recommendations:
-        return jsonify({"message": "No recommendations found for this project."}), 200
-    # Feedback boosting/demoting
-    rec_ids = [c.id for c in recommendations]
-    feedbacks = Feedback.query.filter(Feedback.user_id==user_id, Feedback.project_id==project_id, Feedback.content_id.in_(rec_ids)).all()
-    feedback_map = {(f.content_id, f.feedback_type): f for f in feedbacks}
-    def feedback_score(content):
-        if (content.id, 'relevant') in feedback_map:
-            return -1  # Boost relevant
-        if (content.id, 'not_relevant') in feedback_map:
-            return 1   # Demote not relevant
-        return 0
-    recommendations.sort(key=feedback_score)
-    recommendations_data = [{
-        "id": content.id,
-        "title": content.title,
-        "url": content.url,
-        "source": content.source,
-        "notes": content.notes,
-        "saved_at": content.saved_at.isoformat(),
-    } for content in recommendations]
-    return jsonify(recommendations_data), 200
+        return jsonify({"message": "No relevant recommendations found. Try adding more bookmarks related to your project."}), 200
+    
+    # Add weekend exploration (optional)
+    today = datetime.now().weekday()  # 5=Saturday, 6=Sunday
+    if today in [5, 6] and len(recommendations) < 5:
+        # Add 1-2 explore links if we have space
+        explore_candidates = sorted(bookmarks_with_emb, key=lambda b: b.saved_at or datetime.min)
+        explore_ids = set(r["id"] for r in recommendations)
+        explore = [
+            {
+                "id": b.id,
+                "title": b.title,
+                "url": b.url,
+                "notes": b.notes,
+                "category": b.category,
+                "score": None,
+                "reason": "Weekend Explore: You haven't visited this in a while",
+                "analysis": None
+            }
+            for b in explore_candidates if b.id not in explore_ids
+        ][:2]
+        recommendations.extend(explore)
+    
+    return jsonify(recommendations), 200
 
 @recommendations_bp.route('/task/<int:task_id>', methods=['GET'])
 @jwt_required()
@@ -174,29 +208,46 @@ def recommend_for_task(task_id):
     query_embedding = get_embedding(context)
     if query_embedding is None or (isinstance(query_embedding, list) and all(v == 0 for v in query_embedding)):
         return jsonify({"message": "Failed to generate query embedding or empty embedding."}), 500
-    results = db.session.query(SavedContent).filter_by(user_id=project.user_id if project else None).order_by(
-        SavedContent.embedding.op('<=>')(query_embedding)
-    ).limit(10).all()
-    rec_ids = [c.id for c in results]
-    feedbacks = Feedback.query.filter(Feedback.user_id==project.user_id if project else None, Feedback.project_id==project.id if project else None, Feedback.content_id.in_(rec_ids)).all()
-    feedback_map = {(f.content_id, f.feedback_type): f for f in feedbacks}
-    def feedback_score(content):
-        if (content.id, 'relevant') in feedback_map:
-            return -1
-        if (content.id, 'not_relevant') in feedback_map:
-            return 1
-        return 0
-    results.sort(key=feedback_score)
-    output = [{
-        "id": c.id,
-        "title": c.title,
-        "url": c.url,
-        "tags": c.tags,
-        "category": c.category,
-        "notes": c.notes,
-        "saved_at": c.saved_at.isoformat()
-    } for c in results]
-    return jsonify(output), 200 
+    bookmarks = SavedContent.query.filter_by(user_id=project.user_id if project else None).all()
+    bookmarks_with_emb = [b for b in bookmarks if b.embedding is not None]
+    if not bookmarks_with_emb:
+        return jsonify({"message": "No bookmarks with embeddings found."}), 200
+    embs = np.stack([np.array(b.embedding) for b in bookmarks_with_emb])
+    norms = np.linalg.norm(embs, axis=1)
+    query_norm = np.linalg.norm(query_embedding)
+    similarities = np.dot(embs, query_embedding) / (norms * query_norm + 1e-8)
+    N = 8
+    sorted_indices = np.argsort(similarities)[::-1]
+    recommendations = [
+        {
+            "id": bookmarks_with_emb[idx].id,
+            "title": bookmarks_with_emb[idx].title,
+            "url": bookmarks_with_emb[idx].url,
+            "notes": bookmarks_with_emb[idx].notes,
+            "category": bookmarks_with_emb[idx].category,
+            "score": float(similarities[idx]),
+            "reason": "Similar to your task context"
+        }
+        for idx in sorted_indices[:N]
+    ]
+    today = datetime.now().weekday()
+    if today in [5, 6]:
+        explore_candidates = sorted(bookmarks_with_emb, key=lambda b: b.saved_at or datetime.min)
+        explore_ids = set(r["id"] for r in recommendations)
+        explore = [
+            {
+                "id": b.id,
+                "title": b.title,
+                "url": b.url,
+                "notes": b.notes,
+                "category": b.category,
+                "score": None,
+                "reason": "Explore: You haven't visited this in a while"
+            }
+            for b in explore_candidates if b.id not in explore_ids
+        ][:2]
+        recommendations.extend(explore)
+    return jsonify(recommendations), 200
 
 @recommendations_bp.route('/feedback', methods=['POST'])
 @jwt_required()
@@ -243,3 +294,34 @@ def submit_feedback():
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "Error submitting feedback"}), 500 
+
+@recommendations_bp.route('/supabase-semantic', methods=['POST'])
+@jwt_required()
+def supabase_semantic_recommendations():
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    context = data.get('context', '').strip()
+    limit = data.get('limit', 10)
+    if not context:
+        return jsonify({'message': 'Context is required'}), 400
+    query_emb = get_embedding(context)
+    query_emb_list = query_emb.tolist() if hasattr(query_emb, 'tolist') else list(query_emb)
+    # Updated SQL for saved_content table
+    sql = f"""
+        SELECT id, user_id, url, title, extracted_text as content_snippet, 
+               embedding <=> ARRAY{query_emb_list} AS distance
+        FROM {SUPABASE_TABLE}
+        WHERE user_id = {user_id}
+        ORDER BY distance ASC
+        LIMIT {limit};
+    """
+    resp = supabase_client.rpc('execute_sql', {"sql": sql}).execute()
+    if resp.status_code == 200:
+        results = resp.data
+        return jsonify({
+            'context': context,
+            'recommendations': results,
+            'total': len(results)
+        }), 200
+    else:
+        return jsonify({'message': f'Semantic recommendations failed: {resp.status_code} {resp.data}'}), 500 

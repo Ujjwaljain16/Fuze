@@ -6,41 +6,16 @@ from readability import Document
 from bs4 import BeautifulSoup
 import numpy as np
 from sqlalchemy.exc import IntegrityError
+from utils_web_scraper import scrape_url
 
 # Import embedding function
-try:
-    from app_old import get_embedding
-except ImportError:
-    def get_embedding(text):
-        return np.zeros(384)
+from embedding_utils import get_embedding
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
 def extract_article_content(url):
-    """Extract main content from a URL"""
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        # Try to use readability-lxml if available
-        try:
-            doc = Document(response.text)
-            summary_html = doc.summary()
-            soup = BeautifulSoup(summary_html, "html.parser")
-            text = soup.get_text(separator=" ", strip=True)
-        except (ImportError, NameError):
-            # Fallback to simple extraction if readability is not available
-            soup = BeautifulSoup(response.text, "html.parser")
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            text = soup.get_text(separator=" ", strip=True)
-        
-        return text[:5000]  # Limit to 5000 chars
-    except Exception as e:
-        print(f"Error extracting content from {url}: {e}")
-        return ""
+    """Extract main content, title, headings, and meta from a URL"""
+    return scrape_url(url)
 
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
@@ -73,11 +48,19 @@ def save_bookmark():
     if not title or not title.strip():
         title = 'Untitled Bookmark'
     
-    # Extract content from URL
-    extracted_text = extract_article_content(url)
+    # Extract content from URL (now returns dict)
+    scraped = extract_article_content(url)
+    extracted_text = scraped.get('content', '')
+    scraped_title = scraped.get('title', '')
+    headings = scraped.get('headings', [])
+    meta_description = scraped.get('meta_description', '')
+    
+    # Prefer scraped title if not provided
+    if not title or title == 'Untitled Bookmark':
+        title = scraped_title or 'Untitled Bookmark'
     
     # Generate embedding for semantic search
-    content_for_embedding = f"{title} {description} {extracted_text}"
+    content_for_embedding = f"{title} {description} {meta_description} {' '.join(headings)} {extracted_text}"
     embedding = get_embedding(content_for_embedding)
     
     new_bm = SavedContent(
@@ -87,6 +70,7 @@ def save_bookmark():
         notes=description.strip() if isinstance(description, str) else '',
         extracted_text=extracted_text,
         embedding=embedding
+        # Optionally: store headings/meta_description in new columns if desired
     )
     try:
         db.session.add(new_bm)
@@ -95,7 +79,12 @@ def save_bookmark():
             'message': 'Bookmark saved', 
             'bookmark': {'id': new_bm.id, 'url': new_bm.url},
             'content_extracted': len(extracted_text) > 0,
-            'wasDuplicate': False
+            'wasDuplicate': False,
+            'scraped': {
+                'title': scraped_title,
+                'headings': headings,
+                'meta_description': meta_description
+            }
         }), 201
     except Exception as e:
         db.session.rollback()
@@ -120,6 +109,12 @@ def bulk_import_bookmarks():
             url = bookmark_data.get('url', '').strip()
             title = bookmark_data.get('title', '').strip()
             category = bookmark_data.get('category', 'other')
+
+            # Truncate title and url to avoid DB errors
+            if len(title) > 512:
+                title = title[:512]
+            if len(url) > 2048:
+                url = url[:2048]
             
             if not url:
                 continue
@@ -149,6 +144,7 @@ def bulk_import_bookmarks():
                 added_count += 1
                 
         except Exception as e:
+            db.session.rollback()
             errors.append(f"Error processing {url}: {str(e)}")
     
     try:
@@ -256,7 +252,11 @@ def extract_url_content():
     
     try:
         # Extract content from URL
-        extracted_text = extract_article_content(url)
+        scraped = scrape_url(url)
+        extracted_text = scraped.get('content', '')
+        scraped_title = scraped.get('title', '')
+        headings = scraped.get('headings', [])
+        meta_description = scraped.get('meta_description', '')
         
         # Try to get title from the page
         try:
@@ -275,7 +275,12 @@ def extract_url_content():
             'title': page_title,
             'description': extracted_text[:1000],  # Limit preview content
             'url': url,
-            'success': True
+            'success': True,
+            'scraped': {
+                'title': scraped_title,
+                'headings': headings,
+                'meta_description': meta_description
+            }
         }), 200
         
     except Exception as e:
@@ -287,3 +292,15 @@ def extract_url_content():
             'success': False,
             'message': f'Error extracting content: {str(e)}'
         }), 200  # Return 200 instead of 500 to avoid breaking the frontend 
+
+@bookmarks_bp.route('/all', methods=['DELETE'])
+@jwt_required()
+def delete_all_bookmarks():
+    user_id = int(get_jwt_identity())
+    try:
+        num_deleted = SavedContent.query.filter_by(user_id=user_id).delete()
+        db.session.commit()
+        return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f'Error: {str(e)}'}), 500 

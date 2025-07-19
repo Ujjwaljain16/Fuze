@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, set_refresh_cookies, unset_jwt_cookies
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -40,4 +40,20 @@ def login():
         return jsonify({'message': 'Invalid credentials'}), 401
     
     access_token = create_access_token(identity=str(user.id))
-    return jsonify({'access_token': access_token}), 200 
+    refresh_token = create_refresh_token(identity=str(user.id))
+    response = jsonify({'access_token': access_token})
+    set_refresh_cookies(response, refresh_token)
+    return response, 200
+
+@auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    identity = get_jwt_identity()
+    access_token = create_access_token(identity=identity)
+    return jsonify({'access_token': access_token}), 200
+
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    response = jsonify({'msg': 'Logout successful'})
+    unset_jwt_cookies(response)
+    return response, 200 
