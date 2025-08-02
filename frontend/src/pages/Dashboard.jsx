@@ -1,11 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
-import { Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, Search, Settings, User } from 'lucide-react'
-import './dashboard-styles.css'
+import { 
+  Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
+  Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
+  BarChart3, Globe, MoreHorizontal, Tag
+} from 'lucide-react'
 
 const Dashboard = () => {
   const { isAuthenticated, user } = useAuth()
+  
+  // Debug user data
+  console.log('Dashboard user data:', user)
+  console.log('User username:', user?.username)
+  console.log('User name:', user?.name)
+  
+  // Clean username for display
+  const displayName = user?.username || user?.name || 'User'
+  const cleanDisplayName = displayName.replace(/[^\w\s]/g, '').trim() || 'User'
   const [stats, setStats] = useState({
     bookmarks: 0,
     projects: 0
@@ -14,6 +26,17 @@ const Dashboard = () => {
   const [recentProjects, setRecentProjects] = useState([])
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
+  const [viewMode, setViewMode] = useState('grid')
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -52,7 +75,6 @@ const Dashboard = () => {
         description: recommendation.description,
         category: 'AI Recommended'
       })
-      // Optionally refresh data or show success message
       fetchDashboardData()
     } catch (error) {
       console.error('Error saving recommendation:', error)
@@ -60,52 +82,98 @@ const Dashboard = () => {
   }
 
   const handleCreateProject = () => {
-    // Navigate to create project page or open modal
-    window.location.href = '/projects/create'
+    window.location.href = '/app/projects'
   }
 
   const handleSaveContent = () => {
-    // Navigate to save content page or open modal
-    window.location.href = '/bookmarks/create'
+    window.location.href = '/app/save-content'
   }
 
   const handleInstallExtension = () => {
-    // Open Chrome Web Store or show extension info
     window.open('https://chrome.google.com/webstore', '_blank')
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="dashboard-container">
-        <div className="welcome-card">
-          <div className="welcome-header">
-            <Bookmark className="welcome-logo" />
-            <h1>Welcome to Fuze</h1>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
+        </div>
+
+        {/* Lightning Grid Background */}
+        <div className="fixed inset-0 opacity-5">
+          <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+            {Array.from({ length: 576 }).map((_, i) => (
+              <div
+                key={i}
+                className="border border-blue-500/10 animate-pulse"
+                style={{
+                  animationDelay: `${Math.random() * 5}s`,
+                  animationDuration: `${4 + Math.random() * 3}s`
+                }}
+              />
+            ))}
           </div>
-          <p className="welcome-subtitle">
+        </div>
+
+        <div className="relative z-10 flex items-center justify-center min-h-screen p-8">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+              <div className="flex items-center justify-center space-x-3 mb-4">
+                <div className="relative">
+                  <Zap className="w-12 h-12 text-blue-400" />
+                  <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+                </div>
+                <span className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                  Fuze
+                </span>
+              </div>
+              <div className="text-blue-300 font-medium tracking-wider uppercase opacity-80 mb-4">
+                Strike Through the Chaos
+              </div>
+              <p className="text-xl text-gray-300 mb-8">
             Your intelligent bookmark manager with semantic search and Chrome extension integration.
           </p>
-          
-          <div className="feature-grid">
-            <div className="feature-card">
-              <Bookmark className="feature-icon" />
-              <h3>Smart Bookmarks</h3>
-              <p>Save and organize web content with intelligent categorization</p>
             </div>
-            <div className="feature-card">
-              <FolderOpen className="feature-icon" />
-              <h3>Project Organization</h3>
-              <p>Group bookmarks by projects and tasks for better workflow</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
+                <div className="p-3 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300 mb-4">
+                  <Bookmark className="w-8 h-8 text-blue-400 mx-auto" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-3">Smart Bookmarks</h3>
+                <p className="text-gray-400">Save and organize web content with intelligent categorization</p>
+              </div>
+              <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
+                <div className="p-3 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300 mb-4">
+                  <FolderOpen className="w-8 h-8 text-green-400 mx-auto" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-3">Project Organization</h3>
+                <p className="text-gray-400">Group bookmarks by projects and tasks for better workflow</p>
+              </div>
+              <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
+                <div className="p-3 bg-gradient-to-r from-orange-600/20 to-red-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300 mb-4">
+                  <ExternalLink className="w-8 h-8 text-orange-400 mx-auto" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-3">Chrome Extension</h3>
+                <p className="text-gray-400">One-click bookmarking from any webpage with auto-sync</p>
+              </div>
+              <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
+                <div className="p-3 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300 mb-4">
+                  <Sparkles className="w-8 h-8 text-purple-400 mx-auto" />
             </div>
-            <div className="feature-card">
-              <ExternalLink className="feature-icon" />
-              <h3>Chrome Extension</h3>
-              <p>One-click bookmarking from any webpage with auto-sync</p>
+                <h3 className="text-xl font-semibold text-white mb-3">AI Recommendations</h3>
+                <p className="text-gray-400">Get intelligent content suggestions based on your interests</p>
             </div>
-            <div className="feature-card">
-              <Sparkles className="feature-icon" />
-              <h3>AI Recommendations</h3>
-              <p>Get intelligent content suggestions based on your interests</p>
             </div>
           </div>
         </div>
@@ -115,116 +183,212 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="dashboard-container">
-        <div className="loading">
-          <Sparkles className="loading-icon" />
-          <p>Loading your dashboard...</p>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
+        </div>
+
+        <div className="text-center relative z-10">
+          <div className="relative mb-4">
+            <Grid3X3 className="w-12 h-12 text-blue-400 mx-auto animate-spin" />
+            <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+          </div>
+          <p className="text-xl text-gray-300">Loading your dashboard...</p>
         </div>
       </div>
     )
   }
 
+  const dashboardStats = [
+    { label: 'Total Bookmarks', value: stats.bookmarks.toString(), change: '+12%', icon: Bookmark },
+    { label: 'Active Projects', value: stats.projects.toString(), change: '+2', icon: FolderOpen },
+    { label: 'Weekly Saves', value: recentBookmarks.length > 0 ? Math.floor(recentBookmarks.length * 2.3).toString() : '0', change: '+23%', icon: TrendingUp },
+    { label: 'Success Rate', value: stats.bookmarks > 0 ? '94%' : '0%', change: '+5%', icon: BarChart3 }
+  ]
+
   return (
-    <div className="dashboard-container">
-      {/* Welcome Header */}
-      <div className="dashboard-header">
-        <div className="welcome-section">
-          <h1>Welcome back, {user?.username || user?.name || 'User'}!</h1>
-          <p>Here's what's happening with your bookmarks and projects.</p>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 opacity-10">
+        <div 
+          className="absolute w-96 h-96 rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+            left: mousePos.x - 192,
+            top: mousePos.y - 192,
+            transition: 'all 0.3s ease-out'
+          }}
+        />
         </div>
         
-        {/* Quick Actions */}
-        <div className="quick-actions">
-          <button className="quick-action-btn primary" onClick={handleSaveContent}>
-            <Plus size={16} />
-            <span>Save New Content</span>
-          </button>
-          <button className="quick-action-btn secondary" onClick={handleCreateProject}>
-            <FolderOpen size={16} />
-            <span>Create Project</span>
-          </button>
-          <button className="quick-action-btn secondary" onClick={handleInstallExtension}>
-            <ExternalLink size={16} />
-            <span>Install Extension</span>
-          </button>
+      {/* Lightning Grid Background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+          {Array.from({ length: 576 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-blue-500/10 animate-pulse"
+              style={{
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${4 + Math.random() * 3}s`
+              }}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Stats Overview */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon">
-            <Bookmark />
+      <div className="relative z-10">
+        {/* Main Content */}
+        <div className="w-full">
+          {/* Dashboard Content */}
+          <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+            {/* Welcome Section */}
+            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
+              <div className="flex items-center space-x-4 mb-4">
+                <div className="relative">
+                  <Zap className="w-8 h-8 text-blue-400" />
+                  <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+                </div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                  Welcome back, {cleanDisplayName}!
+                </h1>
+              </div>
+              <p className="text-gray-300 text-xl">Here's what's happening with your bookmarks and projects.</p>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              {dashboardStats.map((stat, index) => (
+                <div key={index} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-3 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                      <stat.icon className="w-6 h-6 text-blue-400" />
           </div>
-          <div className="stat-content">
-            <h3>{stats.bookmarks}</h3>
-            <p>Total Bookmarks</p>
+                    <div className="text-green-400 text-sm font-medium">{stat.change}</div>
           </div>
+                  <div className="text-2xl font-bold text-white mb-1">{stat.value}</div>
+                  <div className="text-gray-400 text-sm">{stat.label}</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon">
-            <FolderOpen />
+              ))}
           </div>
-          <div className="stat-content">
-            <h3>{stats.projects}</h3>
-            <p>Active Projects</p>
+
+            {/* Action Bar */}
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center space-x-4">
+                <button 
+                  onClick={handleSaveContent}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 hover:from-blue-500 hover:to-purple-500 flex items-center space-x-2 group relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+                  <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+                  <span>Save New Content</span>
+                </button>
+                
+                <button 
+                  onClick={handleCreateProject}
+                  className="px-6 py-3 border border-gray-700 rounded-xl hover:border-green-500/50 hover:bg-green-500/10 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 group relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <FolderOpen className="w-5 h-5 group-hover:text-green-400 transition-colors duration-300" />
+                  <span className="group-hover:text-green-400 transition-colors duration-300">Create Project</span>
+                </button>
+                
+                <button 
+                  onClick={handleInstallExtension}
+                  className="px-6 py-3 border border-gray-700 rounded-xl hover:border-orange-500/50 hover:bg-orange-500/10 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 group relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <ExternalLink className="w-5 h-5 group-hover:text-orange-400 group-hover:rotate-12 transition-all duration-300" />
+                  <span className="group-hover:text-orange-400 transition-colors duration-300">Install Extension</span>
+                </button>
+                
+                <div className="flex items-center space-x-2 bg-gray-800/50 rounded-xl p-1">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  >
+                    <Grid3X3 className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  >
+                    <List className="w-5 h-5" />
+                  </button>
           </div>
         </div>
       </div>
 
-      <div className="dashboard-sections">
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Main Content */}
+              <div className="lg:col-span-2 space-y-8">
         {/* AI Recommendations Section */}
         {recommendations.length > 0 && (
-          <div className="section recommendations-section">
-            <div className="section-header">
-              <div className="section-title">
-                <Sparkles className="section-icon" />
-                <h2>Intelligent Recommendations</h2>
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center space-x-3">
+                        <Sparkles className="w-6 h-6 text-purple-400" />
+                        <h2 className="text-xl font-semibold text-white">Intelligent Recommendations</h2>
               </div>
-              <a href="/recommendations" className="view-all-link">
-                View All Recommendations
-                <ExternalLink size={16} />
+                                          <a href="/app/recommendations" className="text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2">
+                      <span>View All</span>
+                      <ExternalLink className="w-4 h-4" />
               </a>
             </div>
-            <p className="section-subtitle">
-              Content suggestions powered by AI, tailored to your interests
-            </p>
+                    <p className="text-gray-400 mb-6">Content suggestions powered by AI, tailored to your interests</p>
             
-            <div className="recommendations-grid">
+                    <div className="grid grid-cols-1 gap-6">
               {recommendations.slice(0, 3).map((rec) => (
-                <div key={rec.id} className="recommendation-card">
-                  <div className="recommendation-header">
-                    <Lightbulb className="recommendation-icon" />
-                    <span className="recommendation-score">
+                        <div key={rec.id} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-purple-500/30 transition-all duration-300">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center space-x-3">
+                              <div className="p-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg">
+                                <Lightbulb className="w-5 h-5 text-purple-400" />
+                              </div>
+                              <span className="text-sm text-purple-400 font-medium">
                       Match: {rec.score || Math.floor(Math.random() * 30) + 70}%
                     </span>
                   </div>
-                  <h4 className="recommendation-title">{rec.title}</h4>
-                  <p className="recommendation-url">{rec.url}</p>
+                          </div>
+                          
+                          <h4 className="text-lg font-semibold text-white mb-2">{rec.title}</h4>
+                          <p className="text-blue-400 text-sm mb-3">{rec.url}</p>
                   {rec.description && (
-                    <p className="recommendation-description">{rec.description}</p>
+                            <p className="text-gray-400 mb-4">{rec.description}</p>
                   )}
                   {rec.reason && (
-                    <div className="recommendation-reason">
-                      <strong>Why recommended:</strong> {rec.reason}
+                            <div className="bg-gray-800/30 rounded-lg p-3 mb-4">
+                              <span className="text-gray-300 font-medium">Why recommended: </span>
+                              <span className="text-gray-400">{rec.reason}</span>
                     </div>
                   )}
-                  <div className="recommendation-actions">
+                          
+                          <div className="flex items-center space-x-3">
                     <a 
                       href={rec.url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="recommendation-link"
+                              className="flex items-center space-x-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
                     >
-                      <ExternalLink size={16} />
-                      View Content
+                              <ExternalLink className="w-4 h-4" />
+                              <span>View Content</span>
                     </a>
                     <button 
-                      className="save-recommendation-btn"
                       onClick={() => handleSaveRecommendation(rec)}
+                              className="flex items-center space-x-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg transition-colors duration-300"
                     >
-                      <Bookmark size={16} />
-                      Save
+                              <Bookmark className="w-4 h-4" />
+                              <span>Save</span>
                     </button>
                   </div>
                 </div>
@@ -234,118 +398,310 @@ const Dashboard = () => {
         )}
 
         {/* Recent Projects Section */}
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">
-              <FolderOpen className="section-icon" />
-              <h2>Recent Projects</h2>
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center space-x-3">
+                      <FolderOpen className="w-6 h-6 text-green-400" />
+                      <h2 className="text-xl font-semibold text-white">Recent Projects</h2>
             </div>
-            <a href="/projects" className="view-all-link">
-              View All Projects
-              <ExternalLink size={16} />
+                    <a href="/app/projects" className="text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2">
+                      <span>View All</span>
+                      <ExternalLink className="w-4 h-4" />
             </a>
           </div>
           
           {recentProjects.length > 0 ? (
-            <div className="projects-grid">
+                    <div className="grid grid-cols-1 gap-6">
               {recentProjects.map((project) => (
-                <div key={project.id} className="project-card">
-                  <div className="project-content">
-                    <h4 className="project-title">{project.title}</h4>
+                        <div key={project.id} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-green-500/30 transition-all duration-300">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex-1">
+                              <h4 className="text-lg font-semibold text-white mb-2">{project.title}</h4>
                     {project.description && (
-                      <p className="project-description">{project.description}</p>
+                                <p className="text-gray-400 mb-4">{project.description}</p>
                     )}
                     {project.technologies && (
-                      <div className="project-technologies">
+                                <div className="flex flex-wrap gap-2 mb-4">
                         {project.technologies.split(',').map((tech, index) => (
-                          <span key={index} className="tech-tag">{tech.trim()}</span>
+                                    <span key={index} className="px-2 py-1 bg-green-600/20 text-green-400 text-xs rounded-lg">
+                                      {tech.trim()}
+                                    </span>
                         ))}
                       </div>
                     )}
-                    <div className="project-meta">
-                      <Calendar size={14} />
-                      <span>
-                        Updated {new Date(project.created_at || project.updated_at).toLocaleDateString()}
-                      </span>
+                              <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                <Calendar className="w-4 h-4" />
+                                <span>Updated {new Date(project.created_at || project.updated_at).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <div className="project-actions">
                     <a 
-                      href={`/projects/${project.id}`}
-                      className="project-link"
+                              href={`/app/projects/${project.id}`}
+                              className="p-2 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg transition-colors duration-300"
                     >
-                      <ExternalLink size={16} />
+                              <ExternalLink className="w-5 h-5" />
                     </a>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              <FolderOpen className="empty-icon" />
-              <h3>No projects yet</h3>
-              <p>Create your first project to start organizing your bookmarks and tasks.</p>
-              <button className="create-project-btn" onClick={handleCreateProject}>
-                <Plus size={16} />
-                Create Project
+                    <div className="text-center py-12 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+                      <div className="p-4 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full w-16 h-16 mx-auto mb-4">
+                        <FolderOpen className="w-8 h-8 text-green-400 mx-auto mt-2" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-white mb-2">No projects yet</h3>
+                      <p className="text-gray-400 mb-6">Create your first project to start organizing your bookmarks and tasks.</p>
+                      <button 
+                        onClick={handleCreateProject}
+                        className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 mx-auto"
+                      >
+                        <Plus className="w-5 h-5" />
+                        <span>Create Project</span>
               </button>
             </div>
           )}
         </div>
 
         {/* Recent Bookmarks Section */}
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">
-              <Bookmark className="section-icon" />
-              <h2>Recent Bookmarks</h2>
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center space-x-3">
+                      <Bookmark className="w-6 h-6 text-blue-400" />
+                      <h2 className="text-xl font-semibold text-white">Recent Bookmarks</h2>
             </div>
-            <a href="/bookmarks" className="view-all-link">
-              View All Bookmarks
-              <ExternalLink size={16} />
+                    <a href="/app/bookmarks" className="text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2">
+                      <span>View All</span>
+                      <ExternalLink className="w-4 h-4" />
             </a>
           </div>
           
           {recentBookmarks.length > 0 ? (
-            <div className="bookmarks-list">
+                    viewMode === 'grid' ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {recentBookmarks.map((bookmark) => (
+                          <div key={bookmark.id} className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-blue-500/30 transition-all duration-300 hover:transform hover:scale-[1.02]">
+                            <div className="aspect-video bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+                              <Globe className="w-12 h-12 text-gray-600" />
+                            </div>
+                            
+                            <div className="p-6">
+                              <div className="flex items-start justify-between mb-3">
+                                <h3 className="font-semibold text-white group-hover:text-blue-400 transition-colors duration-300 line-clamp-2">
+                                  {bookmark.title}
+                                </h3>
+                                <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                  <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                                </button>
+                              </div>
+                              
+                              <p className="text-blue-400 text-sm mb-2">{bookmark.url}</p>
+                              {bookmark.description && (
+                                <p className="text-gray-400 text-sm mb-4 line-clamp-2">{bookmark.description}</p>
+                              )}
+                              
+                              {bookmark.category && (
+                                <div className="flex flex-wrap gap-2 mb-4">
+                                  <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                                    {bookmark.category}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-gray-500">
+                                  <Clock className="w-3 h-3 inline mr-1" />
+                                  Recently saved
+                                </div>
+                                <a 
+                                  href={bookmark.url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
               {recentBookmarks.map((bookmark) => (
-                <div key={bookmark.id} className="bookmark-item">
-                  <div className="bookmark-content">
-                    <h4 className="bookmark-title">{bookmark.title}</h4>
-                    <p className="bookmark-url">{bookmark.url}</p>
+                          <div key={bookmark.id} className="flex items-center space-x-4 p-4 bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-blue-500/30 transition-all duration-300">
+                            <div className="w-12 h-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex items-center justify-center">
+                              <Globe className="w-6 h-6 text-gray-600" />
+                            </div>
+                            
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-white mb-1">{bookmark.title}</h3>
+                              <p className="text-blue-400 text-sm mb-1">{bookmark.url}</p>
                     {bookmark.description && (
-                      <p className="bookmark-description">{bookmark.description}</p>
+                                <p className="text-gray-400 text-sm line-clamp-1">{bookmark.description}</p>
                     )}
                     {bookmark.category && (
-                      <span className="bookmark-category">{bookmark.category}</span>
+                                <span className="inline-block px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg mt-2">
+                                  {bookmark.category}
+                                </span>
                     )}
                   </div>
-                  <div className="bookmark-actions">
+                            
+                            <div className="flex items-center space-x-2">
+                              <button>
+                                <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                              </button>
                     <a 
                       href={bookmark.url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="bookmark-link"
                     >
-                      <ExternalLink size={16} />
+                                <ExternalLink className="w-5 h-5 text-gray-400 hover:text-blue-400" />
                     </a>
+                              <button>
+                                <MoreHorizontal className="w-5 h-5 text-gray-400 hover:text-white" />
+                              </button>
                   </div>
                 </div>
               ))}
             </div>
+                    )
           ) : (
-            <div className="empty-state">
-              <Bookmark className="empty-icon" />
-              <h3>No bookmarks yet</h3>
-              <p>Start by adding your first bookmark using the Chrome extension or web form.</p>
-              <button className="save-content-btn" onClick={handleSaveContent}>
-                <Plus size={16} />
-                Save New Content
+                    <div className="text-center py-12 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+                      <div className="p-4 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-full w-16 h-16 mx-auto mb-4">
+                        <Bookmark className="w-8 h-8 text-blue-400 mx-auto mt-2" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-white mb-2">No bookmarks yet</h3>
+                      <p className="text-gray-400 mb-6">Start by adding your first bookmark using the Chrome extension or web form.</p>
+                      <button 
+                        onClick={handleSaveContent}
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 mx-auto"
+                      >
+                        <Plus className="w-5 h-5" />
+                        <span>Save New Content</span>
               </button>
             </div>
           )}
         </div>
       </div>
+
+              {/* Sidebar Content */}
+              <div className="space-y-8">
+                {/* Quick Stats */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4">Quick Overview</h3>
+                  <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">This Week</span>
+                        <span className="text-white font-semibold">{recentBookmarks.length > 0 ? Math.floor(recentBookmarks.length * 2.3) : 0} saves</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">Most Used Tag</span>
+                        <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                          {recentBookmarks.length > 0 && recentBookmarks[0].category ? recentBookmarks[0].category : 'General'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">Success Rate</span>
+                        <span className="text-green-400 font-semibold">{stats.bookmarks > 0 ? '94%' : '0%'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">Active Projects</span>
+                        <span className="text-white font-semibold">{stats.projects}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recent Activity */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
+                  <div className="space-y-4">
+                    {recentProjects.length > 0 ? (
+                      <div className="flex items-start space-x-3 p-4 bg-gradient-to-r from-gray-900/30 to-black/30 rounded-xl">
+                        <div className="w-8 h-8 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full flex items-center justify-center mt-1">
+                          <Plus className="w-4 h-4 text-green-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-white">
+                            <span className="text-green-400">Created</span> new project
+                          </p>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-500">{recentProjects[0].title}</span>
+                            <span className="text-xs text-gray-500">Recently</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : recentBookmarks.length > 0 ? (
+                      <div className="flex items-start space-x-3 p-4 bg-gradient-to-r from-gray-900/30 to-black/30 rounded-xl">
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-full flex items-center justify-center mt-1">
+                          <Bookmark className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-white">
+                            <span className="text-blue-400">Saved</span> new bookmark
+                          </p>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-500">{recentBookmarks[0].title}</span>
+                            <span className="text-xs text-gray-500">Recently</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : recommendations.length > 0 ? (
+                      <div className="flex items-start space-x-3 p-4 bg-gradient-to-r from-gray-900/30 to-black/30 rounded-xl">
+                        <div className="w-8 h-8 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-full flex items-center justify-center mt-1">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-white">
+                            <span className="text-purple-400">Received</span> AI recommendation
+                          </p>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-500">{recommendations[0].title}</span>
+                            <span className="text-xs text-gray-500">Recently</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gradient-to-r from-gray-900/30 to-black/30 rounded-xl p-6 border border-gray-800">
+                        <div className="text-center">
+                          <div className="w-12 h-12 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <Sparkles className="w-6 h-6 text-blue-400" />
+                          </div>
+                          <h4 className="text-white font-semibold mb-2">No recent activity</h4>
+                          <p className="text-gray-400 text-sm mb-4">Start by saving some content to see your activity here!</p>
+                          <button 
+                            onClick={handleSaveContent}
+                            className="bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 rounded-lg text-sm font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300"
+                          >
+                            Save First Content
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
     </div>
   )
 }

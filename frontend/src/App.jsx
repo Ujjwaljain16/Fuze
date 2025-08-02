@@ -11,10 +11,10 @@ import Recommendations from './pages/Recommendations'
 import SaveContent from './pages/SaveContent'
 import Profile from './pages/Profile'
 import Login from './pages/Login'
-import Register from './pages/Register'
+
+import FuzeLanding from './pages/Landing'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
-import './App.css'
 
 
 // Component to redirect authenticated users away from auth pages
@@ -38,7 +38,7 @@ const AuthRedirect = ({ children }) => {
   }
   
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/app/dashboard" replace />
   }
   
   return children
@@ -51,12 +51,19 @@ function AppRoutes() {
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth <= 900)
-      if (window.innerWidth > 900) {
+      const newIsMobile = window.innerWidth <= 900
+      setIsMobile(newIsMobile)
+      
+      // Reset sidebar state on resize
+      if (newIsMobile) {
         setSidebarOpen(false)
         setCollapsed(true)
+      } else {
+        setSidebarOpen(false)
+        // Keep collapsed state for desktop
       }
     }
+    
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
@@ -66,40 +73,35 @@ function AppRoutes() {
     if (isMobile) {
       document.body.classList.remove('sidebar-collapsed', 'sidebar-expanded')
     } else {
-      document.body.classList.toggle('sidebar-collapsed', collapsed)
-      document.body.classList.toggle('sidebar-expanded', !collapsed)
+      if (collapsed) {
+        document.body.classList.remove('sidebar-expanded')
+        document.body.classList.add('sidebar-collapsed')
+      } else {
+        document.body.classList.remove('sidebar-collapsed')
+        document.body.classList.add('sidebar-expanded')
+      }
     }
   }, [collapsed, isMobile])
-
-  // Hamburger menu click handler
-  const handleMenuClick = () => {
-    if (isMobile) {
-      setSidebarOpen(!sidebarOpen)
-    } else {
-      setCollapsed((prev) => !prev)
-    }
-  }
 
   return (
     <Router>
       <Routes>
+        {/* Landing page - accessible to all */}
+        <Route path="/" element={<FuzeLanding />} />
+        
         {/* Auth pages - rendered outside main layout */}
         <Route path="/login" element={
           <AuthRedirect>
             <Login />
           </AuthRedirect>
         } />
-        <Route path="/register" element={
-          <AuthRedirect>
-            <Register />
-          </AuthRedirect>
-        } />
+
         
         {/* Main app routes - rendered inside layout */}
-        <Route path="/*" element={
+        <Route path="/app/*" element={
           <ProtectedRoute>
             <div className="app">
-              <Navbar onMenuClick={handleMenuClick} />
+              <Navbar />
               <div className="app-layout">
                 <Sidebar
                   isOpen={isMobile ? sidebarOpen : true}

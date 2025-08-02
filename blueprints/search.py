@@ -3,14 +3,29 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent
 import numpy as np
 import os
-from supabase import create_client
 import os
 from embedding_utils import get_embedding
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://xyzcompany.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "your-supabase-service-role-key")
-SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")  # Use saved_content table
-supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")
+
+# Debug prints
+print(f"🔍 Debug - SUPABASE_URL: {SUPABASE_URL}")
+print(f"🔍 Debug - SUPABASE_KEY: {SUPABASE_KEY[:10] if SUPABASE_KEY else 'None'}...")
+
+# Only create Supabase client if credentials are provided
+supabase_client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        from supabase import create_client
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("✅ Supabase connected successfully")
+    except Exception as e:
+        print(f"⚠️ Supabase connection failed: {e}")
+        supabase_client = None
+else:
+    print("⚠️ Supabase credentials not provided - Supabase features disabled")
 
 # Check if we're using PostgreSQL (for pgvector support)
 def is_postgresql():
@@ -101,7 +116,7 @@ def text_search():
         'query': query,
         'results': search_results,
         'total': len(search_results)
-    }), 200 
+    }), 200
 
 @search_bp.route('/supabase-semantic', methods=['POST'])
 @jwt_required()
@@ -110,26 +125,202 @@ def supabase_semantic_search():
     data = request.get_json()
     query = data.get('query', '').strip()
     limit = data.get('limit', 10)
+    
     if not query:
         return jsonify({'message': 'Query is required'}), 400
-    query_emb = get_embedding(query)
-    query_emb_list = query_emb.tolist() if hasattr(query_emb, 'tolist') else list(query_emb)
-    # Updated SQL for saved_content table
-    sql = f"""
-        SELECT id, user_id, url, title, extracted_text as content_snippet, 
-               embedding <=> ARRAY{query_emb_list} AS distance
-        FROM {SUPABASE_TABLE}
-        WHERE user_id = {user_id}
-        ORDER BY distance ASC
-        LIMIT {limit};
-    """
-    resp = supabase_client.rpc('execute_sql', {"sql": sql}).execute()
-    if resp.status_code == 200:
-        results = resp.data
+    
+    # Check if Supabase is configured and available
+    if not supabase_client:
+        # Fallback to local semantic search
+        return fallback_semantic_search(user_id, query, limit)
+    
+    try:
+        # Generate query embedding
+        query_embedding = get_embedding(query)
+        if hasattr(query_embedding, 'tolist'):
+            query_embedding_list = query_embedding.tolist()
+        else:
+            query_embedding_list = list(query_embedding)
+        
+        print(f"🔍 Debug - Query embedding dimensions: {len(query_embedding_list)}")
+        
+        # Get all bookmarks for the user with embeddings
+        response = supabase_client.table(SUPABASE_TABLE).select(
+            'id, user_id, url, title, notes, extracted_text, embedding'
+        ).eq('user_id', user_id).not_.is_("embedding", "null").execute()
+        
+        bookmarks = response.data
+        print(f"📊 Found {len(bookmarks)} bookmarks with embeddings")
+        
+        if not bookmarks:
+            return jsonify({
+                'query': query,
+                'results': [],
+                'total': 0,
+                'source': 'supabase',
+                'message': 'No bookmarks with embeddings found'
+            }), 200
+        
+        # Calculate similarities using our working approach
+        similarities = []
+        
+        for bookmark in bookmarks:
+            try:
+                embedding_str = bookmark.get('embedding')
+                if not embedding_str:
+                    continue
+                
+                # Parse the embedding string (JSON format)
+                import json
+                bookmark_embedding = json.loads(embedding_str) if isinstance(embedding_str, str) else embedding_str
+                
+                if not bookmark_embedding or len(bookmark_embedding) != len(query_embedding_list):
+                    continue
+                
+                # Calculate cosine similarity
+                vec1 = np.array(query_embedding_list)
+                vec2 = np.array(bookmark_embedding)
+                
+                dot_product = np.dot(vec1, vec2)
+                norm1 = np.linalg.norm(vec1)
+                norm2 = np.linalg.norm(vec2)
+                
+                if norm1 == 0 or norm2 == 0:
+                    similarity = 0
+                else:
+                    similarity = dot_product / (norm1 * norm2)
+                
+                # Convert similarity to percentage (0-100)
+                similarity_percentage = max(0, min(100, (similarity + 1) * 50))  # Convert from [-1,1] to [0,100]
+                
+                similarities.append({
+                    'id': bookmark['id'],
+                    'user_id': bookmark['user_id'],
+                    'url': bookmark['url'],
+                    'title': bookmark['title'],
+                    'notes': bookmark.get('notes', ''),
+                    'content_snippet': bookmark.get('extracted_text', '')[:200] + '...' if bookmark.get('extracted_text') and len(bookmark.get('extracted_text', '')) > 200 else bookmark.get('extracted_text', ''),
+                    'similarity': similarity,
+                    'similarity_percentage': similarity_percentage,
+                    'relevance_score': similarity_percentage,
+                    'search_type': 'AI Vector Similarity'
+                })
+                
+            except Exception as e:
+                print(f"⚠️ Error processing bookmark {bookmark.get('id')}: {str(e)}")
+                continue
+        
+        # Sort by similarity (highest first)
+        similarities.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        # Take top results
+        top_results = similarities[:limit]
+        
+        # Format results for frontend
+        results = []
+        for item in top_results:
+            results.append({
+                'id': item['id'],
+                'user_id': item['user_id'],
+                'url': item['url'],
+                'title': item['title'],
+                'content_snippet': item['content_snippet'],
+                'similarity': item['similarity'],
+                'similarity_percentage': item['similarity_percentage'],
+                'relevance_score': item['relevance_score'],
+                'search_type': item['search_type']
+            })
+        
+        print(f"✅ Vector search completed with {len(results)} results")
         return jsonify({
             'query': query,
             'results': results,
-            'total': len(results)
+            'total': len(results),
+            'source': 'supabase',
+            'message': 'AI-powered semantic search completed successfully'
         }), 200
-    else:
-        return jsonify({'message': f'Semantic search failed: {resp.status_code} {resp.data}'}), 500 
+        
+    except Exception as e:
+        print(f"❌ Supabase semantic search failed: {str(e)}")
+        # Fallback to local semantic search
+        return fallback_semantic_search(user_id, query, limit)
+
+def fallback_semantic_search(user_id, query, limit):
+    """Fallback semantic search using local database"""
+    try:
+        # Get all user's bookmarks
+        bookmarks = db.session.query(SavedContent).filter_by(user_id=user_id).limit(limit * 2).all()
+        
+        if not bookmarks:
+            return jsonify({
+                'query': query,
+                'results': [],
+                'total': 0,
+                'source': 'fallback',
+                'message': 'No bookmarks found'
+            }), 200
+        
+        # Simple text similarity ranking
+        def calculate_similarity(bookmark):
+            text = f"{bookmark.title or ''} {bookmark.notes or ''} {bookmark.extracted_text or ''}"
+            text = text.lower()
+            query_lower = query.lower()
+            
+            # Calculate word overlap
+            query_words = set(query_lower.split())
+            text_words = set(text.split())
+            word_overlap = len(query_words.intersection(text_words))
+            
+            # Calculate substring matches
+            substring_score = 0
+            for word in query_words:
+                if word in text:
+                    substring_score += 1
+            
+            # Calculate exact phrase matches
+            phrase_score = 0
+            if query_lower in text:
+                phrase_score = 10
+            
+            # Weighted scoring
+            total_score = (word_overlap * 2) + substring_score + phrase_score
+            
+            return total_score
+        
+        # Score and sort bookmarks
+        scored_bookmarks = [(bookmark, calculate_similarity(bookmark)) for bookmark in bookmarks]
+        scored_bookmarks.sort(key=lambda x: x[1], reverse=True)
+        
+        # Take top results
+        top_bookmarks = scored_bookmarks[:limit]
+        
+        results = []
+        for bookmark, score in top_bookmarks:
+            if score > 0:  # Only include relevant results
+                results.append({
+                    'id': bookmark.id,
+                    'user_id': bookmark.user_id,
+                    'url': bookmark.url,
+                    'title': bookmark.title,
+                    'content_snippet': bookmark.extracted_text[:200] + '...' if bookmark.extracted_text and len(bookmark.extracted_text) > 200 else bookmark.extracted_text,
+                    'distance': 1.0 - (score / 20.0),  # Convert score to distance (0-1)
+                    'relevance_score': score
+                })
+        
+        return jsonify({
+            'query': query,
+            'results': results,
+            'total': len(results),
+            'source': 'fallback',
+            'message': 'Using fallback search (Supabase unavailable)'
+        }), 200
+        
+    except Exception as e:
+        print(f"Fallback semantic search error: {str(e)}")
+        return jsonify({
+            'query': query,
+            'results': [],
+            'total': 0,
+            'source': 'error',
+            'message': 'Search service temporarily unavailable'
+        }), 503 

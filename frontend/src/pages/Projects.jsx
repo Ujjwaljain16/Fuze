@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
-import { FolderOpen, Plus, Edit, Trash2, Calendar } from 'lucide-react'
-import './projects-styles.css'
+import { 
+  FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
+  Settings, Grid3X3, List, Star, Clock, TrendingUp, 
+  BarChart3, Globe, MoreHorizontal, Tag, Sparkles
+} from 'lucide-react'
 
 const Projects = () => {
   const { isAuthenticated } = useAuth()
@@ -13,11 +16,22 @@ const Projects = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [editingProject, setEditingProject] = useState(null)
   const [deletingProject, setDeletingProject] = useState(null)
+  const [viewMode, setViewMode] = useState('grid')
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     technologies: ''
   })
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -99,44 +113,314 @@ const Projects = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="projects-container">
-        <div className="auth-required">
-          <h2>Authentication Required</h2>
-          <p>Please log in to view your projects.</p>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
+        </div>
+
+        {/* Lightning Grid Background */}
+        <div className="fixed inset-0 opacity-5">
+          <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+            {Array.from({ length: 576 }).map((_, i) => (
+              <div
+                key={i}
+                className="border border-green-500/10 animate-pulse"
+                style={{
+                  animationDelay: `${Math.random() * 5}s`,
+                  animationDuration: `${4 + Math.random() * 3}s`
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10 flex items-center justify-center min-h-screen p-8">
+          <div className="max-w-md mx-auto text-center">
+            <div className="mb-8">
+              <div className="flex items-center justify-center space-x-3 mb-4">
+                <div className="relative">
+                  <FolderOpen className="w-12 h-12 text-green-400" />
+                  <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent mb-4">
+                Authentication Required
+              </h2>
+              <p className="text-xl text-gray-300">
+                Please log in to view and manage your projects.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
+        </div>
+
+        <div className="text-center relative z-10">
+          <div className="relative mb-4">
+            <FolderOpen className="w-12 h-12 text-green-400 mx-auto animate-spin" />
+            <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
+          </div>
+          <p className="text-xl text-gray-300">Loading your projects...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="projects-container">
-      <div className="projects-header">
-        <h1>My Projects</h1>
-        <button 
-          onClick={() => setShowCreateForm(true)}
-          className="add-button"
-        >
-          <Plus size={16} />
-          New Project
-        </button>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 opacity-10">
+        <div 
+          className="absolute w-96 h-96 rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+            left: mousePos.x - 192,
+            top: mousePos.y - 192,
+            transition: 'all 0.3s ease-out'
+          }}
+        />
+      </div>
+      
+      {/* Lightning Grid Background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+          {Array.from({ length: 576 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-green-500/10 animate-pulse"
+              style={{
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${4 + Math.random() * 3}s`
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="relative z-10">
+        {/* Main Content */}
+        <div className="w-full">
+          <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+            {/* Header Section */}
+            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center space-x-4 mb-4">
+                    <div className="relative">
+                      <FolderOpen className="w-8 h-8 text-green-400" />
+                      <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
+                    </div>
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+                      My Projects
+                    </h1>
+                  </div>
+                  <p className="text-gray-300 text-xl">Organize and manage your development projects and ideas.</p>
+                </div>
+                
+                <div className="flex items-center space-x-4">
+                  <button 
+                    onClick={() => setShowCreateForm(true)}
+                    className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 group relative overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+                    <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+                    <span>New Project</span>
+                  </button>
+                  
+                  <div className="flex items-center space-x-2 bg-gray-800/50 rounded-xl p-1">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? 'bg-green-600 text-white shadow-lg shadow-green-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                    >
+                      <Grid3X3 className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? 'bg-green-600 text-white shadow-lg shadow-green-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                    >
+                      <List className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Projects Content */}
+            {projects.length > 0 ? (
+              viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {projects.map((project) => (
+                    <div key={project.id} className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-green-500/30 transition-all duration-300 transform hover:scale-[1.02]">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-semibold text-white group-hover:text-green-400 transition-colors duration-300 mb-2">
+                            {project.title}
+                          </h3>
+                          {project.description && (
+                            <p className="text-gray-400 mb-4 line-clamp-3">{project.description}</p>
+                          )}
+                        </div>
+                        <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                        </button>
+                      </div>
+                      
+                      {project.technologies && (
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {project.technologies.split(',').map((tech, index) => (
+                            <span key={index} className="px-2 py-1 bg-green-600/20 text-green-400 text-xs rounded-lg">
+                              {tech.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2 text-xs text-gray-500">
+                          <Calendar className="w-4 h-4" />
+                          <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button 
+                            onClick={() => openEditForm(project)}
+                            className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
+                            title="Edit project"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => openDeleteModal(project)}
+                            className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300"
+                            title="Delete project"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {projects.map((project) => (
+                    <div key={project.id} className="flex items-center space-x-4 p-6 bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-green-500/30 transition-all duration-300">
+                      <div className="w-12 h-12 bg-gradient-to-br from-green-600/20 to-emerald-600/20 rounded-lg flex items-center justify-center">
+                        <FolderOpen className="w-6 h-6 text-green-400" />
+                      </div>
+                      
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-white mb-1">{project.title}</h3>
+                        {project.description && (
+                          <p className="text-gray-400 text-sm line-clamp-1 mb-2">{project.description}</p>
+                        )}
+                        <div className="flex items-center space-x-4">
+                          {project.technologies && (
+                            <div className="flex flex-wrap gap-1">
+                              {project.technologies.split(',').slice(0, 3).map((tech, index) => (
+                                <span key={index} className="px-2 py-1 bg-green-600/20 text-green-400 text-xs rounded-lg">
+                                  {tech.trim()}
+                                </span>
+                              ))}
+                              {project.technologies.split(',').length > 3 && (
+                                <span className="text-xs text-gray-500">+{project.technologies.split(',').length - 3} more</span>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center space-x-1 text-xs text-gray-500">
+                            <Calendar className="w-3 h-3" />
+                            <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <button>
+                          <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                        </button>
+                        <button onClick={() => openEditForm(project)}>
+                          <Edit className="w-5 h-5 text-gray-400 hover:text-blue-400" />
+                        </button>
+                        <button onClick={() => openDeleteModal(project)}>
+                          <Trash2 className="w-5 h-5 text-gray-400 hover:text-red-400" />
+                        </button>
+                        <button>
+                          <MoreHorizontal className="w-5 h-5 text-gray-400 hover:text-white" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              <div className="text-center py-16 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+                <div className="p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full w-24 h-24 mx-auto mb-6">
+                  <FolderOpen className="w-12 h-12 text-green-400 mx-auto mt-3" />
+                </div>
+                <h3 className="text-2xl font-semibold text-white mb-4">No projects yet</h3>
+                <p className="text-gray-400 mb-8 max-w-md mx-auto">Create your first project to start organizing your bookmarks and development tasks efficiently.</p>
+                <button 
+                  onClick={() => setShowCreateForm(true)}
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-4 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-3 mx-auto"
+                >
+                  <Plus className="w-6 h-6" />
+                  <span>Create Your First Project</span>
+                </button>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
 
       {/* Create Project Modal */}
       {showCreateForm && (
-        <div className="modal-overlay" onClick={closeForms}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Create New Project</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={closeForms}>
+          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-xl border border-gray-700 rounded-2xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-lg">
+                  <Plus className="w-6 h-6 text-green-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">Create New Project</h2>
+              </div>
               <button 
                 onClick={closeForms}
-                className="close-button"
+                className="text-gray-400 hover:text-white transition-colors duration-300 p-2 hover:bg-gray-800 rounded-lg"
               >
-                ×
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
-            <form onSubmit={handleCreateProject} className="project-form">
-              <div className="form-group">
-                <label htmlFor="create-title">Project Title</label>
+            
+            <form onSubmit={handleCreateProject} className="space-y-6">
+              <div>
+                <label htmlFor="create-title" className="block text-sm font-medium text-gray-300 mb-2">Project Title</label>
                 <input
                   type="text"
                   id="create-title"
@@ -144,11 +428,12 @@ const Projects = () => {
                   onChange={(e) => setFormData({...formData, title: e.target.value})}
                   required
                   placeholder="Enter project title"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300"
                 />
               </div>
               
-              <div className="form-group">
-                <label htmlFor="create-description">Description</label>
+              <div>
+                <label htmlFor="create-description" className="block text-sm font-medium text-gray-300 mb-2">Description</label>
                 <textarea
                   id="create-description"
                   value={formData.description}
@@ -156,25 +441,34 @@ const Projects = () => {
                   required
                   placeholder="Describe your project"
                   rows="3"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300 resize-none"
                 />
               </div>
               
-              <div className="form-group">
-                <label htmlFor="create-technologies">Technologies</label>
+              <div>
+                <label htmlFor="create-technologies" className="block text-sm font-medium text-gray-300 mb-2">Technologies</label>
                 <input
                   type="text"
                   id="create-technologies"
                   value={formData.technologies}
                   onChange={(e) => setFormData({...formData, technologies: e.target.value})}
                   placeholder="e.g., React, Python, PostgreSQL"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300"
                 />
               </div>
               
-              <div className="form-actions">
-                <button type="button" onClick={closeForms}>
+              <div className="flex items-center space-x-4 pt-4">
+                <button 
+                  type="button" 
+                  onClick={closeForms}
+                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white"
+                >
                   Cancel
                 </button>
-                <button type="submit" className="primary">
+                <button 
+                  type="submit"
+                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+                >
                   Create Project
                 </button>
               </div>
@@ -185,20 +479,28 @@ const Projects = () => {
 
       {/* Edit Project Modal */}
       {showEditForm && editingProject && (
-        <div className="modal-overlay" onClick={closeForms}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Edit Project</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={closeForms}>
+          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-xl border border-gray-700 rounded-2xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-lg">
+                  <Edit className="w-6 h-6 text-blue-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">Edit Project</h2>
+              </div>
               <button 
                 onClick={closeForms}
-                className="close-button"
+                className="text-gray-400 hover:text-white transition-colors duration-300 p-2 hover:bg-gray-800 rounded-lg"
               >
-                ×
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
-            <form onSubmit={handleEditProject} className="project-form">
-              <div className="form-group">
-                <label htmlFor="edit-title">Project Title</label>
+            
+            <form onSubmit={handleEditProject} className="space-y-6">
+              <div>
+                <label htmlFor="edit-title" className="block text-sm font-medium text-gray-300 mb-2">Project Title</label>
                 <input
                   type="text"
                   id="edit-title"
@@ -206,11 +508,12 @@ const Projects = () => {
                   onChange={(e) => setFormData({...formData, title: e.target.value})}
                   required
                   placeholder="Enter project title"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300"
                 />
               </div>
               
-              <div className="form-group">
-                <label htmlFor="edit-description">Description</label>
+              <div>
+                <label htmlFor="edit-description" className="block text-sm font-medium text-gray-300 mb-2">Description</label>
                 <textarea
                   id="edit-description"
                   value={formData.description}
@@ -218,25 +521,34 @@ const Projects = () => {
                   required
                   placeholder="Describe your project"
                   rows="3"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300 resize-none"
                 />
               </div>
               
-              <div className="form-group">
-                <label htmlFor="edit-technologies">Technologies</label>
+              <div>
+                <label htmlFor="edit-technologies" className="block text-sm font-medium text-gray-300 mb-2">Technologies</label>
                 <input
                   type="text"
                   id="edit-technologies"
                   value={formData.technologies}
                   onChange={(e) => setFormData({...formData, technologies: e.target.value})}
                   placeholder="e.g., React, Python, PostgreSQL"
+                  className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300"
                 />
               </div>
               
-              <div className="form-actions">
-                <button type="button" onClick={closeForms}>
+              <div className="flex items-center space-x-4 pt-4">
+                <button 
+                  type="button" 
+                  onClick={closeForms}
+                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white"
+                >
                   Cancel
                 </button>
-                <button type="submit" className="primary">
+                <button 
+                  type="submit"
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105"
+                >
                   Update Project
                 </button>
               </div>
@@ -247,34 +559,32 @@ const Projects = () => {
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && deletingProject && (
-        <div className="modal-overlay" onClick={closeForms}>
-          <div className="modal delete-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Delete Project</h2>
-              <button 
-                onClick={closeForms}
-                className="close-button"
-              >
-                ×
-              </button>
-            </div>
-            <div className="delete-modal-content">
-              <div className="delete-icon">
-                <Trash2 size={48} />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={closeForms}>
+          <div className="bg-gradient-to-br from-gray-900/90 to-black/90 backdrop-blur-xl border border-gray-700 rounded-2xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center">
+              <div className="p-4 bg-gradient-to-r from-red-600/20 to-orange-600/20 rounded-full w-20 h-20 mx-auto mb-6">
+                <Trash2 className="w-12 h-12 text-red-400 mx-auto mt-2" />
               </div>
-              <h3>Are you sure you want to delete this project?</h3>
-              <p className="delete-project-name">"{deletingProject.title}"</p>
-              <p className="delete-warning">
-                This action cannot be undone. All project data will be permanently removed.
+              
+              <h2 className="text-2xl font-bold text-white mb-4">Delete Project</h2>
+              <h3 className="text-xl font-semibold text-gray-300 mb-2">Are you sure you want to delete this project?</h3>
+              <p className="text-red-400 font-medium text-lg mb-4">"{deletingProject.title}"</p>
+              <p className="text-gray-400 mb-8">
+                This action cannot be undone. All project data will be permanently removed from your account.
               </p>
-              <div className="form-actions">
-                <button type="button" onClick={closeForms}>
+              
+              <div className="flex items-center space-x-4">
+                <button 
+                  type="button" 
+                  onClick={closeForms}
+                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white"
+                >
                   Cancel
                 </button>
                 <button 
                   type="button" 
-                  className="delete-btn"
                   onClick={handleDeleteProject}
+                  className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-red-500/25 transition-all duration-300 transform hover:scale-105 text-white"
                 >
                   Delete Project
                 </button>
@@ -284,67 +594,31 @@ const Projects = () => {
         </div>
       )}
 
-      {loading ? (
-        <div className="loading">Loading projects...</div>
-      ) : projects.length > 0 ? (
-        <div className="projects-grid">
-          {projects.map((project) => (
-            <div key={project.id} className="project-card">
-              <div className="project-header">
-                <h3>{project.title}</h3>
-              </div>
-              
-              <p className="project-description">{project.description}</p>
-              
-              {project.technologies && (
-                <div className="project-technologies">
-                  <strong>Technologies:</strong> {project.technologies}
-                </div>
-              )}
-              <div className="project-meta-row">
-                {/* Remove divider for a cleaner look */}
-                <div className="project-meta-bottom">
-                  <span className="project-date">
-                    <Calendar size={14} />
-                    {new Date(project.created_at).toLocaleDateString()}
-                  </span>
-                  <div className="project-actions">
-                    <button 
-                      className="action-button" 
-                      title="Edit project"
-                      onClick={() => openEditForm(project)}
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button 
-                      onClick={() => openDeleteModal(project)}
-                      className="action-button delete"
-                      title="Delete project"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <FolderOpen className="empty-icon" />
-          <h3>No projects yet</h3>
-          <p>Create your first project to start organizing your bookmarks and tasks.</p>
-          <button 
-            onClick={() => setShowCreateForm(true)}
-            className="add-button"
-          >
-            <Plus size={16} />
-            Create Project
-          </button>
-        </div>
-      )}
+      {/* Custom Styles */}
+      <style jsx>{`
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        
+        .line-clamp-3 {
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
     </div>
   )
 }
 
-export default Projects 
+export default Projects

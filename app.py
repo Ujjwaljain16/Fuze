@@ -1,15 +1,16 @@
+
 import os
-print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
-from flask import Flask
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import Flask, request, jsonify
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
-from dotenv import load_dotenv
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
-# Remove embedding_model and get_embedding from here
-# If needed, import from embedding_utils
 import numpy as np
+from redis_utils import redis_cache
 
 # Import blueprints
 from blueprints.auth import auth_bp
@@ -21,9 +22,6 @@ from blueprints.feedback import feedback_bp
 from blueprints.profile import profile_bp
 from blueprints.search import search_bp
 
-# Load environment variables
-load_dotenv()
-print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 
 # Global embedding model
 # embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -37,22 +35,58 @@ def create_app():
     """Application factory pattern for better testing and modularity"""
     app = Flask(__name__)
     
-    # Configuration
-    app.config.from_object('config.Config')
-    app.config['JWT_SECRET_KEY'] = 'your-secret-key'  # Change this in production
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=15)
-    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=14)
-    app.config['JWT_TOKEN_LOCATION'] = ['headers', 'cookies']
-    app.config['JWT_COOKIE_SECURE'] = True  # Set to True in production (HTTPS)
-    app.config['JWT_COOKIE_SAMESITE'] = 'Strict'
-    app.config['JWT_COOKIE_CSRF_PROTECT'] = False  # Set to True and handle CSRF in production
+    # Environment-based configuration
+    env = os.environ.get('FLASK_ENV', 'development')
+    if env == 'production':
+        app.config.from_object('config.ProductionConfig')
+    else:
+        app.config.from_object('config.DevelopmentConfig')
     
-    # Enable CORS for all origins (development only)
-    CORS(app)
+    # Override with environment variables if needed
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=app.config.get('JWT_ACCESS_TOKEN_EXPIRES', 15))
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=app.config.get('JWT_REFRESH_TOKEN_EXPIRES', 14))
+    
+    # Configure CORS based on environment
+    if app.config.get('DEBUG'):
+        # Development: Allow all origins with credentials
+        CORS(app, 
+             origins=app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173']), 
+             supports_credentials=True,
+             allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
+             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+    else:
+        # Production: Restrict to specific origins
+        CORS(app, 
+             origins=app.config.get('CORS_ORIGINS', []), 
+             supports_credentials=True,
+             allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
+             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
     
     # Initialize extensions
     db.init_app(app)
     jwt = JWTManager(app)
+    
+    # JWT Error Handlers
+    @jwt.expired_token_loader
+    def expired_token_callback(jwt_header, jwt_payload):
+        return jsonify({
+            'message': 'The token has expired',
+            'error': 'token_expired'
+        }), 401
+    
+    @jwt.invalid_token_loader
+    def invalid_token_callback(error):
+        return jsonify({
+            'message': 'Signature verification failed',
+            'error': 'invalid_token'
+        }), 401
+    
+    @jwt.unauthorized_loader
+    def missing_token_callback(error):
+        return jsonify({
+            'message': 'Request does not contain an access token',
+            'error': 'authorization_required'
+        }), 401
     
     # Register blueprints
     app.register_blueprint(auth_bp)
@@ -64,10 +98,30 @@ def create_app():
     app.register_blueprint(profile_bp)
     app.register_blueprint(search_bp)
     
+    # Security headers middleware
+    @app.after_request
+    def add_security_headers(response):
+        # Security headers
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        
+        # HTTPS-only headers in production
+        if app.config.get('HTTPS_ENABLED'):
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        
+        return response
+    
     # Basic route
     @app.route('/')
     def index():
-        return {'message': 'Fuze API running', 'version': '1.0.0'}
+        return {
+            'message': 'Fuze API running', 
+            'version': '1.0.0',
+            'environment': app.config.get('ENV', 'development'),
+            'https_enabled': app.config.get('HTTPS_ENABLED', False),
+            'csrf_enabled': app.config.get('CSRF_ENABLED', False)
+        }
     
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
@@ -75,18 +129,27 @@ def create_app():
         try:
             # Test database connection using proper SQLAlchemy syntax
             db.session.execute(text('SELECT 1'))
-            return {
-                'status': 'healthy',
-                'message': 'Fuze API is running',
-                'version': '1.0.0',
-                'database': 'connected'
-            }, 200
+            db_status = 'connected'
         except Exception as e:
-            return {
-                'status': 'unhealthy',
-                'message': 'Database connection failed',
-                'error': str(e)
-            }, 500
+            db_status = f'error: {str(e)}'
+        
+        # Get Redis status
+        redis_stats = redis_cache.get_cache_stats()
+        
+        return {
+            'status': 'healthy' if db_status == 'connected' and redis_stats.get('connected', False) else 'degraded',
+            'message': 'Fuze API is running',
+            'version': '1.0.0',
+            'environment': app.config.get('ENV', 'development'),
+            'database': db_status,
+            'redis': redis_stats
+        }, 200 if db_status == 'connected' else 500
+    
+    # Redis health check endpoint
+    @app.route('/api/health/redis')
+    def redis_health_check():
+        redis_stats = redis_cache.get_cache_stats()
+        return jsonify(redis_stats), 200 if redis_stats.get('connected', False) else 503
     
     # Error handlers
     @app.errorhandler(400)
@@ -111,4 +174,22 @@ def create_app():
 app = create_app()
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    # Use configuration-based debug mode
+    debug_mode = app.config.get('DEBUG', False)
+    host = '0.0.0.0' if app.config.get('ENV') == 'production' else 'localhost'
+    port = int(os.environ.get('PORT', 5000))
+    
+    # SSL context for HTTPS in production
+    ssl_context = None
+    if app.config.get('HTTPS_ENABLED'):
+        cert_path = os.environ.get('SSL_CERT_PATH')
+        key_path = os.environ.get('SSL_KEY_PATH')
+        if cert_path and key_path:
+            ssl_context = (cert_path, key_path)
+    
+    app.run(
+        host=host, 
+        port=port, 
+        debug=debug_mode,
+        ssl_context=ssl_context
+    ) 

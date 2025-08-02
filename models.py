@@ -18,26 +18,28 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(80), unique=True, nullable=False)
     email = Column(String(120), unique=True, nullable=False)
-    password_hash = Column(String(256), nullable=False) # <--- CORRECTED: Increased length to 256
+    password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
     created_at = Column(DateTime, default=func.now())
 
-    saved_content = relationship('SavedContent', backref='user', lazy=True)
-    projects = relationship('Project', backref='user', lazy=True)
+    saved_content = relationship('SavedContent', backref='user', lazy=True, cascade='all, delete-orphan')
+    projects = relationship('Project', backref='user', lazy=True, cascade='all, delete-orphan')
 
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     title = Column(String(100), nullable=False)
     description = Column(TEXT)
     technologies = Column(TEXT)
     created_at = Column(DateTime, default=func.now())
 
+    tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
+
 class SavedContent(Base):
     __tablename__ = 'saved_content'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     url = Column(TEXT, nullable=False)
     title = Column(String(200), nullable=False)
     source = Column(String(50))
@@ -47,23 +49,24 @@ class SavedContent(Base):
     tags = Column(TEXT)
     category = Column(String(100))
     notes = Column(TEXT)
+    quality_score = Column(Integer, default=10)
 
-class Feedback(db.Model):
+class Feedback(Base):
     __tablename__ = 'feedback'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)
-    content_id = db.Column(db.Integer, db.ForeignKey('saved_content.id'), nullable=False)
-    feedback_type = db.Column(db.String(20), nullable=False)  # e.g., 'relevant', 'not_relevant'
-    timestamp = db.Column(db.DateTime, default=func.now())
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    feedback_type = Column(String(20), nullable=False)  # e.g., 'relevant', 'not_relevant'
+    timestamp = Column(DateTime, default=func.now())
 
     __table_args__ = (UniqueConstraint('user_id', 'project_id', 'content_id', name='_user_project_content_uc'),)
 
-class Task(db.Model):
+class Task(Base):
     __tablename__ = 'tasks'
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
-    title = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=func.now())
-    embedding = db.Column(Vector(384))
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=False)
+    title = Column(String(100), nullable=False)
+    description = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+    embedding = Column(Vector(384))

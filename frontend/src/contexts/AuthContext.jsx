@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import api from '../services/api'
+import api, { initializeCSRF } from '../services/api'
 
 const AuthContext = createContext()
 
@@ -17,12 +17,19 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      // Fetch user data when token is available
-      fetchUser()
+    const initializeAuth = async () => {
+      // Initialize CSRF token
+      await initializeCSRF()
+      
+      if (token) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        // Fetch user data when token is available
+        await fetchUser()
+      }
+      setLoading(false)
     }
-    setLoading(false)
+    
+    initializeAuth()
   }, [token])
 
   const fetchUser = async () => {
@@ -41,14 +48,12 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      const { access_token } = response.data
+      const { access_token, user: userData } = response.data
       
       setToken(access_token)
+      setUser(userData)
       localStorage.setItem('token', access_token)
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-      
-      // Fetch user data after successful login
-      await fetchUser()
       
       return { success: true }
     } catch (error) {
@@ -81,6 +86,9 @@ export const AuthProvider = ({ children }) => {
     setUser(null)
     localStorage.removeItem('token')
     delete api.defaults.headers.common['Authorization']
+    
+    // Call logout endpoint to clear cookies
+    api.post('/api/auth/logout').catch(console.error)
   }
 
   const value = {
@@ -90,7 +98,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    isAuthenticated: !!token
+    isAuthenticated: !!token && !!user
   }
 
   return (

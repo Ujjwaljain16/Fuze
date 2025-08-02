@@ -2,14 +2,19 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
-import { User, Settings, Save, LogOut, Eye, EyeOff } from 'lucide-react'
-import './profile-styles.css'
+import { Zap } from 'lucide-react'
+import ProfileHeader from '../components/ProfileHeader'
+import ProfileStats from '../components/ProfileStats'
+import ProfileForm from '../components/ProfileForm'
+import PasswordForm from '../components/PasswordForm'
+import AccountActions from '../components/AccountActions'
 
 const Profile = () => {
   const { isAuthenticated, user, logout } = useAuth()
   const { success, error } = useToast()
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [formData, setFormData] = useState({
     username: '',
     technology_interests: '',
@@ -17,6 +22,15 @@ const Profile = () => {
     new_password: '',
     confirm_password: ''
   })
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -55,7 +69,6 @@ const Profile = () => {
       
       if (response.data) {
         success('Profile updated successfully!')
-        // Update local user data if needed
       }
     } catch (err) {
       console.error('Error updating profile:', err)
@@ -98,7 +111,6 @@ const Profile = () => {
       
       if (response.data) {
         success('Password changed successfully!')
-        // Clear password fields
         setFormData(prev => ({
           ...prev,
           current_password: '',
@@ -125,204 +137,120 @@ const Profile = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="container">
-        <div className="auth-required">
-          <h2>Authentication Required</h2>
-          <p>Please log in to access your profile.</p>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
+        </div>
+
+        {/* Lightning Grid Background */}
+        <div className="fixed inset-0 opacity-5">
+          <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+            {Array.from({ length: 576 }).map((_, i) => (
+              <div
+                key={i}
+                className="border border-blue-500/10 animate-pulse"
+                style={{
+                  animationDelay: `${Math.random() * 5}s`,
+                  animationDuration: `${4 + Math.random() * 3}s`
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="relative z-10 text-center">
+          <div className="flex items-center justify-center space-x-3 mb-4">
+            <div className="relative">
+              <Zap className="w-12 h-12 text-blue-400" />
+              <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+            </div>
+            <span className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+              Fuze
+            </span>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-4">Authentication Required</h2>
+          <p className="text-gray-300">Please log in to access your profile.</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="container">
-      <div className="page-header">
-        <div className="page-title">
-          <User className="page-icon" />
-          <h1>My Profile</h1>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 opacity-10">
+        <div 
+          className="absolute w-96 h-96 rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+            left: mousePos.x - 192,
+            top: mousePos.y - 192,
+            transition: 'all 0.3s ease-out'
+          }}
+        />
+      </div>
+      
+      {/* Lightning Grid Background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+          {Array.from({ length: 576 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-blue-500/10 animate-pulse"
+              style={{
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${4 + Math.random() * 3}s`
+              }}
+            />
+          ))}
         </div>
-        <p className="page-subtitle">
-          Manage your account settings and preferences
-        </p>
       </div>
 
-      <div className="profile-content">
-        {/* Profile Information */}
-        <div className="profile-section">
-          <div className="section-header">
-            <h2>Profile Information</h2>
+      <div className="relative z-10">
+        {/* Main Content */}
+        <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+          {/* Profile Header */}
+          <ProfileHeader user={user} />
+
+          {/* Profile Stats */}
+          <ProfileStats user={user} />
+
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            {/* Profile Form */}
+            <ProfileForm
+              formData={formData}
+              onInputChange={handleInputChange}
+              onSubmit={handleProfileUpdate}
+              loading={loading}
+            />
+
+            {/* Password Form */}
+            <PasswordForm
+              formData={formData}
+              onInputChange={handleInputChange}
+              onSubmit={handlePasswordChange}
+              loading={loading}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+            />
           </div>
-          
-          <form onSubmit={handleProfileUpdate} className="form">
-            <div className="form-group">
-              <label htmlFor="username" className="form-label">
-                Username
-              </label>
-              <input
-                type="text"
-                id="username"
-                name="username"
-                value={formData.username}
-                onChange={handleInputChange}
-                className="form-input"
-                required
-              />
-            </div>
 
-            <div className="form-group">
-              <label htmlFor="technology_interests" className="form-label">
-                Technology Interests
-              </label>
-              <textarea
-                id="technology_interests"
-                name="technology_interests"
-                value={formData.technology_interests}
-                onChange={handleInputChange}
-                placeholder="e.g., React, Python, Machine Learning, Web Development"
-                className="form-input form-textarea"
-                rows={3}
-              />
-              <small className="form-help">
-                This helps us provide better recommendations for you
-              </small>
-            </div>
-
-            <div className="form-actions">
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn btn-primary"
-              >
-                <Save size={16} />
-                {loading ? 'Updating...' : 'Update Profile'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Change Password */}
-        <div className="profile-section">
-          <div className="section-header">
-            <h2>Change Password</h2>
-          </div>
-          
-          <form onSubmit={handlePasswordChange} className="form">
-            <div className="form-group">
-              <label htmlFor="current_password" className="form-label">
-                Current Password
-              </label>
-              <div className="password-input-group">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  id="current_password"
-                  name="current_password"
-                  value={formData.current_password}
-                  onChange={handleInputChange}
-                  className="form-input"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="password-toggle"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="new_password" className="form-label">
-                New Password
-              </label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                id="new_password"
-                name="new_password"
-                value={formData.new_password}
-                onChange={handleInputChange}
-                className="form-input"
-                required
-                minLength={6}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="confirm_password" className="form-label">
-                Confirm New Password
-              </label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                id="confirm_password"
-                name="confirm_password"
-                value={formData.confirm_password}
-                onChange={handleInputChange}
-                className="form-input"
-                required
-                minLength={6}
-              />
-            </div>
-
-            <div className="form-actions">
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn btn-secondary"
-              >
-                {loading ? 'Changing...' : 'Change Password'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Account Actions */}
-        <div className="profile-section">
-          <div className="section-header">
-            <h2>Account Actions</h2>
-          </div>
-          
-          <div className="account-actions">
-            <button
-              onClick={handleLogout}
-              className="btn btn-error"
-            >
-              <LogOut size={16} />
-              Logout
-            </button>
-          </div>
-        </div>
-
-        {/* Account Statistics */}
-        <div className="profile-section">
-          <div className="section-header">
-            <h2>Account Statistics</h2>
-          </div>
-          
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-icon">
-                <User />
-              </div>
-              <div className="stat-content">
-                <h3>Member Since</h3>
-                <p>{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
-              </div>
-            </div>
-            
-            <div className="stat-card">
-              <div className="stat-icon">
-                <Settings />
-              </div>
-              <div className="stat-content">
-                <h3>Account Status</h3>
-                <p>Active</p>
-              </div>
-            </div>
-          </div>
-        </div>
+          {/* Account Actions */}
+          <AccountActions onLogout={handleLogout} />
+        </main>
       </div>
     </div>
   )
 }
 
-export default Profile 
+export default Profile

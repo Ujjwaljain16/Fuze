@@ -6,6 +6,7 @@ import re
 from typing import List, Dict, Tuple, Optional
 import json
 from datetime import datetime, timedelta
+import spacy
 
 class SmartRecommendationEngine:
     def __init__(self):
@@ -15,31 +16,54 @@ class SmartRecommendationEngine:
             stop_words='english',
             ngram_range=(1, 2)
         )
-        
-        # Technology keywords for better matching
-        self.tech_keywords = {
-            'react_native': ['react native', 'react-native', 'rn', 'expo', 'metro', 'react navigation'],
-            'javascript': ['javascript', 'js', 'es6', 'es7', 'node.js', 'nodejs'],
-            'python': ['python', 'django', 'flask', 'fastapi', 'pandas', 'numpy'],
-            'mobile': ['mobile', 'ios', 'android', 'app', 'application', 'native'],
-            'web': ['web', 'html', 'css', 'frontend', 'backend', 'api'],
-            'database': ['database', 'sql', 'nosql', 'mongodb', 'postgresql', 'mysql'],
-            'ai_ml': ['ai', 'machine learning', 'ml', 'tensorflow', 'pytorch', 'neural'],
-            'devops': ['devops', 'docker', 'kubernetes', 'ci/cd', 'deployment'],
-            'blockchain': ['blockchain', 'crypto', 'ethereum', 'bitcoin', 'smart contract']
+        # Load spaCy model for entity recognition
+        self.nlp = spacy.load('en_core_web_sm')
+        # Technology normalization map (expand as needed)
+        self.tech_normalization = {
+            'jvm': 'java',
+            'bytecode': 'java',
+            'byte buddy': 'java',
+            'asm': 'java',
+            'react-native': 'react native',
+            'nodejs': 'node.js',
+            'tensorflow': 'ai_ml',
+            'pytorch': 'ai_ml',
+            'machine learning': 'ai_ml',
+            'ml': 'ai_ml',
+            'neural': 'ai_ml',
+            # Add more as needed
         }
-    
+
+    def extract_technologies(self, text: str) -> list:
+        doc = self.nlp(text.lower())
+        # Use spaCy's built-in stopwords
+        from spacy.lang.en.stop_words import STOP_WORDS
+        stopwords = STOP_WORDS
+        # Extract named entities
+        candidates = set()
+        for ent in doc.ents:
+            if ent.label_ in ['ORG', 'PRODUCT', 'WORK_OF_ART', 'LANGUAGE']:
+                candidates.add(ent.text)
+        # Add words that look like techs (not stopwords, not too short, not digits)
+        tech_words = [w for w in text.split() if len(w) > 2 and w not in stopwords and not w.isdigit()]
+        candidates.update(tech_words)
+        # Normalize and filter
+        normalized = set()
+        for c in candidates:
+            c = c.strip(',;:()[]{}').lower()
+            if c in stopwords or not c or len(c) < 3:
+                continue
+            if c in self.tech_normalization:
+                normalized.add(self.tech_normalization[c])
+            else:
+                normalized.add(c)
+        return list(normalized)
+
     def extract_content_summary(self, title: str, content: str, url: str) -> Dict:
         """Extract key information from content using AI and NLP"""
         full_text = f"{title} {content}".lower()
-        
-        # Extract technologies mentioned
-        technologies = []
-        for tech_category, keywords in self.tech_keywords.items():
-            for keyword in keywords:
-                if keyword in full_text:
-                    technologies.append(tech_category)
-                    break
+        # Use dynamic technology extraction
+        technologies = self.extract_technologies(full_text)
         
         # Extract content type
         content_type = self._classify_content_type(title, content, url)
@@ -164,25 +188,25 @@ class SmartRecommendationEngine:
         }
     
     def _calculate_tech_match(self, bookmark_analysis: Dict, project_analysis: Dict) -> float:
-        """Calculate technology match score"""
+        """Calculate technology match score using dynamically extracted technologies."""
         bookmark_techs = set(bookmark_analysis['technologies'])
         project_techs = set(project_analysis['technologies'])
-        
+
         if not project_techs:
             return 15  # Neutral score if no project techs specified
-        
+
         if not bookmark_techs:
             return 5   # Low score if no techs in bookmark
-        
+
         # Calculate overlap
         overlap = len(bookmark_techs.intersection(project_techs))
         total = len(project_techs)
-        
+
         if total == 0:
             return 15
-        
+
         match_ratio = overlap / total
-        
+
         # Score: 0-30 points
         return min(30, match_ratio * 30)
     
@@ -292,3 +316,51 @@ class SmartRecommendationEngine:
         
         # Return top recommendations
         return quality_recommendations[:max_recommendations] 
+
+# --- TEST UTILITY ---
+if __name__ == "__main__":
+    engine = SmartRecommendationEngine()
+    project_context = {
+        'title': 'Java Bytecode Instrumentation',
+        'description': 'A project using Java, ASM, and Byte Buddy for runtime code manipulation.',
+        'technologies': 'java, asm, byte buddy',
+        'user_interests': ''
+    }
+    bookmarks = [
+        {
+            'id': 1,
+            'title': 'Byte Buddy Tutorial',
+            'url': 'https://bytebuddy.net',
+            'notes': 'Learn how to use Byte Buddy for Java agent development.',
+            'category': 'tutorial',
+            'extracted_text': '',
+            'embedding': None
+        },
+        {
+            'id': 2,
+            'title': 'React Native Guide',
+            'url': 'https://reactnative.dev',
+            'notes': 'Mobile app development with React Native.',
+            'category': 'tutorial',
+            'extracted_text': '',
+            'embedding': None
+        },
+        {
+            'id': 3,
+            'title': 'ASM Java Bytecode Framework',
+            'url': 'https://asm.ow2.io',
+            'notes': 'Manipulate Java bytecode using ASM.',
+            'category': 'documentation',
+            'extracted_text': '',
+            'embedding': None
+        }
+    ]
+    for bm in bookmarks:
+        summary = engine.extract_content_summary(bm['title'], bm['notes'], bm['url'])
+        print(f"Bookmark: {bm['title']}")
+        print(f"  Extracted technologies: {summary['technologies']}")
+    project_summary = engine.extract_content_summary(project_context['title'], project_context['description'], '')
+    print(f"Project extracted technologies: {project_summary['technologies']}")
+    for bm in bookmarks:
+        score_data = engine.calculate_smart_score(bm, project_context)
+        print(f"Score for '{bm['title']}': {score_data['total_score']} (tech_score={score_data['tech_score']})") 

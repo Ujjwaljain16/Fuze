@@ -9,3 +9,166 @@ html, body {
   box-sizing: border-box;
   overflow-x: hidden;
 }
+
+/* App Layout */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.app-layout {
+  display: flex;
+  flex: 1;
+  position: relative;
+  margin-top: 60px; /* Account for fixed navbar */
+  min-height: calc(100vh - 60px);
+}
+
+/* Main content base styles */
+.main-content {
+  flex: 1;
+  margin-left: 64px; /* Default collapsed sidebar width */
+  transition: margin-left 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  min-height: calc(100vh - 60px);
+  background: transparent;
+  width: calc(100vw - 64px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+/* Desktop sidebar state management */
+@media (min-width: 900px) {
+  /* Default collapsed state */
+  .main-content {
+    margin-left: 64px;
+    width: calc(100vw - 64px);
+  }
+  
+  /* When sidebar is expanded via body class */
+  body.sidebar-expanded .main-content {
+    margin-left: 280px !important;
+    width: calc(100vw - 280px) !important;
+  }
+  
+  /* When sidebar is collapsed via body class */
+  body.sidebar-collapsed .main-content {
+    margin-left: 64px !important;
+    width: calc(100vw - 64px) !important;
+  }
+  
+  /* Ensure transitions work */
+  .main-content {
+    transition: margin-left 0.4s cubic-bezier(0.23, 1, 0.32, 1) !important;
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 900px) {
+  .main-content {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    padding: 1.5rem;
+  }
+  
+  /* Mobile sidebar backdrop */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 999;
+  }
+}
+
+/* Dashboard specific styles */
+.dashboard-content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+/* Ensure proper layering */
+.main-content > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Fix any overflow issues */
+.main-content {
+  max-width: 100%;
+}
+
+/* Smooth transitions for layout changes */
+* {
+  box-sizing: border-box;
+}
+
+/* Debug helper - remove in production */
+.debug-layout {
+  border: 2px solid red;
+}
+
+/* Ensure navbar doesn't interfere */
+.navbar {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: 60px;
+}
+
+/* Ensure sidebar positioning */
+.sidebar {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 1002;
+}
+
+/* Additional layout fixes */
+.app-layout {
+  position: relative;
+  z-index: 1;
+}
+
+/* Prevent content from overlapping with fixed elements */
+.main-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure proper stacking context */
+.app {
+  position: relative;
+  z-index: 1;
+}
+
+/* Fix for any potential margin/padding issues */
+.main-content > div {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Ensure responsive behavior */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content {
+    padding: 0.75rem;
+  }
+}

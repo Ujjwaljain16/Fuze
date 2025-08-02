@@ -1,187 +1,303 @@
-import { useState } from 'react'
-import { Eye, EyeOff, Mail, Lock, Github, Chrome } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
-import './auth-styles.css'
+import React, { useState, useEffect } from 'react';
+import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import Button from '../components/Button';
+import Input from '../components/Input';
+import AuthToggle from '../components/AuthToggle';
 
-const Login = () => {
-  const navigate = useNavigate()
-  const { login } = useAuth()
-  const [showPassword, setShowPassword] = useState(false)
-  const [loading, setLoading] = useState(false)
+export default function FuzeAuth() {
+  const [isLogin, setIsLogin] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [formData, setFormData] = useState({
-    identifier: '',
-    password: ''
-  })
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+    name: '',
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const navigate = useNavigate();
+  const { login, register } = useAuth();
 
-  const handleChange = (e) => {
+  useEffect(() => {
+    setIsVisible(true);
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  const handleInputChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
-    })
-  }
+    });
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    setSuccess('')
-
-    // Basic validation
-    if (!formData.identifier || !formData.password) {
-      setError('Please fill in all fields')
-      setLoading(false)
-      return
-    }
-
-    try {
-      // Pass as both username and email for backend compatibility
-      const result = await login(formData.identifier, formData.password)
-      
-      if (result.success) {
-        setSuccess('Login successful! Redirecting...')
-        setTimeout(() => {
-          navigate('/dashboard')
-        }, 1000)
-      } else {
-        setError(result.error || 'Login failed. Please try again.')
+    e && e.preventDefault && e.preventDefault();
+    setError('');
+    setSuccess('');
+    if (isLogin) {
+      // Login: send email or username and password
+      if (!formData.email && !formData.username) {
+        setError('Please enter your email or username.');
+        return;
       }
-    } catch (err) {
-      setError('Login failed. Please try again.')
-    } finally {
-      setLoading(false)
+      if (!formData.password) {
+        setError('Please enter your password.');
+        return;
+      }
+      // Prefer email, fallback to username
+      const identifier = formData.email || formData.username;
+      const result = await login(identifier, formData.password);
+      if (result.success) {
+        setSuccess('Login successful! Redirecting...');
+        setTimeout(() => navigate('/app/dashboard'), 1000);
+      } else {
+        setError(result.error || 'Login failed.');
+      }
+    } else {
+      // Register: send username, email, password, name
+      if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword || !formData.name) {
+        setError('Please fill in all fields.');
+        return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
+      const result = await register(formData.username, formData.email, formData.password, formData.name);
+      if (result.success) {
+        setSuccess('Registration successful! Please sign in.');
+        setTimeout(() => setIsLogin(true), 1200);
+      } else {
+        setError(result.error || 'Registration failed.');
+      }
     }
-  }
-
-  const handleSocialLogin = (provider) => {
-    // Handle social login logic here
-    console.log(`Login with ${provider}`)
-  }
+  };
 
   return (
-    <div className="auth-container">
-      <div className="geometric-bg">
-        <div className="geometric-shape shape-1"></div>
-        <div className="geometric-shape shape-2"></div>
-        <div className="geometric-shape shape-3"></div>
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 opacity-20">
+        <div 
+          className="absolute w-96 h-96 rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, transparent 70%)',
+            left: mousePos.x - 192,
+            top: mousePos.y - 192,
+            transition: 'all 0.3s ease-out'
+          }}
+        />
       </div>
-      
-      <div className="auth-card">
-        <div className="auth-header">
-          <div className="logo">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <path d="M16 4L28 16L16 28L4 16L16 4Z" fill="currentColor" fillOpacity="0.8"/>
-              <path d="M16 8L24 16L16 24L8 16L16 8Z" fill="currentColor"/>
-            </svg>
-          </div>
-          <h1 className="auth-title">Welcome Back</h1>
-          <p className="auth-subtitle">Sign in to your account to continue</p>
+      {/* Lightning Grid Background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="grid grid-cols-20 grid-rows-20 h-full w-full">
+          {Array.from({ length: 400 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-blue-500/20 animate-pulse"
+              style={{
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${3 + Math.random() * 3}s`
+              }}
+            />
+          ))}
         </div>
-
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="message error-message">{error}</div>}
-          {success && <div className="message success-message">{success}</div>}
-          
-          <div className="form-group">
-            <label className="form-label" htmlFor="login-identifier">Username or Email</label>
-            <div className="input-wrapper">
-              <Mail className="input-icon" size={20} />
-              <input
-                id="login-identifier"
-                type="text"
-                name="identifier"
-                value={formData.identifier}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Enter your username or email"
-                required
-                autoComplete="username"
-              />
+      </div>
+      {/* Auth Container */}
+      <div className={`w-full max-w-md relative z-10 transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center space-x-3 mb-4">
+            <div className="relative">
+              <Zap className="w-10 h-10 text-blue-400" />
+              <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+            </div>
+            <div>
+              <span className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                Fuze
+              </span>
+              <div className="text-xs text-blue-300 font-medium tracking-wider uppercase opacity-80">
+                Strike Through the Chaos
+              </div>
             </div>
           </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="login-password">Password</label>
-            <div className="input-wrapper">
-              <Lock className="input-icon" size={20} />
-              <input
-                id="login-password"
-                type={showPassword ? 'text' : 'password'}
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Enter your password"
-                required
-                autoComplete="current-password"
+        </div>
+        {/* Auth Card */}
+        <div className="bg-gradient-to-br from-gray-900/80 to-black/80 backdrop-blur-xl border border-gray-800 rounded-3xl p-8 relative overflow-hidden">
+          {/* Animated Border */}
+          <div className="absolute inset-0 rounded-3xl">
+            <div className="absolute inset-0 rounded-3xl border border-transparent bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
+          </div>
+          <div className="relative z-10">
+            {/* Toggle Buttons */}
+            <AuthToggle 
+              isLogin={isLogin} 
+              onToggle={(loginState) => { 
+                setIsLogin(loginState); 
+                setError(''); 
+                setSuccess(''); 
+              }} 
+            />
+            {/* Error/Success Messages */}
+            {error && <div className="mb-4 text-red-400 text-center font-medium">{error}</div>}
+            {success && <div className="mb-4 text-green-400 text-center font-medium">{success}</div>}
+            {/* Form Fields */}
+            <form className="space-y-6" onSubmit={handleSubmit}>
+              {!isLogin && (
+                <>
+                  <Input
+                    label="Full Name"
+                    icon={User}
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="Enter your full name"
+                  />
+                  <Input
+                    label="Username"
+                    icon={User}
+                    name="username"
+                    value={formData.username}
+                    onChange={handleInputChange}
+                    placeholder="Choose a username"
+                  />
+                </>
+              )}
+              <Input
+                label={`Email ${isLogin ? 'or Username' : 'Address'}`}
+                icon={Mail}
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                placeholder={isLogin ? 'Enter your email or username' : 'Enter your email'}
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="password-toggle"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                tabIndex={0}
+              <div className="group">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-blue-400 transition-colors duration-300" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className="w-full pl-12 pr-12 py-4 bg-gray-800/50 border border-gray-700 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300 text-white placeholder-gray-400"
+                    placeholder="Enter your password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-blue-400 transition-colors duration-300"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+              {!isLogin && (
+                <Input
+                  label="Confirm Password"
+                  icon={Lock}
+                  type="password"
+                  name="confirmPassword"
+                  value={formData.confirmPassword}
+                  onChange={handleInputChange}
+                  placeholder="Confirm your password"
+                />
+              )}
+              {isLogin && (
+                <div className="flex items-center justify-between text-sm">
+                  <label className="flex items-center">
+                    <input type="checkbox" className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2" />
+                    <span className="ml-2 text-gray-300">Remember me</span>
+                  </label>
+                  <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors duration-300">
+                    Forgot password?
+                  </a>
+                </div>
+              )}
+              <Button
+                type="submit"
+                variant="fuze"
+                size="lg"
+                className="group w-full"
               >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
+                <span className="flex items-center justify-center">
+                  {isLogin ? 'Sign In to Fuze' : 'Create Your Account'}
+                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+                </span>
+              </Button>
+            </form>
+            {/* Divider */}
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-700"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-gray-900 text-gray-400">Or continue with</span>
+              </div>
+            </div>
+            {/* Social Login */}
+            <div className="grid grid-cols-2 gap-4">
+              <Button variant="outline" className="flex items-center justify-center">
+                <Github className="w-5 h-5 mr-2" />
+                GitHub
+              </Button>
+              <Button variant="outline" className="flex items-center justify-center">
+                <Chrome className="w-5 h-5 mr-2" />
+                Google
+              </Button>
+            </div>
+            {/* Footer Text */}
+            <div className="mt-8 text-center text-sm text-gray-400">
+              {isLogin ? (
+                <>
+                  Don't have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
+                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300 font-semibold"
+                  >
+                    Sign up for free
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
+                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300 font-semibold"
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
             </div>
           </div>
-
-          <button type="submit" className="auth-button" disabled={loading}>
-            {loading && <div className="loading-spinner"></div>}
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="divider">
-          <span>or continue with</span>
         </div>
-
-        <div className="social-buttons">
-          <button 
-            className="social-button"
-            onClick={() => handleSocialLogin('github')}
-            title="Sign in with GitHub"
-            aria-label="Sign in with GitHub"
-            type="button"
-          >
-            <Github size={20} />
-          </button>
-          <button 
-            className="social-button"
-            onClick={() => handleSocialLogin('google')}
-            title="Sign in with Google"
-            aria-label="Sign in with Google"
-            type="button"
-          >
-            <Chrome size={20} />
-          </button>
-          <button 
-            className="social-button"
-            onClick={() => handleSocialLogin('twitter')}
-            title="Sign in with Twitter"
-            aria-label="Sign in with Twitter"
-            type="button"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M22.46 6c-.77.35-1.6.58-2.46.69.88-.53 1.56-1.37 1.88-2.38-.83.5-1.75.85-2.72 1.05C18.37 4.5 17.26 4 16 4c-2.35 0-4.27 1.92-4.27 4.29 0 .34.04.67.11.98C8.28 9.09 5.11 7.38 3 4.79c-.37.63-.58 1.37-.58 2.15 0 1.49.75 2.81 1.91 3.56-.71 0-1.37-.2-1.95-.5v.03c0 2.08 1.48 3.82 3.44 4.21a4.22 4.22 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.98 8.521 8.521 0 0 1-5.33 1.84c-.34 0-.68-.02-1.02-.06C3.44 20.29 5.7 21 8.12 21 16 21 20.33 14.46 20.33 8.79c0-.19 0-.37-.01-.56.84-.6 1.56-1.36 2.14-2.23z"/>
-            </svg>
-          </button>
-        </div>
-
-        <div className="auth-footer">
-          <p>
-            Don't have an account?{' '}
-            <Link to="/register" className="auth-link">
-              Sign up
-            </Link>
-          </p>
+        {/* Security Notice */}
+        <div className="mt-6 text-center text-xs text-gray-500">
+          <p>Protected by enterprise-grade security</p>
+          <p className="mt-1">Your data is encrypted and secure</p>
         </div>
       </div>
+      <style jsx>{`
+        @keyframes lightning {
+          0%, 100% { opacity: 0.1; }
+          50% { opacity: 0.3; }
+        }
+        .animate-lightning {
+          animation: lightning 3s ease-in-out infinite;
+        }
+      `}</style>
     </div>
-  )
+  );
 }
-
-export default Login

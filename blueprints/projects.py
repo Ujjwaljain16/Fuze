@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Project, User
+from models import db, Project, User, Task
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/api/projects')
 
@@ -89,6 +89,24 @@ def get_project(project_id):
         "technologies": project.technologies,
         "created_at": project.created_at.isoformat()
     }), 200
+
+@projects_bp.route('/<int:project_id>/tasks', methods=['GET'])
+@jwt_required()
+def get_project_tasks(project_id):
+    """Get tasks for a specific project"""
+    user_id = int(get_jwt_identity())
+    
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+    if not project:
+        return jsonify({"message": "Project not found"}), 404
+    
+    tasks = Task.query.filter_by(project_id=project_id).all()
+    return jsonify({'tasks': [{
+        'id': t.id,
+        'title': t.title,
+        'description': t.description,
+        'created_at': t.created_at.isoformat()
+    } for t in tasks]}), 200
 
 @projects_bp.route('/<int:project_id>', methods=['PUT'])
 @jwt_required()

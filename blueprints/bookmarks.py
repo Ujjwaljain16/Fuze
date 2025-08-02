@@ -7,11 +7,85 @@ from bs4 import BeautifulSoup
 import numpy as np
 from sqlalchemy.exc import IntegrityError
 from utils_web_scraper import scrape_url
+from urllib.parse import urlparse, urljoin, urlunparse
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from redis_utils import redis_cache
 
 # Import embedding function
 from embedding_utils import get_embedding
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
+
+def normalize_url(url):
+    """Normalize URL to handle different formats of the same URL"""
+    if not url:
+        return url
+    
+    # Remove trailing slash
+    url = url.rstrip('/')
+    
+    # Remove common tracking parameters
+    parsed = urlparse(url)
+    query_params = parsed.query.split('&') if parsed.query else []
+    
+    # Filter out common tracking parameters
+    filtered_params = []
+    tracking_params = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 
+                      'fbclid', 'gclid', 'ref', 'source', 'campaign']
+    
+    for param in query_params:
+        if param:
+            key = param.split('=')[0] if '=' in param else param
+            if key.lower() not in tracking_params:
+                filtered_params.append(param)
+    
+    # Reconstruct URL without tracking parameters
+    clean_query = '&'.join(filtered_params) if filtered_params else ''
+    normalized = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        clean_query,
+        ''  # Remove fragment
+    ))
+    
+    return normalized.lower()
+
+def is_duplicate_url(url, user_id):
+    """Check if URL is a duplicate (exact match or normalized match)"""
+    normalized_url = normalize_url(url)
+    
+    # Check exact match first
+    existing_exact = SavedContent.query.filter_by(user_id=user_id, url=url).first()
+    if existing_exact:
+        return existing_exact, 'exact'
+    
+    # Check normalized match
+    if normalized_url != url:
+        existing_normalized = SavedContent.query.filter_by(user_id=user_id, url=normalized_url).first()
+        if existing_normalized:
+            return existing_normalized, 'normalized'
+    
+    # Check for similar URLs (same domain and path, different query params)
+    parsed = urlparse(url)
+    domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    
+    # Find bookmarks with same domain and path
+    similar_bookmarks = SavedContent.query.filter(
+        SavedContent.user_id == user_id,
+        SavedContent.url.like(f"{domain_path}%")
+    ).all()
+    
+    for bookmark in similar_bookmarks:
+        bookmark_parsed = urlparse(bookmark.url)
+        bookmark_domain_path = f"{bookmark_parsed.scheme}://{bookmark_parsed.netloc}{bookmark_parsed.path}"
+        
+        if bookmark_domain_path == domain_path:
+            return bookmark, 'similar'
+    
+    return None, None
 
 def extract_article_content(url):
     """Extract main content, title, headings, and meta from a URL"""
@@ -32,16 +106,23 @@ def save_bookmark():
         return jsonify({'message': 'URL is required'}), 400
     
     # Check if bookmark already exists
-    existing_bookmark = SavedContent.query.filter_by(user_id=user_id, url=url).first()
+    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    
     if existing_bookmark:
         # Update existing bookmark
         existing_bookmark.title = title.strip() if title else existing_bookmark.title
         existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
         db.session.commit()
+        # Invalidate caches
+        redis_cache.invalidate_user_bookmarks(user_id)
+        # Also invalidate recommendations since new bookmarks affect recommendations
+        from blueprints.recommendations import invalidate_user_recommendations
+        invalidate_user_recommendations(user_id)
         return jsonify({
             'message': 'Bookmark updated',
             'bookmark': {'id': existing_bookmark.id, 'url': existing_bookmark.url},
-            'wasDuplicate': True
+            'wasDuplicate': True,
+            'duplicateType': duplicate_type
         }), 200
     
     # Ensure title is not empty (required field)
@@ -54,6 +135,10 @@ def save_bookmark():
     scraped_title = scraped.get('title', '')
     headings = scraped.get('headings', [])
     meta_description = scraped.get('meta_description', '')
+    quality_score = scraped.get('quality_score', 10)
+
+    if quality_score < 5:
+        return jsonify({'message': 'Content quality too low (login page, homepage, or too short). Please save a more content-rich page.'}), 400
     
     # Prefer scraped title if not provided
     if not title or title == 'Untitled Bookmark':
@@ -69,12 +154,18 @@ def save_bookmark():
         title=title.strip(),
         notes=description.strip() if isinstance(description, str) else '',
         extracted_text=extracted_text,
-        embedding=embedding
+        embedding=embedding,
+        quality_score=quality_score
         # Optionally: store headings/meta_description in new columns if desired
     )
     try:
         db.session.add(new_bm)
         db.session.commit()
+        # Invalidate caches
+        redis_cache.invalidate_user_bookmarks(user_id)
+        # Also invalidate recommendations since new bookmarks affect recommendations
+        from blueprints.recommendations import invalidate_user_recommendations
+        invalidate_user_recommendations(user_id)
         return jsonify({
             'message': 'Bookmark saved', 
             'bookmark': {'id': new_bm.id, 'url': new_bm.url},
@@ -93,7 +184,7 @@ def save_bookmark():
 @bookmarks_bp.route('/import', methods=['POST'])
 @jwt_required()
 def bulk_import_bookmarks():
-    """Bulk import bookmarks from Chrome extension"""
+    """Bulk import bookmarks from Chrome extension (optimized with Redis)"""
     user_id = int(get_jwt_identity())
     data = request.get_json()
     
@@ -103,57 +194,99 @@ def bulk_import_bookmarks():
     added_count = 0
     updated_count = 0
     errors = []
-    
-    for bookmark_data in data:
+    new_bookmarks = []
+    max_workers = 8  # Tune as needed
+
+    # Try to get cached user bookmarks first
+    cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
+    if cached_bookmarks:
+        print(f"📦 Using cached bookmarks for user {user_id}")
+        existing_urls = set(bm['url'] for bm in cached_bookmarks)
+        normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
+        url_to_bm = {bm['url']: bm for bm in cached_bookmarks}
+    else:
+        # Fallback to database query
+        print(f"🔄 Loading bookmarks from database for user {user_id}")
+        existing_bms = SavedContent.query.filter_by(user_id=user_id).all()
+        existing_urls = set(bm.url for bm in existing_bms)
+        normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
+        url_to_bm = {bm.url: bm for bm in existing_bms}
+        
+        # Cache the bookmarks for future use
+        bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
+        redis_cache.cache_user_bookmarks(user_id, bookmarks_data)
+
+    def process_bookmark(bookmark_data):
         try:
             url = bookmark_data.get('url', '').strip()
             title = bookmark_data.get('title', '').strip()
             category = bookmark_data.get('category', 'other')
-
-            # Truncate title and url to avoid DB errors
             if len(title) > 512:
                 title = title[:512]
             if len(url) > 2048:
                 url = url[:2048]
-            
             if not url:
-                continue
-                
-            # Check if bookmark already exists
-            existing_bookmark = SavedContent.query.filter_by(user_id=user_id, url=url).first()
-            
-            if existing_bookmark:
-                # Update existing bookmark
-                existing_bookmark.title = title if title else existing_bookmark.title
-                updated_count += 1
-            else:
-                # Create new bookmark
-                extracted_text = extract_article_content(url)
-                content_for_embedding = f"{title} {extracted_text}"
-                embedding = get_embedding(content_for_embedding)
-                
-                new_bm = SavedContent(
-                    user_id=user_id,
-                    url=url,
-                    title=title if title else 'Untitled Bookmark',
-                    notes='',
-                    extracted_text=extracted_text,
-                    embedding=embedding
-                )
-                db.session.add(new_bm)
-                added_count += 1
-                
+                return ('skip', None, None)
+            norm_url = normalize_url(url)
+            # Fast duplicate check using cached data
+            if url in existing_urls or norm_url in normalized_urls:
+                # Update title if needed (this would need DB update)
+                return ('skip', None, None)
+            # Scrape and embed
+            scraped = extract_article_content(url)
+            extracted_text = scraped.get('content', '')
+            quality_score = scraped.get('quality_score', 10)
+            if quality_score < 5:
+                return ('skip', None, None)
+            content_for_embedding = f"{title} {extracted_text}"
+            embedding = get_embedding(content_for_embedding)
+            new_bm = SavedContent(
+                user_id=user_id,
+                url=url,
+                title=title if title else 'Untitled Bookmark',
+                notes='',
+                extracted_text=extracted_text,
+                embedding=embedding,
+                quality_score=quality_score
+            )
+            return ('add', url, new_bm)
         except Exception as e:
-            db.session.rollback()
-            errors.append(f"Error processing {url}: {str(e)}")
-    
+            return ('error', bookmark_data.get('url', ''), str(e))
+
+    # Use ThreadPoolExecutor for parallel scraping/embedding
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_bookmark, bm) for bm in data]
+        for future in as_completed(futures):
+            result = future.result()
+            if result[0] == 'add':
+                _, url, new_bm = result
+                new_bookmarks.append(new_bm)
+                added_count += 1
+            elif result[0] == 'update':
+                updated_count += 1
+            elif result[0] == 'error':
+                _, url, err = result
+                errors.append(f"Error processing {url}: {err}")
+            # 'skip' means duplicate or low quality, do nothing
+
     try:
+        for bm in new_bookmarks:
+            db.session.add(bm)
         db.session.commit()
+        
+        # Invalidate caches after adding new bookmarks
+        if new_bookmarks:
+            redis_cache.invalidate_user_bookmarks(user_id)
+            # Also invalidate recommendations since new bookmarks affect recommendations
+            from blueprints.recommendations import invalidate_user_recommendations
+            invalidate_user_recommendations(user_id)
+        
         return jsonify({
-            'message': 'Bulk import completed',
+            'message': 'Bulk import completed (optimized with Redis)',
             'added': added_count,
             'updated': updated_count,
-            'errors': errors
+            'errors': errors,
+            'cache_used': cached_bookmarks is not None
         }), 200
     except Exception as e:
         db.session.rollback()
@@ -239,6 +372,38 @@ def delete_bookmark_by_url(url):
     except Exception as e:
         db.session.rollback()
         return jsonify({'message': f'Error: {str(e)}'}), 500
+
+@bookmarks_bp.route('/check-duplicate', methods=['POST'])
+@jwt_required()
+def check_duplicate():
+    """Check if a URL is already bookmarked by the user"""
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    url = data.get('url')
+    
+    if not url:
+        return jsonify({'message': 'URL is required'}), 400
+    
+    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    
+    if existing_bookmark:
+        return jsonify({
+            'isDuplicate': True,
+            'duplicateType': duplicate_type,
+            'existingBookmark': {
+                'id': existing_bookmark.id,
+                'title': existing_bookmark.title,
+                'url': existing_bookmark.url,
+                'notes': existing_bookmark.notes,
+                'saved_at': existing_bookmark.saved_at.isoformat()
+            }
+        }), 200
+    else:
+        return jsonify({
+            'isDuplicate': False,
+            'duplicateType': None,
+            'existingBookmark': None
+        }), 200
 
 @bookmarks_bp.route('/extract-url', methods=['POST'])
 @jwt_required()

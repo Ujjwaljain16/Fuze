@@ -1,0 +1,205 @@
+/* Gemini Controls */
+.gemini-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: 1rem;
+}
+
+.gemini-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brain-icon {
+  color: #667eea;
+}
+
+.brain-icon.disabled {
+  color: #666;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 14px;
+  color: #fff;
+}
+
+.toggle-input {
+  display: none;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  background: #333;
+  border-radius: 10px;
+  transition: background 0.3s;
+}
+
+.toggle-slider:before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.toggle-input:checked + .toggle-slider {
+  background: #667eea;
+}
+
+.toggle-input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+.toggle-text {
+  font-weight: 500;
+}
+
+.gemini-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Context Analysis */
+.context-analysis {
+  background: rgba(30, 32, 48, 0.9);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1rem 0;
+  backdrop-filter: blur(10px);
+}
+
+.context-analysis-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.context-analysis-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.gemini-badge {
+  color: #667eea;
+  margin-left: auto;
+}
+
+.context-analysis-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.context-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 1rem;
+}
+
+.context-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.context-section h4 {
+  margin: 0 0 0.75rem 0;
+  color: #667eea;
+  font-size: 1rem;
+}
+
+.context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.context-item {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.context-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.context-item strong {
+  color: #667eea;
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+
+/* Enhanced Recommendation Cards */
+.score-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
+}
+
+.gemini-score {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.gemini-icon {
+  margin-left: 0.25rem;
+  color: #fff;
+}
+
+.confidence-badge {
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+/* Gemini Analysis Section */
+.ai-analysis h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-analysis h4 .gemini-badge {
+  margin-left: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .gemini-controls {
+    margin-left: 0;
+    margin-top: 1rem;
+    justify-content: center;
+  }
+  
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .score-container {
+    align-items: flex-start;
+  }
+} 
