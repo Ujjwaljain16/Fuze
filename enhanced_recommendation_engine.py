@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RecommendationResult:
     """Structured recommendation result"""
-    content_id: int
+    id: int
     title: str
     url: str
     score: float
@@ -251,60 +251,58 @@ class ContentAnalyzer:
         self.embedding_cache = {}
         
     def analyze_content(self, content: SavedContent, analysis: ContentAnalysis) -> Dict[str, Any]:
-        """Comprehensive content analysis - Optimized for performance"""
+        """Analyze content comprehensively without hardcoding"""
         try:
-            # Combine all text for analysis using available fields
-            text_parts = [content.title]
+            # Combine all available text content
+            text_parts = []
             
-            # Add extracted text if available (limit to first 1000 chars for performance)
+            if content.title:
+                text_parts.append(content.title)
+            
             if content.extracted_text:
-                text_parts.append(content.extracted_text[:1000])
+                text_parts.append(content.extracted_text)
             
-            # Add tags if available
             if content.tags:
                 text_parts.append(content.tags)
             
-            # Add notes if available (limit to first 500 chars)
             if content.notes:
-                text_parts.append(content.notes[:500])
+                text_parts.append(content.notes)
             
-            # Add category if available
             if content.category:
                 text_parts.append(content.category)
             
-            text_content = " ".join(text_parts)
+            text_content = ' '.join(text_parts)
             
-            # Generate embeddings (with caching)
-            embedding = self.generate_embedding(text_content)
-            
-            # Extract technologies dynamically (simplified for performance)
+            # Extract technologies dynamically
             technologies = self.extract_technologies_dynamic(text_content, analysis)
             
-            # Calculate quality score (simplified)
+            # Calculate quality score
             quality_score = self.calculate_quality_score(content, analysis)
             
-            # Determine content type (simplified)
+            # Classify content type
             content_type = self.classify_content_type(text_content, analysis)
             
-            # Assess difficulty (simplified)
+            # Assess difficulty
             difficulty = self.assess_difficulty(text_content, analysis)
             
-            # Extract key concepts (simplified)
+            # Extract key concepts
             key_concepts = self.extract_key_concepts(text_content, analysis)
             
+            # Calculate complexity score
+            complexity_score = self.calculate_complexity_score(text_content)
+            
             return {
-                'embedding': embedding,
+                'text_content': text_content,
                 'technologies': technologies,
                 'quality_score': quality_score,
                 'content_type': content_type,
                 'difficulty': difficulty,
                 'key_concepts': key_concepts,
-                'text_length': len(text_content),
-                'complexity_score': 0.5  # Simplified for performance
+                'complexity_score': complexity_score
             }
             
         except Exception as e:
-            logger.error(f"Content analysis error: {e}")
+            print(f"Content analysis error: {e}")
             return self._get_fallback_analysis(content, analysis)
     
     def generate_embedding(self, text: str) -> np.ndarray:
@@ -613,13 +611,12 @@ class ContentAnalyzer:
     def _get_fallback_analysis(self, content: SavedContent, analysis: ContentAnalysis) -> Dict[str, Any]:
         """Fallback analysis when main analysis fails"""
         return {
-            'embedding': np.zeros(384),
+            'text_content': '',
             'technologies': [],
             'quality_score': content.quality_score or 5.0,
             'content_type': 'general',
             'difficulty': 'intermediate',
             'key_concepts': [],
-            'text_length': len(content.extracted_text or ''),
             'complexity_score': 0.5
         }
 
@@ -644,9 +641,7 @@ class UnifiedIntelligentEngine:
         
     def get_recommendations(self, user_id: int, request_data: Dict[str, Any], 
                           limit: int = 10) -> List[RecommendationResult]:
-        """
-        Get intelligent recommendations using the best algorithm
-        """
+        """Get intelligent recommendations using the best algorithm"""
         start_time = time.time()
         
         try:
@@ -655,25 +650,43 @@ class UnifiedIntelligentEngine:
             cached_result = self.cache_manager.get_cache(cache_key)
             if cached_result:
                 self.performance_monitor.record_request('cached', time.time() - start_time)
-                return [RecommendationResult(**rec) for rec in cached_result]
+                # Convert cached dict back to RecommendationResult objects
+                if isinstance(cached_result, list) and cached_result:
+                    if isinstance(cached_result[0], dict):
+                        return [RecommendationResult(**rec) for rec in cached_result]
+                    elif isinstance(cached_result[0], RecommendationResult):
+                        return cached_result
+                return []
             
-            # Select best algorithm
+            # Select the best algorithm
             algorithm = self._select_algorithm(user_id, request_data)
             
-            # Get recommendations
-            recommendations = self.algorithms[algorithm](user_id, request_data, limit)
+            # Get recommendations using selected algorithm
+            if algorithm == 'semantic':
+                recommendations = self._semantic_algorithm(user_id, request_data)
+            elif algorithm == 'content_based':
+                recommendations = self._content_based_algorithm(user_id, request_data)
+            else:  # hybrid (default)
+                recommendations = self._hybrid_algorithm(user_id, request_data, limit)
             
-            # Cache results
-            self.cache_manager.set_cache(cache_key, [asdict(rec) for rec in recommendations])
+            # Apply diversity optimization to all algorithms
+            recommendations = self._apply_diversity_optimization(recommendations)
+            
+            # Limit results
+            recommendations = recommendations[:limit]
+            
+            # Cache results as dictionaries
+            cache_data = [asdict(rec) for rec in recommendations]
+            self.cache_manager.set_cache(cache_key, cache_data, ttl=1800)  # 30 minutes
             
             # Record performance
-            response_time = time.time() - start_time
+            response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
             self.performance_monitor.record_request(algorithm, response_time)
             
             return recommendations
             
         except Exception as e:
-            self.logger.error(f"Recommendation error: {e}")
+            print(f"Recommendation error: {e}")
             self.performance_monitor.record_request('error', time.time() - start_time, success=False)
             return []
     
@@ -683,10 +696,25 @@ class UnifiedIntelligentEngine:
         return f"recommendations:user_{user_id}:{hashlib.md5(data_str.encode()).hexdigest()}"
     
     def _select_algorithm(self, user_id: int, request_data: Dict[str, Any]) -> str:
-        """Select the best algorithm for the request"""
-        # For Phase 1, use hybrid algorithm as default
-        # In Phase 2, this will be more sophisticated
-        return 'hybrid'
+        """Dynamically select the best algorithm based on request characteristics"""
+        # Check for specific algorithm preference
+        if request_data.get('algorithm'):
+            return request_data['algorithm']
+        
+        # Analyze request characteristics
+        has_technologies = bool(request_data.get('technologies'))
+        has_detailed_description = bool(request_data.get('description') and len(request_data['description']) > 50)
+        is_project_specific = bool(request_data.get('project_title'))
+        
+        # Algorithm selection logic
+        if has_technologies and has_detailed_description:
+            return 'hybrid'  # Best for detailed project requests
+        elif has_technologies:
+            return 'content_based'  # Good for technology-focused requests
+        elif has_detailed_description:
+            return 'semantic'  # Good for concept-focused requests
+        else:
+            return 'hybrid'  # Default fallback
     
     def _hybrid_algorithm(self, user_id: int, request_data: Dict[str, Any], 
                          limit: int) -> List[RecommendationResult]:
@@ -694,47 +722,47 @@ class UnifiedIntelligentEngine:
         try:
             # Get candidate content
             candidates = self._get_candidate_content(user_id, request_data)
+            if not candidates:
+                return []
             
-            # Analyze each candidate
-            analyzed_candidates = []
+            results = []
             for content, analysis in candidates:
+                # Analyze content
                 analysis_result = self.content_analyzer.analyze_content(content, analysis)
-                analyzed_candidates.append((content, analysis, analysis_result))
-            
-            # Score candidates
-            scored_candidates = []
-            for content, analysis, analysis_result in analyzed_candidates:
+                
+                # Calculate hybrid score
                 score = self._calculate_hybrid_score(content, analysis, analysis_result, request_data)
-                scored_candidates.append((content, analysis, analysis_result, score))
-            
-            # Sort by score and return top results
-            scored_candidates.sort(key=lambda x: x[3], reverse=True)
-            
-            recommendations = []
-            for content, analysis, analysis_result, score in scored_candidates[:limit]:
-                recommendation = RecommendationResult(
-                    content_id=content.id,
+                
+                # Generate reasoning
+                reasoning = self._generate_reasoning(content, analysis, analysis_result, request_data)
+                
+                # Create recommendation result
+                result = RecommendationResult(
+                    id=content.id,
                     title=content.title,
                     url=content.url,
                     score=score,
-                    reasoning=self._generate_reasoning(content, analysis, analysis_result, request_data),
+                    reasoning=reasoning,
                     content_type=analysis_result['content_type'],
                     difficulty=analysis_result['difficulty'],
                     technologies=analysis_result['technologies'],
                     key_concepts=analysis_result['key_concepts'],
                     quality_score=analysis_result['quality_score'],
-                    diversity_score=0.0,  # Will be calculated in Phase 2
-                    novelty_score=0.0,    # Will be calculated in Phase 2
+                    diversity_score=0.0,
+                    novelty_score=0.0,
                     algorithm_used='hybrid',
-                    confidence=min(1.0, score / 10.0),
+                    confidence=min(0.9, score / 10.0),
                     metadata={'analysis_result': analysis_result}
                 )
-                recommendations.append(recommendation)
+                results.append(result)
             
-            return recommendations
+            # Sort by score
+            results.sort(key=lambda x: x.score, reverse=True)
+            
+            return results[:limit]
             
         except Exception as e:
-            self.logger.error(f"Hybrid algorithm error: {e}")
+            print(f"Hybrid algorithm error: {e}")
             return []
     
     def _get_candidate_content(self, user_id: int, request_data: Dict[str, Any]) -> List[Tuple[SavedContent, ContentAnalysis]]:
@@ -750,45 +778,20 @@ class UnifiedIntelligentEngine:
                     SavedContent.title.notlike('%test%')
                 )
                 
-                # If specific technologies are requested, prioritize content with those technologies
-                requested_techs = request_data.get('technologies', [])
-                if requested_techs:
-                    # More efficient technology matching
-                    tech_conditions = []
-                    for tech in requested_techs:
-                        tech_lower = tech.lower()
-                        tech_conditions.append(
-                            db.or_(
-                                ContentAnalysis.technology_tags.ilike(f'%{tech_lower}%'),
-                                SavedContent.title.ilike(f'%{tech_lower}%'),
-                                SavedContent.tags.ilike(f'%{tech_lower}%')
-                            )
-                        )
-                    
-                    # Get content with technology matches first (limit to 30 for performance)
-                    tech_matched_query = base_query.filter(db.or_(*tech_conditions))
-                    tech_matched_content = tech_matched_query.order_by(
-                        SavedContent.quality_score.desc()
-                    ).limit(30).all()
-                    
-                    # Get other high-quality content as fallback (limit to 20)
-                    other_content_query = base_query.filter(~db.or_(*tech_conditions))
-                    other_content = other_content_query.order_by(
-                        SavedContent.quality_score.desc()
-                    ).limit(20).all()
-                    
-                    # Combine with technology matches first
-                    all_content = tech_matched_content + other_content
-                else:
-                    # No specific technologies, get general high-quality content (limit to 50)
-                    all_content = base_query.order_by(
-                        SavedContent.quality_score.desc()
-                    ).limit(50).all()
+                # If specific technologies are requested, filter by them
+                if request_data.get('technologies'):
+                    tech_filter = db.or_(
+                        *[ContentAnalysis.technology_tags.ilike(f'%{tech}%') for tech in request_data['technologies']]
+                    )
+                    base_query = base_query.filter(tech_filter)
                 
-                return all_content
+                # Limit results for performance
+                candidates = base_query.limit(50).all()
+                
+                return candidates
                 
         except Exception as e:
-            self.logger.error(f"Error getting candidate content: {e}")
+            print(f"Error getting candidate content: {e}")
             return []
     
     def _calculate_hybrid_score(self, content: SavedContent, analysis: ContentAnalysis, 
@@ -977,18 +980,242 @@ class UnifiedIntelligentEngine:
         
         return ". ".join(reasons) + "."
     
-    def _semantic_algorithm(self, user_id: int, request_data: Dict[str, Any], 
-                          limit: int) -> List[RecommendationResult]:
-        """Semantic similarity algorithm (placeholder for Phase 2)"""
-        # This will be implemented in Phase 2
-        return self._hybrid_algorithm(user_id, request_data, limit)
-    
-    def _content_based_algorithm(self, user_id: int, request_data: Dict[str, Any], 
-                               limit: int) -> List[RecommendationResult]:
-        """Content-based algorithm (placeholder for Phase 2)"""
-        # This will be implemented in Phase 2
-        return self._hybrid_algorithm(user_id, request_data, limit)
-    
+    def _semantic_algorithm(self, user_id: int, request_data: Dict[str, Any]) -> List[RecommendationResult]:
+        """Advanced semantic similarity algorithm using embeddings"""
+        try:
+            # Get candidate content
+            candidates = self._get_candidate_content(user_id, request_data)
+            if not candidates:
+                return []
+            
+            # Generate request embedding
+            request_text = self._build_request_text(request_data)
+            request_embedding = self.content_analyzer.generate_embedding(request_text)
+            
+            results = []
+            for content, analysis in candidates:
+                # Analyze content
+                analysis_result = self.content_analyzer.analyze_content(content, analysis)
+                content_text = analysis_result['text_content']
+                
+                # Generate content embedding
+                content_embedding = self.content_analyzer.generate_embedding(content_text)
+                
+                # Calculate semantic similarity
+                similarity = self._calculate_cosine_similarity(request_embedding, content_embedding)
+                
+                # Calculate semantic score (0-10)
+                semantic_score = similarity * 10
+                
+                # Generate reasoning
+                reasoning = f"Semantic similarity score: {semantic_score:.2f}/10. This content is semantically similar to your request."
+                
+                result = RecommendationResult(
+                    id=content.id,
+                    title=content.title,
+                    url=content.url,
+                    score=semantic_score,
+                    reasoning=reasoning,
+                    content_type=analysis_result['content_type'],
+                    difficulty=analysis_result['difficulty'],
+                    technologies=analysis_result['technologies'],
+                    key_concepts=analysis_result['key_concepts'],
+                    quality_score=analysis_result['quality_score'],
+                    diversity_score=0.0,
+                    novelty_score=0.0,
+                    algorithm_used='semantic',
+                    confidence=min(0.9, similarity + 0.1),
+                    metadata={'similarity': similarity}
+                )
+                results.append(result)
+            
+            # Sort by score and apply diversity
+            results.sort(key=lambda x: x.score, reverse=True)
+            results = self._apply_diversity_optimization(results)
+            
+            return results[:10]
+            
+        except Exception as e:
+            print(f"Semantic algorithm error: {e}")
+            return []
+
+    def _content_based_algorithm(self, user_id: int, request_data: Dict[str, Any]) -> List[RecommendationResult]:
+        """Content-based filtering algorithm using TF-IDF and content features"""
+        try:
+            # Get candidate content
+            candidates = self._get_candidate_content(user_id, request_data)
+            if not candidates:
+                return []
+            
+            # Build content corpus for TF-IDF
+            content_texts = []
+            for content, analysis in candidates:
+                analysis_result = self.content_analyzer.analyze_content(content, analysis)
+                content_texts.append(analysis_result['text_content'])
+            
+            # Fit TF-IDF vectorizer
+            if content_texts:
+                tfidf_matrix = self.content_analyzer.tfidf_vectorizer.fit_transform(content_texts)
+                
+                # Build request vector
+                request_text = self._build_request_text(request_data)
+                request_vector = self.content_analyzer.tfidf_vectorizer.transform([request_text])
+                
+                # Calculate TF-IDF similarities
+                similarities = cosine_similarity(request_vector, tfidf_matrix).flatten()
+                
+                results = []
+                for i, (content, analysis) in enumerate(candidates):
+                    # Calculate content-based score
+                    tfidf_score = similarities[i] * 5  # Scale to 0-5
+                    
+                    # Get content features
+                    analysis_result = self.content_analyzer.analyze_content(content, analysis)
+                    quality_score = analysis_result['quality_score'] * 0.3  # Scale to 0-3
+                    complexity_score = analysis_result['complexity_score'] * 0.2  # Scale to 0-2
+                    
+                    # Total content-based score
+                    total_score = tfidf_score + quality_score + complexity_score
+                    
+                    # Generate reasoning
+                    reasoning = f"Content-based score: {total_score:.2f}/10 (TF-IDF: {tfidf_score:.2f}, Quality: {quality_score:.2f}, Complexity: {complexity_score:.2f})"
+                    
+                    result = RecommendationResult(
+                        id=content.id,
+                        title=content.title,
+                        url=content.url,
+                        score=total_score,
+                        reasoning=reasoning,
+                        content_type=analysis_result['content_type'],
+                        difficulty=analysis_result['difficulty'],
+                        technologies=analysis_result['technologies'],
+                        key_concepts=analysis_result['key_concepts'],
+                        quality_score=analysis_result['quality_score'],
+                        diversity_score=0.0,
+                        novelty_score=0.0,
+                        algorithm_used='content_based',
+                        confidence=min(0.8, similarities[i] + 0.2),
+                        metadata={'tfidf_similarity': similarities[i]}
+                    )
+                    results.append(result)
+                
+                # Sort by score and apply diversity
+                results.sort(key=lambda x: x.score, reverse=True)
+                results = self._apply_diversity_optimization(results)
+                
+                return results[:10]
+            
+            return []
+            
+        except Exception as e:
+            print(f"Content-based algorithm error: {e}")
+            return []
+
+    def _apply_diversity_optimization(self, recommendations: List[RecommendationResult], 
+                                    max_similarity: float = 0.7) -> List[RecommendationResult]:
+        """Apply diversity optimization to prevent recommendation clustering"""
+        if not recommendations:
+            return []
+        
+        diverse_recommendations = [recommendations[0]]
+        
+        for rec in recommendations[1:]:
+            is_diverse = True
+            
+            # Check similarity with existing diverse recommendations
+            for existing in diverse_recommendations:
+                similarity = self._calculate_recommendation_similarity(rec, existing)
+                if similarity > max_similarity:
+                    is_diverse = False
+                    break
+            
+            if is_diverse:
+                diverse_recommendations.append(rec)
+        
+        return diverse_recommendations
+
+    def _calculate_recommendation_similarity(self, rec1: RecommendationResult, 
+                                          rec2: RecommendationResult) -> float:
+        """Calculate similarity between two recommendations"""
+        # Technology overlap
+        tech1 = set(rec1.technologies)
+        tech2 = set(rec2.technologies)
+        tech_similarity = len(tech1 & tech2) / len(tech1 | tech2) if tech1 | tech2 else 0
+        
+        # Content type similarity
+        type_similarity = 1.0 if rec1.content_type == rec2.content_type else 0.0
+        
+        # Difficulty similarity
+        difficulty_similarity = 1.0 if rec1.difficulty == rec2.difficulty else 0.5
+        
+        # Weighted average
+        return (tech_similarity * 0.4 + type_similarity * 0.3 + difficulty_similarity * 0.3)
+
+    def _build_request_text(self, request_data: Dict[str, Any]) -> str:
+        """Build text representation of request for embedding/similarity"""
+        text_parts = []
+        
+        if request_data.get('project_title'):
+            text_parts.append(request_data['project_title'])
+        
+        if request_data.get('description'):
+            text_parts.append(request_data['description'])
+        
+        if request_data.get('technologies'):
+            text_parts.extend(request_data['technologies'])
+        
+        if request_data.get('content_type'):
+            text_parts.append(request_data['content_type'])
+        
+        if request_data.get('difficulty'):
+            text_parts.append(request_data['difficulty'])
+        
+        return ' '.join(text_parts)
+
+    def _calculate_cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """Calculate cosine similarity between two vectors"""
+        try:
+            # Normalize vectors
+            norm1 = np.linalg.norm(vec1)
+            norm2 = np.linalg.norm(vec2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            # Calculate cosine similarity
+            similarity = np.dot(vec1, vec2) / (norm1 * norm2)
+            return max(0.0, min(1.0, similarity))  # Clamp to [0, 1]
+            
+        except Exception as e:
+            print(f"Cosine similarity error: {e}")
+            return 0.0
+
+    def integrate_user_feedback(self, user_id: int, recommendation_id: int, 
+                              feedback_type: str, feedback_data: Dict[str, Any] = None):
+        """Integrate user feedback to improve future recommendations"""
+        try:
+            # Store feedback for learning
+            feedback_key = f"feedback:{user_id}:{recommendation_id}"
+            
+            feedback_info = {
+                'user_id': user_id,
+                'recommendation_id': recommendation_id,
+                'feedback_type': feedback_type,  # 'relevant', 'not_relevant', 'rating'
+                'feedback_data': feedback_data or {},
+                'timestamp': time.time()
+            }
+            
+            # Store in cache for immediate use
+            self.cache_manager.set_cache(feedback_key, feedback_info, ttl=3600)
+            
+            # Invalidate user recommendations to force refresh
+            self.cache_manager.invalidate_user_cache(user_id)
+            
+            print(f"Feedback integrated: {feedback_type} for recommendation {recommendation_id}")
+            
+        except Exception as e:
+            print(f"Feedback integration error: {e}")
+
     def get_performance_metrics(self) -> PerformanceMetrics:
         """Get current performance metrics"""
         return self.performance_monitor.get_performance_metrics()
@@ -1005,7 +1232,909 @@ def get_enhanced_recommendations(user_id: int, request_data: Dict[str, Any],
     """Main function to get enhanced recommendations"""
     try:
         recommendations = unified_engine.get_recommendations(user_id, request_data, limit)
-        return [asdict(rec) for rec in recommendations]
+        if recommendations:
+            return [asdict(rec) for rec in recommendations]
+        else:
+            return []
     except Exception as e:
-        logger.error(f"Error getting enhanced recommendations: {e}")
+        print(f"Error getting enhanced recommendations: {e}")
         return [] 
+
+# Phase 3: Advanced Features Implementation
+# ======================================
+
+@dataclass
+class ContextualData:
+    """Contextual information for recommendations"""
+    timestamp: datetime
+    user_agent: str
+    device_type: str
+    location: Optional[str]
+    time_of_day: str
+    day_of_week: str
+    session_duration: int
+    previous_interactions: List[str]
+    current_project: Optional[str]
+    learning_session: bool
+
+@dataclass
+class LearningMetrics:
+    """Real-time learning metrics"""
+    user_engagement: float
+    content_effectiveness: float
+    algorithm_performance: Dict[str, float]
+    user_satisfaction: float
+    learning_progress: float
+    adaptation_rate: float
+
+class ContextualAnalyzer:
+    """Analyze and incorporate contextual information"""
+    
+    def __init__(self):
+        self.device_patterns = {
+            'mobile': ['mobile', 'android', 'ios', 'phone', 'tablet'],
+            'desktop': ['desktop', 'windows', 'mac', 'linux'],
+            'tablet': ['ipad', 'tablet', 'surface']
+        }
+        self.time_patterns = {
+            'morning': (6, 12),
+            'afternoon': (12, 18),
+            'evening': (18, 22),
+            'night': (22, 6)
+        }
+        
+    def analyze_context(self, request_data: Dict[str, Any], user_id: int) -> ContextualData:
+        """Analyze contextual information from request"""
+        try:
+            # Extract contextual information
+            user_agent = request_data.get('user_agent', '')
+            timestamp = datetime.now()
+            
+            # Device type detection
+            device_type = self._detect_device_type(user_agent)
+            
+            # Time-based analysis
+            time_of_day = self._get_time_of_day(timestamp)
+            day_of_week = timestamp.strftime('%A').lower()
+            
+            # Session analysis
+            session_duration = self._get_session_duration(user_id)
+            previous_interactions = self._get_previous_interactions(user_id)
+            
+            # Project context
+            current_project = request_data.get('project_title')
+            learning_session = self._is_learning_session(user_id, timestamp)
+            
+            return ContextualData(
+                timestamp=timestamp,
+                user_agent=user_agent,
+                device_type=device_type,
+                location=None,  # Could be enhanced with IP geolocation
+                time_of_day=time_of_day,
+                day_of_week=day_of_week,
+                session_duration=session_duration,
+                previous_interactions=previous_interactions,
+                current_project=current_project,
+                learning_session=learning_session
+            )
+            
+        except Exception as e:
+            logger.error(f"Error analyzing context: {e}")
+            return self._get_default_context()
+    
+    def _detect_device_type(self, user_agent: str) -> str:
+        """Detect device type from user agent"""
+        user_agent_lower = user_agent.lower()
+        
+        for device_type, patterns in self.device_patterns.items():
+            if any(pattern in user_agent_lower for pattern in patterns):
+                return device_type
+        
+        return 'desktop'  # Default
+    
+    def _get_time_of_day(self, timestamp: datetime) -> str:
+        """Get time of day category"""
+        hour = timestamp.hour
+        
+        for time_category, (start, end) in self.time_patterns.items():
+            if start <= hour < end:
+                return time_category
+        
+        return 'night'
+    
+    def _get_session_duration(self, user_id: int) -> int:
+        """Get current session duration in minutes"""
+        try:
+            # This would integrate with session management
+            # For now, return a default value
+            return 30
+        except Exception:
+            return 0
+    
+    def _get_previous_interactions(self, user_id: int) -> List[str]:
+        """Get recent user interactions"""
+        try:
+            # Query recent user interactions from database
+            recent_interactions = Feedback.query.filter_by(user_id=user_id)\
+                .order_by(Feedback.created_at.desc())\
+                .limit(10)\
+                .all()
+            
+            return [interaction.feedback_type for interaction in recent_interactions]
+        except Exception:
+            return []
+    
+    def _is_learning_session(self, user_id: int, timestamp: datetime) -> bool:
+        """Determine if this is part of a learning session"""
+        try:
+            # Check if user has been active in the last hour
+            one_hour_ago = timestamp - timedelta(hours=1)
+            recent_activity = Feedback.query.filter_by(user_id=user_id)\
+                .filter(Feedback.created_at >= one_hour_ago)\
+                .count()
+            
+            return recent_activity > 2
+        except Exception:
+            return False
+    
+    def _get_default_context(self) -> ContextualData:
+        """Get default contextual data"""
+        now = datetime.now()
+        return ContextualData(
+            timestamp=now,
+            user_agent='',
+            device_type='desktop',
+            location=None,
+            time_of_day=self._get_time_of_day(now),
+            day_of_week=now.strftime('%A').lower(),
+            session_duration=0,
+            previous_interactions=[],
+            current_project=None,
+            learning_session=False
+        )
+
+class RealTimeLearner:
+    """Real-time learning and adaptation system"""
+    
+    def __init__(self):
+        self.user_profiles = {}
+        self.algorithm_performance = defaultdict(list)
+        self.content_effectiveness = defaultdict(list)
+        self.learning_rate = 0.1
+        self.adaptation_threshold = 0.05
+        
+    def update_user_profile(self, user_id: int, interaction_data: Dict[str, Any]):
+        """Update user profile based on interaction"""
+        try:
+            if user_id not in self.user_profiles:
+                self.user_profiles[user_id] = UserProfile(
+                    user_id=user_id,
+                    interests=[],
+                    skill_level='beginner',
+                    learning_style='visual',
+                    technology_preferences=[],
+                    content_preferences={'tutorial': 0.5, 'documentation': 0.3, 'example': 0.2},
+                    difficulty_preferences={'beginner': 0.4, 'intermediate': 0.4, 'advanced': 0.2},
+                    interaction_patterns={},
+                    last_updated=datetime.now()
+                )
+            
+            profile = self.user_profiles[user_id]
+            
+            # Update based on interaction
+            feedback_type = interaction_data.get('feedback_type')
+            content_id = interaction_data.get('content_id')
+            algorithm_used = interaction_data.get('algorithm_used')
+            
+            if feedback_type == 'relevant':
+                self._boost_preferences(profile, interaction_data)
+            elif feedback_type == 'not_relevant':
+                self._reduce_preferences(profile, interaction_data)
+            
+            # Update algorithm performance
+            if algorithm_used:
+                self.algorithm_performance[algorithm_used].append(1.0 if feedback_type == 'relevant' else 0.0)
+            
+            # Update content effectiveness
+            if content_id:
+                self.content_effectiveness[content_id].append(1.0 if feedback_type == 'relevant' else 0.0)
+            
+            profile.last_updated = datetime.now()
+            
+        except Exception as e:
+            logger.error(f"Error updating user profile: {e}")
+    
+    def _boost_preferences(self, profile: UserProfile, interaction_data: Dict[str, Any]):
+        """Boost preferences based on positive interaction"""
+        content_type = interaction_data.get('content_type')
+        difficulty = interaction_data.get('difficulty')
+        technologies = interaction_data.get('technologies', [])
+        
+        # Update content preferences
+        if content_type and content_type in profile.content_preferences:
+            profile.content_preferences[content_type] += self.learning_rate
+            self._normalize_preferences(profile.content_preferences)
+        
+        # Update difficulty preferences
+        if difficulty and difficulty in profile.difficulty_preferences:
+            profile.difficulty_preferences[difficulty] += self.learning_rate
+            self._normalize_preferences(profile.difficulty_preferences)
+        
+        # Update technology preferences
+        for tech in technologies:
+            if tech not in profile.technology_preferences:
+                profile.technology_preferences.append(tech)
+    
+    def _reduce_preferences(self, profile: UserProfile, interaction_data: Dict[str, Any]):
+        """Reduce preferences based on negative interaction"""
+        content_type = interaction_data.get('content_type')
+        difficulty = interaction_data.get('difficulty')
+        
+        # Update content preferences
+        if content_type and content_type in profile.content_preferences:
+            profile.content_preferences[content_type] -= self.learning_rate
+            self._normalize_preferences(profile.content_preferences)
+        
+        # Update difficulty preferences
+        if difficulty and difficulty in profile.difficulty_preferences:
+            profile.difficulty_preferences[difficulty] -= self.learning_rate
+            self._normalize_preferences(profile.difficulty_preferences)
+    
+    def _normalize_preferences(self, preferences: Dict[str, float]):
+        """Normalize preference values to sum to 1.0"""
+        total = sum(preferences.values())
+        if total > 0:
+            for key in preferences:
+                preferences[key] = max(0.0, preferences[key] / total)
+    
+    def get_adapted_parameters(self, user_id: int, request_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Get adapted parameters based on user profile"""
+        try:
+            if user_id not in self.user_profiles:
+                return request_data
+            
+            profile = self.user_profiles[user_id]
+            adapted_data = request_data.copy()
+            
+            # Adapt content type preferences
+            if 'content_type' not in adapted_data or adapted_data['content_type'] == 'all':
+                # Select preferred content type
+                preferred_type = max(profile.content_preferences.items(), key=lambda x: x[1])[0]
+                adapted_data['content_type'] = preferred_type
+            
+            # Adapt difficulty preferences
+            if 'difficulty' not in adapted_data or adapted_data['difficulty'] == 'all':
+                # Select preferred difficulty
+                preferred_difficulty = max(profile.difficulty_preferences.items(), key=lambda x: x[1])[0]
+                adapted_data['difficulty'] = preferred_difficulty
+            
+            # Add technology preferences
+            if profile.technology_preferences:
+                existing_techs = adapted_data.get('technologies', '')
+                if existing_techs:
+                    existing_techs += ', '
+                existing_techs += ', '.join(profile.technology_preferences[:3])  # Top 3
+                adapted_data['technologies'] = existing_techs
+            
+            return adapted_data
+            
+        except Exception as e:
+            logger.error(f"Error getting adapted parameters: {e}")
+            return request_data
+    
+    def get_learning_metrics(self, user_id: int) -> LearningMetrics:
+        """Get learning metrics for a user"""
+        try:
+            profile = self.user_profiles.get(user_id)
+            if not profile:
+                return self._get_default_learning_metrics()
+            
+            # Calculate engagement based on interaction frequency
+            time_since_update = (datetime.now() - profile.last_updated).total_seconds()
+            engagement = max(0.0, 1.0 - (time_since_update / 86400))  # Decay over 24 hours
+            
+            # Calculate content effectiveness
+            content_effectiveness = 0.0
+            if self.content_effectiveness:
+                all_ratings = [rating for ratings in self.content_effectiveness.values() for rating in ratings]
+                if all_ratings:
+                    content_effectiveness = sum(all_ratings) / len(all_ratings)
+            
+            # Calculate algorithm performance
+            algorithm_performance = {}
+            for algo, ratings in self.algorithm_performance.items():
+                if ratings:
+                    algorithm_performance[algo] = sum(ratings) / len(ratings)
+            
+            # Calculate user satisfaction
+            user_satisfaction = (engagement + content_effectiveness) / 2
+            
+            # Calculate learning progress
+            learning_progress = len(profile.technology_preferences) / 10.0  # Normalize to 0-1
+            
+            # Calculate adaptation rate
+            adaptation_rate = len(profile.interaction_patterns) / 100.0  # Normalize to 0-1
+            
+            return LearningMetrics(
+                user_engagement=engagement,
+                content_effectiveness=content_effectiveness,
+                algorithm_performance=algorithm_performance,
+                user_satisfaction=user_satisfaction,
+                learning_progress=learning_progress,
+                adaptation_rate=adaptation_rate
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting learning metrics: {e}")
+            return self._get_default_learning_metrics()
+    
+    def _get_default_learning_metrics(self) -> LearningMetrics:
+        """Get default learning metrics"""
+        return LearningMetrics(
+            user_engagement=0.0,
+            content_effectiveness=0.0,
+            algorithm_performance={},
+            user_satisfaction=0.0,
+            learning_progress=0.0,
+            adaptation_rate=0.0
+        )
+
+class AdvancedAnalytics:
+    """Advanced analytics and insights system"""
+    
+    def __init__(self):
+        self.analytics_data = defaultdict(list)
+        self.insights_cache = {}
+        self.insights_ttl = 3600  # 1 hour
+        
+    def record_interaction(self, user_id: int, interaction_data: Dict[str, Any]):
+        """Record user interaction for analytics"""
+        try:
+            interaction_data['timestamp'] = datetime.now()
+            interaction_data['user_id'] = user_id
+            self.analytics_data[user_id].append(interaction_data)
+            
+            # Keep only last 1000 interactions per user
+            if len(self.analytics_data[user_id]) > 1000:
+                self.analytics_data[user_id] = self.analytics_data[user_id][-1000:]
+            
+            # Invalidate insights cache
+            self.insights_cache.clear()
+            
+        except Exception as e:
+            logger.error(f"Error recording interaction: {e}")
+    
+    def get_user_insights(self, user_id: int) -> Dict[str, Any]:
+        """Get personalized insights for a user"""
+        try:
+            cache_key = f"insights_{user_id}"
+            if cache_key in self.insights_cache:
+                return self.insights_cache[cache_key]
+            
+            user_data = self.analytics_data.get(user_id, [])
+            if not user_data:
+                return self._get_default_insights()
+            
+            insights = {
+                'learning_patterns': self._analyze_learning_patterns(user_data),
+                'content_preferences': self._analyze_content_preferences(user_data),
+                'technology_trends': self._analyze_technology_trends(user_data),
+                'performance_metrics': self._analyze_performance_metrics(user_data),
+                'recommendations': self._generate_insight_recommendations(user_data)
+            }
+            
+            self.insights_cache[cache_key] = insights
+            return insights
+            
+        except Exception as e:
+            logger.error(f"Error getting user insights: {e}")
+            return self._get_default_insights()
+    
+    def _analyze_learning_patterns(self, user_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze user learning patterns"""
+        try:
+            # Time-based patterns
+            time_distribution = defaultdict(int)
+            day_distribution = defaultdict(int)
+            
+            for interaction in user_data:
+                timestamp = interaction.get('timestamp')
+                if timestamp:
+                    hour = timestamp.hour
+                    day = timestamp.strftime('%A')
+                    
+                    if 6 <= hour < 12:
+                        time_distribution['morning'] += 1
+                    elif 12 <= hour < 18:
+                        time_distribution['afternoon'] += 1
+                    elif 18 <= hour < 22:
+                        time_distribution['evening'] += 1
+                    else:
+                        time_distribution['night'] += 1
+                    
+                    day_distribution[day] += 1
+            
+            # Session patterns
+            session_lengths = []
+            current_session_start = None
+            
+            for interaction in sorted(user_data, key=lambda x: x.get('timestamp', datetime.now())):
+                timestamp = interaction.get('timestamp')
+                if not timestamp:
+                    continue
+                
+                if current_session_start is None:
+                    current_session_start = timestamp
+                elif (timestamp - current_session_start).total_seconds() > 3600:  # 1 hour gap
+                    session_length = (timestamp - current_session_start).total_seconds() / 60
+                    session_lengths.append(session_length)
+                    current_session_start = timestamp
+            
+            avg_session_length = sum(session_lengths) / len(session_lengths) if session_lengths else 0
+            
+            return {
+                'peak_learning_time': max(time_distribution.items(), key=lambda x: x[1])[0] if time_distribution else 'unknown',
+                'preferred_days': sorted(day_distribution.items(), key=lambda x: x[1], reverse=True)[:3],
+                'average_session_length': avg_session_length,
+                'total_sessions': len(session_lengths),
+                'engagement_trend': self._calculate_engagement_trend(user_data)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing learning patterns: {e}")
+            return {}
+    
+    def _analyze_content_preferences(self, user_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze user content preferences"""
+        try:
+            content_types = defaultdict(int)
+            difficulties = defaultdict(int)
+            feedback_scores = defaultdict(list)
+            
+            for interaction in user_data:
+                content_type = interaction.get('content_type')
+                difficulty = interaction.get('difficulty')
+                feedback_type = interaction.get('feedback_type')
+                
+                if content_type:
+                    content_types[content_type] += 1
+                
+                if difficulty:
+                    difficulties[difficulty] += 1
+                
+                if feedback_type:
+                    score = 1.0 if feedback_type == 'relevant' else 0.0
+                    if content_type:
+                        feedback_scores[content_type].append(score)
+            
+            # Calculate effectiveness scores
+            effectiveness_scores = {}
+            for content_type, scores in feedback_scores.items():
+                if scores:
+                    effectiveness_scores[content_type] = sum(scores) / len(scores)
+            
+            return {
+                'preferred_content_types': sorted(content_types.items(), key=lambda x: x[1], reverse=True),
+                'preferred_difficulties': sorted(difficulties.items(), key=lambda x: x[1], reverse=True),
+                'content_effectiveness': effectiveness_scores,
+                'total_interactions': len(user_data)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing content preferences: {e}")
+            return {}
+    
+    def _analyze_technology_trends(self, user_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze user technology trends"""
+        try:
+            technology_usage = defaultdict(int)
+            technology_effectiveness = defaultdict(list)
+            
+            for interaction in user_data:
+                technologies = interaction.get('technologies', [])
+                feedback_type = interaction.get('feedback_type')
+                
+                for tech in technologies:
+                    technology_usage[tech] += 1
+                    
+                    if feedback_type:
+                        score = 1.0 if feedback_type == 'relevant' else 0.0
+                        technology_effectiveness[tech].append(score)
+            
+            # Calculate effectiveness scores
+            tech_effectiveness_scores = {}
+            for tech, scores in technology_effectiveness.items():
+                if scores:
+                    tech_effectiveness_scores[tech] = sum(scores) / len(scores)
+            
+            # Get trending technologies
+            trending_techs = sorted(technology_usage.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+            return {
+                'trending_technologies': trending_techs,
+                'technology_effectiveness': tech_effectiveness_scores,
+                'total_technologies': len(technology_usage)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing technology trends: {e}")
+            return {}
+    
+    def _analyze_performance_metrics(self, user_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze user performance metrics"""
+        try:
+            algorithm_performance = defaultdict(list)
+            response_times = []
+            
+            for interaction in user_data:
+                algorithm = interaction.get('algorithm_used')
+                feedback_type = interaction.get('feedback_type')
+                response_time = interaction.get('response_time')
+                
+                if algorithm and feedback_type:
+                    score = 1.0 if feedback_type == 'relevant' else 0.0
+                    algorithm_performance[algorithm].append(score)
+                
+                if response_time:
+                    response_times.append(response_time)
+            
+            # Calculate algorithm effectiveness
+            algo_effectiveness = {}
+            for algo, scores in algorithm_performance.items():
+                if scores:
+                    algo_effectiveness[algo] = sum(scores) / len(scores)
+            
+            # Calculate average response time
+            avg_response_time = sum(response_times) / len(response_times) if response_times else 0
+            
+            return {
+                'algorithm_effectiveness': algo_effectiveness,
+                'average_response_time': avg_response_time,
+                'total_recommendations': len(user_data)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing performance metrics: {e}")
+            return {}
+    
+    def _calculate_engagement_trend(self, user_data: List[Dict[str, Any]]) -> str:
+        """Calculate user engagement trend"""
+        try:
+            if len(user_data) < 2:
+                return 'stable'
+            
+            # Group by week and count interactions
+            weekly_interactions = defaultdict(int)
+            for interaction in user_data:
+                timestamp = interaction.get('timestamp')
+                if timestamp:
+                    week = timestamp.strftime('%Y-%W')
+                    weekly_interactions[week] += 1
+            
+            if len(weekly_interactions) < 2:
+                return 'stable'
+            
+            # Calculate trend
+            weeks = sorted(weekly_interactions.keys())
+            recent_avg = sum(weekly_interactions[week] for week in weeks[-2:]) / 2
+            older_avg = sum(weekly_interactions[week] for week in weeks[:-2]) / max(1, len(weeks) - 2)
+            
+            if recent_avg > older_avg * 1.2:
+                return 'increasing'
+            elif recent_avg < older_avg * 0.8:
+                return 'decreasing'
+            else:
+                return 'stable'
+                
+        except Exception:
+            return 'stable'
+    
+    def _generate_insight_recommendations(self, user_data: List[Dict[str, Any]]) -> List[str]:
+        """Generate personalized recommendations based on insights"""
+        try:
+            recommendations = []
+            
+            # Analyze patterns and generate recommendations
+            content_prefs = self._analyze_content_preferences(user_data)
+            tech_trends = self._analyze_technology_trends(user_data)
+            learning_patterns = self._analyze_learning_patterns(user_data)
+            
+            # Content type recommendations
+            if content_prefs.get('preferred_content_types'):
+                top_content = content_prefs['preferred_content_types'][0][0]
+                recommendations.append(f"Focus on {top_content} content for better engagement")
+            
+            # Technology recommendations
+            if tech_trends.get('trending_technologies'):
+                top_tech = tech_trends['trending_technologies'][0][0]
+                recommendations.append(f"Explore more {top_tech} resources to build expertise")
+            
+            # Learning pattern recommendations
+            peak_time = learning_patterns.get('peak_learning_time')
+            if peak_time and peak_time != 'unknown':
+                recommendations.append(f"Schedule learning sessions during {peak_time} for optimal focus")
+            
+            # Session length recommendations
+            avg_session = learning_patterns.get('average_session_length', 0)
+            if avg_session < 30:
+                recommendations.append("Try longer learning sessions (30+ minutes) for better retention")
+            elif avg_session > 120:
+                recommendations.append("Consider shorter, focused sessions to maintain concentration")
+            
+            return recommendations[:5]  # Limit to 5 recommendations
+            
+        except Exception as e:
+            logger.error(f"Error generating insight recommendations: {e}")
+            return []
+    
+    def _get_default_insights(self) -> Dict[str, Any]:
+        """Get default insights"""
+        return {
+            'learning_patterns': {},
+            'content_preferences': {},
+            'technology_trends': {},
+            'performance_metrics': {},
+            'recommendations': ['Start exploring content to generate personalized insights']
+        }
+
+class GlobalScaler:
+    """Global scaling and multi-region deployment support"""
+    
+    def __init__(self):
+        self.region_configs = {
+            'us-east': {'latency': 50, 'capacity': 1000},
+            'us-west': {'latency': 80, 'capacity': 800},
+            'eu-west': {'latency': 120, 'capacity': 600},
+            'asia-pacific': {'latency': 200, 'capacity': 400}
+        }
+        self.current_region = 'us-east'
+        self.load_balancing_enabled = True
+        
+    def get_optimal_region(self, user_location: Optional[str] = None) -> str:
+        """Get optimal region based on user location"""
+        try:
+            if not user_location:
+                return self.current_region
+            
+            # Simple region selection based on location
+            location_lower = user_location.lower()
+            
+            if any(region in location_lower for region in ['us', 'america', 'north']):
+                return 'us-east'
+            elif any(region in location_lower for region in ['europe', 'eu', 'uk']):
+                return 'eu-west'
+            elif any(region in location_lower for region in ['asia', 'china', 'japan', 'india']):
+                return 'asia-pacific'
+            else:
+                return 'us-east'  # Default
+                
+        except Exception:
+            return self.current_region
+    
+    def get_region_performance(self, region: str) -> Dict[str, Any]:
+        """Get performance metrics for a region"""
+        try:
+            config = self.region_configs.get(region, {})
+            return {
+                'region': region,
+                'latency_ms': config.get('latency', 100),
+                'capacity': config.get('capacity', 500),
+                'status': 'operational',
+                'load': self._get_region_load(region)
+            }
+        except Exception:
+            return {
+                'region': region,
+                'latency_ms': 100,
+                'capacity': 500,
+                'status': 'unknown',
+                'load': 0.5
+            }
+    
+    def _get_region_load(self, region: str) -> float:
+        """Get current load for a region (0.0 to 1.0)"""
+        try:
+            # This would integrate with actual load monitoring
+            # For now, return a simulated load
+            import random
+            return random.uniform(0.1, 0.8)
+        except Exception:
+            return 0.5
+    
+    def should_scale(self, current_load: float, region: str) -> bool:
+        """Determine if scaling is needed"""
+        try:
+            config = self.region_configs.get(region, {})
+            capacity = config.get('capacity', 500)
+            
+            # Scale if load exceeds 80% of capacity
+            return current_load > 0.8
+            
+        except Exception:
+            return False
+    
+    def get_scaling_recommendations(self, region: str) -> List[str]:
+        """Get scaling recommendations for a region"""
+        try:
+            recommendations = []
+            config = self.region_configs.get(region, {})
+            current_load = self._get_region_load(region)
+            
+            if current_load > 0.9:
+                recommendations.append(f"High load detected in {region}. Consider adding more instances.")
+            
+            if current_load > 0.7:
+                recommendations.append(f"Moderate load in {region}. Monitor performance closely.")
+            
+            if config.get('latency', 100) > 150:
+                recommendations.append(f"High latency in {region}. Consider CDN optimization.")
+            
+            return recommendations
+            
+        except Exception:
+            return []
+
+# Initialize Phase 3 components
+contextual_analyzer = ContextualAnalyzer()
+real_time_learner = RealTimeLearner()
+advanced_analytics = AdvancedAnalytics()
+global_scaler = GlobalScaler()
+
+# Extend UnifiedIntelligentEngine with Phase 3 capabilities
+def get_enhanced_recommendations_phase3(user_id: int, request_data: Dict[str, Any], 
+                                      limit: int = 10) -> List[Dict[str, Any]]:
+    """Enhanced recommendations with Phase 3 features"""
+    try:
+        start_time = time.time()
+        
+        # Phase 3: Contextual Analysis
+        context = contextual_analyzer.analyze_context(request_data, user_id)
+        
+        # Phase 3: Real-time Learning Adaptation
+        adapted_data = real_time_learner.get_adapted_parameters(user_id, request_data)
+        
+        # Phase 3: Global Scaling
+        optimal_region = global_scaler.get_optimal_region(context.location)
+        
+        # Get base recommendations
+        recommendations = get_enhanced_recommendations(user_id, adapted_data, limit)
+        
+        # Phase 3: Contextual Enhancement
+        enhanced_recommendations = []
+        for rec in recommendations:
+            enhanced_rec = rec.copy()
+            
+            # Add contextual information
+            enhanced_rec['context'] = {
+                'device_optimized': context.device_type,
+                'time_appropriate': context.time_of_day,
+                'session_context': context.learning_session,
+                'region': optimal_region
+            }
+            
+            # Add learning insights
+            learning_metrics = real_time_learner.get_learning_metrics(user_id)
+            enhanced_rec['learning_insights'] = {
+                'engagement_score': learning_metrics.user_engagement,
+                'content_effectiveness': learning_metrics.content_effectiveness,
+                'learning_progress': learning_metrics.learning_progress
+            }
+            
+            enhanced_recommendations.append(enhanced_rec)
+        
+        # Phase 3: Analytics Recording
+        interaction_data = {
+            'request_data': request_data,
+            'context': asdict(context),
+            'recommendations_count': len(enhanced_recommendations),
+            'response_time': (time.time() - start_time) * 1000,
+            'region': optimal_region
+        }
+        advanced_analytics.record_interaction(user_id, interaction_data)
+        
+        return enhanced_recommendations
+        
+    except Exception as e:
+        logger.error(f"Error in Phase 3 enhanced recommendations: {e}")
+        # Fallback to Phase 2
+        return get_enhanced_recommendations(user_id, request_data, limit)
+
+def get_user_insights_phase3(user_id: int) -> Dict[str, Any]:
+    """Get comprehensive user insights with Phase 3 analytics"""
+    try:
+        insights = advanced_analytics.get_user_insights(user_id)
+        learning_metrics = real_time_learner.get_learning_metrics(user_id)
+        
+        # Combine insights with learning metrics
+        comprehensive_insights = {
+            'analytics': insights,
+            'learning_metrics': asdict(learning_metrics),
+            'recommendations': insights.get('recommendations', []),
+            'phase': 'phase_3_complete'
+        }
+        
+        return comprehensive_insights
+        
+    except Exception as e:
+        logger.error(f"Error getting Phase 3 user insights: {e}")
+        return {'error': 'Unable to generate insights', 'phase': 'phase_3_error'}
+
+def record_user_feedback_phase3(user_id: int, recommendation_id: int, 
+                               feedback_type: str, feedback_data: Dict[str, Any] = None):
+    """Record user feedback with Phase 3 learning"""
+    try:
+        # Record feedback in base system
+        unified_engine.integrate_user_feedback(user_id, recommendation_id, feedback_type, feedback_data)
+        
+        # Phase 3: Real-time Learning
+        interaction_data = {
+            'feedback_type': feedback_type,
+            'recommendation_id': recommendation_id,
+            'feedback_data': feedback_data or {},
+            'timestamp': datetime.now()
+        }
+        real_time_learner.update_user_profile(user_id, interaction_data)
+        
+        # Phase 3: Analytics
+        advanced_analytics.record_interaction(user_id, interaction_data)
+        
+        logger.info(f"Phase 3 feedback recorded for user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error recording Phase 3 feedback: {e}")
+
+def get_system_health_phase3() -> Dict[str, Any]:
+    """Get comprehensive system health with Phase 3 metrics"""
+    try:
+        # Base system health
+        base_health = {
+            'enhanced_engine_available': True,
+            'phase_1_complete': True,
+            'phase_2_complete': True,
+            'phase_3_complete': True
+        }
+        
+        # Phase 3: Performance metrics
+        performance_metrics = unified_engine.get_performance_metrics()
+        
+        # Phase 3: Global scaling status
+        regions_status = {}
+        for region in global_scaler.region_configs.keys():
+            regions_status[region] = global_scaler.get_region_performance(region)
+        
+        # Phase 3: Learning system status
+        learning_status = {
+            'active_users': len(real_time_learner.user_profiles),
+            'total_interactions': sum(len(data) for data in advanced_analytics.analytics_data.values()),
+            'adaptation_rate': sum(
+                real_time_learner.get_learning_metrics(user_id).adaptation_rate 
+                for user_id in real_time_learner.user_profiles.keys()
+            ) / max(1, len(real_time_learner.user_profiles))
+        }
+        
+        comprehensive_health = {
+            **base_health,
+            'performance_metrics': asdict(performance_metrics),
+            'global_scaling': {
+                'regions': regions_status,
+                'load_balancing': global_scaler.load_balancing_enabled,
+                'current_region': global_scaler.current_region
+            },
+            'learning_system': learning_status,
+            'analytics': {
+                'total_users_analyzed': len(advanced_analytics.analytics_data),
+                'insights_cache_size': len(advanced_analytics.insights_cache)
+            }
+        }
+        
+        return comprehensive_health
+        
+    except Exception as e:
+        logger.error(f"Error getting Phase 3 system health: {e}")
+        return {
+            'enhanced_engine_available': True,
+            'phase_1_complete': True,
+            'phase_2_complete': True,
+            'phase_3_complete': False,
+            'error': str(e)
+        } 

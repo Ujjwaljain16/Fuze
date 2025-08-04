@@ -51,6 +51,14 @@ const Recommendations = () => {
   const [showLearningPathForm, setShowLearningPathForm] = useState(false)
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [enhancedFeatures, setEnhancedFeatures] = useState([])
+  const [enhancedEngineAvailable, setEnhancedEngineAvailable] = useState(false)
+  const [useEnhancedEngine, setUseEnhancedEngine] = useState(false)
+  const [enhancedEngineStatus, setEnhancedEngineStatus] = useState(null)
+  const [performanceMetrics, setPerformanceMetrics] = useState(null)
+  const [phase3Available, setPhase3Available] = useState(false)
+  const [usePhase3, setUsePhase3] = useState(false)
+  const [learningInsights, setLearningInsights] = useState(null)
+  const [contextualInfo, setContextualInfo] = useState(null)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -65,6 +73,7 @@ const Recommendations = () => {
     if (isAuthenticated) {
       fetchProjects()
       checkGeminiStatus()
+      checkEnhancedEngineStatus()
       fetchRecommendations()
     }
   }, [isAuthenticated])
@@ -73,7 +82,7 @@ const Recommendations = () => {
     if (isAuthenticated && filter) {
       fetchRecommendations()
     }
-  }, [filter, useGemini])
+  }, [filter, useGemini, useEnhancedEngine, usePhase3])
 
   const checkGeminiStatus = async () => {
     try {
@@ -89,6 +98,51 @@ const Recommendations = () => {
       // Don't let this error block other functionality
       setGeminiAvailable(false)
       setUseGemini(false)
+    }
+  }
+
+  const checkEnhancedEngineStatus = async () => {
+    try {
+      console.log('Checking enhanced engine status...')
+      const response = await api.get('/api/recommendations/enhanced-status')
+      console.log('Enhanced engine status response:', response.data)
+      setEnhancedEngineAvailable(response.data.enhanced_engine_available)
+      setEnhancedEngineStatus(response.data)
+      setPhase3Available(response.data.phase_3_complete)
+      if (response.data.enhanced_engine_available) {
+        setUseEnhancedEngine(true) // Default to enhanced engine if available
+      }
+      if (response.data.phase_3_complete) {
+        setUsePhase3(true) // Default to Phase 3 if available
+      }
+    } catch (error) {
+      console.error('Error checking enhanced engine status:', error)
+      setEnhancedEngineAvailable(false)
+      setUseEnhancedEngine(false)
+      setPhase3Available(false)
+      setUsePhase3(false)
+    }
+  }
+
+  const fetchPerformanceMetrics = async () => {
+    try {
+      if (!enhancedEngineAvailable) return
+      
+      const response = await api.get('/api/recommendations/performance-metrics')
+      setPerformanceMetrics(response.data)
+    } catch (error) {
+      console.error('Error fetching performance metrics:', error)
+    }
+  }
+
+  const fetchLearningInsights = async () => {
+    try {
+      if (!phase3Available) return
+      
+      const response = await api.get('/api/recommendations/phase3/insights')
+      setLearningInsights(response.data)
+    } catch (error) {
+      console.error('Error fetching learning insights:', error)
     }
   }
 
@@ -146,95 +200,93 @@ const Recommendations = () => {
       let method = 'GET'
       let data = null
       
-      if (filter === 'all' || filter === 'general') {
-        if (useGemini && geminiAvailable) {
-          endpoint = '/api/recommendations/gemini-enhanced'
+      // Prioritize Phase 3 if available
+      if (usePhase3 && phase3Available) {
+        endpoint = '/api/recommendations/phase3/recommendations'
+        method = 'POST'
+        data = {
+          project_title: selectedProject ? selectedProject.title : 'Personalized Learning',
+          project_description: selectedProject ? selectedProject.description : 'Based on my projects and interests',
+          technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+          learning_goals: 'Master relevant technologies and improve skills',
+          content_type: filter === 'all' ? 'all' : filter,
+          difficulty: 'all',
+          max_recommendations: 10
+        }
+      }
+      // Fallback to enhanced engine if available
+      else if (useEnhancedEngine && enhancedEngineAvailable) {
+        if (filter === 'all' || filter === 'general') {
+          endpoint = '/api/recommendations/enhanced'
           method = 'POST'
-          // Provide better context for general recommendations
-          const userTechnologies = projects
-            .map(p => p.technologies)
-            .filter(tech => tech && tech.trim())
-            .join(', ')
-          
           data = {
-            title: 'Personalized Learning Recommendations',
-            description: 'Based on my projects and interests, I want to discover relevant learning resources and tutorials',
-            technologies: userTechnologies,
-            user_interests: userTechnologies,
+            project_title: 'Personalized Learning Recommendations',
+            project_description: 'Based on my projects and interests, I want to discover relevant learning resources and tutorials',
+            technologies: projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+            learning_goals: 'Master relevant technologies and improve skills',
+            content_type: 'all',
+            difficulty: 'all',
             max_recommendations: 10
           }
         } else {
-          endpoint = '/api/recommendations/general'
-        }
-      } else if (filter.startsWith('project_')) {
-        const projectId = filter.replace('project_', '')
-        if (useGemini && geminiAvailable) {
-          endpoint = `/api/recommendations/gemini-enhanced-project/${projectId}`
-        } else {
-          endpoint = `/api/recommendations/project/${projectId}`
-        }
-      } else if (filter.startsWith('task_')) {
-        const taskId = filter.replace('task_', '')
-        endpoint = `/api/recommendations/task/${taskId}`
-      } else {
-        if (useGemini && geminiAvailable) {
-          endpoint = `/api/recommendations/gemini-enhanced-project/${filter}`
-        } else {
-          endpoint = `/api/recommendations/project/${filter}`
-        }
-      }
-      
-      let response
-      if (method === 'POST') {
-        response = await api.post(endpoint, data)
-      } else {
-        response = await api.get(endpoint)
-      }
-      
-      // Handle different response formats
-      const recommendations = response.data.recommendations || response.data || []
-      setRecommendations(recommendations)
-      
-      // Store context analysis if available (Gemini-enhanced responses)
-      if (response.data.context_analysis) {
-        setContextAnalysis(response.data.context_analysis)
-      } else if (response.data.analysis) {
-        // Handle original analysis format
-        setContextAnalysis({
-          processing_stats: {
-            total_bookmarks_analyzed: response.data.analysis.total_bookmarks || response.data.analysis.total_bookmarks_analyzed || 0,
-            relevant_bookmarks_found: response.data.analysis.relevant_bookmarks || response.data.analysis.relevant_bookmarks_found || 0,
-            gemini_enhanced: useGemini && geminiAvailable
+          endpoint = `/api/recommendations/${filter}`
+          method = 'POST'
+          data = {
+            project_title: selectedProject ? selectedProject.title : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Project`,
+            project_description: selectedProject ? selectedProject.description : `Building a ${filter} application`,
+            technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+            learning_goals: `Master ${filter} development`,
+            content_type: 'all',
+            difficulty: 'all',
+            max_recommendations: 10
           }
-        })
-      } else if (response.data.project_analysis) {
-        // Handle project analysis format
-        setContextAnalysis({
-          processing_stats: {
-            total_bookmarks_analyzed: response.data.project_analysis.total_bookmarks_analyzed || 0,
-            relevant_bookmarks_found: response.data.project_analysis.relevant_bookmarks_found || 0,
-            gemini_enhanced: useGemini && geminiAvailable
-          }
-        })
-      } else {
-        setContextAnalysis(null)
+        }
+      }
+      // Fallback to Gemini if available
+      else if (useGemini && geminiAvailable) {
+        endpoint = '/api/recommendations/gemini'
+        method = 'POST'
+        data = {
+          project_title: selectedProject ? selectedProject.title : 'Learning Project',
+          project_description: selectedProject ? selectedProject.description : 'I want to learn and improve my skills',
+          technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+          learning_goals: 'Master relevant technologies and improve skills',
+          content_type: filter === 'all' ? 'all' : filter,
+          difficulty: 'all',
+          max_recommendations: 10
+        }
+      }
+      // Fallback to regular recommendations
+      else {
+        endpoint = `/api/recommendations/${filter}`
+        method = 'GET'
       }
       
-      if (recommendations.length === 0) {
-        setEmptyMessage(response.data.message || 'No recommendations found')
+      const response = method === 'GET' ? 
+        await api.get(endpoint) : 
+        await api.post(endpoint, data)
+      
+      if (response.data.recommendations) {
+        setRecommendations(response.data.recommendations)
+        setEnhancedFeatures(response.data.enhanced_features || [])
+        
+        // Extract contextual information from Phase 3
+        if (response.data.contextual_info) {
+          setContextualInfo(response.data.contextual_info)
+        }
+        
+        // Extract learning insights from Phase 3
+        if (response.data.learning_insights) {
+          setLearningInsights(response.data.learning_insights)
+        }
       } else {
-        setEmptyMessage('')
+        setRecommendations([])
+        setEnhancedFeatures([])
       }
     } catch (error) {
       console.error('Error fetching recommendations:', error)
-      if (useGemini && geminiAvailable) {
-        // Fallback to original recommendations if Gemini fails
-        console.log('Falling back to original recommendations')
-        setUseGemini(false)
-        // Don't call fetchRecommendations() here - let the useEffect handle it
-        return
-      }
-      setEmptyMessage('Failed to load recommendations')
+      setRecommendations([])
+      setEnhancedFeatures([])
     } finally {
       setLoading(false)
     }
@@ -548,6 +600,45 @@ const Recommendations = () => {
                     </div>
                   )}
                 </div>
+                
+                {/* Enhanced Engine Controls */}
+                <div className="flex items-center space-x-4">
+                  {enhancedEngineAvailable ? (
+                    <div className="flex items-center space-x-3 bg-gray-800/50 rounded-xl p-3">
+                      <Zap className="w-5 h-5 text-yellow-400" />
+                      <span className="text-white font-medium">Enhanced Engine:</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useEnhancedEngine}
+                          onChange={(e) => setUseEnhancedEngine(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Phase 3 Controls */}
+                <div className="flex items-center space-x-4">
+                  {phase3Available ? (
+                    <div className="flex items-center space-x-3 bg-gradient-to-r from-purple-800/50 to-pink-800/50 rounded-xl p-3 border border-purple-500/30">
+                      <Brain className="w-5 h-5 text-purple-400" />
+                      <span className="text-white font-medium">Phase 3 AI:</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={usePhase3}
+                          onChange={(e) => setUsePhase3(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                      </label>
+                      <span className="text-purple-300 text-sm">Contextual + Learning</span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
@@ -783,26 +874,187 @@ const Recommendations = () => {
                   <h3 className="text-xl font-semibold text-white">Smart AI Features</h3>
                   <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
                     <TargetIcon className="w-4 h-4 text-purple-400" />
-                    <span className="text-purple-400 text-sm font-medium">Enhanced Matching</span>
+                    <span className="text-purple-300 text-sm font-medium">Phase 1+2</span>
                   </div>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {enhancedFeatures.map((feature, index) => (
-                    <div key={index} className="bg-gray-800/30 rounded-xl p-4 border border-purple-500/20">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                        <span className="text-purple-400 font-medium text-sm">{feature.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                    <div key={index} className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                        <span className="text-gray-300 text-sm font-medium">{feature.replace(/_/g, ' ')}</span>
                       </div>
-                      <p className="text-gray-300 text-xs">
-                        {feature === 'learning_path_matching' && 'Matches content to your learning progression'}
-                        {feature === 'project_applicability' && 'Identifies implementation-ready content'}
-                        {feature === 'skill_development_tracking' && 'Tracks skill development opportunities'}
-                        {feature === 'ai_generated_reasoning' && 'AI-powered recommendation reasoning'}
-                      </p>
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Learning Insights Display */}
+            {learningInsights && (
+              <div className="mb-8 bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30">
+                <div className="flex items-center space-x-3 mb-6">
+                  <div className="relative">
+                    <Brain className="w-6 h-6 text-blue-400" />
+                    <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white">Learning Insights</h3>
+                  <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 px-3 py-1 rounded-full">
+                    <TargetIcon className="w-4 h-4 text-blue-400" />
+                    <span className="text-blue-300 text-sm font-medium">Phase 3</span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Engagement Score */}
+                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-300 text-sm">Engagement</span>
+                      <span className="text-blue-400 font-semibold">
+                        {Math.round(learningInsights.engagement_score * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-500"
+                        style={{ width: `${learningInsights.engagement_score * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Content Effectiveness */}
+                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-300 text-sm">Effectiveness</span>
+                      <span className="text-green-400 font-semibold">
+                        {Math.round(learningInsights.content_effectiveness * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-500"
+                        style={{ width: `${learningInsights.content_effectiveness * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Learning Progress */}
+                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-300 text-sm">Progress</span>
+                      <span className="text-yellow-400 font-semibold">
+                        {Math.round(learningInsights.learning_progress * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-500"
+                        style={{ width: `${learningInsights.learning_progress * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* User Satisfaction */}
+                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-300 text-sm">Satisfaction</span>
+                      <span className="text-purple-400 font-semibold">
+                        {Math.round(learningInsights.user_satisfaction * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
+                        style={{ width: `${learningInsights.user_satisfaction * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contextual Information */}
+                {contextualInfo && (
+                  <div className="mt-6 p-4 bg-gray-800/20 rounded-xl border border-gray-700/30">
+                    <h4 className="text-lg font-semibold text-white mb-3">Contextual Analysis</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center">
+                        <span className="text-gray-400 text-sm">Device</span>
+                        <p className="text-blue-300 font-medium">{contextualInfo.device_optimized}</p>
+                      </div>
+                      <div className="text-center">
+                        <span className="text-gray-400 text-sm">Time</span>
+                        <p className="text-green-300 font-medium">{contextualInfo.time_appropriate}</p>
+                      </div>
+                      <div className="text-center">
+                        <span className="text-gray-400 text-sm">Session</span>
+                        <p className="text-yellow-300 font-medium">
+                          {contextualInfo.session_context ? 'Active' : 'New'}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <span className="text-gray-400 text-sm">Day</span>
+                        <p className="text-purple-300 font-medium">{contextualInfo.day_of_week}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Performance Metrics Display */}
+            {useEnhancedEngine && enhancedEngineAvailable && (
+              <div className="mb-8 bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="relative">
+                      <BarChart3 className="w-6 h-6 text-green-400" />
+                      <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">Enhanced Engine Performance</h3>
+                    <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 px-3 py-1 rounded-full">
+                      <TrendingUp className="w-4 h-4 text-green-400" />
+                      <span className="text-green-400 text-sm font-medium">Phase 1+2 Active</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={fetchPerformanceMetrics}
+                    className="bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {performanceMetrics ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
+                      <div className="text-green-400 font-semibold mb-2">Response Time</div>
+                      <div className="text-gray-300 text-sm">
+                        {performanceMetrics.performance_metrics?.response_time_ms?.toFixed(2) || 'N/A'} ms
+                      </div>
+                    </div>
+                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
+                      <div className="text-green-400 font-semibold mb-2">Cache Hit Rate</div>
+                      <div className="text-gray-300 text-sm">
+                        {(performanceMetrics.performance_metrics?.cache_hit_rate * 100)?.toFixed(1) || 'N/A'}%
+                      </div>
+                    </div>
+                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
+                      <div className="text-green-400 font-semibold mb-2">Error Rate</div>
+                      <div className="text-gray-300 text-sm">
+                        {(performanceMetrics.performance_metrics?.error_rate * 100)?.toFixed(2) || 'N/A'}%
+                      </div>
+                    </div>
+                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
+                      <div className="text-green-400 font-semibold mb-2">Throughput</div>
+                      <div className="text-gray-300 text-sm">
+                        {performanceMetrics.performance_metrics?.throughput || 'N/A'} req/min
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">Click refresh to load performance metrics</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1054,6 +1306,11 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
     recommendation.project_applicability !== undefined || 
     recommendation.skill_development !== undefined;
 
+  // Check if this is an enhanced recommendation (Phase 1+2 format)
+  const isEnhancedRecommendation = recommendation.algorithm_used !== undefined || 
+    recommendation.confidence !== undefined ||
+    (recommendation.analysis && recommendation.analysis.algorithm_used);
+
   return (
     <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all duration-300 hover:transform hover:scale-[1.01]">
       <div 
@@ -1086,18 +1343,25 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
             {(recommendation.score || recommendation.match_score) && (
               <div className="flex flex-col items-center">
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  isEnhancedRecommendation ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 text-purple-400' :
                   isSmartRecommendation ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 text-purple-400' :
                   isTaskRecommendation ? 'bg-green-600/20 text-green-400' :
                   isGeminiRecommendation ? 'bg-purple-600/20 text-purple-400' : 
                   'bg-blue-600/20 text-blue-400'
                 }`}>
                   {Math.round(recommendation.match_score || recommendation.score)}%
+                  {isEnhancedRecommendation && <TargetIcon className="w-3 h-3 inline ml-1" />}
                   {isSmartRecommendation && <TargetIcon className="w-3 h-3 inline ml-1" />}
                   {isTaskRecommendation && (recommendation.score || recommendation.match_score) >= 70 && (
                     <CheckCircle className="w-3 h-3 inline ml-1" />
                   )}
                   {isGeminiRecommendation && <Brain className="w-3 h-3 inline ml-1" />}
                 </span>
+                {isEnhancedRecommendation && (
+                  <span className="text-xs text-gray-500 mt-1">
+                    {recommendation.algorithm_used || recommendation.analysis?.algorithm_used || 'Enhanced'}
+                  </span>
+                )}
                 {isSmartRecommendation && (
                   <span className="text-xs text-gray-500 mt-1">
                     Smart Match
@@ -1121,18 +1385,25 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
         <div className="border-t border-gray-800 bg-gray-900/30 p-6">
           <div className="flex items-center space-x-3 mb-6">
             <h4 className="text-lg font-semibold text-white">
-              {isSmartRecommendation ? 'Smart AI Analysis' :
+              {isEnhancedRecommendation ? 'Enhanced AI Analysis' :
+               isSmartRecommendation ? 'Smart AI Analysis' :
                isGeminiRecommendation ? 'Gemini AI Analysis' : 
                isSimpleRecommendation ? 'Similarity Analysis' : 
                (isTaskRecommendation ? 'Precision Analysis' : 'AI Analysis')}
             </h4>
+            {isEnhancedRecommendation && (
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
+                <TargetIcon className="w-4 h-4 text-purple-400" />
+                <span className="text-purple-400 text-sm font-medium">Phase 1+2</span>
+              </div>
+            )}
             {isSmartRecommendation && (
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
                 <TargetIcon className="w-4 h-4 text-purple-400" />
                 <span className="text-purple-400 text-sm font-medium">Smart Enhanced</span>
               </div>
             )}
-            {isGeminiRecommendation && !isSmartRecommendation && (
+            {isGeminiRecommendation && !isSmartRecommendation && !isEnhancedRecommendation && (
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
                 <Star className="w-4 h-4 text-purple-400" />
                 <span className="text-purple-400 text-sm font-medium">Gemini Enhanced</span>
@@ -1242,6 +1513,66 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
                       <div 
                         className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
                         style={{width: `${recommendation.skill_development * 100}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : isEnhancedRecommendation ? (
+              // Enhanced recommendation analysis (Phase 1+2)
+              <>
+                {recommendation.confidence !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Confidence Score</span>
+                      <span className="text-purple-400 font-semibold">{Math.round(recommendation.confidence)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
+                        style={{width: `${recommendation.confidence}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+                {recommendation.quality_score !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Quality Score</span>
+                      <span className="text-green-400 font-semibold">{Math.round(recommendation.quality_score)}/10</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
+                        style={{width: `${(recommendation.quality_score / 10) * 100}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+                {recommendation.diversity_score !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Diversity Score</span>
+                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.diversity_score * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
+                        style={{width: `${recommendation.diversity_score * 100}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+                {recommendation.novelty_score !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Novelty Score</span>
+                      <span className="text-orange-400 font-semibold">{Math.round(recommendation.novelty_score * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
+                        style={{width: `${recommendation.novelty_score * 100}%`}}
                       />
                     </div>
                   </div>

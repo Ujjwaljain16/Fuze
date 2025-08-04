@@ -13,6 +13,28 @@ from sklearn.metrics.pairwise import cosine_similarity
 import json
 import logging
 from rate_limit_handler import GeminiRateLimiter
+from datetime import datetime
+
+# Import enhanced recommendation engine
+try:
+    from enhanced_recommendation_engine import get_enhanced_recommendations, unified_engine
+    ENHANCED_ENGINE_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Enhanced recommendation engine not available: {e}")
+    ENHANCED_ENGINE_AVAILABLE = False
+
+# Import Phase 3 enhanced engine
+try:
+    from phase3_enhanced_engine import (
+        get_enhanced_recommendations_phase3,
+        record_user_feedback_phase3,
+        get_user_learning_insights,
+        get_system_health_phase3
+    )
+    PHASE3_ENGINE_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Phase 3 enhanced engine not available: {e}")
+    PHASE3_ENGINE_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1647,3 +1669,424 @@ def get_project_type_recommendations():
         
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+# Enhanced Recommendation Engine Integration Routes
+@recommendations_bp.route('/enhanced', methods=['POST'])
+@jwt_required()
+def get_enhanced_recommendations_route():
+    """Get enhanced recommendations using Phase 1 and Phase 2 algorithms"""
+    try:
+        if not ENHANCED_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Enhanced recommendation engine not available'}), 503
+        
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Extract request data
+        request_data = {
+            'project_title': data.get('project_title', ''),
+            'project_description': data.get('project_description', ''),
+            'technologies': data.get('technologies', ''),
+            'learning_goals': data.get('learning_goals', ''),
+            'content_type': data.get('content_type', 'all'),
+            'difficulty': data.get('difficulty', 'all'),
+            'max_recommendations': data.get('max_recommendations', 10)
+        }
+        
+        # Get enhanced recommendations
+        recommendations = get_enhanced_recommendations(user_id, request_data, request_data['max_recommendations'])
+        
+        # Convert to frontend-compatible format
+        formatted_recommendations = []
+        for rec in recommendations:
+            formatted_rec = {
+                'id': rec['id'],
+                'title': rec['title'],
+                'url': rec['url'],
+                'description': rec.get('description', ''),
+                'match_score': rec['score'] * 100,  # Convert to percentage
+                'reason': rec['reasoning'],
+                'content_type': rec['content_type'],
+                'difficulty': rec['difficulty'],
+                'technologies': rec['technologies'],
+                'key_concepts': rec['key_concepts'],
+                'quality_score': rec['quality_score'],
+                'algorithm_used': rec['algorithm_used'],
+                'confidence': rec['confidence'],
+                'learning_path_fit': rec.get('learning_path_fit', 0.0),
+                'project_applicability': rec.get('project_applicability', 0.0),
+                'skill_development': rec.get('skill_development', 0.0),
+                'analysis': {
+                    'technologies': rec['technologies'],
+                    'content_type': rec['content_type'],
+                    'difficulty': rec['difficulty'],
+                    'key_concepts': rec['key_concepts'],
+                    'quality_score': rec['quality_score'],
+                    'algorithm_used': rec['algorithm_used'],
+                    'confidence': rec['confidence']
+                }
+            }
+            formatted_recommendations.append(formatted_rec)
+        
+        return jsonify({
+            'recommendations': formatted_recommendations,
+            'count': len(formatted_recommendations),
+            'enhanced_features': [
+                'learning_path_matching',
+                'project_applicability', 
+                'skill_development_tracking',
+                'ai_generated_reasoning',
+                'multi_algorithm_selection',
+                'diversity_optimization',
+                'semantic_analysis',
+                'content_based_filtering'
+            ],
+            'algorithm_used': 'enhanced_unified_engine',
+            'phase': 'phase_1_and_2'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced recommendations: {e}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
+@jwt_required()
+def get_enhanced_project_recommendations_route(project_id):
+    """Get enhanced project-specific recommendations"""
+    try:
+        if not ENHANCED_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Enhanced recommendation engine not available'}), 503
+        
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Get project details
+        project = Project.query.get(project_id)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+        
+        # Create request data from project
+        request_data = {
+            'project_title': project.title,
+            'project_description': project.description or '',
+            'technologies': project.technologies or '',
+            'learning_goals': f'Implement {project.title}',
+            'content_type': 'project_focused',
+            'difficulty': 'all',
+            'max_recommendations': data.get('max_recommendations', 10)
+        }
+        
+        # Get enhanced recommendations
+        recommendations = get_enhanced_recommendations(user_id, request_data, request_data['max_recommendations'])
+        
+        # Convert to frontend-compatible format
+        formatted_recommendations = []
+        for rec in recommendations:
+            formatted_rec = {
+                'id': rec['id'],
+                'title': rec['title'],
+                'url': rec['url'],
+                'description': rec.get('description', ''),
+                'match_score': rec['score'] * 100,  # Convert to percentage
+                'reason': rec['reasoning'],
+                'content_type': rec['content_type'],
+                'difficulty': rec['difficulty'],
+                'technologies': rec['technologies'],
+                'key_concepts': rec['key_concepts'],
+                'quality_score': rec['quality_score'],
+                'algorithm_used': rec['algorithm_used'],
+                'confidence': rec['confidence'],
+                'learning_path_fit': rec.get('learning_path_fit', 0.0),
+                'project_applicability': rec.get('project_applicability', 0.0),
+                'skill_development': rec.get('skill_development', 0.0),
+                'analysis': {
+                    'technologies': rec['technologies'],
+                    'content_type': rec['content_type'],
+                    'difficulty': rec['difficulty'],
+                    'key_concepts': rec['key_concepts'],
+                    'quality_score': rec['quality_score'],
+                    'algorithm_used': rec['algorithm_used'],
+                    'confidence': rec['confidence']
+                }
+            }
+            formatted_recommendations.append(formatted_rec)
+        
+        return jsonify({
+            'recommendations': formatted_recommendations,
+            'count': len(formatted_recommendations),
+            'project_id': project_id,
+            'project_title': project.title,
+            'enhanced_features': [
+                'learning_path_matching',
+                'project_applicability',
+                'skill_development_tracking', 
+                'ai_generated_reasoning',
+                'multi_algorithm_selection',
+                'diversity_optimization',
+                'semantic_analysis',
+                'content_based_filtering'
+            ],
+            'algorithm_used': 'enhanced_unified_engine',
+            'phase': 'phase_1_and_2'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced project recommendations: {e}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@recommendations_bp.route('/enhanced-status', methods=['GET'])
+@jwt_required()
+def get_enhanced_engine_status():
+    """Get enhanced recommendation engine status"""
+    try:
+        user_id = get_jwt_identity()
+        
+        status = {
+            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
+            'phase_1_complete': True,
+            'phase_2_complete': True,
+            'phase_3_complete': PHASE3_ENGINE_AVAILABLE,
+            'algorithms_available': ['hybrid', 'semantic', 'content_based'],
+            'features_available': [
+                'multi_algorithm_selection',
+                'diversity_optimization',
+                'semantic_analysis',
+                'content_based_filtering',
+                'performance_monitoring',
+                'smart_caching',
+                'feedback_integration',
+                'contextual_recommendations',
+                'real_time_learning',
+                'advanced_analytics'
+            ]
+        }
+        
+        if ENHANCED_ENGINE_AVAILABLE:
+            try:
+                performance_metrics = unified_engine.get_performance_metrics()
+                status['performance_metrics'] = {
+                    'response_time_ms': performance_metrics.response_time_ms,
+                    'cache_hit_rate': performance_metrics.cache_hit_rate,
+                    'error_rate': performance_metrics.error_rate,
+                    'throughput': performance_metrics.throughput
+                }
+            except Exception as e:
+                logging.error(f"Error getting performance metrics: {e}")
+                status['performance_metrics'] = {
+                    'response_time_ms': 0,
+                    'cache_hit_rate': 0,
+                    'error_rate': 0,
+                    'throughput': 0
+                }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        logging.error(f"Error getting enhanced engine status: {e}")
+        return jsonify({
+            'enhanced_engine_available': False,
+            'phase_1_complete': False,
+            'phase_2_complete': False,
+            'phase_3_complete': False,
+            'error': str(e)
+        }), 500
+
+@recommendations_bp.route('/phase3/recommendations', methods=['POST'])
+@jwt_required()
+def get_phase3_recommendations():
+    """Get Phase 3 enhanced recommendations with contextual analysis and real-time learning"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        
+        # Extract request parameters
+        project_title = data.get('project_title', '')
+        project_description = data.get('project_description', '')
+        technologies = data.get('technologies', '')
+        learning_goals = data.get('learning_goals', '')
+        content_type = data.get('content_type', 'all')
+        difficulty = data.get('difficulty', 'all')
+        max_recommendations = data.get('max_recommendations', 10)
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # Build request data
+        request_data = {
+            'project_title': project_title,
+            'project_description': project_description,
+            'technologies': technologies,
+            'learning_goals': learning_goals,
+            'content_type': content_type,
+            'difficulty': difficulty,
+            'max_recommendations': max_recommendations,
+            'user_agent': user_agent
+        }
+        
+        # Get Phase 3 recommendations
+        recommendations = get_enhanced_recommendations_phase3(
+            user_id, request_data, max_recommendations
+        )
+        
+        # Prepare response
+        response = {
+            'recommendations': recommendations,
+            'count': len(recommendations),
+            'phase': 'phase_3_complete',
+            'features_used': [
+                'contextual_analysis',
+                'real_time_learning',
+                'device_optimization',
+                'time_awareness',
+                'session_context',
+                'learning_insights'
+            ]
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logging.error(f"Error getting Phase 3 recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/feedback', methods=['POST'])
+@jwt_required()
+def record_phase3_feedback():
+    """Record user feedback with Phase 3 learning integration"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        
+        recommendation_id = data.get('recommendation_id')
+        feedback_type = data.get('feedback_type')  # 'relevant' or 'not_relevant'
+        feedback_data = data.get('feedback_data', {})
+        
+        if not recommendation_id or not feedback_type:
+            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
+        
+        # Record feedback with Phase 3 learning
+        record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
+        
+        return jsonify({
+            'message': 'Feedback recorded successfully',
+            'phase': 'phase_3_complete',
+            'learning_integrated': True
+        })
+        
+    except Exception as e:
+        logging.error(f"Error recording Phase 3 feedback: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/insights', methods=['GET'])
+@jwt_required()
+def get_phase3_insights():
+    """Get user learning insights from Phase 3"""
+    try:
+        user_id = get_jwt_identity()
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        
+        # Get learning insights
+        insights = get_user_learning_insights(user_id)
+        
+        return jsonify(insights)
+        
+    except Exception as e:
+        logging.error(f"Error getting Phase 3 insights: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/health', methods=['GET'])
+@jwt_required()
+def get_phase3_health():
+    """Get comprehensive system health with Phase 3 metrics"""
+    try:
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        
+        # Get comprehensive system health
+        health = get_system_health_phase3()
+        
+        return jsonify(health)
+        
+    except Exception as e:
+        logging.error(f"Error getting Phase 3 health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/contextual', methods=['POST'])
+@jwt_required()
+def get_contextual_recommendations():
+    """Get contextual recommendations based on device, time, and session"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        
+        # Extract contextual information
+        user_agent = request.headers.get('User-Agent', '')
+        current_time = datetime.now()
+        
+        # Build contextual request data
+        request_data = {
+            'project_title': data.get('project_title', ''),
+            'project_description': data.get('project_description', ''),
+            'technologies': data.get('technologies', ''),
+            'learning_goals': data.get('learning_goals', ''),
+            'content_type': data.get('content_type', 'all'),
+            'difficulty': data.get('difficulty', 'all'),
+            'max_recommendations': data.get('max_recommendations', 10),
+            'user_agent': user_agent,
+            'timestamp': current_time.isoformat(),
+            'contextual_request': True
+        }
+        
+        # Get contextual recommendations
+        recommendations = get_enhanced_recommendations_phase3(
+            user_id, request_data, request_data['max_recommendations']
+        )
+        
+        # Extract contextual information from recommendations
+        contextual_info = {}
+        if recommendations:
+            first_rec = recommendations[0]
+            context = first_rec.get('context', {})
+            contextual_info = {
+                'device_optimized': context.get('device_optimized', 'desktop'),
+                'time_appropriate': context.get('time_appropriate', 'unknown'),
+                'session_context': context.get('session_context', False),
+                'day_of_week': context.get('day_of_week', 'unknown')
+            }
+        
+        response = {
+            'recommendations': recommendations,
+            'count': len(recommendations),
+            'contextual_info': contextual_info,
+            'phase': 'phase_3_complete',
+            'contextual_features': [
+                'device_detection',
+                'time_analysis',
+                'session_tracking',
+                'learning_context'
+            ]
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logging.error(f"Error getting contextual recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
