@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-08-02T21:23:20.930210",
+  "network_latency": 2.03327317237854,
+  "flask_overhead": 2.026665687561035,
+  "db_performance": 2.8940374851226807,
+  "redis_performance": 2.683335542678833,
+  "original_time": 2.639817953109741,
+  "ultra_time": 2.458880662918091,
+  "total_overhead": 4.059938859939575,
+  "db_overhead": 0.8607643127441404,
+  "recommendation_overhead": -0.25421953201293945
+}

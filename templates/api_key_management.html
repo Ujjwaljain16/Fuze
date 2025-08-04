@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Key Management - Fuze</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        .api-key-card {
+            border-left: 4px solid #007bff;
+        }
+        .usage-progress {
+            height: 8px;
+        }
+        .api-key-status {
+            font-size: 0.9rem;
+        }
+        .help-text {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .feature-list {
+            list-style: none;
+            padding-left: 0;
+        }
+        .feature-list li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f8f9fa;
+        }
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+        .feature-list i {
+            color: #28a745;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- Main Content -->
+                <div class="card api-key-card">
+                    <div class="card-header">
+                        <h4 class="mb-0">
+                            <i class="fas fa-key"></i> Manage Your API Key
+                        </h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <form id="apiKeyForm">
+                                    <div class="mb-3">
+                                        <label for="apiKeyInput" class="form-label">
+                                            <strong>Gemini API Key</strong>
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="password" 
+                                                   class="form-control" 
+                                                   id="apiKeyInput" 
+                                                   placeholder="AIzaSy... (Your Gemini API Key)"
+                                                   maxlength="39">
+                                            <button class="btn btn-outline-secondary" 
+                                                    type="button" 
+                                                    id="toggleApiKey">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text">
+                                            <i class="fas fa-info-circle"></i>
+                                            Get your free API key from 
+                                            <a href="https://makersuite.google.com/app/apikey" target="_blank">
+                                                Google AI Studio
+                                            </a>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="apiKeyName" class="form-label">
+                                            <strong>API Key Name (Optional)</strong>
+                                        </label>
+                                        <input type="text" 
+                                               class="form-control" 
+                                               id="apiKeyName" 
+                                               placeholder="My Personal Key">
+                                        <div class="form-text">
+                                            Give your API key a friendly name for easy identification
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="d-flex gap-2">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-save"></i> Save API Key
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" id="testApiKey">
+                                            <i class="fas fa-vial"></i> Test Key
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger" id="removeApiKey">
+                                            <i class="fas fa-trash"></i> Remove
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">
+                                            <i class="fas fa-chart-line"></i> Usage Stats
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" id="usageStats">
+                                        <div class="text-center">
+                                            <div class="spinner-border spinner-border-sm" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Benefits Section -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-lightbulb"></i> Why Use Your Own API Key?
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <ul class="feature-list">
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>No Rate Limit Conflicts</strong><br>
+                                        <span class="help-text">You won't compete with other users for API quota</span>
+                                    </li>
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>Cost Control</strong><br>
+                                        <span class="help-text">You control your own API usage and costs</span>
+                                    </li>
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>Better Performance</strong><br>
+                                        <span class="help-text">Faster response times and more reliable service</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="feature-list">
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>Free Tier Available</strong><br>
+                                        <span class="help-text">15 requests/minute, 1500 requests/day</span>
+                                    </li>
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>Privacy & Security</strong><br>
+                                        <span class="help-text">Your API key is encrypted and secure</span>
+                                    </li>
+                                    <li>
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>Usage Monitoring</strong><br>
+                                        <span class="help-text">Track your API usage in real-time</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-4">
+                <!-- Sidebar -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-question-circle"></i> How to Get API Key
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ol class="mb-0">
+                            <li>Go to <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></li>
+                            <li>Sign in with your Google account</li>
+                            <li>Click "Create API Key"</li>
+                            <li>Copy the generated key (starts with AIza)</li>
+                            <li>Paste it in the form above</li>
+                        </ol>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-shield-alt"></i> Security
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="mb-0">
+                            <li>Your API key is encrypted before storage</li>
+                            <li>Never shared with other users</li>
+                            <li>You can remove it anytime</li>
+                            <li>Usage is tracked per user</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-bar"></i> Rate Limits
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="border rounded p-2">
+                                    <div class="fw-bold">15</div>
+                                    <small class="text-muted">Per Minute</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2">
+                                    <div class="fw-bold">1,500</div>
+                                    <small class="text-muted">Per Day</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2">
+                                    <div class="fw-bold">45,000</div>
+                                    <small class="text-muted">Per Month</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- API Key Manager JS -->
+    <script src="/static/js/api-key-manager.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('apiKeyForm');
+            const testBtn = document.getElementById('testApiKey');
+            const removeBtn = document.getElementById('removeApiKey');
+            
+            // Form submission
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (window.apiKeyManager) {
+                    window.apiKeyManager.saveApiKey();
+                }
+            });
+            
+            // Test API key
+            testBtn.addEventListener('click', function() {
+                if (window.apiKeyManager) {
+                    window.apiKeyManager.testApiKey();
+                }
+            });
+            
+            // Remove API key
+            removeBtn.addEventListener('click', function() {
+                if (confirm('Are you sure you want to remove your API key? This will disable AI features.')) {
+                    if (window.apiKeyManager) {
+                        window.apiKeyManager.removeApiKey();
+                    }
+                }
+            });
+            
+            // Load current status
+            if (window.apiKeyManager) {
+                window.apiKeyManager.loadCurrentStatus();
+            }
+        });
+    </script>
+</body>
+</html> 

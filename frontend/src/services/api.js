@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// Get base URL from environment or default to localhost
-const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+// Get base URL from environment or default to 127.0.0.1 (faster than localhost)
+const baseURL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
 
 const api = axios.create({
   baseURL,

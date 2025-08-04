@@ -98,6 +98,15 @@ def create_app():
     app.register_blueprint(profile_bp)
     app.register_blueprint(search_bp)
     
+    # Register user API key blueprint
+    from blueprints.user_api_key import init_app as init_user_api_key
+    init_user_api_key(app)
+    
+    # Initialize API manager
+    from multi_user_api_manager import init_api_manager
+    with app.app_context():
+        init_api_manager()
+    
     # Security headers middleware
     @app.after_request
     def add_security_headers(response):
@@ -122,6 +131,13 @@ def create_app():
             'https_enabled': app.config.get('HTTPS_ENABLED', False),
             'csrf_enabled': app.config.get('CSRF_ENABLED', False)
         }
+    
+    # API Key Management Page
+    @app.route('/api-key-management')
+    def api_key_management():
+        """API Key Management Page"""
+        from flask import render_template
+        return render_template('api_key_management.html')
     
     # Health check endpoint for Chrome extension
     @app.route('/api/health')

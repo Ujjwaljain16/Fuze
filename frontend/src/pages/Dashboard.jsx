@@ -46,10 +46,10 @@ const Dashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const [bookmarksRes, projectsRes, recommendationsRes] = await Promise.all([
+      // Load main dashboard data first (fast)
+      const [bookmarksRes, projectsRes] = await Promise.all([
         api.get('/api/bookmarks?per_page=5'),
-        api.get('/api/projects'),
-        api.get('/api/recommendations/general')
+        api.get('/api/projects')
       ])
 
       setRecentBookmarks(bookmarksRes.data.bookmarks || [])
@@ -58,11 +58,21 @@ const Dashboard = () => {
         bookmarks: bookmarksRes.data.total || 0,
         projects: projectsRes.data.projects?.length || 0
       })
-      setRecommendations(recommendationsRes.data.recommendations || [])
+      
+      // Set loading to false after main data is loaded
+      setLoading(false)
+      
+      // Load recommendations separately (can be slow)
+      try {
+        const recommendationsRes = await api.get('/api/recommendations/general')
+        setRecommendations(recommendationsRes.data.recommendations || [])
+      } catch (recError) {
+        console.error('Error fetching recommendations:', recError)
+        setRecommendations([])
+      }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
       setRecommendations([])
-    } finally {
       setLoading(false)
     }
   }

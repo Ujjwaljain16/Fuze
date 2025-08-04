@@ -207,6 +207,55 @@ class RedisCache:
         except Exception as e:
             return {"connected": True, "error": str(e)}
     
+    # Generic Cache Methods
+    def set_cache(self, key: str, data: Any, ttl: int = 3600) -> bool:
+        """Generic method to cache any data"""
+        if not self.connected:
+            return False
+        
+        try:
+            # Serialize data
+            if isinstance(data, np.ndarray):
+                data_bytes = pickle.dumps(data)
+            else:
+                data_bytes = json.dumps(data, default=str).encode()
+            
+            return self.redis_client.setex(key, ttl, data_bytes)
+        except Exception as e:
+            print(f"Error setting cache: {e}")
+            return False
+    
+    def get_cache(self, key: str) -> Optional[Any]:
+        """Generic method to get cached data"""
+        if not self.connected:
+            return None
+        
+        try:
+            data_bytes = self.redis_client.get(key)
+            if data_bytes:
+                # Try to deserialize as JSON first, then as pickle
+                try:
+                    return json.loads(data_bytes.decode())
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    try:
+                        return pickle.loads(data_bytes)
+                    except:
+                        return data_bytes.decode()
+        except Exception as e:
+            print(f"Error getting cache: {e}")
+        return None
+    
+    def delete_cache(self, key: str) -> bool:
+        """Delete cached data by key"""
+        if not self.connected:
+            return False
+        
+        try:
+            return bool(self.redis_client.delete(key))
+        except Exception as e:
+            print(f"Error deleting cache: {e}")
+            return False
+    
     # Cache Cleanup
     def cleanup_expired_keys(self, pattern: str = "fuze:*") -> int:
         """Clean up expired keys (this is usually automatic in Redis)"""

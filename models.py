@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON
 from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
@@ -50,6 +50,24 @@ class SavedContent(Base):
     category = Column(String(100))
     notes = Column(TEXT)
     quality_score = Column(Integer, default=10)
+
+class ContentAnalysis(Base):
+    __tablename__ = 'content_analysis'
+    id = Column(Integer, primary_key=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    analysis_data = Column(JSON, nullable=False)  # Store Gemini analysis as JSON
+    key_concepts = Column(TEXT)  # Extracted key concepts
+    content_type = Column(String(100))  # e.g., 'tutorial', 'documentation', 'article'
+    difficulty_level = Column(String(50))  # e.g., 'beginner', 'intermediate', 'advanced'
+    technology_tags = Column(TEXT)  # Comma-separated technology tags
+    relevance_score = Column(Integer, default=0)  # 0-100 relevance score
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationship to SavedContent
+    content = relationship('SavedContent', backref='analyses')
+
+    __table_args__ = (UniqueConstraint('content_id', name='_content_analysis_unique'),)
 
 class Feedback(Base):
     __tablename__ = 'feedback'

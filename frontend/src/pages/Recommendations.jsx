@@ -4,7 +4,8 @@ import api from '../services/api'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
   Filter, RefreshCw, Target, CheckCircle, Brain, Zap, Star, Plus,
-  Globe, Clock, TrendingUp, BarChart3, Settings
+  Globe, Clock, TrendingUp, BarChart3, Settings, Search, BookOpen,
+  Code, GraduationCap, Briefcase, Users, Award, Target as TargetIcon
 } from 'lucide-react'
 import './recommendations-styles.css'
 import './gemini-recommendations-styles.css'
@@ -21,13 +22,35 @@ const Recommendations = () => {
   const [emptyMessage, setEmptyMessage] = useState('')
   const [taskAnalysis, setTaskAnalysis] = useState(null)
   const [geminiAvailable, setGeminiAvailable] = useState(false)
-  const [useGemini, setUseGemini] = useState(true) // Default to Gemini
+  const [useGemini, setUseGemini] = useState(false) // Default to FAST recommendations
   const [contextAnalysis, setContextAnalysis] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [filterOptions, setFilterOptions] = useState([
     { value: 'all', label: 'All Recommendations' },
     { value: 'general', label: 'General' }
   ])
+  
+  // New state for smart recommendations
+  const [recommendationMode, setRecommendationMode] = useState('smart') // 'smart', 'learning', 'project'
+  const [smartRecommendationForm, setSmartRecommendationForm] = useState({
+    project_title: '',
+    project_description: '',
+    technologies: '',
+    learning_goals: ''
+  })
+  const [learningPathForm, setLearningPathForm] = useState({
+    target_skill: '',
+    current_level: 'beginner'
+  })
+  const [projectRecommendationForm, setProjectRecommendationForm] = useState({
+    project_type: 'web-app',
+    technologies: '',
+    complexity: 'moderate'
+  })
+  const [showSmartForm, setShowSmartForm] = useState(false)
+  const [showLearningPathForm, setShowLearningPathForm] = useState(false)
+  const [showProjectForm, setShowProjectForm] = useState(false)
+  const [enhancedFeatures, setEnhancedFeatures] = useState([])
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -54,13 +77,16 @@ const Recommendations = () => {
 
   const checkGeminiStatus = async () => {
     try {
+      console.log('Checking Gemini status...')
       const response = await api.get('/api/recommendations/gemini-status')
+      console.log('Gemini status response:', response.data)
       setGeminiAvailable(response.data.gemini_available)
       if (!response.data.gemini_available) {
         setUseGemini(false) // Fallback to regular recommendations
       }
     } catch (error) {
       console.error('Error checking Gemini status:', error)
+      // Don't let this error block other functionality
       setGeminiAvailable(false)
       setUseGemini(false)
     }
@@ -68,8 +94,10 @@ const Recommendations = () => {
 
   const fetchProjects = async () => {
     try {
+      console.log('Fetching projects...')
       const response = await api.get('/api/projects')
       const userProjects = response.data.projects || []
+      console.log('Projects loaded:', userProjects)
       setProjects(userProjects)
       
       // Fetch tasks for each project
@@ -86,6 +114,7 @@ const Recommendations = () => {
           console.error(`Error fetching tasks for project ${project.id}:`, error)
         }
       }
+      console.log('Tasks loaded:', allTasks)
       setTasks(allTasks)
       
       // Update filter options to include projects and tasks
@@ -135,23 +164,23 @@ const Recommendations = () => {
             max_recommendations: 10
           }
         } else {
-          endpoint = '/api/recommendations/simple-general'
+          endpoint = '/api/recommendations/general'
         }
       } else if (filter.startsWith('project_')) {
         const projectId = filter.replace('project_', '')
         if (useGemini && geminiAvailable) {
           endpoint = `/api/recommendations/gemini-enhanced-project/${projectId}`
         } else {
-          endpoint = `/api/recommendations/simple-project/${projectId}`
+          endpoint = `/api/recommendations/project/${projectId}`
         }
       } else if (filter.startsWith('task_')) {
         const taskId = filter.replace('task_', '')
-        endpoint = `/api/recommendations/task/${taskId}`  // Keep old task endpoint for now
+        endpoint = `/api/recommendations/task/${taskId}`
       } else {
         if (useGemini && geminiAvailable) {
           endpoint = `/api/recommendations/gemini-enhanced-project/${filter}`
         } else {
-          endpoint = `/api/recommendations/simple-project/${filter}`
+          endpoint = `/api/recommendations/project/${filter}`
         }
       }
       
@@ -169,6 +198,24 @@ const Recommendations = () => {
       // Store context analysis if available (Gemini-enhanced responses)
       if (response.data.context_analysis) {
         setContextAnalysis(response.data.context_analysis)
+      } else if (response.data.analysis) {
+        // Handle original analysis format
+        setContextAnalysis({
+          processing_stats: {
+            total_bookmarks_analyzed: response.data.analysis.total_bookmarks || response.data.analysis.total_bookmarks_analyzed || 0,
+            relevant_bookmarks_found: response.data.analysis.relevant_bookmarks || response.data.analysis.relevant_bookmarks_found || 0,
+            gemini_enhanced: useGemini && geminiAvailable
+          }
+        })
+      } else if (response.data.project_analysis) {
+        // Handle project analysis format
+        setContextAnalysis({
+          processing_stats: {
+            total_bookmarks_analyzed: response.data.project_analysis.total_bookmarks_analyzed || 0,
+            relevant_bookmarks_found: response.data.project_analysis.relevant_bookmarks_found || 0,
+            gemini_enhanced: useGemini && geminiAvailable
+          }
+        })
       } else {
         setContextAnalysis(null)
       }
@@ -181,13 +228,80 @@ const Recommendations = () => {
     } catch (error) {
       console.error('Error fetching recommendations:', error)
       if (useGemini && geminiAvailable) {
-        // Fallback to simple recommendations if Gemini fails
-        console.log('Falling back to simple recommendations')
+        // Fallback to original recommendations if Gemini fails
+        console.log('Falling back to original recommendations')
         setUseGemini(false)
-        fetchRecommendations() // Retry with simple endpoints
+        // Don't call fetchRecommendations() here - let the useEffect handle it
         return
       }
       setEmptyMessage('Failed to load recommendations')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // New function for smart recommendations
+  const fetchSmartRecommendations = async (formData) => {
+    try {
+      setLoading(true)
+      const response = await api.post('/api/recommendations/smart-recommendations', formData)
+      
+      const recommendations = response.data.recommendations || []
+      setRecommendations(recommendations)
+      setEnhancedFeatures(response.data.enhanced_features || [])
+      
+      if (recommendations.length === 0) {
+        setEmptyMessage('No smart recommendations found')
+      } else {
+        setEmptyMessage('')
+      }
+    } catch (error) {
+      console.error('Error fetching smart recommendations:', error)
+      setEmptyMessage('Failed to load smart recommendations')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // New function for learning path recommendations
+  const fetchLearningPathRecommendations = async (formData) => {
+    try {
+      setLoading(true)
+      const response = await api.post('/api/recommendations/learning-path-recommendations', formData)
+      
+      const recommendations = response.data.recommendations || []
+      setRecommendations(recommendations)
+      
+      if (recommendations.length === 0) {
+        setEmptyMessage('No learning path recommendations found')
+      } else {
+        setEmptyMessage('')
+      }
+    } catch (error) {
+      console.error('Error fetching learning path recommendations:', error)
+      setEmptyMessage('Failed to load learning path recommendations')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // New function for project recommendations
+  const fetchProjectRecommendations = async (formData) => {
+    try {
+      setLoading(true)
+      const response = await api.post('/api/recommendations/project-recommendations', formData)
+      
+      const recommendations = response.data.recommendations || []
+      setRecommendations(recommendations)
+      
+      if (recommendations.length === 0) {
+        setEmptyMessage('No project recommendations found')
+      } else {
+        setEmptyMessage('')
+      }
+    } catch (error) {
+      console.error('Error fetching project recommendations:', error)
+      setEmptyMessage('Failed to load project recommendations')
     } finally {
       setLoading(false)
     }
@@ -359,7 +473,7 @@ const Recommendations = () => {
                     <Filter className="w-5 h-5 text-blue-400" />
                     <span className="text-white font-medium">Filter by:</span>
                   </div>
-                  <div style={{ minWidth: 200 }}>
+                  <div className="filter-container" style={{ minWidth: 200, position: 'relative', zIndex: 1000 }}>
                     <Select
                       classNamePrefix="react-select"
                       value={filterOptions.find(opt => opt.value === filter)}
@@ -385,8 +499,13 @@ const Recommendations = () => {
                           background: '#1f1f23', 
                           color: '#fff', 
                           borderRadius: 12, 
-                          zIndex: 20,
-                          border: '1px solid rgba(255,255,255,0.1)'
+                          zIndex: 9999,
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          marginTop: '4px'
                         }),
                         option: (base, state) => ({
                           ...base,
@@ -431,6 +550,261 @@ const Recommendations = () => {
                 </div>
               </div>
             </div>
+
+            {/* Smart Recommendation Controls */}
+            <div className="mb-8 bg-gradient-to-br from-purple-900/20 to-pink-900/20 backdrop-blur-xl rounded-2xl p-6 border border-purple-500/30">
+              <div className="flex items-center space-x-3 mb-6">
+                <div className="relative">
+                  <TargetIcon className="w-6 h-6 text-purple-400" />
+                  <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                </div>
+                <h3 className="text-xl font-semibold text-white">AI-Enhanced Recommendations</h3>
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
+                  <Award className="w-4 h-4 text-purple-400" />
+                  <span className="text-purple-400 text-sm font-medium">Smart Matching</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Smart Recommendations */}
+                <button
+                  onClick={() => setShowSmartForm(!showSmartForm)}
+                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
+                    showSmartForm 
+                      ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
+                  }`}
+                >
+                  <Brain className="w-5 h-5 text-purple-400" />
+                  <div className="text-left">
+                    <div className="text-white font-medium">Smart Recommendations</div>
+                    <div className="text-gray-400 text-sm">AI-powered content matching</div>
+                  </div>
+                </button>
+
+                {/* Learning Path */}
+                <button
+                  onClick={() => setShowLearningPathForm(!showLearningPathForm)}
+                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
+                    showLearningPathForm 
+                      ? 'bg-gradient-to-r from-blue-600/20 to-cyan-600/20 border border-blue-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
+                  }`}
+                >
+                  <GraduationCap className="w-5 h-5 text-blue-400" />
+                  <div className="text-left">
+                    <div className="text-white font-medium">Learning Path</div>
+                    <div className="text-gray-400 text-sm">Skill-based progression</div>
+                  </div>
+                </button>
+
+                {/* Project Recommendations */}
+                <button
+                  onClick={() => setShowProjectForm(!showProjectForm)}
+                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
+                    showProjectForm 
+                      ? 'bg-gradient-to-r from-green-600/20 to-emerald-600/20 border border-green-500/50' 
+                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
+                  }`}
+                >
+                  <Briefcase className="w-5 h-5 text-green-400" />
+                  <div className="text-left">
+                    <div className="text-white font-medium">Project Focus</div>
+                    <div className="text-gray-400 text-sm">Implementation-ready content</div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Smart Recommendation Form */}
+              {showSmartForm && (
+                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-purple-500/30">
+                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
+                    <Brain className="w-5 h-5 text-purple-400" />
+                    <span>Smart Recommendation Request</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Project Title</label>
+                      <input
+                        type="text"
+                        value={smartRecommendationForm.project_title}
+                        onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, project_title: e.target.value }))}
+                        placeholder="e.g., React Learning Project"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Technologies</label>
+                      <input
+                        type="text"
+                        value={smartRecommendationForm.technologies}
+                        onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
+                        placeholder="e.g., JavaScript, React, Node.js"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-gray-300 text-sm font-medium mb-2">Project Description</label>
+                    <textarea
+                      value={smartRecommendationForm.project_description}
+                      onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, project_description: e.target.value }))}
+                      placeholder="Describe your project goals and what you want to learn..."
+                      rows="3"
+                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-gray-300 text-sm font-medium mb-2">Learning Goals</label>
+                    <input
+                      type="text"
+                      value={smartRecommendationForm.learning_goals}
+                      onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, learning_goals: e.target.value }))}
+                      placeholder="e.g., Master React hooks and state management"
+                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <button
+                    onClick={() => fetchSmartRecommendations(smartRecommendationForm)}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? 'Getting Recommendations...' : 'Get Smart Recommendations'}
+                  </button>
+                </div>
+              )}
+
+              {/* Learning Path Form */}
+              {showLearningPathForm && (
+                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-blue-500/30">
+                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
+                    <GraduationCap className="w-5 h-5 text-blue-400" />
+                    <span>Learning Path Request</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Target Skill</label>
+                      <input
+                        type="text"
+                        value={learningPathForm.target_skill}
+                        onChange={(e) => setLearningPathForm(prev => ({ ...prev, target_skill: e.target.value }))}
+                        placeholder="e.g., React, Python, Machine Learning"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Current Level</label>
+                      <select
+                        value={learningPathForm.current_level}
+                        onChange={(e) => setLearningPathForm(prev => ({ ...prev, current_level: e.target.value }))}
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => fetchLearningPathRecommendations(learningPathForm)}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? 'Getting Learning Path...' : 'Get Learning Path'}
+                  </button>
+                </div>
+              )}
+
+              {/* Project Recommendations Form */}
+              {showProjectForm && (
+                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-green-500/30">
+                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
+                    <Briefcase className="w-5 h-5 text-green-400" />
+                    <span>Project Recommendation Request</span>
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Project Type</label>
+                      <select
+                        value={projectRecommendationForm.project_type}
+                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, project_type: e.target.value }))}
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
+                      >
+                        <option value="web-app">Web Application</option>
+                        <option value="mobile-app">Mobile App</option>
+                        <option value="api">API/Backend</option>
+                        <option value="data-science">Data Science</option>
+                        <option value="game">Game Development</option>
+                        <option value="ai-ml">AI/Machine Learning</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Technologies</label>
+                      <input
+                        type="text"
+                        value={projectRecommendationForm.technologies}
+                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
+                        placeholder="e.g., React, Node.js, MongoDB"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Complexity</label>
+                      <select
+                        value={projectRecommendationForm.complexity}
+                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, complexity: e.target.value }))}
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
+                      >
+                        <option value="simple">Simple</option>
+                        <option value="moderate">Moderate</option>
+                        <option value="complex">Complex</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => fetchProjectRecommendations(projectRecommendationForm)}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? 'Getting Project Recommendations...' : 'Get Project Recommendations'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Enhanced Features Display */}
+            {enhancedFeatures && enhancedFeatures.length > 0 && (
+              <div className="mb-8 bg-gradient-to-br from-purple-900/20 to-pink-900/20 backdrop-blur-xl rounded-2xl p-6 border border-purple-500/30">
+                <div className="flex items-center space-x-3 mb-6">
+                  <div className="relative">
+                    <Award className="w-6 h-6 text-purple-400" />
+                    <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white">Smart AI Features</h3>
+                  <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
+                    <TargetIcon className="w-4 h-4 text-purple-400" />
+                    <span className="text-purple-400 text-sm font-medium">Enhanced Matching</span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {enhancedFeatures.map((feature, index) => (
+                    <div key={index} className="bg-gray-800/30 rounded-xl p-4 border border-purple-500/20">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                        <span className="text-purple-400 font-medium text-sm">{feature.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                      </div>
+                      <p className="text-gray-300 text-xs">
+                        {feature === 'learning_path_matching' && 'Matches content to your learning progression'}
+                        {feature === 'project_applicability' && 'Identifies implementation-ready content'}
+                        {feature === 'skill_development_tracking' && 'Tracks skill development opportunities'}
+                        {feature === 'ai_generated_reasoning' && 'AI-powered recommendation reasoning'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Context Analysis Display (Gemini Enhanced) */}
             {contextAnalysis && (
@@ -675,6 +1049,11 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
     (recommendation.analysis.gemini_technologies !== undefined || 
      recommendation.analysis.quality_indicators !== undefined);
 
+  // Check if this is a smart recommendation (new enhanced format)
+  const isSmartRecommendation = recommendation.learning_path_fit !== undefined || 
+    recommendation.project_applicability !== undefined || 
+    recommendation.skill_development !== undefined;
+
   return (
     <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all duration-300 hover:transform hover:scale-[1.01]">
       <div 
@@ -704,19 +1083,26 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
           </div>
           
           <div className="flex items-center space-x-3 ml-4">
-            {recommendation.score && (
+            {(recommendation.score || recommendation.match_score) && (
               <div className="flex flex-col items-center">
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  isSmartRecommendation ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 text-purple-400' :
                   isTaskRecommendation ? 'bg-green-600/20 text-green-400' :
                   isGeminiRecommendation ? 'bg-purple-600/20 text-purple-400' : 
                   'bg-blue-600/20 text-blue-400'
                 }`}>
-                  {Math.round(recommendation.score)}%
-                  {isTaskRecommendation && recommendation.score >= 70 && (
+                  {Math.round(recommendation.match_score || recommendation.score)}%
+                  {isSmartRecommendation && <TargetIcon className="w-3 h-3 inline ml-1" />}
+                  {isTaskRecommendation && (recommendation.score || recommendation.match_score) >= 70 && (
                     <CheckCircle className="w-3 h-3 inline ml-1" />
                   )}
                   {isGeminiRecommendation && <Brain className="w-3 h-3 inline ml-1" />}
                 </span>
+                {isSmartRecommendation && (
+                  <span className="text-xs text-gray-500 mt-1">
+                    Smart Match
+                  </span>
+                )}
                 {isGeminiRecommendation && recommendation.confidence && (
                   <span className="text-xs text-gray-500 mt-1">
                     {Math.round(recommendation.confidence)}% confidence
@@ -735,11 +1121,18 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
         <div className="border-t border-gray-800 bg-gray-900/30 p-6">
           <div className="flex items-center space-x-3 mb-6">
             <h4 className="text-lg font-semibold text-white">
-              {isGeminiRecommendation ? 'Gemini AI Analysis' : 
+              {isSmartRecommendation ? 'Smart AI Analysis' :
+               isGeminiRecommendation ? 'Gemini AI Analysis' : 
                isSimpleRecommendation ? 'Similarity Analysis' : 
                (isTaskRecommendation ? 'Precision Analysis' : 'AI Analysis')}
             </h4>
-            {isGeminiRecommendation && (
+            {isSmartRecommendation && (
+              <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
+                <TargetIcon className="w-4 h-4 text-purple-400" />
+                <span className="text-purple-400 text-sm font-medium">Smart Enhanced</span>
+              </div>
+            )}
+            {isGeminiRecommendation && !isSmartRecommendation && (
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
                 <Star className="w-4 h-4 text-purple-400" />
                 <span className="text-purple-400 text-sm font-medium">Gemini Enhanced</span>
@@ -803,6 +1196,52 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
                       <div 
                         className="h-full bg-gradient-to-r from-pink-500 to-purple-500 transition-all duration-300"
                         style={{width: `${recommendation.analysis.diversity_score}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : isSmartRecommendation ? (
+              // Smart recommendation analysis
+              <>
+                {recommendation.learning_path_fit !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Learning Path Fit</span>
+                      <span className="text-purple-400 font-semibold">{Math.round(recommendation.learning_path_fit * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
+                        style={{width: `${recommendation.learning_path_fit * 100}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+                {recommendation.project_applicability !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Project Applicability</span>
+                      <span className="text-green-400 font-semibold">{Math.round(recommendation.project_applicability * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
+                        style={{width: `${recommendation.project_applicability * 100}%`}}
+                      />
+                    </div>
+                  </div>
+                )}
+                {recommendation.skill_development !== undefined && (
+                  <div className="bg-gray-800/30 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-300">Skill Development</span>
+                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.skill_development * 100)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
+                        style={{width: `${recommendation.skill_development * 100}%`}}
                       />
                     </div>
                   </div>
@@ -1066,6 +1505,59 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
                   </div>
                 </div>
               )}
+            </div>
+          )}
+          
+          {isSmartRecommendation && (
+            <div className="grid grid-cols-1 gap-4 mb-6">
+              {recommendation.technologies && recommendation.technologies.length > 0 && (
+                <div className="bg-gray-800/30 rounded-xl p-4">
+                  <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
+                    <Code className="w-4 h-4 text-purple-400" />
+                    <span>Technologies</span>
+                  </h5>
+                  <div className="flex flex-wrap gap-2">
+                    {recommendation.technologies.map((tech, index) => (
+                      <span key={index} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
+                        {tech}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {recommendation.key_concepts && recommendation.key_concepts.length > 0 && (
+                <div className="bg-gray-800/30 rounded-xl p-4">
+                  <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
+                    <BookOpen className="w-4 h-4 text-blue-400" />
+                    <span>Key Concepts</span>
+                  </h5>
+                  <div className="flex flex-wrap gap-2">
+                    {recommendation.key_concepts.map((concept, index) => (
+                      <span key={index} className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                        {concept}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="bg-gray-800/30 rounded-xl p-4">
+                <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
+                  <TargetIcon className="w-4 h-4 text-purple-400" />
+                  <span>Content Details</span>
+                </h5>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Type:</span>
+                    <span className="text-gray-300">{recommendation.content_type || 'Article'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Difficulty:</span>
+                    <span className="text-gray-300">{recommendation.difficulty || 'Intermediate'}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           

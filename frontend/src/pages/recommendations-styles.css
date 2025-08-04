@@ -1,5 +1,44 @@
 /* Recommendations Page Styles - Glassmorphism & Modern Design */
 
+/* Fix for dropdown menu overlap */
+.react-select__menu {
+  z-index: 9999 !important;
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  right: 0 !important;
+  margin-top: 4px !important;
+  background: #1f1f23 !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
+}
+
+.react-select__menu-list {
+  max-height: 200px !important;
+  overflow-y: auto !important;
+}
+
+.react-select__option {
+  padding: 12px 16px !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s ease !important;
+}
+
+.react-select__option--is-focused {
+  background-color: rgba(168,85,247,0.15) !important;
+}
+
+.react-select__option--is-selected {
+  background-color: rgba(168,85,247,0.3) !important;
+}
+
+/* Ensure filter container has proper positioning */
+.filter-container {
+  position: relative !important;
+  z-index: 1000 !important;
+}
+
 /* Recommendations Container */
 .recommendations-container {
   max-width: 1400px;

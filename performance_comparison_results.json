@@ -1,0 +1,59 @@
+{
+  "timestamp": "2025-08-02T21:21:08.913265",
+  "general_results": [
+    {
+      "name": "Original General Recommendations",
+      "avg_time": 2.6639238198598227,
+      "min_time": 2.507509708404541,
+      "max_time": 2.9245681762695312,
+      "success_rate": 1.0,
+      "times": [
+        2.5596935749053955,
+        2.507509708404541,
+        2.9245681762695312
+      ]
+    },
+    {
+      "name": "Fast General Recommendations",
+      "avg_time": 2.5222570101420083,
+      "min_time": 2.4473259449005127,
+      "max_time": 2.6467092037200928,
+      "success_rate": 1.0,
+      "times": [
+        2.4473259449005127,
+        2.47273588180542,
+        2.6467092037200928
+      ]
+    }
+  ],
+  "caching_results": {
+    "Original General": {
+      "first_request_time": 2.563645839691162,
+      "second_request_time": 2.661060094833374,
+      "speedup": 0.9633926887516189,
+      "first_cached": false,
+      "second_cached": false
+    },
+    "Fast General": {
+      "first_request_time": 2.7361814975738525,
+      "second_request_time": 2.404171943664551,
+      "speedup": 1.1380972583030968,
+      "first_cached": true,
+      "second_cached": true
+    }
+  },
+  "project_results": {
+    "Original Project": {
+      "request_time": 10.851016998291016,
+      "recommendations_count": 5,
+      "cached": false,
+      "computation_time_ms": 0
+    },
+    "Fast Project": {
+      "request_time": 5.911582946777344,
+      "recommendations_count": 2,
+      "cached": false,
+      "computation_time_ms": 3051.565647125244
+    }
+  }
+}

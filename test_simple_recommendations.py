@@ -1,134 +1,96 @@
 #!/usr/bin/env python3
 """
-Test script for simple text-based recommendations (no embeddings required)
+Simple Recommendations Test
+Test if server is running and basic endpoints work
 """
-
 import requests
 import json
-import os
-from datetime import datetime
+import time
 
-# Configuration
-API_BASE = 'http://localhost:5000/api'
-JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc1MzUxNjczNiwianRpIjoiYmM2NWMzNzAtMmEzMi00M2I5LTgzY2UtYTI0YzE1ZDQ2ZTQ0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjEiLCJuYmYiOjE3NTM1MTY3MzYsImV4cCI6MTc1MzUxNzYzNn0.I_8voB95gWPsbkRl8k4Yqdo24nzFaOKyVAjJcnMmNv4'
+BASE_URL = "http://127.0.0.1:5000"
 
-HEADERS = {
-    'Authorization': f'Bearer {JWT_TOKEN}',
-    'Content-Type': 'application/json',
-}
-
-def test_simple_general_recommendations():
-    """Test the new simple general recommendations endpoint"""
-    print("\n" + "="*60)
-    print("TESTING SIMPLE GENERAL RECOMMENDATIONS")
-    print("="*60)
+def test_simple_recommendations():
+    """Test basic server connectivity and recommendations"""
+    print("🎯 Simple Recommendations Test")
+    print("=" * 40)
     
-    url = f'{API_BASE}/recommendations/simple-general'
+    # Test if server is running
+    print("🔍 Testing server connectivity...")
+    try:
+        response = requests.get(f"{BASE_URL}/", timeout=5)
+        print(f"✅ Server is running (status: {response.status_code})")
+    except Exception as e:
+        print(f"❌ Server not running: {e}")
+        return
+    
+    # Test login
+    print("\n🔍 Testing login...")
+    login_data = {
+        "email": "jainujjwal1609@gmail.com",
+        "password": "Jainsahab@16"
+    }
     
     try:
-        resp = requests.get(url, headers=HEADERS)
-        print(f'Status Code: {resp.status_code}')
+        response = requests.post(f"{BASE_URL}/api/auth/login", json=login_data, timeout=10)
+        print(f"Login response status: {response.status_code}")
         
-        if resp.status_code == 200:
-            data = resp.json()
-            print(f'Total bookmarks analyzed: {data.get("analysis", {}).get("total_bookmarks", 0)}')
-            print(f'Relevant bookmarks found: {data.get("analysis", {}).get("relevant_bookmarks", 0)}')
-            print(f'User interests: {data.get("analysis", {}).get("user_interests", "None")}')
-            
-            recommendations = data.get('recommendations', [])
-            print(f'\nFound {len(recommendations)} recommendations:')
-            
-            for i, rec in enumerate(recommendations[:5], 1):  # Show top 5
-                print(f'\n{i}. {rec["title"]}')
-                print(f'   Score: {rec["score"]}%')
-                print(f'   Reason: {rec["reason"]}')
-                print(f'   URL: {rec["url"]}')
-                if rec.get("analysis"):
-                    analysis = rec["analysis"]
-                    print(f'   Interest Similarity: {analysis.get("interest_similarity", 0)}%')
-                    print(f'   Technologies: {", ".join(analysis.get("technologies", []))}')
+        if response.status_code == 200:
+            data = response.json()
+            token = data.get('access_token')  # Changed from 'token' to 'access_token'
+            if token:
+                print("✅ Login successful, got token")
+                headers = {'Authorization': f'Bearer {token}'}
+            else:
+                print("❌ No token in response")
+                print(f"Response: {data}")
+                return
         else:
-            print(f'Error: {resp.text}')
-            
-    except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to the API. Make sure the Flask app is running on localhost:5000")
+            print(f"❌ Login failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return
     except Exception as e:
-        print(f"ERROR: {e}")
-
-def test_simple_project_recommendations(project_id=1):
-    """Test the new simple project recommendations endpoint"""
-    print("\n" + "="*60)
-    print(f"TESTING SIMPLE PROJECT RECOMMENDATIONS (Project ID: {project_id})")
-    print("="*60)
+        print(f"❌ Login error: {e}")
+        return
     
-    url = f'{API_BASE}/recommendations/simple-project/{project_id}'
+    # Test optimized recommendations (GET method)
+    print("\n🔍 Testing Optimized Recommendations (GET):")
+    print("-" * 40)
     
+    start_time = time.time()
     try:
-        resp = requests.get(url, headers=HEADERS)
-        print(f'Status Code: {resp.status_code}')
+        response = requests.get(f"{BASE_URL}/api/recommendations/optimized", headers=headers, timeout=30)
+        end_time = time.time()
         
-        if resp.status_code == 200:
-            data = resp.json()
-            project_analysis = data.get("project_analysis", {})
-            print(f'Project: {project_analysis.get("title", "Unknown")}')
-            print(f'Project Technologies: {", ".join(project_analysis.get("technologies", []))}')
-            print(f'Total bookmarks analyzed: {project_analysis.get("total_bookmarks_analyzed", 0)}')
-            print(f'Relevant bookmarks found: {project_analysis.get("relevant_bookmarks_found", 0)}')
-            
+        print(f"Response status: {response.status_code}")
+        print(f"Response time: {end_time - start_time:.3f}s")
+        
+        if response.status_code == 200:
+            data = response.json()
             recommendations = data.get('recommendations', [])
-            print(f'\nFound {len(recommendations)} recommendations:')
+            engine = data.get('engine', 'unknown')
             
-            for i, rec in enumerate(recommendations[:5], 1):  # Show top 5
-                print(f'\n{i}. {rec["title"]}')
-                print(f'   Score: {rec["score"]}%')
-                print(f'   Reason: {rec["reason"]}')
-                print(f'   URL: {rec["url"]}')
-                if rec.get("analysis"):
-                    analysis = rec["analysis"]
-                    print(f'   Text Similarity: {analysis.get("text_similarity", 0)}%')
-                    print(f'   Tech Overlap: {analysis.get("tech_overlap", 0)}%')
-                    print(f'   Bookmark Technologies: {", ".join(analysis.get("bookmark_technologies", []))}')
-        else:
-            print(f'Error: {resp.text}')
+            print(f"✅ Success: {len(recommendations)} recommendations")
+            print(f"   Engine: {engine}")
             
-    except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to the API. Make sure the Flask app is running on localhost:5000")
-    except Exception as e:
-        print(f"ERROR: {e}")
-
-def test_health_check():
-    """Test if the API is running"""
-    print("\n" + "="*60)
-    print("TESTING API HEALTH CHECK")
-    print("="*60)
-    
-    try:
-        resp = requests.get(f'{API_BASE}/health')
-        print(f'Status Code: {resp.status_code}')
-        if resp.status_code == 200:
-            data = resp.json()
-            print(f'API Status: {data.get("status")}')
-            print(f'Database: {data.get("database")}')
-            print(f'Version: {data.get("version")}')
+            if recommendations:
+                print("   Sample recommendations:")
+                for i, rec in enumerate(recommendations[:2]):
+                    title = rec.get('title', 'No title')[:50]
+                    reason = rec.get('reason', 'No reason')[:50]
+                    print(f"     {i+1}. {title}...")
+                    print(f"        Reason: {reason}...")
+            else:
+                print("   ⚠️ No recommendations returned")
         else:
-            print(f'Error: {resp.text}')
-    except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to the API. Make sure the Flask app is running on localhost:5000")
+            print(f"❌ Request failed: {response.status_code}")
+            print(f"   Response: {response.text[:200]}...")
+            
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"❌ Request error: {e}")
+    
+    print("\n" + "=" * 40)
+    print("🎯 Simple Test Complete!")
+    print("=" * 40)
 
-if __name__ == '__main__':
-    print("Simple Text-Based Recommendations Test")
-    print("="*60)
-    print(f"Testing at: {datetime.now()}")
-    
-    # Test health first
-    test_health_check()
-    
-    # Test simple recommendations
-    test_simple_general_recommendations()
-    test_simple_project_recommendations(project_id=1)
-    
-    print("\n" + "="*60)
-    print("TEST COMPLETED")
-    print("="*60) 
+if __name__ == "__main__":
+    test_simple_recommendations() 
