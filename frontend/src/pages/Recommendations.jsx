@@ -22,7 +22,6 @@ const Recommendations = () => {
   const [emptyMessage, setEmptyMessage] = useState('')
   const [taskAnalysis, setTaskAnalysis] = useState(null)
   const [geminiAvailable, setGeminiAvailable] = useState(false)
-  const [useGemini, setUseGemini] = useState(false) // Default to FAST recommendations
   const [contextAnalysis, setContextAnalysis] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [filterOptions, setFilterOptions] = useState([
@@ -30,35 +29,28 @@ const Recommendations = () => {
     { value: 'general', label: 'General' }
   ])
   
-  // New state for smart recommendations
-  const [recommendationMode, setRecommendationMode] = useState('smart') // 'smart', 'learning', 'project'
-  const [smartRecommendationForm, setSmartRecommendationForm] = useState({
+  // Multi-phase recommendation system
+  const [phase1Available, setPhase1Available] = useState(false)
+  const [phase2Available, setPhase2Available] = useState(false)
+  const [phase3Available, setPhase3Available] = useState(false)
+  const [usePhase1, setUsePhase1] = useState(true)
+  const [usePhase2, setUsePhase2] = useState(false)  // Disable Phase 2 by default for speed
+  const [usePhase3, setUsePhase3] = useState(false)  // Disable Phase 3 by default for speed
+  const [performanceMode, setPerformanceMode] = useState(true)  // Enable performance mode by default
+  
+  // Recommendation form
+  const [recommendationForm, setRecommendationForm] = useState({
     project_title: '',
     project_description: '',
     technologies: '',
     learning_goals: ''
   })
-  const [learningPathForm, setLearningPathForm] = useState({
-    target_skill: '',
-    current_level: 'beginner'
-  })
-  const [projectRecommendationForm, setProjectRecommendationForm] = useState({
-    project_type: 'web-app',
-    technologies: '',
-    complexity: 'moderate'
-  })
-  const [showSmartForm, setShowSmartForm] = useState(false)
-  const [showLearningPathForm, setShowLearningPathForm] = useState(false)
-  const [showProjectForm, setShowProjectForm] = useState(false)
+  const [showRecommendationForm, setShowRecommendationForm] = useState(false)
   const [enhancedFeatures, setEnhancedFeatures] = useState([])
-  const [enhancedEngineAvailable, setEnhancedEngineAvailable] = useState(false)
-  const [useEnhancedEngine, setUseEnhancedEngine] = useState(false)
-  const [enhancedEngineStatus, setEnhancedEngineStatus] = useState(null)
   const [performanceMetrics, setPerformanceMetrics] = useState(null)
-  const [phase3Available, setPhase3Available] = useState(false)
-  const [usePhase3, setUsePhase3] = useState(false)
   const [learningInsights, setLearningInsights] = useState(null)
   const [contextualInfo, setContextualInfo] = useState(null)
+  const [selectedProject, setSelectedProject] = useState(null)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -73,7 +65,8 @@ const Recommendations = () => {
     if (isAuthenticated) {
       fetchProjects()
       checkGeminiStatus()
-      checkEnhancedEngineStatus()
+      checkPhaseStatus()
+      fetchPerformanceMetrics()
       fetchRecommendations()
     }
   }, [isAuthenticated])
@@ -82,58 +75,67 @@ const Recommendations = () => {
     if (isAuthenticated && filter) {
       fetchRecommendations()
     }
-  }, [filter, useGemini, useEnhancedEngine, usePhase3])
+  }, [filter, usePhase1, usePhase2, usePhase3, selectedProject])
 
   const checkGeminiStatus = async () => {
     try {
-      console.log('Checking Gemini status...')
-      const response = await api.get('/api/recommendations/gemini-status')
-      console.log('Gemini status response:', response.data)
-      setGeminiAvailable(response.data.gemini_available)
-      if (!response.data.gemini_available) {
-        setUseGemini(false) // Fallback to regular recommendations
+      console.log('Checking unified orchestrator status...')
+      const response = await api.get('/api/recommendations/status')
+      console.log('Status response:', response.data)
+      
+      // Check if unified orchestrator is available
+      if (response.data.unified_orchestrator_available) {
+        setGeminiAvailable(response.data.gemini_integration_available || false)
+        setPhase1Available(true) // Unified orchestrator includes Phase 1
+        setPhase2Available(response.data.gemini_integration_available || false)
+        setPhase3Available(response.data.gemini_integration_available || false)
+      } else {
+        setGeminiAvailable(false)
+        setPhase1Available(false)
+        setPhase2Available(false)
+        setPhase3Available(false)
       }
     } catch (error) {
-      console.error('Error checking Gemini status:', error)
-      // Don't let this error block other functionality
+      console.error('Error checking unified orchestrator status:', error)
       setGeminiAvailable(false)
-      setUseGemini(false)
+      setPhase1Available(false)
+      setPhase2Available(false)
+      setPhase3Available(false)
     }
   }
 
-  const checkEnhancedEngineStatus = async () => {
-    try {
-      console.log('Checking enhanced engine status...')
-      const response = await api.get('/api/recommendations/enhanced-status')
-      console.log('Enhanced engine status response:', response.data)
-      setEnhancedEngineAvailable(response.data.enhanced_engine_available)
-      setEnhancedEngineStatus(response.data)
-      setPhase3Available(response.data.phase_3_complete)
-      if (response.data.enhanced_engine_available) {
-        setUseEnhancedEngine(true) // Default to enhanced engine if available
-      }
-      if (response.data.phase_3_complete) {
-        setUsePhase3(true) // Default to Phase 3 if available
-      }
-    } catch (error) {
-      console.error('Error checking enhanced engine status:', error)
-      setEnhancedEngineAvailable(false)
-      setUseEnhancedEngine(false)
-      setPhase3Available(false)
-      setUsePhase3(false)
-    }
+  const checkPhaseStatus = async () => {
+    // This function is now handled by checkGeminiStatus
+    // Keeping it for backward compatibility
   }
 
   const fetchPerformanceMetrics = async () => {
     try {
-      if (!enhancedEngineAvailable) return
-      
+      console.log('Fetching performance metrics...')
       const response = await api.get('/api/recommendations/performance-metrics')
-      setPerformanceMetrics(response.data)
+      console.log('Performance metrics response:', response.data)
+      
+      if (response.data.unified_orchestrator) {
+        setPerformanceMetrics(response.data.unified_orchestrator)
+      } else if (response.data.metrics) {
+        setPerformanceMetrics(response.data.metrics)
+      }
     } catch (error) {
       console.error('Error fetching performance metrics:', error)
+      // Set default metrics if API fails
+      setPerformanceMetrics({
+        total_requests: 0,
+        average_response_time_ms: 0,
+        cache_hit_rate: 0,
+        engine_usage: {},
+        gemini_enhancements: 0
+      })
     }
   }
+
+
+
+
 
   const fetchLearningInsights = async () => {
     try {
@@ -196,71 +198,38 @@ const Recommendations = () => {
   const fetchRecommendations = async () => {
     try {
       setLoading(true)
-      let endpoint
-      let method = 'GET'
-      let data = null
+      let endpoint = '/api/recommendations/unified-orchestrator'
+      let method = 'POST'
+      let data = {
+        title: selectedProject ? selectedProject.title : 'Learning Project',
+        description: selectedProject ? selectedProject.description : 'I want to learn and improve my skills',
+        technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+        user_interests: 'Master relevant technologies and improve skills',
+        max_recommendations: 10,
+        engine_preference: 'auto',
+        diversity_weight: 0.3,
+        quality_threshold: 6,
+        include_global_content: true,
+        enhance_with_gemini: geminiAvailable && (usePhase2 || usePhase3)
+      }
       
-      // Prioritize Phase 3 if available
-      if (usePhase3 && phase3Available) {
-        endpoint = '/api/recommendations/phase3/recommendations'
-        method = 'POST'
-        data = {
-          project_title: selectedProject ? selectedProject.title : 'Personalized Learning',
-          project_description: selectedProject ? selectedProject.description : 'Based on my projects and interests',
-          technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
-          learning_goals: 'Master relevant technologies and improve skills',
-          content_type: filter === 'all' ? 'all' : filter,
-          difficulty: 'all',
-          max_recommendations: 10
-        }
-      }
-      // Fallback to enhanced engine if available
-      else if (useEnhancedEngine && enhancedEngineAvailable) {
-        if (filter === 'all' || filter === 'general') {
-          endpoint = '/api/recommendations/enhanced'
-          method = 'POST'
-          data = {
-            project_title: 'Personalized Learning Recommendations',
-            project_description: 'Based on my projects and interests, I want to discover relevant learning resources and tutorials',
-            technologies: projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
-            learning_goals: 'Master relevant technologies and improve skills',
-            content_type: 'all',
-            difficulty: 'all',
-            max_recommendations: 10
-          }
-        } else {
-          endpoint = `/api/recommendations/${filter}`
-          method = 'POST'
-          data = {
-            project_title: selectedProject ? selectedProject.title : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Project`,
-            project_description: selectedProject ? selectedProject.description : `Building a ${filter} application`,
-            technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
-            learning_goals: `Master ${filter} development`,
-            content_type: 'all',
-            difficulty: 'all',
-            max_recommendations: 10
-          }
-        }
-      }
-      // Fallback to Gemini if available
-      else if (useGemini && geminiAvailable) {
-        endpoint = '/api/recommendations/gemini'
-        method = 'POST'
-        data = {
-          project_title: selectedProject ? selectedProject.title : 'Learning Project',
-          project_description: selectedProject ? selectedProject.description : 'I want to learn and improve my skills',
-          technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
-          learning_goals: 'Master relevant technologies and improve skills',
-          content_type: filter === 'all' ? 'all' : filter,
-          difficulty: 'all',
-          max_recommendations: 10
-        }
-      }
-      // Fallback to regular recommendations
-      else {
-        endpoint = `/api/recommendations/${filter}`
+      // Handle project-specific recommendations
+      if (filter.startsWith('project_')) {
+        const projectId = filter.replace('project_', '')
+        data.project_id = parseInt(projectId)
+      } else if (filter.startsWith('task_')) {
+        const taskId = filter.replace('task_', '')
+        endpoint = `/api/recommendations/task/${taskId}`
         method = 'GET'
+        data = null
       }
+      
+      console.log(`Fetching unified orchestrator recommendations from: ${endpoint}`)
+      console.log('Request data:', data)
+      console.log('Active features:', {
+        gemini: geminiAvailable && (usePhase2 || usePhase3),
+        engine_preference: data.engine_preference
+      })
       
       const response = method === 'GET' ? 
         await api.get(endpoint) : 
@@ -270,14 +239,19 @@ const Recommendations = () => {
         setRecommendations(response.data.recommendations)
         setEnhancedFeatures(response.data.enhanced_features || [])
         
-        // Extract contextual information from Phase 3
+        // Extract contextual information from unified response
         if (response.data.contextual_info) {
           setContextualInfo(response.data.contextual_info)
         }
         
-        // Extract learning insights from Phase 3
+        // Extract learning insights from unified response
         if (response.data.learning_insights) {
           setLearningInsights(response.data.learning_insights)
+        }
+        
+        // Extract performance metrics
+        if (response.data.performance_metrics) {
+          setPerformanceMetrics(response.data.performance_metrics)
         }
       } else {
         setRecommendations([])
@@ -292,72 +266,7 @@ const Recommendations = () => {
     }
   }
 
-  // New function for smart recommendations
-  const fetchSmartRecommendations = async (formData) => {
-    try {
-      setLoading(true)
-      const response = await api.post('/api/recommendations/smart-recommendations', formData)
-      
-      const recommendations = response.data.recommendations || []
-      setRecommendations(recommendations)
-      setEnhancedFeatures(response.data.enhanced_features || [])
-      
-      if (recommendations.length === 0) {
-        setEmptyMessage('No smart recommendations found')
-      } else {
-        setEmptyMessage('')
-      }
-    } catch (error) {
-      console.error('Error fetching smart recommendations:', error)
-      setEmptyMessage('Failed to load smart recommendations')
-    } finally {
-      setLoading(false)
-    }
-  }
 
-  // New function for learning path recommendations
-  const fetchLearningPathRecommendations = async (formData) => {
-    try {
-      setLoading(true)
-      const response = await api.post('/api/recommendations/learning-path-recommendations', formData)
-      
-      const recommendations = response.data.recommendations || []
-      setRecommendations(recommendations)
-      
-      if (recommendations.length === 0) {
-        setEmptyMessage('No learning path recommendations found')
-      } else {
-        setEmptyMessage('')
-      }
-    } catch (error) {
-      console.error('Error fetching learning path recommendations:', error)
-      setEmptyMessage('Failed to load learning path recommendations')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // New function for project recommendations
-  const fetchProjectRecommendations = async (formData) => {
-    try {
-      setLoading(true)
-      const response = await api.post('/api/recommendations/project-recommendations', formData)
-      
-      const recommendations = response.data.recommendations || []
-      setRecommendations(recommendations)
-      
-      if (recommendations.length === 0) {
-        setEmptyMessage('No project recommendations found')
-      } else {
-        setEmptyMessage('')
-      }
-    } catch (error) {
-      console.error('Error fetching project recommendations:', error)
-      setEmptyMessage('Failed to load project recommendations')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -529,7 +438,20 @@ const Recommendations = () => {
                     <Select
                       classNamePrefix="react-select"
                       value={filterOptions.find(opt => opt.value === filter)}
-                      onChange={option => setFilter(option.value)}
+                      onChange={option => {
+                        console.log('Filter changed to:', option.value)
+                        setFilter(option.value)
+                        // Update selectedProject when a project is selected
+                        if (option.value.startsWith('project_')) {
+                          const projectId = option.value.replace('project_', '')
+                          const project = projects.find(p => p.id.toString() === projectId)
+                          console.log('Selected project:', project)
+                          setSelectedProject(project || null)
+                        } else {
+                          console.log('No project selected')
+                          setSelectedProject(null)
+                        }
+                      }}
                       options={filterOptions}
                       isSearchable={false}
                       styles={{
@@ -572,293 +494,210 @@ const Recommendations = () => {
                       }}
                     />
                   </div>
-                </div>
-                
-                {/* Gemini Controls */}
-                <div className="flex items-center space-x-4">
-                  {geminiAvailable ? (
-                    <div className="flex items-center space-x-3 bg-gray-800/50 rounded-xl p-3">
-                      <Brain className="w-5 h-5 text-blue-400" />
-                      <span className="text-white font-medium">Gemini AI:</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={useGemini}
-                          onChange={(e) => setUseGemini(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-blue-600 peer-checked:to-purple-600"></div>
-                        <span className="ml-3 text-sm font-medium text-gray-300">
-                          {useGemini ? 'Enhanced' : 'Standard'}
-                        </span>
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-3 bg-gray-800/30 rounded-xl p-3">
-                      <Brain className="w-5 h-5 text-gray-500" />
-                      <span className="text-gray-500">Gemini AI Unavailable</span>
+                  
+                  {/* Selected Project Indicator */}
+                  {selectedProject && (
+                    <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl p-3 border border-purple-500/30">
+                      <Target className="w-5 h-5 text-purple-400" />
+                      <span className="text-white font-medium">Project:</span>
+                      <span className="text-purple-300 font-semibold">{selectedProject.title}</span>
+                      <span className="text-gray-400 text-sm">({selectedProject.technologies})</span>
                     </div>
                   )}
                 </div>
                 
-                {/* Enhanced Engine Controls */}
-                <div className="flex items-center space-x-4">
-                  {enhancedEngineAvailable ? (
-                    <div className="flex items-center space-x-3 bg-gray-800/50 rounded-xl p-3">
-                      <Zap className="w-5 h-5 text-yellow-400" />
-                      <span className="text-white font-medium">Enhanced Engine:</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={useEnhancedEngine}
-                          onChange={(e) => setUseEnhancedEngine(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  ) : null}
+                {/* Performance Mode Toggle */}
+                <div className="flex items-center space-x-3 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 rounded-xl p-3 border border-blue-500/30">
+                  <Zap className="w-5 h-5 text-blue-400" />
+                  <span className="text-white font-medium">Performance Mode:</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={performanceMode}
+                      onChange={(e) => setPerformanceMode(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                  <span className="text-gray-300 text-sm">
+                    {performanceMode ? 'Fast' : 'Full AI'}
+                  </span>
                 </div>
 
-                {/* Phase 3 Controls */}
+                {/* Multi-Phase AI Controls */}
                 <div className="flex items-center space-x-4">
-                  {phase3Available ? (
-                    <div className="flex items-center space-x-3 bg-gradient-to-r from-purple-800/50 to-pink-800/50 rounded-xl p-3 border border-purple-500/30">
-                      <Brain className="w-5 h-5 text-purple-400" />
-                      <span className="text-white font-medium">Phase 3 AI:</span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={usePhase3}
-                          onChange={(e) => setUsePhase3(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                      </label>
-                      <span className="text-purple-300 text-sm">Contextual + Learning</span>
-                    </div>
-                  ) : null}
+                  {/* Phase 1 - Smart Match */}
+                  <div className="flex items-center space-x-3 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-xl p-3 border border-green-500/30">
+                    <Sparkles className="w-5 h-5 text-green-400" />
+                    <span className="text-white font-medium">Smart Match:</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={usePhase1 && phase1Available}
+                        onChange={(e) => setUsePhase1(e.target.checked)}
+                        disabled={!phase1Available}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-green-600 peer-checked:to-emerald-600 disabled:opacity-50"></div>
+                    </label>
+                    <span className="text-green-300 text-sm">Fast & Reliable</span>
+                  </div>
+
+                  {/* Phase 2 - Power Boost */}
+                  <div className="flex items-center space-x-3 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 rounded-xl p-3 border border-blue-500/30">
+                    <Zap className="w-5 h-5 text-blue-400" />
+                    <span className="text-white font-medium">Power Boost:</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={usePhase2 && phase2Available}
+                        onChange={(e) => setUsePhase2(e.target.checked)}
+                        disabled={!phase2Available}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-blue-600 peer-checked:to-cyan-600 disabled:opacity-50"></div>
+                    </label>
+                    <span className="text-blue-300 text-sm">Semantic Search</span>
+                  </div>
+
+                  {/* Phase 3 - Genius Mode */}
+                  <div className="flex items-center space-x-3 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl p-3 border border-purple-500/30">
+                    <Brain className="w-5 h-5 text-purple-400" />
+                    <span className="text-white font-medium">Genius Mode:</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={usePhase3 && phase3Available}
+                        onChange={(e) => setUsePhase3(e.target.checked)}
+                        disabled={!phase3Available}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-purple-600 peer-checked:to-pink-600 disabled:opacity-50"></div>
+                    </label>
+                    <span className="text-purple-300 text-sm">AI + Context</span>
+                  </div>
+
+                  {/* Gemini Status */}
+                  <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
+                    <Brain className="w-5 h-5 text-yellow-400" />
+                    <span className="text-white font-medium">Gemini:</span>
+                    <div className={`w-2 h-2 rounded-full ${geminiAvailable ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                    <span className={`text-sm ${geminiAvailable ? 'text-green-300' : 'text-red-300'}`}>
+                      {geminiAvailable ? 'Ready' : 'Unavailable'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Smart Recommendation Controls */}
-            <div className="mb-8 bg-gradient-to-br from-purple-900/20 to-pink-900/20 backdrop-blur-xl rounded-2xl p-6 border border-purple-500/30">
+            {/* Multi-Phase AI Recommendation System */}
+            <div className="mb-8 bg-gradient-to-br from-green-900/20 via-blue-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
               <div className="flex items-center space-x-3 mb-6">
                 <div className="relative">
-                  <TargetIcon className="w-6 h-6 text-purple-400" />
-                  <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                  <Brain className="w-6 h-6 text-green-400" />
+                  <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
                 </div>
-                <h3 className="text-xl font-semibold text-white">AI-Enhanced Recommendations</h3>
-                <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
-                  <Award className="w-4 h-4 text-purple-400" />
-                  <span className="text-purple-400 text-sm font-medium">Smart Matching</span>
+                <h3 className="text-xl font-semibold text-white">Multi-Phase AI Recommendations</h3>
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 via-blue-600/20 to-purple-600/20 px-3 py-1 rounded-full">
+                  <Sparkles className="w-4 h-4 text-green-400" />
+                  <span className="text-green-400 text-sm font-medium">Phase 1+2+3</span>
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Smart Recommendations */}
-                <button
-                  onClick={() => setShowSmartForm(!showSmartForm)}
-                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
-                    showSmartForm 
-                      ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/50' 
-                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
-                  }`}
-                >
-                  <Brain className="w-5 h-5 text-purple-400" />
-                  <div className="text-left">
-                    <div className="text-white font-medium">Smart Recommendations</div>
-                    <div className="text-gray-400 text-sm">AI-powered content matching</div>
+              <div className="text-center">
+                <p className="text-gray-300 mb-6">
+                  Get the best recommendations by combining all AI modes: Smart Match (fast & reliable), Power Boost (semantic search), and Genius Mode (AI-powered insights) with Gemini integration for optimal results.
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-green-800/20 rounded-xl p-4 border border-green-500/30">
+                    <Sparkles className="w-8 h-8 text-green-400 mx-auto mb-2" />
+                    <h4 className="text-green-300 font-semibold">Smart Match</h4>
+                    <p className="text-gray-400 text-sm">Fast & reliable keyword matching</p>
                   </div>
-                </button>
-
-                {/* Learning Path */}
-                <button
-                  onClick={() => setShowLearningPathForm(!showLearningPathForm)}
-                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
-                    showLearningPathForm 
-                      ? 'bg-gradient-to-r from-blue-600/20 to-cyan-600/20 border border-blue-500/50' 
-                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
-                  }`}
-                >
-                  <GraduationCap className="w-5 h-5 text-blue-400" />
-                  <div className="text-left">
-                    <div className="text-white font-medium">Learning Path</div>
-                    <div className="text-gray-400 text-sm">Skill-based progression</div>
+                  <div className="bg-blue-800/20 rounded-xl p-4 border border-blue-500/30">
+                    <Zap className="w-8 h-8 text-blue-400 mx-auto mb-2" />
+                    <h4 className="text-blue-300 font-semibold">Power Boost</h4>
+                    <p className="text-gray-400 text-sm">Semantic search & smart caching</p>
                   </div>
-                </button>
-
-                {/* Project Recommendations */}
-                <button
-                  onClick={() => setShowProjectForm(!showProjectForm)}
-                  className={`flex items-center space-x-3 p-4 rounded-xl transition-all duration-300 ${
-                    showProjectForm 
-                      ? 'bg-gradient-to-r from-green-600/20 to-emerald-600/20 border border-green-500/50' 
-                      : 'bg-gray-800/50 hover:bg-gray-700/50 border border-gray-700'
-                  }`}
-                >
-                  <Briefcase className="w-5 h-5 text-green-400" />
-                  <div className="text-left">
-                    <div className="text-white font-medium">Project Focus</div>
-                    <div className="text-gray-400 text-sm">Implementation-ready content</div>
+                  <div className="bg-purple-800/20 rounded-xl p-4 border border-purple-500/30">
+                    <Brain className="w-8 h-8 text-purple-400 mx-auto mb-2" />
+                    <h4 className="text-purple-300 font-semibold">Genius Mode</h4>
+                    <p className="text-gray-400 text-sm">AI-powered contextual insights</p>
                   </div>
+                </div>
+                
+                <button
+                  onClick={() => setShowRecommendationForm(!showRecommendationForm)}
+                  disabled={loading}
+                  className="bg-gradient-to-r from-green-600 via-blue-600 to-purple-600 px-8 py-4 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-3 mx-auto"
+                >
+                  <Brain className="w-6 h-6" />
+                  <span>{loading ? 'Processing...' : 'Get Multi-Phase AI Recommendations'}</span>
                 </button>
+                
+                {loading && (
+                  <div className="mt-4 text-green-400 text-sm">
+                    <Clock className="w-4 h-4 inline mr-2" />
+                    Processing with all AI phases (this may take a moment for optimal results)
+                  </div>
+                )}
               </div>
 
-              {/* Smart Recommendation Form */}
-              {showSmartForm && (
-                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-purple-500/30">
+              {/* Simple Recommendation Form */}
+              {showRecommendationForm && (
+                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-blue-500/30">
                   <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                    <Brain className="w-5 h-5 text-purple-400" />
-                    <span>Smart Recommendation Request</span>
+                    <Brain className="w-5 h-5 text-blue-400" />
+                    <span>Customize Your Request (Optional)</span>
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-gray-300 text-sm font-medium mb-2">Project Title</label>
                       <input
                         type="text"
-                        value={smartRecommendationForm.project_title}
-                        onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, project_title: e.target.value }))}
+                        value={recommendationForm.project_title}
+                        onChange={(e) => setRecommendationForm(prev => ({ ...prev, project_title: e.target.value }))}
                         placeholder="e.g., React Learning Project"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                       />
                     </div>
                     <div>
                       <label className="block text-gray-300 text-sm font-medium mb-2">Technologies</label>
                       <input
                         type="text"
-                        value={smartRecommendationForm.technologies}
-                        onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
+                        value={recommendationForm.technologies}
+                        onChange={(e) => setRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
                         placeholder="e.g., JavaScript, React, Node.js"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                       />
                     </div>
-                  </div>
-                  <div className="mb-4">
-                    <label className="block text-gray-300 text-sm font-medium mb-2">Project Description</label>
-                    <textarea
-                      value={smartRecommendationForm.project_description}
-                      onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, project_description: e.target.value }))}
-                      placeholder="Describe your project goals and what you want to learn..."
-                      rows="3"
-                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
-                    />
                   </div>
                   <div className="mb-4">
                     <label className="block text-gray-300 text-sm font-medium mb-2">Learning Goals</label>
                     <input
                       type="text"
-                      value={smartRecommendationForm.learning_goals}
-                      onChange={(e) => setSmartRecommendationForm(prev => ({ ...prev, learning_goals: e.target.value }))}
+                      value={recommendationForm.learning_goals}
+                      onChange={(e) => setRecommendationForm(prev => ({ ...prev, learning_goals: e.target.value }))}
                       placeholder="e.g., Master React hooks and state management"
-                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500"
+                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
                     />
                   </div>
-                  <button
-                    onClick={() => fetchSmartRecommendations(smartRecommendationForm)}
-                    disabled={loading}
-                    className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Getting Recommendations...' : 'Get Smart Recommendations'}
-                  </button>
-                </div>
-              )}
-
-              {/* Learning Path Form */}
-              {showLearningPathForm && (
-                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-blue-500/30">
-                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                    <GraduationCap className="w-5 h-5 text-blue-400" />
-                    <span>Learning Path Request</span>
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Target Skill</label>
-                      <input
-                        type="text"
-                        value={learningPathForm.target_skill}
-                        onChange={(e) => setLearningPathForm(prev => ({ ...prev, target_skill: e.target.value }))}
-                        placeholder="e.g., React, Python, Machine Learning"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Current Level</label>
-                      <select
-                        value={learningPathForm.current_level}
-                        onChange={(e) => setLearningPathForm(prev => ({ ...prev, current_level: e.target.value }))}
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="beginner">Beginner</option>
-                        <option value="intermediate">Intermediate</option>
-                        <option value="advanced">Advanced</option>
-                      </select>
-                    </div>
+                  <div className="flex space-x-4">
+                    <button
+                      onClick={() => fetchRecommendations()}
+                      disabled={loading}
+                      className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-lg font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? 'Getting Recommendations...' : 'Get Recommendations'}
+                    </button>
+                    <button
+                      onClick={() => setShowRecommendationForm(false)}
+                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-all duration-300"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                  <button
-                    onClick={() => fetchLearningPathRecommendations(learningPathForm)}
-                    disabled={loading}
-                    className="bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Getting Learning Path...' : 'Get Learning Path'}
-                  </button>
-                </div>
-              )}
-
-              {/* Project Recommendations Form */}
-              {showProjectForm && (
-                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-green-500/30">
-                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                    <Briefcase className="w-5 h-5 text-green-400" />
-                    <span>Project Recommendation Request</span>
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Project Type</label>
-                      <select
-                        value={projectRecommendationForm.project_type}
-                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, project_type: e.target.value }))}
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
-                      >
-                        <option value="web-app">Web Application</option>
-                        <option value="mobile-app">Mobile App</option>
-                        <option value="api">API/Backend</option>
-                        <option value="data-science">Data Science</option>
-                        <option value="game">Game Development</option>
-                        <option value="ai-ml">AI/Machine Learning</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Technologies</label>
-                      <input
-                        type="text"
-                        value={projectRecommendationForm.technologies}
-                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
-                        placeholder="e.g., React, Node.js, MongoDB"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Complexity</label>
-                      <select
-                        value={projectRecommendationForm.complexity}
-                        onChange={(e) => setProjectRecommendationForm(prev => ({ ...prev, complexity: e.target.value }))}
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
-                      >
-                        <option value="simple">Simple</option>
-                        <option value="moderate">Moderate</option>
-                        <option value="complex">Complex</option>
-                      </select>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => fetchProjectRecommendations(projectRecommendationForm)}
-                    disabled={loading}
-                    className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Getting Project Recommendations...' : 'Get Project Recommendations'}
-                  </button>
                 </div>
               )}
             </div>
@@ -1001,7 +840,7 @@ const Recommendations = () => {
             )}
 
             {/* Performance Metrics Display */}
-            {useEnhancedEngine && enhancedEngineAvailable && (
+            {usePhase2 && phase2Available && (
               <div className="mb-8 bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center space-x-3">
@@ -1012,7 +851,7 @@ const Recommendations = () => {
                     <h3 className="text-xl font-semibold text-white">Enhanced Engine Performance</h3>
                     <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 px-3 py-1 rounded-full">
                       <TrendingUp className="w-4 h-4 text-green-400" />
-                      <span className="text-green-400 text-sm font-medium">Phase 1+2 Active</span>
+                      <span className="text-green-400 text-sm font-medium">Smart Match + Power Boost</span>
                     </div>
                   </div>
                   <button
@@ -1067,7 +906,7 @@ const Recommendations = () => {
                     <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
                   </div>
                   <h3 className="text-xl font-semibold text-white">AI Context Analysis</h3>
-                  {useGemini && (
+                  {geminiAvailable && (
                     <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-600/20 to-purple-600/20 px-3 py-1 rounded-full">
                       <Star className="w-4 h-4 text-blue-400" />
                       <span className="text-blue-400 text-sm font-medium">Enhanced with Gemini AI</span>

@@ -90,7 +90,10 @@ class PerformanceDiagnostic:
             content_with_embeddings = SavedContent.query.filter(
                 SavedContent.embedding.isnot(None),
                 SavedContent.quality_score >= 5
-            ).limit(100).all()
+            ).order_by(
+                SavedContent.quality_score.desc(),
+                SavedContent.created_at.desc()
+            ).limit(500).all()
             complex_query_time = (time.time() - start_time) * 1000
             
             self.results['database'] = {

@@ -150,6 +150,10 @@ class BackgroundAnalysisService:
             cache_key = f"content_analysis:{content.id}"
             self.redis_cache.set_cache(cache_key, analysis_result, ttl=86400)  # 24 hours
             
+            # Invalidate caches using comprehensive cache invalidation service
+            from cache_invalidation_service import cache_invalidator
+            cache_invalidator.after_analysis_complete(content.id, content.user_id)
+            
             logger.info(f"✅ Analysis completed and stored for content {content.id}")
             
         except Exception as e:

@@ -389,69 +389,63 @@ class AdvancedGeminiEngine:
         ULTRA-FAST: Single batch API call for all candidates
         """
         try:
-            # Check if Gemini is available
-            if not self.gemini_available or not self.gemini_analyzer:
-                for candidate in candidates:
-                    candidate['enhanced'] = False
-                    candidate['enhancement_status'] = 'gemini_unavailable'
-                return candidates
-            
-            # Check rate limits
-            if self.rate_limiter and hasattr(self.rate_limiter, 'can_make_request'):
-                if not self.rate_limiter.can_make_request():
-                    for candidate in candidates:
+            if self.gemini_available and self.gemini_analyzer:
+                # Check rate limits
+                if self.rate_limiter and hasattr(self.rate_limiter, 'can_make_request'):
+                    if not self.rate_limiter.can_make_request():
+                        for candidate in candidates:
+                            candidate['enhanced'] = False
+                            candidate['enhancement_status'] = 'rate_limited'
+                        return candidates
+                
+                # Create batch prompt for all candidates
+                batch_prompt = self._create_batch_prompt(candidates, user_input)
+                
+                # SINGLE API CALL for all candidates
+                start_api_time = time.time()
+                batch_response = self.gemini_analyzer.analyze_bookmark_content(
+                    title=f"Batch Analysis: {len(candidates)} candidates",
+                    description=batch_prompt,
+                    content=batch_prompt,
+                    url=""
+                )
+                api_time = time.time() - start_api_time
+                
+                self.api_calls += 1
+                
+                # Extract insights for each candidate
+                enhanced_candidates = []
+                for i, candidate in enumerate(candidates):
+                    try:
+                        enhanced_data = self._extract_batch_insights(batch_response, candidate, i)
+                        
+                        # Cache individual analysis
+                        analysis_key = self._generate_analysis_key(candidate, user_input)
+                        self._cache_analysis(analysis_key, enhanced_data)
+                        
+                        # Update candidate
+                        candidate.update(enhanced_data)
+                        candidate['enhanced'] = True
+                        candidate['enhancement_status'] = 'batch_enhanced'
+                        candidate['api_time'] = api_time / len(candidates)  # Average time per candidate
+                        
+                        enhanced_candidates.append(candidate)
+                        
+                    except Exception as e:
+                        logger.warning(f"Error processing candidate {candidate.get('id')} in batch: {e}")
                         candidate['enhanced'] = False
-                        candidate['enhancement_status'] = 'rate_limited'
-                    return candidates
-            
-            # Create batch prompt for all candidates
-            batch_prompt = self._create_batch_prompt(candidates, user_input)
-            
-            # SINGLE API CALL for all candidates
-            start_api_time = time.time()
-            batch_response = self.gemini_analyzer.analyze_bookmark_content(
-                title=f"Batch Analysis: {len(candidates)} candidates",
-                description=batch_prompt,
-                content=batch_prompt,
-                url=""
-            )
-            api_time = time.time() - start_api_time
-            
-            self.api_calls += 1
-            
-            # Extract insights for each candidate
-            enhanced_candidates = []
-            for i, candidate in enumerate(candidates):
-                try:
-                    enhanced_data = self._extract_batch_insights(batch_response, candidate, i)
-                    
-                    # Cache individual analysis
-                    analysis_key = self._generate_analysis_key(candidate, user_input)
-                    self._cache_analysis(analysis_key, enhanced_data)
-                    
-                    # Update candidate
-                    candidate.update(enhanced_data)
-                    candidate['enhanced'] = True
-                    candidate['enhancement_status'] = 'batch_enhanced'
-                    candidate['api_time'] = api_time / len(candidates)  # Average time per candidate
-                    
-                    enhanced_candidates.append(candidate)
-                    
-                except Exception as e:
-                    logger.warning(f"Error processing candidate {candidate.get('id')} in batch: {e}")
-                    candidate['enhanced'] = False
-                    candidate['enhancement_status'] = 'batch_error'
-                    enhanced_candidates.append(candidate)
-            
-            logger.info(f"Batch Gemini enhancement completed in {api_time:.3f}s for {len(candidates)} candidates")
-            return enhanced_candidates
+                        candidate['enhancement_status'] = 'batch_error'
+                        enhanced_candidates.append(candidate)
+                
+                logger.info(f"Batch Gemini enhancement completed in {api_time:.3f}s for {len(candidates)} candidates")
+                return enhanced_candidates
+            else:
+                logger.warning("Gemini not available, using semantic fallback enhancement")
+                return self._semantic_fallback_enhancement(candidates, user_input)
             
         except Exception as e:
-            logger.error(f"Batch Gemini enhancement failed: {e}")
-            for candidate in candidates:
-                candidate['enhanced'] = False
-                candidate['enhancement_status'] = 'batch_failed'
-            return candidates
+            logger.warning(f"Gemini enhancement failed, using semantic fallback: {e}")
+            return self._semantic_fallback_enhancement(candidates, user_input)
 
     def _create_batch_prompt(self, candidates: List[Dict], user_input: Dict) -> str:
         """Create optimized batch prompt for multiple candidates"""
@@ -532,61 +526,58 @@ Focus on: relevance, key benefit, difficulty, technologies
         Apply quick Gemini enhancement with aggressive caching
         """
         try:
-            # Check if Gemini is available
-            if not self.gemini_available or not self.gemini_analyzer:
-                candidate['enhanced'] = False
-                candidate['enhancement_status'] = 'gemini_unavailable'
-                return candidate
-            
-            # Prepare focused analysis prompt
-            analysis_prompt = self._create_focused_prompt(candidate, user_input)
-            
-            # Check rate limits
-            if self.rate_limiter and hasattr(self.rate_limiter, 'can_make_request'):
-                if not self.rate_limiter.can_make_request():
-                    logger.warning("Rate limit reached, skipping Gemini enhancement")
-                    candidate['enhanced'] = False
-                    candidate['enhancement_status'] = 'rate_limited'
-                    return candidate
-            elif self.rate_limiter and hasattr(self.rate_limiter, 'get_status'):
-                status = self.rate_limiter.get_status()
-                if not status.get('can_make_request', True):
-                    logger.warning("Rate limit reached, skipping Gemini enhancement")
-                    candidate['enhanced'] = False
-                    candidate['enhancement_status'] = 'rate_limited'
-                    return candidate
-            
-            # Make focused API call
-            start_api_time = time.time()
-            # Use the correct method from GeminiAnalyzer
-            analysis_result = self.gemini_analyzer.analyze_bookmark_content(
-                title=candidate.get('title', ''),
-                description=candidate.get('content', '')[:500],
-                content=candidate.get('content', ''),
-                url=candidate.get('url', '')
-            )
-            api_time = time.time() - start_api_time
-            
-            self.api_calls += 1
-            
-            # Extract key insights quickly
-            enhanced_data = self._extract_quick_insights(analysis_result, candidate)
-            
-            # Cache the analysis
-            self._cache_analysis(analysis_key, enhanced_data)
-            
-            # Update candidate
-            candidate.update(enhanced_data)
-            candidate['enhanced'] = True
-            candidate['enhancement_status'] = 'enhanced'
-            candidate['api_time'] = api_time
-            
-            logger.info(f"Gemini enhancement completed in {api_time:.3f}s")
+            if self.gemini_available and self.gemini_analyzer:
+                # Prepare focused analysis prompt
+                analysis_prompt = self._create_focused_prompt(candidate, user_input)
+                
+                # Check rate limits
+                if self.rate_limiter and hasattr(self.rate_limiter, 'can_make_request'):
+                    if not self.rate_limiter.can_make_request():
+                        logger.warning("Rate limit reached, skipping Gemini enhancement")
+                        candidate['enhanced'] = False
+                        candidate['enhancement_status'] = 'rate_limited'
+                        return candidate
+                elif self.rate_limiter and hasattr(self.rate_limiter, 'get_status'):
+                    status = self.rate_limiter.get_status()
+                    if not status.get('can_make_request', True):
+                        logger.warning("Rate limit reached, skipping Gemini enhancement")
+                        candidate['enhanced'] = False
+                        candidate['enhancement_status'] = 'rate_limited'
+                        return candidate
+                
+                # Make focused API call
+                start_api_time = time.time()
+                # Use the correct method from GeminiAnalyzer
+                analysis_result = self.gemini_analyzer.analyze_bookmark_content(
+                    title=candidate.get('title', ''),
+                    description=candidate.get('content', '')[:500],
+                    content=candidate.get('content', ''),
+                    url=candidate.get('url', '')
+                )
+                api_time = time.time() - start_api_time
+                
+                self.api_calls += 1
+                
+                # Extract key insights quickly
+                enhanced_data = self._extract_quick_insights(analysis_result, candidate)
+                
+                # Cache the analysis
+                self._cache_analysis(analysis_key, enhanced_data)
+                
+                # Update candidate
+                candidate.update(enhanced_data)
+                candidate['enhanced'] = True
+                candidate['enhancement_status'] = 'enhanced'
+                candidate['api_time'] = api_time
+                
+                logger.info(f"Gemini enhancement completed in {api_time:.3f}s")
+            else:
+                logger.warning("Gemini not available, using semantic fallback enhancement")
+                return self._semantic_fallback_enhancement_single(candidate, user_input)
             
         except Exception as e:
-            logger.error(f"Gemini enhancement failed: {e}")
-            candidate['enhanced'] = False
-            candidate['enhancement_status'] = 'failed'
+            logger.warning(f"Gemini enhancement failed, using semantic fallback: {e}")
+            return self._semantic_fallback_enhancement_single(candidate, user_input)
         
         return candidate
     
@@ -709,12 +700,15 @@ Format: JSON with keys: relevance_score, key_benefit, difficulty
                 logger.warning(f"Error formatting recommendation: {e}")
                 continue
         
-        # Sort by final score
-        formatted_recommendations.sort(key=lambda x: x['score'], reverse=True)
-        
-        return {
-            "recommendations": formatted_recommendations
-        }
+                    # Sort by final score
+            formatted_recommendations.sort(key=lambda x: x['score'], reverse=True)
+            
+            # Add diversity sampling to ensure varied content types
+            diverse_recommendations = self._add_diversity_sampling(formatted_recommendations, max_recommendations=len(formatted_recommendations))
+            
+            return {
+                "recommendations": diverse_recommendations
+            }
     
     def clear_caches(self):
         """Clear all caches"""
@@ -739,6 +733,167 @@ Format: JSON with keys: relevance_score, key_benefit, difficulty
             'batch_operations': self.batch_operations,
             'hit_rate': self.cache_hits / (self.cache_hits + self.cache_misses) if (self.cache_hits + self.cache_misses) > 0 else 0
         }
+    
+    def _semantic_fallback_enhancement(self, candidates: List[Dict], user_input: Dict) -> List[Dict]:
+        """Basic semantic enhancement when Gemini is not available or fails"""
+        enhanced_candidates = []
+        
+        try:
+            for candidate in candidates:
+                enhanced_candidate = self._semantic_fallback_enhancement_single(candidate, user_input)
+                enhanced_candidates.append(enhanced_candidate)
+            
+            logger.info(f"Applied semantic fallback enhancement to {len(candidates)} candidates")
+            return enhanced_candidates
+            
+        except Exception as e:
+            logger.error(f"Error in semantic fallback enhancement: {e}")
+            # Ultimate fallback: return original candidates with basic enhancement
+            for candidate in candidates:
+                candidate['enhanced'] = False
+                candidate['enhancement_status'] = 'semantic_fallback_failed'
+                candidate['reason'] = "High-quality content from your saved bookmarks"
+            return candidates
+    
+    def _semantic_fallback_enhancement_single(self, candidate: Dict, user_input: Dict) -> Dict:
+        """Apply semantic enhancement to a single candidate"""
+        try:
+            enhanced_candidate = candidate.copy()
+            
+            # Generate basic enhancement using content analysis
+            title = candidate.get('title', '').lower()
+            content = candidate.get('content', '').lower()
+            
+            # Extract technologies
+            tech_keywords = ['python', 'javascript', 'java', 'react', 'node', 'sql', 'docker', 'aws', 'git', 'html', 'css', 'typescript', 'vue', 'angular', 'mongodb', 'postgresql', 'redis', 'kubernetes', 'terraform', 'jenkins', 'github', 'gitlab']
+            found_techs = [tech for tech in tech_keywords if tech in title or content]
+            
+            # Determine content type
+            if any(word in title for word in ['tutorial', 'guide', 'learn', 'getting started']):
+                content_type = 'tutorial'
+            elif any(word in title for word in ['docs', 'documentation', 'api', 'reference']):
+                content_type = 'documentation'
+            elif any(word in title for word in ['project', 'github', 'repo', 'repository']):
+                content_type = 'project'
+            elif any(word in title for word in ['leetcode', 'interview', 'question', 'problem']):
+                content_type = 'practice'
+            elif any(word in title for word in ['best practice', 'pattern', 'architecture']):
+                content_type = 'best practice'
+            else:
+                content_type = 'resource'
+            
+            # Build reason
+            reason_parts = []
+            if found_techs:
+                reason_parts.append(f"Content about {', '.join(found_techs[:2])}")
+            else:
+                reason_parts.append("High-quality technical content")
+            
+            if content_type != 'resource':
+                reason_parts.append(f"({content_type})")
+            
+            if user_input.get('title'):
+                reason_parts.append(f"relevant to {user_input['title']}")
+            
+            # Add quality indicator
+            quality_score = candidate.get('quality_score', 7)
+            if quality_score >= 9:
+                reason_parts.append("- Excellent quality")
+            elif quality_score >= 7:
+                reason_parts.append("- High quality")
+            
+            enhanced_candidate['reason'] = ' '.join(reason_parts)
+            enhanced_candidate['enhanced'] = True
+            enhanced_candidate['enhancement_status'] = 'semantic_fallback'
+            enhanced_candidate['enhancement_type'] = 'semantic_fallback'
+            
+            return enhanced_candidate
+            
+        except Exception as e:
+            logger.error(f"Error in semantic fallback enhancement for single candidate: {e}")
+            candidate['enhanced'] = False
+            candidate['enhancement_status'] = 'semantic_fallback_failed'
+            candidate['reason'] = "High-quality content from your saved bookmarks"
+            return candidate
+    
+    def _add_diversity_sampling(self, recommendations: List[Dict], max_recommendations: int) -> List[Dict]:
+        """Add diversity sampling to ensure varied content types and categories"""
+        if not recommendations:
+            return recommendations
+        
+        try:
+            # Categorize recommendations by content type
+            categorized_recommendations = {}
+            diverse_recommendations = []
+            
+            for rec in recommendations:
+                # Determine content category
+                category = self._determine_content_category(rec)
+                rec['category'] = category
+                
+                if category not in categorized_recommendations:
+                    categorized_recommendations[category] = []
+                categorized_recommendations[category].append(rec)
+            
+            # Add diverse recommendations from each category
+            categories_used = set()
+            max_per_category = max(1, max_recommendations // len(categorized_recommendations)) if categorized_recommendations else 1
+            
+            # First pass: add top recommendations from each category
+            for category, recs in categorized_recommendations.items():
+                if len(diverse_recommendations) >= max_recommendations:
+                    break
+                
+                # Add top recommendations from this category
+                category_recs = recs[:max_per_category]
+                diverse_recommendations.extend(category_recs)
+                categories_used.add(category)
+            
+            # Second pass: fill remaining slots with best overall recommendations
+            remaining_slots = max_recommendations - len(diverse_recommendations)
+            if remaining_slots > 0:
+                # Get recommendations not yet included
+                used_ids = {rec.get('id', 0) for rec in diverse_recommendations}
+                remaining_recs = [rec for rec in recommendations if rec.get('id', 0) not in used_ids]
+                
+                # Add best remaining recommendations
+                diverse_recommendations.extend(remaining_recs[:remaining_slots])
+            
+            # Ensure we don't exceed max_recommendations
+            diverse_recommendations = diverse_recommendations[:max_recommendations]
+            
+            logger.info(f"Fast Gemini diversity sampling: {len(categories_used)} categories, {len(diverse_recommendations)} recommendations")
+            return diverse_recommendations
+            
+        except Exception as e:
+            logger.error(f"Error in fast Gemini diversity sampling: {e}")
+            return recommendations[:max_recommendations]
+    
+    def _determine_content_category(self, recommendation: Dict) -> str:
+        """Determine content category based on title and content"""
+        try:
+            title = recommendation.get('title', '').lower()
+            content = recommendation.get('content', '').lower()
+            
+            # Fallback to title/content analysis
+            if any(word in title for word in ['tutorial', 'guide', 'learn', 'getting started', 'how to']):
+                return 'tutorial'
+            elif any(word in title for word in ['docs', 'documentation', 'api', 'reference', 'manual']):
+                return 'documentation'
+            elif any(word in title for word in ['project', 'github', 'repo', 'repository', 'demo', 'example']):
+                return 'project'
+            elif any(word in title for word in ['leetcode', 'interview', 'question', 'problem', 'challenge']):
+                return 'practice'
+            elif any(word in title for word in ['best practice', 'pattern', 'architecture', 'design']):
+                return 'best_practice'
+            elif any(word in title for word in ['news', 'article', 'blog', 'post']):
+                return 'article'
+            else:
+                return 'general'
+                
+        except Exception as e:
+            logger.error(f"Error determining content category: {e}")
+            return 'general'
 
 # Global instance
 fast_gemini_engine = AdvancedGeminiEngine() 

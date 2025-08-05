@@ -57,6 +57,11 @@ def create_project():
     try:
         db.session.add(new_project)
         db.session.commit()
+        
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_project_save(new_project.id, user_id)
+        
         return jsonify({
             "message": "Project created successfully", 
             "project_id": new_project.id,
@@ -137,6 +142,11 @@ def update_project(project_id):
     
     try:
         db.session.commit()
+        
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_project_update(project.id, user_id)
+        
         return jsonify({
             "message": "Project updated successfully",
             "project": {
@@ -163,8 +173,18 @@ def delete_project(project_id):
         return jsonify({"message": "Project not found"}), 404
     
     try:
+        # Store project_id and user_id before deletion for cache invalidation
+        project_id_for_cache = project.id
+        user_id_for_cache = project.user_id
+        
         db.session.delete(project)
         db.session.commit()
+        
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.invalidate_project_cache(project_id_for_cache)
+        cache_invalidator.invalidate_user_cache(user_id_for_cache)
+        
         return jsonify({"message": "Project deleted successfully"}), 200
     except Exception as e:
         db.session.rollback()

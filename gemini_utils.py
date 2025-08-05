@@ -737,4 +737,164 @@ class GeminiAnalyzer:
                         "advanced_skills": []
                     }
                 }
-            } 
+            }
+    
+    def analyze_project(self, project_title: str, project_description: str, project_technologies: str = "") -> Dict:
+        """
+        Analyze project using Gemini to extract technologies, learning goals, and project characteristics
+        """
+        try:
+            prompt = f"""
+            Analyze the following project and extract key information for content recommendations.
+            
+            Project Title: {project_title}
+            Project Description: {project_description}
+            Project Technologies: {project_technologies}
+            
+            Please analyze this project and provide:
+            1. Technologies: Extract all relevant technologies, frameworks, and tools mentioned
+            2. Learning Goals: Identify what the user wants to learn or achieve
+            3. Project Type: Determine the type of project (web app, mobile app, data analysis, etc.)
+            4. Difficulty Level: Assess the complexity (beginner, intermediate, advanced)
+            5. Key Concepts: Identify main concepts and skills needed
+            6. Learning Path: Suggest what this project builds on and leads to
+            7. Project Characteristics: Identify specific project requirements and constraints
+            
+            Return the analysis as a JSON object with the following structure:
+            {{
+                "technologies": ["tech1", "tech2", "tech3"],
+                "learning_goals": ["goal1", "goal2"],
+                "project_type": "type",
+                "difficulty_level": "level",
+                "key_concepts": ["concept1", "concept2"],
+                "learning_path": {{
+                    "builds_on": ["prerequisite1", "prerequisite2"],
+                    "leads_to": ["next_step1", "next_step2"]
+                }},
+                "project_characteristics": {{
+                    "domain": "domain",
+                    "complexity": "complexity",
+                    "time_estimate": "estimate",
+                    "prerequisites": ["prereq1"],
+                    "outcomes": ["outcome1"]
+                }},
+                "content_needs": {{
+                    "tutorials": true,
+                    "documentation": true,
+                    "examples": true,
+                    "best_practices": true
+                }}
+            }}
+            """
+            
+            response_text = self._make_gemini_request(prompt)
+            if not response_text:
+                return self._get_project_fallback_analysis(project_title, project_description, project_technologies)
+            
+            analysis = self._extract_json_from_response(response_text)
+            if not analysis:
+                return self._get_project_fallback_analysis(project_title, project_description, project_technologies)
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Error in project analysis: {e}")
+            return self._get_project_fallback_analysis(project_title, project_description, project_technologies)
+    
+    def _get_project_fallback_analysis(self, project_title: str, project_description: str, project_technologies: str) -> Dict:
+        """
+        Fallback project analysis using basic keyword extraction
+        """
+        try:
+            # Combine all project text
+            project_text = f"{project_title} {project_description} {project_technologies}".lower()
+            
+            # Basic technology extraction
+            technologies = []
+            if project_technologies:
+                technologies = [tech.strip() for tech in project_technologies.split(',') if tech.strip()]
+            
+            # Extract additional technologies from text
+            tech_keywords = {
+                'javascript': ['javascript', 'js', 'react', 'vue', 'angular', 'node', 'nodejs'],
+                'python': ['python', 'django', 'flask', 'fastapi', 'pandas', 'numpy'],
+                'java': ['java', 'spring', 'maven', 'gradle'],
+                'web': ['html', 'css', 'web', 'frontend', 'backend'],
+                'mobile': ['mobile', 'ios', 'android', 'react native'],
+                'database': ['sql', 'mongodb', 'postgresql', 'mysql'],
+                'ai_ml': ['ai', 'machine learning', 'tensorflow', 'pytorch'],
+                'devops': ['docker', 'kubernetes', 'aws', 'cloud']
+            }
+            
+            for category, tech_list in tech_keywords.items():
+                for tech in tech_list:
+                    if tech in project_text and category not in technologies:
+                        technologies.append(category)
+            
+            # Determine project type
+            project_type = "general"
+            if any(word in project_text for word in ['web', 'frontend', 'backend']):
+                project_type = "web_development"
+            elif any(word in project_text for word in ['mobile', 'app', 'ios', 'android']):
+                project_type = "mobile_development"
+            elif any(word in project_text for word in ['data', 'analysis', 'ml', 'ai']):
+                project_type = "data_science"
+            
+            # Determine difficulty
+            difficulty = "intermediate"
+            if any(word in project_text for word in ['beginner', 'basic', 'simple']):
+                difficulty = "beginner"
+            elif any(word in project_text for word in ['advanced', 'complex', 'enterprise']):
+                difficulty = "advanced"
+            
+            return {
+                "technologies": technologies,
+                "learning_goals": ["Learn project development", "Apply technologies"],
+                "project_type": project_type,
+                "difficulty_level": difficulty,
+                "key_concepts": ["Project development", "Technology integration"],
+                "learning_path": {
+                    "builds_on": ["Basic programming"],
+                    "leads_to": ["Advanced development"]
+                },
+                "project_characteristics": {
+                    "domain": project_type,
+                    "complexity": difficulty,
+                    "time_estimate": "2-4 weeks",
+                    "prerequisites": ["Basic programming knowledge"],
+                    "outcomes": ["Working project", "Technology experience"]
+                },
+                "content_needs": {
+                    "tutorials": True,
+                    "documentation": True,
+                    "examples": True,
+                    "best_practices": True
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in fallback project analysis: {e}")
+            return {
+                "technologies": [],
+                "learning_goals": ["Learn project development"],
+                "project_type": "general",
+                "difficulty_level": "intermediate",
+                "key_concepts": ["Project development"],
+                "learning_path": {
+                    "builds_on": ["Basic programming"],
+                    "leads_to": ["Advanced development"]
+                },
+                "project_characteristics": {
+                    "domain": "general",
+                    "complexity": "intermediate",
+                    "time_estimate": "2-4 weeks",
+                    "prerequisites": ["Basic programming knowledge"],
+                    "outcomes": ["Working project"]
+                },
+                "content_needs": {
+                    "tutorials": True,
+                    "documentation": True,
+                    "examples": True,
+                    "best_practices": True
+                }
+            }

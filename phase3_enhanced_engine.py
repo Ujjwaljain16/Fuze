@@ -18,10 +18,11 @@ import numpy as np
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from enhanced_recommendation_engine import (
-    get_enhanced_recommendations, unified_engine, 
-    RecommendationResult, UserProfile, PerformanceMetrics
-)
+# Import inside functions to avoid circular imports
+# from enhanced_recommendation_engine import (
+#     get_enhanced_recommendations, unified_engine, 
+#     RecommendationResult, UserProfile, PerformanceMetrics
+# )
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,19 @@ class ContextualData:
     previous_interactions: List[str]
     current_project: Optional[str]
     learning_session: bool
+
+@dataclass
+class UserProfile:
+    """Comprehensive user profile"""
+    user_id: int
+    interests: List[str]
+    skill_level: str
+    learning_style: str
+    technology_preferences: List[str]
+    content_preferences: Dict[str, float]
+    difficulty_preferences: Dict[str, float]
+    interaction_patterns: Dict[str, Any]
+    last_updated: datetime
 
 @dataclass
 class LearningMetrics:
@@ -377,7 +391,14 @@ def get_enhanced_recommendations_phase3(user_id: int, request_data: Dict[str, An
                                       limit: int = 10) -> List[Dict[str, Any]]:
     """Enhanced recommendations with Phase 3 features"""
     try:
+        # Import inside function to avoid circular imports
+        from enhanced_recommendation_engine import get_enhanced_recommendations
+        
         start_time = time.time()
+        
+        # Initialize components
+        contextual_analyzer = ContextualAnalyzer()
+        real_time_learner = RealTimeLearner()
         
         # Phase 3: Contextual Analysis
         context = contextual_analyzer.analyze_context(request_data, user_id)
@@ -422,12 +443,22 @@ def get_enhanced_recommendations_phase3(user_id: int, request_data: Dict[str, An
     except Exception as e:
         logger.error(f"Error in Phase 3 enhanced recommendations: {e}")
         # Fallback to Phase 2
-        return get_enhanced_recommendations(user_id, request_data, limit)
+        try:
+            from enhanced_recommendation_engine import get_enhanced_recommendations
+            return get_enhanced_recommendations(user_id, request_data, limit)
+        except:
+            return []
 
 def record_user_feedback_phase3(user_id: int, recommendation_id: int, 
                                feedback_type: str, feedback_data: Dict[str, Any] = None):
     """Record user feedback with Phase 3 learning"""
     try:
+        # Import inside function to avoid circular imports
+        from enhanced_recommendation_engine import unified_engine
+        
+        # Initialize components
+        real_time_learner = RealTimeLearner()
+        
         # Record feedback in base system
         unified_engine.integrate_user_feedback(user_id, recommendation_id, feedback_type, feedback_data)
         

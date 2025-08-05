@@ -1,266 +1,189 @@
 #!/usr/bin/env python3
 """
-Test script for the unified intelligent recommendation system
+Test script for unified recommendations with DSA visualizer project
 """
 
 import requests
 import json
-import os
-from datetime import datetime
 
-# Configuration
-API_BASE = 'http://localhost:5000/api'
-JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc1Mjg0MDg3NiwianRpIjoiZDEyYzQ2MmUtZWQyNy00ZGU2LTkzYTctN2M0NjY4NzVhZjgwIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjEiLCJuYmYiOjE3NTI4NDA4NzYsImV4cCI6MTc1Mjg0MTc3Nn0.3B4z6seAnRhxWxquKUb8WwKuMZOJ8-OoWSOAoBNoX_c'
+def get_auth_token():
+    """Get authentication token by logging in"""
+    try:
+        # Login to get token
+        login_data = {
+            "email": "jainujjwal1609@gmail.com",
+            "password": "Jainsahab@16"
+        }
+        
+        response = requests.post(
+            'http://127.0.0.1:5000/api/auth/login',
+            json=login_data,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('access_token')
+        else:
+            print(f"❌ Login failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Login exception: {e}")
+        return None
 
-HEADERS = {
-    'Authorization': f'Bearer {JWT_TOKEN}',
-    'Content-Type': 'application/json',
-}
-
-def test_health_check():
-    """Test if the API is running"""
-    print("\n" + "="*60)
-    print("TESTING API HEALTH CHECK")
-    print("="*60)
+def test_phase_status():
+    """Test phase status to see which phases are available"""
+    print("🔍 Testing Phase Status")
+    print("=" * 40)
+    
+    # Get auth token
+    token = get_auth_token()
+    if not token:
+        return
     
     try:
-        resp = requests.get(f'{API_BASE}/health')
-        print(f'Status Code: {resp.status_code}')
-        if resp.status_code == 200:
-            data = resp.json()
-            print(f'API Status: {data.get("status")}')
-            print(f'Database: {data.get("database")}')
-            print(f'Version: {data.get("version")}')
-            return True
+        response = requests.get(
+            'http://127.0.0.1:5000/api/recommendations/phase-status',
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ Phase Status:")
+            print(f"  Phase 1 (Smart Match): {data.get('phase1_available', False)}")
+            print(f"  Phase 2 (Power Boost): {data.get('phase2_available', False)}")
+            print(f"  Phase 3 (Genius Mode): {data.get('phase3_available', False)}")
+            print(f"  Gemini Available: {data.get('gemini_available', False)}")
         else:
-            print(f'Error: {resp.text}')
-            return False
-    except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to the API. Make sure the Flask app is running on localhost:5000")
-        return False
+            print(f"❌ Error: {response.status_code}")
+            
     except Exception as e:
-        print(f"ERROR: {e}")
-        return False
+        print(f"❌ Exception: {e}")
 
 def test_unified_recommendations():
-    """Test the unified recommendations endpoint with various inputs"""
-    print("\n" + "="*60)
-    print("TESTING UNIFIED RECOMMENDATIONS")
-    print("="*60)
+    """Test the unified recommendations endpoint"""
     
-    test_cases = [
-        {
-            "name": "DSA Visualizer Project",
-            "data": {
-                "title": "DSA visualiser",
-                "description": "A visualizer for data structure and algorithms that make it easier to understand the complexity easier just copy paste yr code and get a dynamic visualization of that with a detailed dry run for now available in java language only",
-                "technologies": "java, instrumentation, byte buddy AST, JVM",
-                "user_interests": "data structures, algorithms, java programming",
-                "max_recommendations": 5,
-                "diverse": True
-            }
-        },
-        {
-            "name": "React Native Mobile App",
-            "data": {
-                "title": "Mobile Expense Tracker",
-                "description": "Build a mobile app for tracking expenses with payment integration and SMS notifications",
-                "technologies": "react native, javascript, payment, mobile",
-                "user_interests": "mobile development, react native, payment systems",
-                "max_recommendations": 5,
-                "diverse": True
-            }
-        },
-        {
-            "name": "Python AI Project",
-            "data": {
-                "title": "Machine Learning Model",
-                "description": "Create a machine learning model for image classification using Python and TensorFlow",
-                "technologies": "python, tensorflow, ai, machine learning",
-                "user_interests": "artificial intelligence, python programming",
-                "max_recommendations": 5,
-                "diverse": True
-            }
-        },
-        {
-            "name": "Simple Web Development",
-            "data": {
-                "title": "Personal Portfolio Website",
-                "description": "Create a simple personal portfolio website with HTML, CSS, and JavaScript",
-                "technologies": "html, css, javascript, web",
-                "user_interests": "web development, frontend",
-                "max_recommendations": 5,
-                "diverse": True
-            }
+    # Test phase status first
+    test_phase_status()
+    print()
+    
+    # Get authentication token
+    print("🔐 Getting authentication token...")
+    token = get_auth_token()
+    
+    if not token:
+        print("❌ Could not get authentication token. Please make sure:")
+        print("   1. The server is running")
+        print("   2. You have a test user with email: test@example.com, password: testpassword123")
+        print("   3. Or update the credentials in this test script")
+        return
+    
+    print("✅ Got authentication token")
+    
+    # Test data for mobile app React Native project
+    test_data = {
+        "project_title": "Learning Project",
+        "project_description": "I want to learn and improve my skills",
+        "technologies": "mobile app react native expo",
+        "learning_goals": "Master relevant technologies and improve skills",
+        "content_type": "all",
+        "difficulty": "all",
+        "max_recommendations": 10,
+        "use_phase1": True,
+        "use_phase2": True,
+        "use_phase3": True,
+        "performance_mode": True
+    }
+    
+    print("\n🧪 Testing Unified Recommendations for Mobile App")
+    print("=" * 60)
+    print(f"Request data: {json.dumps(test_data, indent=2)}")
+    print()
+    
+    # Test with timing
+    import time
+    start_time = time.time()
+    
+    try:
+        # Make request to unified endpoint with authentication
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {token}'
         }
-    ]
-    
-    for i, test_case in enumerate(test_cases, 1):
-        print(f"\n--- Test {i}: {test_case['name']} ---")
         
-        try:
-            resp = requests.post(f'{API_BASE}/recommendations/unified', 
-                               json=test_case['data'], 
-                               headers=HEADERS)
+        response = requests.post(
+            'http://127.0.0.1:5000/api/recommendations/unified',
+            json=test_data,
+            headers=headers,
+            timeout=30
+        )
+        
+        end_time = time.time()
+        response_time = end_time - start_time
+        
+        print(f"⏱️  Response Time: {response_time:.2f} seconds")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print("✅ Success! Got recommendations:")
+            print(f"Total recommendations: {len(result.get('recommendations', []))}")
+            print(f"Phases used: {result.get('phases_used', {})}")
+            print(f"Performance mode: {result.get('performance_mode', False)}")
             
-            print(f'Status Code: {resp.status_code}')
+            # Debug: Check which phases actually ran
+            phases_used = result.get('phases_used', {})
+            print(f"🔍 Phase Debug:")
+            print(f"  Phase 1 ran: {phases_used.get('phase1', False)}")
+            print(f"  Phase 2 ran: {phases_used.get('phase2', False)}")
+            print(f"  Phase 3 ran: {phases_used.get('phase3', False)}")
+            print(f"  Gemini used: {phases_used.get('gemini', False)}")
+            print()
             
-            if resp.status_code == 200:
-                data = resp.json()
+            # Show top recommendations
+            recommendations = result.get('recommendations', [])
+            for i, rec in enumerate(recommendations[:5]):
+                print(f"{i+1}. {rec.get('title', 'No title')}")
+                print(f"   Score: {rec.get('score', 0):.1f}")
+                print(f"   Algorithm: {rec.get('algorithm_used', 'Unknown')}")
+                print(f"   Reasoning: {rec.get('reasoning', 'No reasoning')}")
+                print(f"   Domain: {rec.get('metadata', {}).get('domain_match', 'Unknown')}")
+                print(f"   Tech Alignment: {rec.get('metadata', {}).get('tech_alignment', 0)}")
+                print(f"   URL: {rec.get('url', 'No URL')}")
+                print()
+            
+            # Check if scores are reasonable
+            scores = [rec.get('score', 0) for rec in recommendations]
+            if scores:
+                avg_score = sum(scores) / len(scores)
+                print(f"📊 Score Analysis:")
+                print(f"   Average score: {avg_score:.2f}")
+                print(f"   Min score: {min(scores):.2f}")
+                print(f"   Max score: {max(scores):.2f}")
+                print(f"   Scores range: {min(scores):.2f} - {max(scores):.2f}")
                 
-                # Print context analysis
-                context = data.get('context_analysis', {})
-                if context:
-                    input_analysis = context.get('input_analysis', {})
-                    print(f"Input Analysis:")
-                    print(f"  - Technologies: {', '.join(input_analysis.get('technologies', []))}")
-                    print(f"  - Content Type: {input_analysis.get('content_type', 'Unknown')}")
-                    print(f"  - Difficulty: {input_analysis.get('difficulty', 'Unknown')}")
-                    print(f"  - Intent: {input_analysis.get('intent', 'Unknown')}")
-                    print(f"  - Complexity Score: {input_analysis.get('complexity_score', 0)}%")
-                    print(f"  - Key Concepts: {', '.join(input_analysis.get('key_concepts', [])[:5])}")
-                
-                # Print processing stats
-                stats = context.get('processing_stats', {})
-                print(f"Processing Stats:")
-                print(f"  - Total Bookmarks Analyzed: {stats.get('total_bookmarks_analyzed', 0)}")
-                print(f"  - Relevant Bookmarks Found: {stats.get('relevant_bookmarks_found', 0)}")
-                
-                # Print recommendations
-                recommendations = data.get('recommendations', [])
-                print(f"\nFound {len(recommendations)} recommendations:")
-                
-                for j, rec in enumerate(recommendations[:3], 1):  # Show top 3
-                    print(f"\n{j}. {rec['title']}")
-                    print(f"   Score: {rec['score']}%")
-                    print(f"   Confidence: {rec['confidence']}%")
-                    print(f"   Reason: {rec['reason']}")
-                    print(f"   URL: {rec['url']}")
-                    
-                    analysis = rec.get('analysis', {})
-                    if analysis:
-                        print(f"   Analysis:")
-                        print(f"     - Tech Match: {analysis.get('technology_match', 0)}")
-                        print(f"     - Content Relevance: {analysis.get('content_relevance', 0)}")
-                        print(f"     - Semantic Similarity: {analysis.get('semantic_similarity', 0)}")
-                        print(f"     - Technologies: {', '.join(analysis.get('bookmark_technologies', [])[:3])}")
+                if avg_score > 3.0:
+                    print("✅ Scores look good (above 3.0 average)")
+                else:
+                    print("⚠️  Scores might be too low")
+            
+            # Performance assessment
+            if response_time < 5.0:
+                print(f"🚀 Performance: EXCELLENT ({response_time:.2f}s)")
+            elif response_time < 10.0:
+                print(f"⚡ Performance: GOOD ({response_time:.2f}s)")
+            elif response_time < 20.0:
+                print(f"🐌 Performance: SLOW ({response_time:.2f}s)")
             else:
-                print(f'Error: {resp.text}')
+                print(f"❌ Performance: TOO SLOW ({response_time:.2f}s)")
                 
-        except requests.exceptions.ConnectionError:
-            print("ERROR: Could not connect to the API")
-        except Exception as e:
-            print(f"ERROR: {e}")
-
-def test_unified_project_recommendations(project_id=1):
-    """Test unified recommendations for a specific project"""
-    print("\n" + "="*60)
-    print(f"TESTING UNIFIED PROJECT RECOMMENDATIONS (Project ID: {project_id})")
-    print("="*60)
-    
-    try:
-        resp = requests.get(f'{API_BASE}/recommendations/unified-project/{project_id}', 
-                           headers=HEADERS)
-        
-        print(f'Status Code: {resp.status_code}')
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            
-            # Print context analysis
-            context = data.get('context_analysis', {})
-            if context:
-                project_analysis = context.get('project_analysis', {})
-                print(f"Project Analysis:")
-                print(f"  - Title: {project_analysis.get('title', 'Unknown')}")
-                print(f"  - Technologies: {', '.join(project_analysis.get('technologies', []))}")
-                print(f"  - Content Type: {project_analysis.get('content_type', 'Unknown')}")
-                print(f"  - Difficulty: {project_analysis.get('difficulty', 'Unknown')}")
-                print(f"  - Intent: {project_analysis.get('intent', 'Unknown')}")
-                print(f"  - Complexity Score: {project_analysis.get('complexity_score', 0)}%")
-                print(f"  - Key Concepts: {', '.join(project_analysis.get('key_concepts', [])[:5])}")
-            
-            # Print recommendations
-            recommendations = data.get('recommendations', [])
-            print(f"\nFound {len(recommendations)} recommendations:")
-            
-            for i, rec in enumerate(recommendations[:5], 1):
-                print(f"\n{i}. {rec['title']}")
-                print(f"   Score: {rec['score']}%")
-                print(f"   Confidence: {rec['confidence']}%")
-                print(f"   Reason: {rec['reason']}")
-                print(f"   URL: {rec['url']}")
-                
-                analysis = rec.get('analysis', {})
-                if analysis:
-                    print(f"   Analysis:")
-                    print(f"     - Tech Match: {analysis.get('technology_match', 0)}")
-                    print(f"     - Content Relevance: {analysis.get('content_relevance', 0)}")
-                    print(f"     - Semantic Similarity: {analysis.get('semantic_similarity', 0)}")
-                    print(f"     - Technologies: {', '.join(analysis.get('bookmark_technologies', [])[:3])}")
         else:
-            print(f'Error: {resp.text}')
+            print(f"❌ Error: {response.status_code}")
+            print(f"Response: {response.text}")
             
-    except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to the API")
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"❌ Exception: {e}")
 
-def test_engine_directly():
-    """Test the unified engine directly without API"""
-    print("\n" + "="*60)
-    print("TESTING UNIFIED ENGINE DIRECTLY")
-    print("="*60)
-    
-    try:
-        from unified_recommendation_engine import UnifiedRecommendationEngine
-        
-        engine = UnifiedRecommendationEngine()
-        
-        # Test context extraction
-        test_input = {
-            "title": "DSA visualiser",
-            "description": "A visualizer for data structure and algorithms using java bytecode instrumentation",
-            "technologies": "java, byte buddy, JVM",
-            "user_interests": "data structures, algorithms"
-        }
-        
-        context = engine.extract_context_from_input(**test_input)
-        
-        print("Context Extraction Test:")
-        print(f"  - Technologies: {[tech['category'] for tech in context['technologies']]}")
-        print(f"  - Content Type: {context['content_type']}")
-        print(f"  - Difficulty: {context['difficulty']}")
-        print(f"  - Intent: {context['intent']}")
-        print(f"  - Complexity Score: {context['complexity_score']:.2f}")
-        print(f"  - Key Concepts: {context['key_concepts'][:5]}")
-        print(f"  - Requirements: {context['requirements']}")
-        
-        print("\n✅ Engine test completed successfully!")
-        
-    except ImportError:
-        print("❌ Could not import UnifiedRecommendationEngine")
-    except Exception as e:
-        print(f"❌ Engine test failed: {e}")
-
-if __name__ == '__main__':
-    print("Unified Intelligent Recommendation System Test")
-    print("="*60)
-    print(f"Testing at: {datetime.now()}")
-    
-    # Test health first
-    if test_health_check():
-        # Test unified recommendations
-        test_unified_recommendations()
-        
-        # Test project-specific recommendations
-        test_unified_project_recommendations(project_id=1)
-        
-        # Test engine directly
-        test_engine_directly()
-    else:
-        print("Skipping tests due to API connection issues")
-    
-    print("\n" + "="*60)
-    print("TEST COMPLETED")
-    print("="*60) 
+if __name__ == "__main__":
+    test_unified_recommendations() 

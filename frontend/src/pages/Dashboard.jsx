@@ -64,7 +64,18 @@ const Dashboard = () => {
       
       // Load recommendations separately (can be slow)
       try {
-        const recommendationsRes = await api.get('/api/recommendations/general')
+        const recommendationsRes = await api.post('/api/recommendations/unified-orchestrator', {
+          title: 'Dashboard Recommendations',
+          description: 'General learning recommendations for dashboard',
+          technologies: '',
+          user_interests: 'General learning and skill development',
+          max_recommendations: 5,
+          engine_preference: 'fast',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: false
+        })
         setRecommendations(recommendationsRes.data.recommendations || [])
       } catch (recError) {
         console.error('Error fetching recommendations:', recError)

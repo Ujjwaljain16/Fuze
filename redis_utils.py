@@ -256,6 +256,149 @@ class RedisCache:
             print(f"Error deleting cache: {e}")
             return False
     
+    def delete_keys_pattern(self, pattern: str) -> int:
+        """Delete all keys matching a pattern"""
+        if not self.connected:
+            return 0
+        
+        try:
+            keys = self.redis_client.keys(pattern)
+            if keys:
+                return self.redis_client.delete(*keys)
+            return 0
+        except Exception as e:
+            print(f"Error deleting keys with pattern {pattern}: {e}")
+            return 0
+    
+    def invalidate_content_cache(self, content_id: int) -> bool:
+        """Invalidate all cache related to a specific content item"""
+        if not self.connected:
+            return False
+        
+        try:
+            patterns = [
+                f"*content_analysis:{content_id}*",
+                f"*content_embedding:{content_id}*",
+                f"*content_analysis_data:{content_id}*"
+            ]
+            
+            deleted_count = 0
+            for pattern in patterns:
+                deleted_count += self.delete_keys_pattern(pattern)
+            
+            print(f"Invalidated {deleted_count} cache entries for content {content_id}")
+            return deleted_count > 0
+        except Exception as e:
+            print(f"Error invalidating content cache for {content_id}: {e}")
+            return False
+    
+    def invalidate_user_recommendations(self, user_id: int) -> bool:
+        """Invalidate all recommendation cache for a user"""
+        if not self.connected:
+            return False
+        
+        try:
+            patterns = [
+                f"*recommendations:{user_id}*",
+                f"*smart_recommendations:{user_id}*",
+                f"*enhanced_recommendations:{user_id}*",
+                f"*unified_recommendations:{user_id}*",
+                f"*gemini_enhanced_recommendations:{user_id}*",
+                f"*project_recommendations:{user_id}*",
+                f"*task_recommendations:{user_id}*",
+                f"*learning_path_recommendations:{user_id}*"
+            ]
+            
+            deleted_count = 0
+            for pattern in patterns:
+                deleted_count += self.delete_keys_pattern(pattern)
+            
+            print(f"Invalidated {deleted_count} recommendation cache entries for user {user_id}")
+            return deleted_count > 0
+        except Exception as e:
+            print(f"Error invalidating user recommendations for {user_id}: {e}")
+            return False
+    
+    def invalidate_project_cache(self, project_id: int) -> bool:
+        """Invalidate all cache related to a specific project"""
+        if not self.connected:
+            return False
+        
+        try:
+            patterns = [
+                f"*project_analysis:{project_id}*",
+                f"*project_recommendations:*{project_id}*",
+                f"*project_embedding:{project_id}*"
+            ]
+            
+            deleted_count = 0
+            for pattern in patterns:
+                deleted_count += self.delete_keys_pattern(pattern)
+            
+            print(f"Invalidated {deleted_count} cache entries for project {project_id}")
+            return deleted_count > 0
+        except Exception as e:
+            print(f"Error invalidating project cache for {project_id}: {e}")
+            return False
+    
+    def invalidate_analysis_cache(self, content_id: int = None, user_id: int = None) -> bool:
+        """Invalidate analysis cache for content or user"""
+        if not self.connected:
+            return False
+        
+        try:
+            patterns = []
+            if content_id:
+                patterns.extend([
+                    f"*content_analysis:{content_id}*",
+                    f"*analysis_data:{content_id}*"
+                ])
+            if user_id:
+                patterns.extend([
+                    f"*user_analysis:{user_id}*",
+                    f"*user_context:{user_id}*"
+                ])
+            
+            if not patterns:
+                patterns = ["*content_analysis:*", "*analysis_data:*"]
+            
+            deleted_count = 0
+            for pattern in patterns:
+                deleted_count += self.delete_keys_pattern(pattern)
+            
+            print(f"Invalidated {deleted_count} analysis cache entries")
+            return deleted_count > 0
+        except Exception as e:
+            print(f"Error invalidating analysis cache: {e}")
+            return False
+    
+    def invalidate_all_recommendations(self) -> bool:
+        """Invalidate all recommendation cache"""
+        if not self.connected:
+            return False
+        
+        try:
+            patterns = [
+                "*recommendations:*",
+                "*smart_recommendations:*",
+                "*enhanced_recommendations:*",
+                "*unified_recommendations:*",
+                "*gemini_enhanced_recommendations:*",
+                "*project_recommendations:*",
+                "*task_recommendations:*",
+                "*learning_path_recommendations:*"
+            ]
+            
+            deleted_count = 0
+            for pattern in patterns:
+                deleted_count += self.delete_keys_pattern(pattern)
+            
+            print(f"Invalidated {deleted_count} recommendation cache entries")
+            return deleted_count > 0
+        except Exception as e:
+            print(f"Error invalidating all recommendations: {e}")
+            return False
+    
     # Cache Cleanup
     def cleanup_expired_keys(self, pattern: str = "fuze:*") -> int:
         """Clean up expired keys (this is usually automatic in Redis)"""

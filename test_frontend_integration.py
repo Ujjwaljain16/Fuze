@@ -1,334 +1,253 @@
 #!/usr/bin/env python3
 """
-Test Frontend Integration with Enhanced Recommendation Engine
+Test Frontend Integration with Unified Orchestrator
+Tests the new unified orchestrator endpoint that the frontend will use.
 """
 
-import os
-import sys
 import requests
 import json
+import time
 from datetime import datetime
 
-# Add the project root to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Configuration
+BASE_URL = "http://127.0.0.1:5000"
+TEST_USER_ID = 1  # Assuming test user exists
 
-def test_enhanced_engine_status():
-    """Test the enhanced engine status endpoint"""
-    print("🔍 Testing Enhanced Engine Status...")
+def test_unified_orchestrator_endpoint():
+    """Test the main unified orchestrator endpoint"""
+    print("🧪 Testing Unified Orchestrator Endpoint")
+    print("=" * 50)
     
-    try:
-        # This would normally be a real API call, but for testing we'll simulate it
-        # In a real scenario, you'd make an HTTP request to your Flask app
-        
-        # Simulate the response structure
-        status_response = {
-            'enhanced_engine_available': True,
-            'phase_1_complete': True,
-            'phase_2_complete': True,
-            'algorithms_available': ['hybrid', 'semantic', 'content_based'],
-            'features_available': [
-                'multi_algorithm_selection',
-                'diversity_optimization',
-                'semantic_analysis',
-                'content_based_filtering',
-                'performance_monitoring',
-                'smart_caching',
-                'feedback_integration'
-            ],
-            'performance_metrics': {
-                'response_time_ms': 245.67,
-                'cache_hit_rate': 0.78,
-                'error_rate': 0.02,
-                'throughput': 45
+    # Test data similar to what frontend would send
+    test_cases = [
+        {
+            "name": "Dashboard Recommendations",
+            "data": {
+                "title": "Dashboard Recommendations",
+                "description": "General learning recommendations for dashboard",
+                "technologies": "",
+                "user_interests": "General learning and skill development",
+                "max_recommendations": 5,
+                "engine_preference": "fast",
+                "diversity_weight": 0.3,
+                "quality_threshold": 6,
+                "include_global_content": True,
+                "enhance_with_gemini": False
+            }
+        },
+        {
+            "name": "Project-Specific Recommendations",
+            "data": {
+                "title": "React Learning Project",
+                "description": "Building a modern web application with React",
+                "technologies": "React, JavaScript, HTML, CSS",
+                "user_interests": "Frontend development and modern web technologies",
+                "project_id": 1,
+                "max_recommendations": 10,
+                "engine_preference": "auto",
+                "diversity_weight": 0.3,
+                "quality_threshold": 6,
+                "include_global_content": True,
+                "enhance_with_gemini": True
+            }
+        },
+        {
+            "name": "Technology-Specific Recommendations",
+            "data": {
+                "title": "Python Development",
+                "description": "Learning Python for data science and web development",
+                "technologies": "Python, Django, Flask, Pandas",
+                "user_interests": "Data science and web development",
+                "max_recommendations": 8,
+                "engine_preference": "auto",
+                "diversity_weight": 0.4,
+                "quality_threshold": 7,
+                "include_global_content": True,
+                "enhance_with_gemini": True
             }
         }
+    ]
+    
+    for i, test_case in enumerate(test_cases, 1):
+        print(f"\n📋 Test Case {i}: {test_case['name']}")
+        print("-" * 40)
         
-        print("✅ Enhanced Engine Status:")
-        print(f"   - Available: {status_response['enhanced_engine_available']}")
-        print(f"   - Phase 1 Complete: {status_response['phase_1_complete']}")
-        print(f"   - Phase 2 Complete: {status_response['phase_2_complete']}")
-        print(f"   - Algorithms: {', '.join(status_response['algorithms_available'])}")
-        print(f"   - Features: {len(status_response['features_available'])} available")
-        print(f"   - Response Time: {status_response['performance_metrics']['response_time_ms']}ms")
-        print(f"   - Cache Hit Rate: {status_response['performance_metrics']['cache_hit_rate']*100:.1f}%")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error testing enhanced engine status: {e}")
-        return False
+        try:
+            start_time = time.time()
+            
+            response = requests.post(
+                f"{BASE_URL}/api/recommendations/unified-orchestrator",
+                json=test_case['data'],
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer test_token_{TEST_USER_ID}'  # Mock token
+                },
+                timeout=30
+            )
+            
+            end_time = time.time()
+            response_time = (end_time - start_time) * 1000
+            
+            print(f"⏱️  Response Time: {response_time:.1f}ms")
+            print(f"📊 Status Code: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                recommendations = data.get('recommendations', [])
+                performance_metrics = data.get('performance_metrics', {})
+                
+                print(f"✅ Success! Found {len(recommendations)} recommendations")
+                print(f"🔧 Engine Used: {data.get('engine_used', 'Unknown')}")
+                
+                if recommendations:
+                    print("\n📚 Sample Recommendations:")
+                    for j, rec in enumerate(recommendations[:3], 1):
+                        print(f"  {j}. {rec.get('title', 'No title')}")
+                        print(f"     Score: {rec.get('score', 0):.2f}")
+                        print(f"     Engine: {rec.get('engine_used', 'Unknown')}")
+                        print(f"     Cached: {rec.get('cached', False)}")
+                
+                if performance_metrics:
+                    print(f"\n📈 Performance Metrics:")
+                    print(f"  Total Requests: {performance_metrics.get('total_requests', 0)}")
+                    print(f"  Average Response Time: {performance_metrics.get('average_response_time_ms', 0):.1f}ms")
+                    print(f"  Cache Hit Rate: {performance_metrics.get('cache_hit_rate', 0):.1%}")
+                
+            else:
+                print(f"❌ Error: {response.status_code}")
+                print(f"Response: {response.text}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Request failed: {e}")
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
 
-def test_enhanced_recommendations():
-    """Test the enhanced recommendations endpoint"""
-    print("\n🔍 Testing Enhanced Recommendations...")
+def test_status_endpoint():
+    """Test the status endpoint"""
+    print("\n\n🔍 Testing Status Endpoint")
+    print("=" * 30)
     
     try:
-        # Simulate request data that would come from the frontend
-        request_data = {
-            'project_title': 'React Native Learning Project',
-            'project_description': 'Building a mobile app with React Native',
-            'technologies': 'React Native, JavaScript, TypeScript',
-            'learning_goals': 'Master React Native development',
-            'content_type': 'all',
-            'difficulty': 'all',
-            'max_recommendations': 5
-        }
+        response = requests.get(f"{BASE_URL}/api/recommendations/status")
         
-        # Simulate the response structure
-        recommendations_response = {
-            'recommendations': [
-                {
-                    'id': 1,
-                    'title': 'React Native Tutorial for Beginners',
-                    'url': 'https://example.com/react-native-tutorial',
-                    'description': 'Complete guide to React Native development',
-                    'match_score': 85.5,
-                    'reason': 'Perfect match for React Native learning goals',
-                    'content_type': 'tutorial',
-                    'difficulty': 'beginner',
-                    'technologies': ['React Native', 'JavaScript'],
-                    'key_concepts': ['Mobile Development', 'React', 'Cross-platform'],
-                    'quality_score': 8.5,
-                    'algorithm_used': 'hybrid',
-                    'confidence': 92.0,
-                    'learning_path_fit': 0.85,
-                    'project_applicability': 0.90,
-                    'skill_development': 0.88,
-                    'analysis': {
-                        'technologies': ['React Native', 'JavaScript'],
-                        'content_type': 'tutorial',
-                        'difficulty': 'beginner',
-                        'key_concepts': ['Mobile Development', 'React', 'Cross-platform'],
-                        'quality_score': 8.5,
-                        'algorithm_used': 'hybrid',
-                        'confidence': 92.0
-                    }
-                },
-                {
-                    'id': 2,
-                    'title': 'Advanced React Native Patterns',
-                    'url': 'https://example.com/advanced-patterns',
-                    'description': 'Advanced patterns and best practices',
-                    'match_score': 78.2,
-                    'reason': 'Advanced content for skill development',
-                    'content_type': 'guide',
-                    'difficulty': 'advanced',
-                    'technologies': ['React Native', 'TypeScript'],
-                    'key_concepts': ['Architecture', 'Performance', 'Best Practices'],
-                    'quality_score': 9.0,
-                    'algorithm_used': 'semantic',
-                    'confidence': 87.0,
-                    'learning_path_fit': 0.78,
-                    'project_applicability': 0.85,
-                    'skill_development': 0.92,
-                    'analysis': {
-                        'technologies': ['React Native', 'TypeScript'],
-                        'content_type': 'guide',
-                        'difficulty': 'advanced',
-                        'key_concepts': ['Architecture', 'Performance', 'Best Practices'],
-                        'quality_score': 9.0,
-                        'algorithm_used': 'semantic',
-                        'confidence': 87.0
-                    }
-                }
-            ],
-            'count': 2,
-            'enhanced_features': [
-                'learning_path_matching',
-                'project_applicability',
-                'skill_development_tracking',
-                'ai_generated_reasoning',
-                'multi_algorithm_selection',
-                'diversity_optimization',
-                'semantic_analysis',
-                'content_based_filtering'
-            ],
-            'algorithm_used': 'enhanced_unified_engine',
-            'phase': 'phase_1_and_2'
-        }
-        
-        print("✅ Enhanced Recommendations Response:")
-        print(f"   - Count: {recommendations_response['count']}")
-        print(f"   - Algorithm: {recommendations_response['algorithm_used']}")
-        print(f"   - Phase: {recommendations_response['phase']}")
-        print(f"   - Features: {len(recommendations_response['enhanced_features'])} enhanced features")
-        
-        for i, rec in enumerate(recommendations_response['recommendations'], 1):
-            print(f"\n   📚 Recommendation {i}:")
-            print(f"      - Title: {rec['title']}")
-            print(f"      - Match Score: {rec['match_score']}%")
-            print(f"      - Algorithm: {rec['algorithm_used']}")
-            print(f"      - Confidence: {rec['confidence']}%")
-            print(f"      - Technologies: {', '.join(rec['technologies'])}")
-            print(f"      - Learning Path Fit: {rec['learning_path_fit']*100:.1f}%")
-            print(f"      - Project Applicability: {rec['project_applicability']*100:.1f}%")
-        
-        return True
-        
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ Status endpoint working")
+            print(f"🔧 Unified Orchestrator: {data.get('unified_orchestrator_available', False)}")
+            print(f"🤖 Gemini Integration: {data.get('gemini_integration_available', False)}")
+            print(f"📊 Total Engines: {data.get('total_engines_available', 0)}")
+            print(f"⭐ Recommended Engine: {data.get('recommended_engine', 'None')}")
+        else:
+            print(f"❌ Status endpoint failed: {response.status_code}")
+            
     except Exception as e:
-        print(f"❌ Error testing enhanced recommendations: {e}")
-        return False
+        print(f"❌ Status endpoint error: {e}")
 
-def test_performance_metrics():
+def test_performance_metrics_endpoint():
     """Test the performance metrics endpoint"""
-    print("\n🔍 Testing Performance Metrics...")
+    print("\n\n📊 Testing Performance Metrics Endpoint")
+    print("=" * 40)
     
     try:
-        # Simulate the response structure
-        metrics_response = {
-            'performance_metrics': {
-                'response_time_ms': 245.67,
-                'cache_hit_rate': 0.78,
-                'algorithm_performance': {
-                    'hybrid': 0.85,
-                    'semantic': 0.72,
-                    'content_based': 0.68
-                },
-                'error_rate': 0.02,
-                'throughput': 45,
-                'timestamp': datetime.now().isoformat()
-            },
-            'cache_stats': {
-                'memory_cache_hits': 1250,
-                'memory_cache_misses': 350,
-                'redis_cache_hits': 890,
-                'redis_cache_misses': 210,
-                'total_requests': 2700
-            },
-            'enhanced_engine_status': 'operational'
-        }
+        response = requests.get(f"{BASE_URL}/api/recommendations/performance-metrics")
         
-        print("✅ Performance Metrics:")
-        print(f"   - Response Time: {metrics_response['performance_metrics']['response_time_ms']}ms")
-        print(f"   - Cache Hit Rate: {metrics_response['performance_metrics']['cache_hit_rate']*100:.1f}%")
-        print(f"   - Error Rate: {metrics_response['performance_metrics']['error_rate']*100:.2f}%")
-        print(f"   - Throughput: {metrics_response['performance_metrics']['throughput']} req/min")
-        print(f"   - Engine Status: {metrics_response['enhanced_engine_status']}")
-        
-        print("\n   📊 Algorithm Performance:")
-        for algo, score in metrics_response['performance_metrics']['algorithm_performance'].items():
-            print(f"      - {algo}: {score*100:.1f}%")
-        
-        print("\n   💾 Cache Statistics:")
-        cache_stats = metrics_response['cache_stats']
-        print(f"      - Memory Cache Hits: {cache_stats['memory_cache_hits']}")
-        print(f"      - Redis Cache Hits: {cache_stats['redis_cache_hits']}")
-        print(f"      - Total Requests: {cache_stats['total_requests']}")
-        
-        return True
-        
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ Performance metrics endpoint working")
+            
+            if 'unified_orchestrator' in data:
+                metrics = data['unified_orchestrator']
+                print(f"🔧 Total Requests: {metrics.get('total_requests', 0)}")
+                print(f"⏱️  Average Response Time: {metrics.get('average_response_time_ms', 0):.1f}ms")
+                print(f"💾 Cache Hit Rate: {metrics.get('cache_hit_rate', 0):.1%}")
+                print(f"🤖 Gemini Enhancements: {metrics.get('gemini_enhancements', 0)}")
+            
+            if 'gemini_integration' in data:
+                gemini_metrics = data['gemini_integration']
+                print(f"🤖 Gemini API Calls: {gemini_metrics.get('total_calls', 0)}")
+                print(f"🤖 Gemini Success Rate: {gemini_metrics.get('success_rate', 0):.1%}")
+                
+        else:
+            print(f"❌ Performance metrics failed: {response.status_code}")
+            
     except Exception as e:
-        print(f"❌ Error testing performance metrics: {e}")
-        return False
+        print(f"❌ Performance metrics error: {e}")
 
-def test_frontend_data_structures():
-    """Test that the frontend can properly handle the enhanced data structures"""
-    print("\n🔍 Testing Frontend Data Structure Compatibility...")
+def test_frontend_compatibility():
+    """Test that the response format is compatible with frontend expectations"""
+    print("\n\n🎨 Testing Frontend Compatibility")
+    print("=" * 35)
     
     try:
-        # Test the enhanced recommendation format that the frontend expects
-        enhanced_recommendation = {
-            'id': 1,
-            'title': 'React Native Tutorial',
-            'url': 'https://example.com/tutorial',
-            'description': 'Learn React Native',
-            'match_score': 85.5,
-            'reason': 'Perfect for your learning goals',
-            'content_type': 'tutorial',
-            'difficulty': 'beginner',
-            'technologies': ['React Native', 'JavaScript'],
-            'key_concepts': ['Mobile Development', 'React'],
-            'quality_score': 8.5,
-            'algorithm_used': 'hybrid',
-            'confidence': 92.0,
-            'learning_path_fit': 0.85,
-            'project_applicability': 0.90,
-            'skill_development': 0.88,
-            'analysis': {
-                'technologies': ['React Native', 'JavaScript'],
-                'content_type': 'tutorial',
-                'difficulty': 'beginner',
-                'key_concepts': ['Mobile Development', 'React'],
-                'quality_score': 8.5,
-                'algorithm_used': 'hybrid',
-                'confidence': 92.0
+        response = requests.post(
+            f"{BASE_URL}/api/recommendations/unified-orchestrator",
+            json={
+                "title": "Frontend Compatibility Test",
+                "description": "Testing response format compatibility",
+                "technologies": "React, JavaScript",
+                "user_interests": "Frontend development",
+                "max_recommendations": 3,
+                "engine_preference": "fast",
+                "diversity_weight": 0.3,
+                "quality_threshold": 6,
+                "include_global_content": True,
+                "enhance_with_gemini": False
+            },
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer test_token_{TEST_USER_ID}'
             }
-        }
+        )
         
-        # Test that all required fields are present
-        required_fields = [
-            'id', 'title', 'url', 'match_score', 'reason', 'content_type', 
-            'difficulty', 'technologies', 'key_concepts', 'quality_score',
-            'algorithm_used', 'confidence', 'analysis'
-        ]
-        
-        missing_fields = []
-        for field in required_fields:
-            if field not in enhanced_recommendation:
-                missing_fields.append(field)
-        
-        if missing_fields:
-            print(f"❌ Missing required fields: {missing_fields}")
-            return False
-        
-        # Test enhanced features
-        enhanced_features = [
-            'learning_path_matching',
-            'project_applicability',
-            'skill_development_tracking',
-            'ai_generated_reasoning',
-            'multi_algorithm_selection',
-            'diversity_optimization',
-            'semantic_analysis',
-            'content_based_filtering'
-        ]
-        
-        print("✅ Frontend Data Structure Compatibility:")
-        print(f"   - All required fields present: {len(required_fields)} fields")
-        print(f"   - Enhanced features available: {len(enhanced_features)} features")
-        print(f"   - Match score format: {enhanced_recommendation['match_score']}% (percentage)")
-        print(f"   - Algorithm information: {enhanced_recommendation['algorithm_used']}")
-        print(f"   - Confidence score: {enhanced_recommendation['confidence']}%")
-        print(f"   - Analysis structure: {len(enhanced_recommendation['analysis'])} analysis fields")
-        
-        return True
-        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Check required fields for frontend
+            required_fields = ['recommendations', 'total_recommendations', 'engine_used']
+            missing_fields = [field for field in required_fields if field not in data]
+            
+            if not missing_fields:
+                print("✅ All required fields present")
+                print(f"📊 Total Recommendations: {data['total_recommendations']}")
+                print(f"🔧 Engine Used: {data['engine_used']}")
+                
+                # Check recommendation structure
+                if data['recommendations']:
+                    rec = data['recommendations'][0]
+                    rec_fields = ['id', 'title', 'url', 'score', 'reason']
+                    missing_rec_fields = [field for field in rec_fields if field not in rec]
+                    
+                    if not missing_rec_fields:
+                        print("✅ Recommendation structure compatible")
+                    else:
+                        print(f"⚠️  Missing recommendation fields: {missing_rec_fields}")
+                else:
+                    print("ℹ️  No recommendations to check structure")
+            else:
+                print(f"❌ Missing required fields: {missing_fields}")
+        else:
+            print(f"❌ Request failed: {response.status_code}")
+            
     except Exception as e:
-        print(f"❌ Error testing frontend data structures: {e}")
-        return False
+        print(f"❌ Frontend compatibility test error: {e}")
 
 def main():
     """Run all frontend integration tests"""
-    print("🚀 Testing Frontend Integration with Enhanced Recommendation Engine")
-    print("=" * 70)
+    print("🚀 Frontend Integration Test Suite")
+    print("=" * 50)
+    print(f"📅 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🌐 Base URL: {BASE_URL}")
     
-    tests = [
-        test_enhanced_engine_status,
-        test_enhanced_recommendations,
-        test_performance_metrics,
-        test_frontend_data_structures
-    ]
+    # Run tests
+    test_status_endpoint()
+    test_performance_metrics_endpoint()
+    test_unified_orchestrator_endpoint()
+    test_frontend_compatibility()
     
-    passed = 0
-    total = len(tests)
-    
-    for test in tests:
-        try:
-            if test():
-                passed += 1
-        except Exception as e:
-            print(f"❌ Test failed with exception: {e}")
-    
-    print("\n" + "=" * 70)
-    print(f"📊 Test Results: {passed}/{total} tests passed")
-    
-    if passed == total:
-        print("🎉 All frontend integration tests passed!")
-        print("✅ Enhanced recommendation engine is ready for frontend integration")
-    else:
-        print("⚠️  Some tests failed. Please check the implementation.")
-    
-    return passed == total
+    print("\n\n🎉 Frontend Integration Test Suite Complete!")
+    print("=" * 50)
+    print("✅ If all tests passed, your frontend should work with the new unified orchestrator")
+    print("📝 Check the console output above for any issues that need to be addressed")
 
 if __name__ == "__main__":
     main() 

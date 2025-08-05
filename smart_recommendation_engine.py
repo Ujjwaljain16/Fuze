@@ -95,18 +95,24 @@ class SmartRecommendationEngine:
                 ).order_by(
                     SavedContent.quality_score.desc(),  # Order by quality first
                     SavedContent.saved_at.desc()
-                ).limit(200).all()  # Get more candidates for better selection
+                ).limit(500).all()  # Get more candidates for better selection
         except Exception as e:
             self.logger.error(f"Error getting analyzed bookmarks: {e}")
             return []
     
     def calculate_match_score(self, analysis_data: Dict, user_context: Dict) -> Dict:
-        """Calculate various match scores"""
+        """Calculate various match scores using embedding-based similarity"""
         try:
+            # Import embedding utilities
+            from embedding_utils import (
+                get_embedding, 
+                calculate_cosine_similarity
+            )
+            
             bookmark_techs = analysis_data.get('technologies', [])
             user_techs = user_context.get('technologies', [])
             
-            # Technology overlap with enhanced matching
+            # Technology overlap with enhanced matching (reduced weight)
             tech_overlap = 0
             if bookmark_techs and user_techs:
                 # Normalize technology names for better matching
@@ -128,7 +134,26 @@ class SmartRecommendationEngine:
                 union = len(set(normalized_bookmark_techs) | set(normalized_user_techs))
                 tech_overlap = total_matches / union if union > 0 else 0
             
-            # Learning path fit
+            # Semantic similarity using embeddings (major weight)
+            semantic_similarity = 0.5  # Default neutral score
+            try:
+                # Create text representations for embedding
+                bookmark_text = f"technologies: {' '.join(bookmark_techs)} content_type: {analysis_data.get('content_type', '')} difficulty: {analysis_data.get('difficulty', '')}"
+                user_text = f"technologies: {' '.join(user_techs)} project_type: {user_context.get('project_type', '')} learning_needs: {' '.join(user_context.get('learning_needs', []))}"
+                
+                # Generate embeddings
+                bookmark_embedding = get_embedding(bookmark_text)
+                user_embedding = get_embedding(user_text)
+                
+                # Calculate semantic similarity
+                semantic_similarity = calculate_cosine_similarity(bookmark_embedding, user_embedding)
+                
+            except Exception as embedding_error:
+                self.logger.warning(f"Embedding calculation failed: {embedding_error}")
+                # Fallback to keyword-based similarity
+                semantic_similarity = self._calculate_keyword_similarity(analysis_data, user_context)
+            
+            # Learning path fit (reduced weight)
             learning_path = analysis_data.get('learning_path', {})
             learning_needs = user_context.get('learning_needs', [])
             learning_fit = 0.5  # Default neutral score
@@ -141,7 +166,7 @@ class SmartRecommendationEngine:
                 leads_match = len(set(leads_to) & set(learning_needs)) / max(len(learning_needs), 1)
                 learning_fit = (builds_match * 0.6) + (leads_match * 0.4)
             
-            # Project applicability
+            # Project applicability (reduced weight)
             project_applicability = analysis_data.get('project_applicability', {})
             user_project_type = user_context.get('project_type', 'general')
             
@@ -153,7 +178,7 @@ class SmartRecommendationEngine:
                 if project_applicability.get('implementation_ready', False):
                     applicability_score += 0.1
             
-            # Skill development
+            # Skill development (reduced weight)
             skill_dev = analysis_data.get('skill_development', {})
             primary_skills = skill_dev.get('primary_skills', [])
             secondary_skills = skill_dev.get('secondary_skills', [])
@@ -166,20 +191,46 @@ class SmartRecommendationEngine:
                     skill_match = skill_overlap / len(learning_needs)
             
             return {
-                'technology_overlap': tech_overlap,
-                'learning_path_fit': learning_fit,
-                'project_applicability': applicability_score,
-                'skill_development': skill_match
+                'semantic_similarity': semantic_similarity,  # Major weight
+                'technology_overlap': tech_overlap,  # Reduced weight
+                'learning_path_fit': learning_fit,  # Reduced weight
+                'project_applicability': applicability_score,  # Reduced weight
+                'skill_development': skill_match  # Reduced weight
             }
             
         except Exception as e:
             self.logger.error(f"Error calculating match scores: {e}")
             return {
+                'semantic_similarity': 0.5,
                 'technology_overlap': 0.5,
                 'learning_path_fit': 0.5,
                 'project_applicability': 0.5,
                 'skill_development': 0.5
             }
+    
+    def _calculate_keyword_similarity(self, analysis_data: Dict, user_context: Dict) -> float:
+        """Fallback keyword-based similarity calculation"""
+        try:
+            # Combine bookmark keywords
+            bookmark_keywords = []
+            bookmark_keywords.extend(analysis_data.get('technologies', []))
+            bookmark_keywords.extend(analysis_data.get('key_concepts', []))
+            
+            # Combine user keywords
+            user_keywords = []
+            user_keywords.extend(user_context.get('technologies', []))
+            user_keywords.extend(user_context.get('learning_needs', []))
+            
+            # Calculate overlap
+            if bookmark_keywords and user_keywords:
+                overlap = len(set(bookmark_keywords) & set(user_keywords))
+                return overlap / len(user_keywords)
+            
+            return 0.5  # Neutral score if no keywords
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating keyword similarity: {e}")
+            return 0.5
     
     def generate_reasoning(self, bookmark: SavedContent, analysis: ContentAnalysis, 
                           user_context: Dict, match_scores: Dict, bookmark_techs: List[str]) -> str:
@@ -267,12 +318,13 @@ class SmartRecommendationEngine:
                     # Calculate match scores
                     match_scores = self.calculate_match_score(analysis_data, user_context)
                     
-                    # Calculate overall score (weighted average)
+                    # Calculate overall score (weighted average with major emphasis on semantic similarity)
                     overall_score = (
-                        match_scores['technology_overlap'] * 0.3 +
-                        match_scores['learning_path_fit'] * 0.3 +
-                        match_scores['project_applicability'] * 0.2 +
-                        match_scores['skill_development'] * 0.2
+                        match_scores['semantic_similarity'] * 0.6 +  # Major weight to semantic similarity
+                        match_scores['technology_overlap'] * 0.15 +  # Reduced weight
+                        match_scores['learning_path_fit'] * 0.15 +   # Reduced weight
+                        match_scores['project_applicability'] * 0.05 + # Reduced weight
+                        match_scores['skill_development'] * 0.05     # Reduced weight
                     ) * 100  # Convert to percentage
                     
                     # Only include recommendations with meaningful relevance

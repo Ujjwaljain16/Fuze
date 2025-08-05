@@ -113,11 +113,9 @@ def save_bookmark():
         existing_bookmark.title = title.strip() if title else existing_bookmark.title
         existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
         db.session.commit()
-        # Invalidate caches
-        redis_cache.invalidate_user_bookmarks(user_id)
-        # Also invalidate recommendations since new bookmarks affect recommendations
-        from blueprints.recommendations import invalidate_user_recommendations
-        invalidate_user_recommendations(user_id)
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_update(existing_bookmark.id, user_id)
         return jsonify({
             'message': 'Bookmark updated',
             'bookmark': {'id': existing_bookmark.id, 'url': existing_bookmark.url},
@@ -161,11 +159,9 @@ def save_bookmark():
     try:
         db.session.add(new_bm)
         db.session.commit()
-        # Invalidate caches
-        redis_cache.invalidate_user_bookmarks(user_id)
-        # Also invalidate recommendations since new bookmarks affect recommendations
-        from blueprints.recommendations import invalidate_user_recommendations
-        invalidate_user_recommendations(user_id)
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_save(new_bm.id, user_id)
         return jsonify({
             'message': 'Bookmark saved', 
             'bookmark': {'id': new_bm.id, 'url': new_bm.url},
@@ -347,8 +343,17 @@ def delete_bookmark(bookmark_id):
     if not bm or bm.user_id != user_id:
         return jsonify({'message': 'Bookmark not found or unauthorized'}), 404
     try:
+        # Store user_id and bookmark_id before deletion for cache invalidation
+        user_id_for_cache = bm.user_id
+        bookmark_id_for_cache = bm.id
+        
         db.session.delete(bm)
         db.session.commit()
+        
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
+        
         return jsonify({'message': 'Bookmark deleted'}), 200
     except Exception as e:
         db.session.rollback()
@@ -366,8 +371,17 @@ def delete_bookmark_by_url(url):
     if not bm:
         return jsonify({'message': 'Bookmark not found'}), 404
     try:
+        # Store user_id and bookmark_id before deletion for cache invalidation
+        user_id_for_cache = bm.user_id
+        bookmark_id_for_cache = bm.id
+        
         db.session.delete(bm)
         db.session.commit()
+        
+        # Invalidate caches using comprehensive cache invalidation service
+        from cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
+        
         return jsonify({'message': 'Bookmark deleted'}), 200
     except Exception as e:
         db.session.rollback()

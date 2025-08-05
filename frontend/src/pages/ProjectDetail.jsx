@@ -36,14 +36,30 @@ const ProjectDetail = () => {
   const fetchProjectData = async () => {
     try {
       setLoading(true)
-      const [projectRes, recommendationsRes] = await Promise.all([
-        api.get(`/api/projects/${id}`),
-        api.get(`/api/recommendations/project/${id}`)
-      ])
-
+      const projectRes = await api.get(`/api/projects/${id}`)
       setProject(projectRes.data.project)
-      setRecommendations(recommendationsRes.data.recommendations || [])
       setProjectBookmarks(projectRes.data.bookmarks || [])
+      
+      // Get project-specific recommendations using unified orchestrator
+      try {
+        const recommendationsRes = await api.post('/api/recommendations/unified-orchestrator', {
+          title: projectRes.data.project.title,
+          description: projectRes.data.project.description,
+          technologies: projectRes.data.project.technologies,
+          user_interests: 'Project-specific learning and development',
+          project_id: parseInt(id),
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: true
+        })
+        setRecommendations(recommendationsRes.data.recommendations || [])
+      } catch (recError) {
+        console.error('Error fetching project recommendations:', recError)
+        setRecommendations([])
+      }
     } catch (err) {
       console.error('Error fetching project data:', err)
       error('Failed to load project data')
@@ -55,7 +71,19 @@ const ProjectDetail = () => {
   const handleRefreshRecommendations = async () => {
     setRefreshing(true)
     try {
-      const response = await api.get(`/api/recommendations/project/${id}`)
+      const response = await api.post('/api/recommendations/unified-orchestrator', {
+        title: project.title,
+        description: project.description,
+        technologies: project.technologies,
+        user_interests: 'Project-specific learning and development',
+        project_id: parseInt(id),
+        max_recommendations: 10,
+        engine_preference: 'auto',
+        diversity_weight: 0.3,
+        quality_threshold: 6,
+        include_global_content: true,
+        enhance_with_gemini: true
+      })
       setRecommendations(response.data.recommendations || [])
       success('Recommendations refreshed!')
     } catch (err) {

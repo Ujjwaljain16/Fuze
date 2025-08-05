@@ -1,1313 +1,548 @@
+#!/usr/bin/env python3
+"""
+Complete Recommendations Blueprint
+Combines all features from both versions with proper circular import handling
+"""
+
+import os
+import sys
+import time
+import logging
+import json
+from typing import List, Dict, Optional, Any
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy import text
-import time
-import os
-from redis_utils import redis_cache
-from models import User, Project, SavedContent, Feedback, Task, ContentAnalysis
-from app import db
-from gemini_utils import GeminiAnalyzer
-from sentence_transformers import SentenceTransformer
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-import json
-import logging
-from rate_limit_handler import GeminiRateLimiter
-from datetime import datetime
-
-# Import enhanced recommendation engine
-try:
-    from enhanced_recommendation_engine import get_enhanced_recommendations, unified_engine
-    ENHANCED_ENGINE_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"Enhanced recommendation engine not available: {e}")
-    ENHANCED_ENGINE_AVAILABLE = False
-
-# Import Phase 3 enhanced engine
-try:
-    from phase3_enhanced_engine import (
-        get_enhanced_recommendations_phase3,
-        record_user_feedback_phase3,
-        get_user_learning_insights,
-        get_system_health_phase3
-    )
-    PHASE3_ENGINE_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"Phase 3 enhanced engine not available: {e}")
-    PHASE3_ENGINE_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Create blueprint FIRST to avoid circular imports
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
 
-# Initialize models
-try:
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-    gemini_analyzer = GeminiAnalyzer()
-    rate_limiter = GeminiRateLimiter()
-    logger.info("Models initialized successfully")
-except Exception as e:
-    logger.error(f"Error initializing models: {e}")
-    embedding_model = None
-    gemini_analyzer = None
-    rate_limiter = None
+# Initialize global flags for engine availability
+UNIFIED_ORCHESTRATOR_AVAILABLE = False
+UNIFIED_ENGINE_AVAILABLE = False
+SMART_ENGINE_AVAILABLE = False
+ENHANCED_ENGINE_AVAILABLE = False
+PHASE3_ENGINE_AVAILABLE = False
+FAST_GEMINI_AVAILABLE = False
+ENHANCED_MODULES_AVAILABLE = False
 
-class SmartRecommendationEngine:
-    def __init__(self):
-        self.embedding_model = embedding_model
-        self.gemini_analyzer = gemini_analyzer
-        self.cache_duration = 3600  # 1 hour
-        
-    def get_recommendations(self, user_id, user_input=None, use_cache=True):
-        """Get smart recommendations based on user profile and input"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"smart_recommendations:{user_id}:{hash(str(user_input))}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        # Get user profile
-        user_profile = self._get_user_profile(user_id)
-        if not user_profile:
-            return {'recommendations': [], 'error': 'User profile not found'}
-        
-        # Get user's saved content for analysis
-        user_content = self._get_user_content(user_id)
-        
-        # Generate recommendations
-        recommendations = self._generate_recommendations(user_profile, user_content, user_input)
-        
-        computation_time = (time.time() - start_time) * 1000
-        
-        result = {
-            'recommendations': recommendations,
-            'cached': False,
-            'computation_time_ms': computation_time,
-            'total_candidates': len(user_content)
-        }
-        
-        # Cache the result
-        if use_cache:
-            redis_cache.set_cache(cache_key, result, self.cache_duration)
-        
-        return result
-    
-    def _get_user_profile(self, user_id):
-        """Get user's learning profile and preferences"""
-        try:
-            user = User.query.get(user_id)
-            if not user:
-                return None
-            
-            # Get user's saved content for profile analysis
-            saved_content = SavedContent.query.filter_by(user_id=user_id).all()
-            
-            # Analyze user's interests based on saved content using cached analysis
-            interests = []
-            technologies = []
-            
-            for content in saved_content:
-                # Use cached analysis instead of making fresh API calls
-                cached_analysis = self._get_cached_analysis(content.id)
-                if cached_analysis:
-                    if 'technology_tags' in cached_analysis:
-                        technologies.extend(cached_analysis['technology_tags'])
-                    if 'key_concepts' in cached_analysis:
-                        interests.extend(cached_analysis['key_concepts'])
-                else:
-                    # Fallback to basic extraction from tags/notes
-                    if content.tags:
-                        technologies.extend([tag.strip() for tag in content.tags.split(',')])
-                    if content.notes:
-                        interests.append(content.notes[:50])  # First 50 chars as concept
-            
-            return {
-                'user_id': user_id,
-                'interests': list(set(interests)),
-                'technologies': list(set(technologies)),
-                'total_saved': len(saved_content)
-            }
-        except Exception as e:
-            logger.error(f"Error getting user profile: {e}")
-            return None
-    
-    def _get_user_content(self, user_id):
-        """Get user's saved content"""
-        try:
-            return SavedContent.query.filter_by(user_id=user_id).all()
-        except Exception as e:
-            logger.error(f"Error getting user content: {e}")
-            return []
-    
-    def _generate_recommendations(self, user_profile, user_content, user_input):
-        """Generate recommendations based on profile and content"""
-        recommendations = []
-        
-        try:
-            # Get all available content (excluding user's own)
-            all_content = SavedContent.query.filter(
-                SavedContent.user_id != user_profile['user_id'],
-                SavedContent.quality_score >= 7
-            ).limit(50).all()
-            
-            for content in all_content:
-                score = self._calculate_relevance_score(content, user_profile, user_input)
-                
-                if score > 0.3:  # Minimum relevance threshold
-                    recommendations.append({
-                        'id': content.id,
-                        'title': content.title,
-                        'content': content.extracted_text[:500],
-                        'similarity_score': score,
-                        'quality_score': content.quality_score,
-                        'user_id': content.user_id,
-                        'reason': self._generate_reason(content, user_profile)
-                    })
-            
-            # Sort by score and take top 10
-            recommendations.sort(key=lambda x: x['similarity_score'], reverse=True)
-            return recommendations[:10]
-            
-        except Exception as e:
-            logger.error(f"Error generating recommendations: {e}")
-            return []
-    
-    def _calculate_relevance_score(self, content, user_profile, user_input):
-        """Calculate relevance score for content"""
-        try:
-            score = 0.0
-            
-            # Base score from quality
-            score += content.quality_score / 10.0
-            
-            # Technology match using cached analysis
-            cached_analysis = self._get_cached_analysis(content.id)
-            if cached_analysis:
-                # Use cached analysis for technology matching
-                content_techs = set(cached_analysis.get('technology_tags', []))
-                user_techs = set(user_profile.get('technologies', []))
-                
-                if content_techs and user_techs:
-                    overlap = len(content_techs.intersection(user_techs))
-                    score += (overlap / len(user_techs)) * 0.3
-                
-                # Input-based scoring with cached analysis
-                if user_input and user_input.get('technologies'):
-                    input_techs = set(user_input['technologies'].split(','))
-                    if content_techs and input_techs:
-                        overlap = len(content_techs.intersection(input_techs))
-                        score += (overlap / len(input_techs)) * 0.4
-            else:
-                # Fallback to basic scoring without analysis
-                score += 0.1  # Small bonus for content without analysis
-            
-            return min(score, 1.0)
-            
-        except Exception as e:
-            logger.error(f"Error calculating relevance score: {e}")
-            return 0.0
-    
-    def _generate_reason(self, content, user_profile):
-        """Generate reason for recommendation"""
-        try:
-            # Use cached analysis if available
-            cached_analysis = self._get_cached_analysis(content.id)
-            if cached_analysis and 'summary' in cached_analysis:
-                return cached_analysis['summary']
-            
-            # Fallback reason
-            return f"High-quality content matching your interests"
-            
-        except Exception as e:
-            logger.error(f"Error generating reason: {e}")
-            return "Recommended based on your profile"
-    
-    def _get_cached_analysis(self, content_id):
-        """Get cached analysis for a content item"""
-        try:
-            # Try Redis first
-            cache_key = f"content_analysis:{content_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            
-            if cached_result:
-                return cached_result
-            
-            # Try database
-            analysis = ContentAnalysis.query.filter_by(content_id=content_id).first()
-            if analysis:
-                # Cache in Redis for future use
-                redis_cache.set_cache(cache_key, analysis.analysis_data, ttl=86400)
-                return analysis.analysis_data
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting cached analysis for content {content_id}: {e}")
-            return None
+# Global engine instances (will be initialized lazily)
+unified_engine_instance = None
+embedding_model = None
+gemini_analyzer = None
+rate_limiter = None
 
-class SmartTaskRecommendationEngine:
-    def __init__(self):
-        self.embedding_model = embedding_model
-        self.gemini_analyzer = gemini_analyzer
-        self.cache_duration = 1800  # 30 minutes
-        
-    def get_task_recommendations(self, user_id, task_id, use_cache=True):
-        """Get recommendations for a specific task"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"task_recommendations:{user_id}:{task_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        try:
-            # Get task details
-            task = Task.query.get(task_id)
-            if not task:
-                return {'recommendations': [], 'error': 'Task not found'}
-            
-            # Get user's saved content
-            user_content = SavedContent.query.filter_by(user_id=user_id).all()
-            
-            # Generate task-specific recommendations
-            recommendations = self._generate_task_recommendations(task, user_content)
-            
-            computation_time = (time.time() - start_time) * 1000
-            
-            result = {
-                'recommendations': recommendations,
-                'task_id': task_id,
-                'task_title': task.title,
-                'cached': False,
-                'computation_time_ms': computation_time
-            }
-            
-            # Cache the result
-            if use_cache:
-                redis_cache.set_cache(cache_key, result, self.cache_duration)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting task recommendations: {e}")
-            return {'recommendations': [], 'error': str(e)}
+def init_models():
+    """Initialize models with error handling"""
+    global embedding_model, gemini_analyzer, rate_limiter
     
-    def _generate_task_recommendations(self, task, user_content):
-        """Generate recommendations for a specific task"""
-        recommendations = []
-        
-        try:
-            # Get all available content
-            all_content = SavedContent.query.filter(
-                SavedContent.quality_score >= 7
-            ).limit(50).all()
-            
-            for content in all_content:
-                score = self._calculate_task_relevance(content, task)
-                
-                if score > 0.3:
-                    recommendations.append({
-                        'id': content.id,
-                        'title': content.title,
-                        'content': content.extracted_text[:500],
-                        'similarity_score': score,
-                        'quality_score': content.quality_score,
-                        'user_id': content.user_id,
-                        'reason': f"Relevant to task: {task.title}"
-                    })
-            
-            # Sort by score and take top 10
-            recommendations.sort(key=lambda x: x['similarity_score'], reverse=True)
-            return recommendations[:10]
-            
-        except Exception as e:
-            logger.error(f"Error generating task recommendations: {e}")
-            return []
+    try:
+        from sentence_transformers import SentenceTransformer
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Embedding model initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing embedding model: {e}")
+        embedding_model = None
     
-    def _calculate_task_relevance(self, content, task):
-        """Calculate relevance score for task"""
-        try:
-            score = 0.0
-            
-            # Base score from quality
-            score += content.quality_score / 10.0
-            
-            # Task-content similarity analysis using cached analysis
-            content_analysis = self._get_cached_analysis(content.id)
-            if content_analysis:
-                # Compare technologies
-                content_techs = set(content_analysis.get('technology_tags', []))
-                task_techs = set(task.tags.split(',') if task.tags else [])
-                
-                if content_techs and task_techs:
-                    overlap = len(content_techs.intersection(task_techs))
-                    score += (overlap / len(task_techs)) * 0.4
-                
-                # Compare key concepts
-                content_concepts = set(content_analysis.get('key_concepts', []))
-                task_concepts = set([task.title.lower(), task.description.lower()] if task.description else [task.title.lower()])
-                
-                if content_concepts and task_concepts:
-                    overlap = len(content_concepts.intersection(task_concepts))
-                    score += (overlap / len(task_concepts)) * 0.3
-            else:
-                # Fallback to basic scoring without analysis
-                score += 0.1
-            
-            return min(score, 1.0)
-            
-        except Exception as e:
-            logger.error(f"Error calculating task relevance: {e}")
-            return 0.0
-    
-    def _get_cached_analysis(self, content_id):
-        """Get cached analysis for a content item"""
-        try:
-            # Try Redis first
-            cache_key = f"content_analysis:{content_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            
-            if cached_result:
-                return cached_result
-            
-            # Try database
-            analysis = ContentAnalysis.query.filter_by(content_id=content_id).first()
-            if analysis:
-                # Cache in Redis for future use
-                redis_cache.set_cache(cache_key, analysis.analysis_data, ttl=86400)
-                return analysis.analysis_data
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting cached analysis for content {content_id}: {e}")
-            return None
+    try:
+        from gemini_utils import GeminiAnalyzer
+        from rate_limit_handler import GeminiRateLimiter
+        gemini_analyzer = GeminiAnalyzer()
+        rate_limiter = GeminiRateLimiter()
+        logger.info("Gemini components initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing Gemini components: {e}")
+        gemini_analyzer = None
+        rate_limiter = None
 
-class UnifiedRecommendationEngine:
-    def __init__(self):
-        self.smart_engine = SmartRecommendationEngine()
-        self.task_engine = SmartTaskRecommendationEngine()
-        self.cache_duration = 3600
-        
-    def get_unified_recommendations(self, user_id, user_input=None, use_cache=True):
-        """Get unified recommendations combining multiple approaches"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"unified_recommendations:{user_id}:{hash(str(user_input))}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        try:
-            # Get recommendations from different engines
-            smart_recs = self.smart_engine.get_recommendations(user_id, user_input, use_cache=False)
-            general_recs = self._get_general_recommendations(user_id, use_cache=False)
-            
-            # Combine and deduplicate
-            all_recommendations = []
-            seen_ids = set()
-            
-            # Add smart recommendations first
-            for rec in smart_recs.get('recommendations', []):
-                if rec['id'] not in seen_ids:
-                    all_recommendations.append(rec)
-                    seen_ids.add(rec['id'])
-            
-            # Add general recommendations
-            for rec in general_recs.get('recommendations', []):
-                if rec['id'] not in seen_ids:
-                    all_recommendations.append(rec)
-                    seen_ids.add(rec['id'])
-            
-            # Sort by score and take top 10
-            all_recommendations.sort(key=lambda x: x['similarity_score'], reverse=True)
-            final_recommendations = all_recommendations[:10]
-            
-            computation_time = (time.time() - start_time) * 1000
-            
-            result = {
-                'recommendations': final_recommendations,
-                'cached': False,
-                'computation_time_ms': computation_time,
-                'total_candidates': len(all_recommendations)
-            }
-            
-            # Cache the result
-            if use_cache:
-                redis_cache.set_cache(cache_key, result, self.cache_duration)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting unified recommendations: {e}")
-            return {'recommendations': [], 'error': str(e)}
+def init_engines():
+    """Initialize recommendation engines with lazy loading"""
+    global UNIFIED_ORCHESTRATOR_AVAILABLE, UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE
+    global PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE, ENHANCED_MODULES_AVAILABLE
+    global unified_engine_instance
     
-    def get_unified_project_recommendations(self, user_id, project_id, use_cache=True):
-        """Get unified recommendations for a specific project"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"unified_project_recommendations:{user_id}:{project_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        try:
-            # Get project details
-            project = Project.query.get(project_id)
-            if not project:
-                return {'recommendations': [], 'error': 'Project not found'}
-            
-            # Get project-specific recommendations
-            recommendations = self._get_project_recommendations(project, user_id)
-            
-            computation_time = (time.time() - start_time) * 1000
-            
-            result = {
-                'recommendations': recommendations,
-                'project_id': project_id,
-                'project_title': project.title,
-                'cached': False,
-                'computation_time_ms': computation_time
-            }
-            
-            # Cache the result
-            if use_cache:
-                redis_cache.set_cache(cache_key, result, self.cache_duration)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting unified project recommendations: {e}")
-            return {'recommendations': [], 'error': str(e)}
-    
-    def _get_general_recommendations(self, user_id, use_cache=True):
-        """Get general recommendations based on quality and diversity"""
-        try:
-            # Get high-quality content with diversity
-            all_content = db.session.execute(text("""
-                WITH content_categories AS (
-                    SELECT 
-                        id,
-                        extracted_text,
-                        quality_score,
-                        user_id,
-                        CASE 
-                            WHEN LOWER(title) LIKE '%tutorial%' OR LOWER(title) LIKE '%guide%' OR LOWER(title) LIKE '%learn%' THEN 'tutorials'
-                            WHEN LOWER(title) LIKE '%docs%' OR LOWER(title) LIKE '%documentation%' OR LOWER(title) LIKE '%api%' THEN 'documentation'
-                            WHEN LOWER(title) LIKE '%project%' OR LOWER(title) LIKE '%github%' OR LOWER(title) LIKE '%repo%' THEN 'projects'
-                            WHEN LOWER(title) LIKE '%leetcode%' THEN 'leetcode'
-                            WHEN LOWER(title) LIKE '%interview%' OR LOWER(title) LIKE '%question%' THEN 'interviews'
-                            ELSE 'other'
-                        END as category
-                    FROM saved_content 
-                    WHERE quality_score >= 7
-                    AND title NOT LIKE '%Test Bookmark%'
-                    AND title NOT LIKE '%test bookmark%'
-                ),
-                ranked_content AS (
-                    SELECT 
-                        *,
-                        ROW_NUMBER() OVER (PARTITION BY category ORDER BY quality_score DESC, RANDOM()) as rank_in_category
-                    FROM content_categories
-                )
-                SELECT id, extracted_text, quality_score, user_id
-                FROM ranked_content 
-                WHERE rank_in_category <= 2
-                ORDER BY RANDOM()
-                LIMIT 15
-            """), {'user_id': user_id}).fetchall()
-            
-            recommendations = []
-            for content in all_content:
-                # Get the actual title from the database
-                content_obj = SavedContent.query.get(content[0])
-                title = content_obj.title if content_obj else "No title available"
-                
-                recommendations.append({
-                    'id': content[0],
-                    'title': title,
-                    'content': content[1],
-                    'similarity_score': content[2] / 10.0,
-                    'quality_score': content[2],
-                    'user_id': content[3],
-                    'reason': 'High-quality content from your saved bookmarks'
-                })
-            
-            return {
-                'recommendations': recommendations[:10],
-                'cached': False,
-                'computation_time_ms': 0,
-                'total_candidates': len(all_content)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting general recommendations: {e}")
-            return {'recommendations': []}
-    
-    def _get_project_recommendations(self, project, user_id):
-        """Get recommendations for a specific project"""
-        try:
-            # Extract project technologies and interests from project description
-            project_techs = []
-            project_interests = []
-            
-            # Extract technologies from project description and tags
-            project_text = f"{project.title} {project.description or ''} {project.technologies or ''}"
-            project_text = project_text.lower()
-            
-            # Enhanced technology keywords with better matching
-            tech_keywords = {
-                'java': ['java', 'jvm', 'spring', 'maven', 'gradle', 'bytecode', 'asm', 'byte buddy', 'javac', 'jdk', 'jre'],
-                'javascript': ['javascript', 'js', 'es6', 'es7', 'node', 'nodejs', 'node.js', 'react', 'reactjs', 'react.js', 'vue', 'vuejs', 'angular', 'ecmascript'],
-                'python': ['python', 'django', 'flask', 'fastapi', 'pandas', 'numpy', 'scipy'],
-                'react': ['react', 'reactjs', 'react.js', 'react native', 'rn', 'jsx'],
-                'react_native': ['react native', 'rn', 'expo', 'metro'],
-                'mobile': ['mobile', 'ios', 'android', 'app', 'application', 'native', 'hybrid'],
-                'web': ['web', 'html', 'css', 'frontend', 'backend', 'api', 'rest', 'graphql'],
-                'database': ['database', 'sql', 'nosql', 'mongodb', 'postgresql', 'mysql', 'redis'],
-                'ai_ml': ['ai', 'machine learning', 'ml', 'tensorflow', 'pytorch', 'neural', 'model'],
-                'devops': ['devops', 'docker', 'kubernetes', 'ci/cd', 'deployment', 'aws', 'cloud'],
-                'blockchain': ['blockchain', 'crypto', 'ethereum', 'bitcoin', 'smart contract', 'web3'],
-                'payment': ['payment', 'stripe', 'paypal', 'upi', 'gateway', 'transaction'],
-                'authentication': ['auth', 'authentication', 'oauth', 'jwt', 'login', 'signup'],
-                'instrumentation': ['instrumentation', 'byte buddy', 'asm', 'bytecode', 'jvm'],
-                'dsa': ['data structure', 'algorithm', 'dsa', 'sorting', 'searching', 'tree', 'graph']
-            }
-            
-            # Extract technologies from project text using enhanced matching
-            for tech_category, tech_list in tech_keywords.items():
-                for tech in tech_list:
-                    if tech in project_text:
-                        project_techs.append(tech_category)
-                        break  # Only add each category once
-            
-            # Enhanced domain interests
-            domain_keywords = {
-                'web development': ['web development', 'frontend', 'backend', 'full stack'],
-                'mobile development': ['mobile development', 'mobile app', 'ios', 'android'],
-                'data science': ['data science', 'data analysis', 'statistics'],
-                'machine learning': ['machine learning', 'ai', 'artificial intelligence', 'neural networks'],
-                'backend development': ['backend development', 'server', 'api', 'database'],
-                'frontend development': ['frontend development', 'ui', 'ux', 'user interface'],
-                'data structures': ['data structures', 'algorithms', 'dsa', 'computer science'],
-                'visualization': ['visualization', 'visual', 'chart', 'graph', 'plot'],
-                'tutorial': ['tutorial', 'guide', 'learn', 'learning', 'course'],
-                'documentation': ['documentation', 'docs', 'reference', 'manual'],
-                'testing': ['testing', 'test', 'unit test', 'integration test'],
-                'deployment': ['deployment', 'deploy', 'production', 'hosting'],
-                'security': ['security', 'secure', 'authentication', 'authorization'],
-                'performance': ['performance', 'optimization', 'speed', 'efficiency']
-            }
-            
-            for domain_category, domain_list in domain_keywords.items():
-                for domain in domain_list:
-                    if domain in project_text:
-                        project_interests.append(domain_category)
-                        break  # Only add each category once
-            
-            # Debug logging
-            logger.info(f"Project: {project.title}")
-            logger.info(f"Project technologies: {project_techs}")
-            logger.info(f"Project interests: {project_interests}")
-            
-            # Get content with relevance scoring
-            all_content = SavedContent.query.filter(
-                SavedContent.quality_score >= 7,
-                SavedContent.title.notlike('%Test Bookmark%'),
-                SavedContent.title.notlike('%test bookmark%')
-            ).limit(100).all()  # Increased limit for better selection
-            
-            scored_content = []
-            for content in all_content:
-                score = self._calculate_project_relevance(content, project_techs, project_interests, project)
-                if score > 0.1:  # Lowered threshold to get more candidates
-                    scored_content.append((content, score))
-            
-            # Sort by score and take top recommendations
-            scored_content.sort(key=lambda x: x[1], reverse=True)
-            
-            recommendations = []
-            for content, score in scored_content[:10]:
-                recommendations.append({
-                    'id': content.id,
-                    'title': content.title,
-                    'content': content.extracted_text[:500] if content.extracted_text else '',
-                    'similarity_score': score,
-                    'quality_score': content.quality_score,
-                    'user_id': content.user_id,
-                    'reason': self._generate_project_reason(content, project, score)
-                })
-            
-            return recommendations
-            
-        except Exception as e:
-            logger.error(f"Error getting project recommendations: {e}")
-            return []
-    
-    def _calculate_project_relevance(self, content, project_techs, project_interests, project):
-        """Calculate relevance score for content based on project requirements"""
-        try:
-            score = 0.0
-            
-            # Base score from quality (reduced weight)
-            score += (content.quality_score / 10.0) * 0.2
-            
-            # Get cached analysis for content
-            cached_analysis = self._get_cached_analysis(content.id)
-            
-            if cached_analysis:
-                # Technology matching with cached analysis
-                content_techs = set(cached_analysis.get('technology_tags', []))
-                if content_techs and project_techs:
-                    overlap = len(content_techs.intersection(set(project_techs)))
-                    if overlap > 0:
-                        score += (overlap / len(project_techs)) * 0.4
-                
-                # Concept matching with cached analysis
-                content_concepts = set(cached_analysis.get('key_concepts', []))
-                if content_concepts and project_interests:
-                    overlap = len(content_concepts.intersection(set(project_interests)))
-                    if overlap > 0:
-                        score += (overlap / len(project_interests)) * 0.3
-            else:
-                # Enhanced fallback: better text matching
-                content_text = f"{content.title} {content.notes or ''} {content.tags or ''} {content.extracted_text or ''}".lower()
-                
-                # Technology matching with enhanced keywords
-                tech_match_count = 0
-                for tech in project_techs:
-                    # Check for exact matches and variations
-                    if tech in content_text:
-                        tech_match_count += 1
-                    elif tech == 'java' and ('jvm' in content_text or 'bytecode' in content_text):
-                        tech_match_count += 1
-                    elif tech == 'dsa' and ('data structure' in content_text or 'algorithm' in content_text):
-                        tech_match_count += 1
-                    elif tech == 'instrumentation' and ('byte buddy' in content_text or 'asm' in content_text):
-                        tech_match_count += 1
-                
-                if tech_match_count > 0:
-                    score += (tech_match_count / len(project_techs)) * 0.3
-                
-                # Domain matching
-                domain_match_count = 0
-                for domain in project_interests:
-                    if domain in content_text:
-                        domain_match_count += 1
-                
-                if domain_match_count > 0:
-                    score += (domain_match_count / len(project_interests)) * 0.2
-            
-            # Title relevance bonus (increased weight)
-            content_title_lower = content.title.lower()
-            project_title_lower = project.title.lower()
-            
-            # Check for exact matches or strong relevance
-            project_words = project_title_lower.split()
-            title_matches = sum(1 for word in project_words if word in content_title_lower)
-            if title_matches > 0:
-                score += (title_matches / len(project_words)) * 0.3
-            
-            # Check for domain-specific keywords in title
-            domain_keywords = ['tutorial', 'guide', 'documentation', 'example', 'implementation', 'visualization']
-            if any(keyword in content_title_lower for keyword in domain_keywords):
-                score += 0.1
-            
-            # Special bonus for DSA-related content
-            if 'dsa' in project_techs or 'data structures' in project_interests:
-                dsa_keywords = ['data structure', 'algorithm', 'dsa', 'sorting', 'searching', 'tree', 'graph', 'visualization']
-                if any(keyword in content_title_lower for keyword in dsa_keywords):
-                    score += 0.2
-            
-            # Special bonus for Java-related content
-            if 'java' in project_techs:
-                java_keywords = ['java', 'jvm', 'bytecode', 'byte buddy', 'instrumentation']
-                if any(keyword in content_title_lower for keyword in java_keywords):
-                    score += 0.2
-            
-            # Penalty for JavaScript content when project is Java-specific
-            if 'java' in project_techs and ('javascript' in content_title_lower or 'js ' in content_title_lower or 'node' in content_title_lower):
-                score -= 0.3  # Significant penalty for wrong language
-            
-            return min(score, 1.0)
-            
-        except Exception as e:
-            logger.error(f"Error calculating project relevance: {e}")
-            return 0.0
-    
-    def _generate_project_reason(self, content, project, score):
-        """Generate reason for project recommendation"""
-        try:
-            # Use cached analysis if available
-            cached_analysis = self._get_cached_analysis(content.id)
-            if cached_analysis and 'summary' in cached_analysis:
-                return f"Relevant to {project.title}: {cached_analysis['summary']}"
-            
-            # Generate specific reason based on content analysis
-            content_title_lower = content.title.lower()
-            project_title_lower = project.title.lower()
-            
-            # Check for specific technology matches
-            if 'java' in content_title_lower or 'jvm' in content_title_lower:
-                return f"Java-related content for {project.title} development"
-            elif 'javascript' in content_title_lower or 'js ' in content_title_lower:
-                return f"JavaScript content (different from Java) - may not be relevant for {project.title}"
-            elif 'data structure' in content_title_lower or 'algorithm' in content_title_lower:
-                return f"DSA content relevant to {project.title} visualization"
-            elif 'bytecode' in content_title_lower or 'instrumentation' in content_title_lower:
-                return f"Bytecode/instrumentation content for {project.title} implementation"
-            elif 'visualization' in content_title_lower or 'visual' in content_title_lower:
-                return f"Visualization content perfect for {project.title}"
-            elif 'tutorial' in content_title_lower or 'guide' in content_title_lower:
-                return f"Tutorial content to help with {project.title} development"
-            elif 'documentation' in content_title_lower or 'docs' in content_title_lower:
-                return f"Documentation useful for {project.title} implementation"
-            
-            # Check for project title matches
-            project_words = project_title_lower.split()
-            title_matches = [word for word in project_words if word in content_title_lower]
-            if title_matches:
-                return f"Content directly related to {', '.join(title_matches)} for {project.title}"
-            
-            # Fallback reason based on score
-            if score > 0.7:
-                return f"Highly relevant content for {project.title} requirements"
-            elif score > 0.5:
-                return f"Good match for {project.title} development"
-            elif score > 0.3:
-                return f"Useful content for {project.title} project"
-            else:
-                return f"Quality content that may help with {project.title}"
-            
-        except Exception as e:
-            logger.error(f"Error generating project reason: {e}")
-            return f"Recommended for {project.title}"
-    
-    def _get_cached_analysis(self, content_id):
-        """Get cached analysis for a content item"""
-        try:
-            # Try Redis first
-            cache_key = f"content_analysis:{content_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            
-            if cached_result:
-                return cached_result
-            
-            # Try database
-            analysis = ContentAnalysis.query.filter_by(content_id=content_id).first()
-            if analysis:
-                # Cache in Redis for future use
-                redis_cache.set_cache(cache_key, analysis.analysis_data, ttl=86400)
-                return analysis.analysis_data
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting cached analysis for content {content_id}: {e}")
-            return None
+    # Import unified orchestrator
+    try:
+        from unified_recommendation_orchestrator import get_unified_orchestrator, UnifiedRecommendationRequest
+        from gemini_integration_layer import get_gemini_integration
+        UNIFIED_ORCHESTRATOR_AVAILABLE = True
+        logger.info("Unified orchestrator initialized successfully")
+    except ImportError as e:
+        logger.warning(f"Unified orchestrator not available: {e}")
+        UNIFIED_ORCHESTRATOR_AVAILABLE = False
 
-class GeminiEnhancedRecommendationEngine:
-    def __init__(self):
-        self.unified_engine = UnifiedRecommendationEngine()
-        self.gemini_analyzer = gemini_analyzer
-        self.rate_limiter = rate_limiter
-        self.cache_duration = 1800  # 30 minutes
-        self.max_recommendations = 10
-        self.cache_hits = 0
-        self.cache_misses = 0
-        self.api_calls = 0
-        self.batch_operations = 0
-        self.gemini_available = gemini_analyzer is not None and rate_limiter is not None
-        
-    def get_gemini_enhanced_recommendations(self, user_id, user_input=None, use_cache=True):
-        """Get Gemini-enhanced recommendations"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"gemini_enhanced_recommendations:{user_id}:{hash(str(user_input))}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        try:
-            # Get base recommendations
-            base_result = self.unified_engine.get_unified_recommendations(user_id, user_input, use_cache=False)
-            recommendations = base_result.get('recommendations', [])
-            
-            # Enhance with Gemini analysis
-            enhanced_recommendations = self._enhance_with_gemini(recommendations, user_input)
-            
-            computation_time = (time.time() - start_time) * 1000
-            
-            result = {
-                'recommendations': enhanced_recommendations,
-                'cached': False,
-                'computation_time_ms': computation_time,
-                'total_candidates': len(recommendations)
-            }
-            
-            # Cache the result
-            if use_cache:
-                redis_cache.set_cache(cache_key, result, self.cache_duration)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting Gemini-enhanced recommendations: {e}")
-            # Fallback to base recommendations
-            return self.unified_engine.get_unified_recommendations(user_id, user_input, use_cache)
-    
-    def get_gemini_enhanced_project_recommendations(self, user_id, project_id, use_cache=True):
-        """Get Gemini-enhanced project recommendations"""
-        start_time = time.time()
-        
-        # Check cache first
-        if use_cache:
-            cache_key = f"gemini_enhanced_project_recommendations:{user_id}:{project_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            if cached_result is not None:
-                cached_result['cached'] = True
-                cached_result['computation_time_ms'] = 0
-                return cached_result
-        
-        try:
-            # Get base project recommendations
-            base_result = self.unified_engine.get_unified_project_recommendations(user_id, project_id, use_cache=False)
-            recommendations = base_result.get('recommendations', [])
-            
-            # Enhance with Gemini analysis
-            enhanced_recommendations = self._enhance_with_gemini(recommendations, None, project_id)
-            
-            computation_time = (time.time() - start_time) * 1000
-            
-            result = {
-                'recommendations': enhanced_recommendations,
-                'project_id': project_id,
-                'cached': False,
-                'computation_time_ms': computation_time
-            }
-            
-            # Cache the result
-            if use_cache:
-                redis_cache.set_cache(cache_key, result, self.cache_duration)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error getting Gemini-enhanced project recommendations: {e}")
-            # Fallback to base project recommendations
-            return self.unified_engine.get_unified_project_recommendations(user_id, project_id, use_cache)
-    
-    def _enhance_with_gemini(self, recommendations, user_input=None, project_id=None):
-        """Enhance recommendations with Gemini analysis using cached results when possible"""
-        if not self.gemini_available or not recommendations:
-            return recommendations
-        
-        try:
-            # Check rate limits
-            if not self.rate_limiter.get_status().get('can_make_request', True):
-                logger.warning("Gemini rate limit reached, using cached analysis")
-                return self._enhance_with_cached_analysis(recommendations, user_input, project_id)
-            
-            # Take top candidates for enhancement (limit to avoid API costs)
-            top_candidates = recommendations[:5]
-            
-            # Check for cached analysis first
-            candidates_with_cache = []
-            candidates_without_cache = []
-            
-            for candidate in top_candidates:
-                cached_analysis = self._get_cached_analysis(candidate['id'])
-                if cached_analysis:
-                    candidates_with_cache.append((candidate, cached_analysis))
-                else:
-                    candidates_without_cache.append(candidate)
-            
-            # Use cached analysis for candidates that have it
-            enhanced_from_cache = self._apply_cached_analysis(candidates_with_cache, user_input)
-            
-            # Use batch processing for candidates without cache
-            enhanced_from_api = []
-            if candidates_without_cache:
-                enhanced_from_api = self._batch_gemini_enhancement(candidates_without_cache, user_input)
-            
-            # Combine all enhanced recommendations
-            final_recommendations = enhanced_from_cache + enhanced_from_api + recommendations[5:]
-            
-            return final_recommendations[:self.max_recommendations]
-            
-        except Exception as e:
-            logger.error(f"Error in batch Gemini enhancement: {e}")
-            return self._enhance_with_cached_analysis(recommendations, user_input, project_id)
-    
-    def _batch_gemini_enhancement(self, candidates, user_input=None):
-        """Process multiple candidates in a single Gemini API call"""
-        if not candidates:
-            return []
-        
-        try:
-            # Create batch prompt
-            batch_prompt = self._create_batch_prompt(candidates, user_input)
-            
-            # Make single API call for all candidates
-            if self.rate_limiter.get_status().get('can_make_request', True):
-                self.api_calls += 1
-                self.batch_operations += 1
-                
-                batch_response = self.gemini_analyzer.analyze_batch_content(batch_prompt)
-                
-                if batch_response:
-                    return self._extract_batch_insights(candidates, batch_response)
-            
-            return candidates
-            
-        except Exception as e:
-            logger.error(f"Error in batch enhancement: {e}")
-            return candidates
-    
-    def _get_cached_analysis(self, content_id):
-        """Get cached analysis for a content item"""
-        try:
-            # Try Redis first
-            cache_key = f"content_analysis:{content_id}"
-            cached_result = redis_cache.get_cache(cache_key)
-            
-            if cached_result:
-                return cached_result
-            
-            # Try database
-            analysis = ContentAnalysis.query.filter_by(content_id=content_id).first()
-            if analysis:
-                # Cache in Redis for future use
-                redis_cache.set_cache(cache_key, analysis.analysis_data, ttl=86400)
-                return analysis.analysis_data
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting cached analysis for content {content_id}: {e}")
-            return None
-    
-    def _enhance_with_cached_analysis(self, recommendations, user_input=None, project_id=None):
-        """Enhance recommendations using only cached analysis"""
-        if not recommendations:
-            return recommendations
-        
-        enhanced_recommendations = []
-        
-        for candidate in recommendations[:5]:  # Limit to top 5
-            cached_analysis = self._get_cached_analysis(candidate['id'])
-            if cached_analysis:
-                enhanced_candidate = candidate.copy()
-                enhanced_candidate['reason'] = self._generate_reason_from_cache(cached_analysis, user_input)
-                enhanced_candidate['cached_analysis'] = True
-                enhanced_recommendations.append(enhanced_candidate)
-            else:
-                # Apply dynamic reason for candidates without cache
-                enhanced_candidate = self._apply_dynamic_reason(candidate)
-                enhanced_candidate['cached_analysis'] = False
-                enhanced_recommendations.append(enhanced_candidate)
-        
-        # Add remaining recommendations with dynamic reasons
-        for candidate in recommendations[5:]:
-            enhanced_candidate = self._apply_dynamic_reason(candidate)
-            enhanced_candidate['cached_analysis'] = False
-            enhanced_recommendations.append(enhanced_candidate)
-        
-        return enhanced_recommendations
-    
-    def _apply_cached_analysis(self, candidates_with_cache, user_input=None):
-        """Apply cached analysis to candidates"""
-        enhanced_candidates = []
-        
-        for candidate, cached_analysis in candidates_with_cache:
-            enhanced_candidate = candidate.copy()
-            enhanced_candidate['reason'] = self._generate_reason_from_cache(cached_analysis, user_input)
-            enhanced_candidate['cached_analysis'] = True
-            enhanced_candidates.append(enhanced_candidate)
-        
-        return enhanced_candidates
-    
-    def _generate_reason_from_cache(self, cached_analysis, user_input=None):
-        """Generate recommendation reason from cached analysis"""
-        try:
-            if not cached_analysis:
-                return "Content analysis available"
-            
-            # Extract key information from cached analysis
-            key_concepts = cached_analysis.get('key_concepts', [])
-            content_type = cached_analysis.get('content_type', 'content')
-            difficulty_level = cached_analysis.get('difficulty_level', 'intermediate')
-            technology_tags = cached_analysis.get('technology_tags', [])
-            
-            # Build reason from cached data
-            reason_parts = []
-            
-            if content_type and content_type != 'unknown':
-                reason_parts.append(f"Excellent {content_type}")
-            
-            if difficulty_level and difficulty_level != 'unknown':
-                reason_parts.append(f"({difficulty_level} level)")
-            
-            if technology_tags:
-                if isinstance(technology_tags, list):
-                    tech_str = ', '.join(technology_tags[:3])  # Limit to 3 technologies
-                else:
-                    tech_str = str(technology_tags)
-                reason_parts.append(f"covers {tech_str}")
-            
-            if key_concepts:
-                if isinstance(key_concepts, list):
-                    concept_str = ', '.join(key_concepts[:2])  # Limit to 2 concepts
-                else:
-                    concept_str = str(key_concepts)
-                reason_parts.append(f"focusing on {concept_str}")
-            
-            if user_input:
-                reason_parts.append(f"relevant to your interest in {user_input}")
-            
-            if reason_parts:
-                return ' '.join(reason_parts)
-            else:
-                return "Based on cached content analysis"
-                
-        except Exception as e:
-            logger.error(f"Error generating reason from cache: {e}")
-            return "Content analysis available"
-    
-    def _create_batch_prompt(self, candidates, user_input=None):
-        """Create a batch prompt for multiple candidates"""
-        prompt_parts = [
-            "Analyze the following content items and provide insights for each in a structured JSON format.",
-            "",
-            "For each item, provide this exact JSON structure:",
-            "{",
-            '  "item_1": {',
-            '    "key_benefit": "Brief, specific reason why this content is valuable",',
-            '    "technologies": ["tech1", "tech2"],',
-            '    "difficulty": "beginner|intermediate|advanced",',
-            '    "relevance_score": 0.85',
-            '  },',
-            '  "item_2": {',
-            '    "key_benefit": "Brief, specific reason why this content is valuable",',
-            '    "technologies": ["tech1", "tech2"],',
-            '    "difficulty": "beginner|intermediate|advanced",',
-            '    "relevance_score": 0.75',
-            '  }',
-            "}",
-            "",
-            "Content items to analyze:"
-        ]
-        
-        for i, candidate in enumerate(candidates, 1):
-            content_preview = candidate.get('content', '')[:300]
-            prompt_parts.append(f"Item {i}:")
-            prompt_parts.append(f"Title: {candidate.get('title', 'N/A')}")
-            prompt_parts.append(f"Content: {content_preview}")
-            prompt_parts.append("")
-        
-        if user_input:
-            prompt_parts.append(f"User context: {user_input}")
-        
-        prompt_parts.append("Provide ONLY the JSON response, no additional text.")
-        
-        return "\n".join(prompt_parts)
-    
-    def _extract_batch_insights(self, candidates, batch_response):
-        """Extract insights from batch response and apply to candidates"""
-        enhanced_candidates = []
-        
-        try:
-            # Parse batch response
-            if isinstance(batch_response, str):
-                # Try to extract JSON from response
-                import re
-                json_match = re.search(r'\{.*\}', batch_response, re.DOTALL)
-                if json_match:
-                    try:
-                        batch_analysis = json.loads(json_match.group())
-                    except json.JSONDecodeError:
-                        logger.warning("Failed to parse JSON from batch response, using fallback")
-                        batch_analysis = {}
-                else:
-                    batch_analysis = {}
-            else:
-                batch_analysis = batch_response
-            
-            # Apply insights to each candidate
-            for i, candidate in enumerate(candidates):
-                enhanced_candidate = candidate.copy()
-                
-                # Get analysis for this candidate - try different key formats
-                item_key = f"item_{i+1}"
-                candidate_analysis = (
-                    batch_analysis.get(item_key, {}) or 
-                    batch_analysis.get(str(i+1), {}) or
-                    batch_analysis.get(f"item{i+1}", {}) or
-                    {}
-                )
-                
-                if candidate_analysis:
-                    # Update reason with Gemini insights
-                    if candidate_analysis.get('key_benefit'):
-                        enhanced_candidate['reason'] = candidate_analysis['key_benefit']
-                    else:
-                        # Generate dynamic reason as fallback
-                        enhanced_candidate['reason'] = self._generate_dynamic_reason(candidate)
-                    
-                    # Add additional insights
-                    if candidate_analysis.get('technologies'):
-                        enhanced_candidate['technologies'] = candidate_analysis['technologies']
-                    
-                    if candidate_analysis.get('difficulty'):
-                        enhanced_candidate['difficulty'] = candidate_analysis['difficulty']
-                    
-                    if candidate_analysis.get('relevance_score'):
-                        enhanced_candidate['similarity_score'] = float(candidate_analysis['relevance_score'])
-                else:
-                    # Fallback to dynamic reason
-                    enhanced_candidate['reason'] = self._generate_dynamic_reason(candidate)
-                
-                enhanced_candidates.append(enhanced_candidate)
-            
-            return enhanced_candidates
-            
-        except Exception as e:
-            logger.error(f"Error extracting batch insights: {e}")
-            # Fallback: apply dynamic reasons to all candidates
-            return [self._apply_dynamic_reason(candidate) for candidate in candidates]
-    
-    def _generate_dynamic_reason(self, candidate):
-        """Generate a dynamic reason based on content analysis"""
-        try:
-            title = candidate.get('title', '').lower()
-            content = candidate.get('content', '').lower()
-            
-            # Extract technologies from title/content
-            tech_keywords = ['python', 'javascript', 'java', 'react', 'node', 'sql', 'docker', 'aws', 'git', 'html', 'css', 'typescript', 'vue', 'angular', 'mongodb', 'postgresql', 'redis', 'kubernetes', 'terraform', 'jenkins', 'github', 'gitlab']
-            found_techs = [tech for tech in tech_keywords if tech in title or tech in content]
-            
-            # Determine content type
-            if any(word in title for word in ['tutorial', 'guide', 'learn', 'getting started']):
-                content_type = 'tutorial'
-            elif any(word in title for word in ['docs', 'documentation', 'api', 'reference']):
-                content_type = 'documentation'
-            elif any(word in title for word in ['project', 'github', 'repo', 'repository']):
-                content_type = 'project'
-            elif any(word in title for word in ['leetcode', 'interview', 'question', 'problem']):
-                content_type = 'practice'
-            elif any(word in title for word in ['best practice', 'pattern', 'architecture']):
-                content_type = 'best practice'
-            else:
-                content_type = 'resource'
-            
-            # Build dynamic reason
-            if found_techs:
-                tech_part = f"Content about {', '.join(found_techs[:2])}"
-            else:
-                tech_part = "High-quality technical content"
-            
-            type_part = f" ({content_type})" if content_type != 'resource' else ""
-            
-            # Add quality indicator
-            quality_score = candidate.get('quality_score', 7)
-            if quality_score >= 9:
-                quality_part = " - Excellent quality"
-            elif quality_score >= 7:
-                quality_part = " - High quality"
-            else:
-                quality_part = ""
-            
-            return f"{tech_part}{type_part}{quality_part}"
-            
-        except Exception as e:
-            logger.error(f"Error generating dynamic reason: {e}")
-            return "High-quality content from your saved bookmarks"
-    
-    def _apply_dynamic_reason(self, candidate):
-        """Apply dynamic reason to a candidate"""
-        enhanced_candidate = candidate.copy()
-        enhanced_candidate['reason'] = self._generate_dynamic_reason(candidate)
-        return enhanced_candidate
+    # Import enhanced modules
+    try:
+        from advanced_tech_detection import advanced_tech_detector
+        from adaptive_scoring_engine import adaptive_scoring_engine
+        ENHANCED_MODULES_AVAILABLE = True
+        logger.info("Enhanced modules initialized successfully")
+    except ImportError as e:
+        logger.warning(f"Enhanced modules not available: {e}")
+        ENHANCED_MODULES_AVAILABLE = False
 
-# Initialize engines
-smart_engine = SmartRecommendationEngine()
-task_engine = SmartTaskRecommendationEngine()
-unified_engine = UnifiedRecommendationEngine()
-gemini_enhanced_engine = GeminiEnhancedRecommendationEngine()
+    # Import standalone engines with error handling
+    try:
+        from unified_recommendation_engine import UnifiedRecommendationEngine
+        unified_engine_instance = UnifiedRecommendationEngine()
+        UNIFIED_ENGINE_AVAILABLE = True
+        logger.info("Unified recommendation engine initialized")
+    except ImportError as e:
+        logger.warning(f"Unified recommendation engine not available: {e}")
+        UNIFIED_ENGINE_AVAILABLE = False
+
+    try:
+        from enhanced_recommendation_engine import get_enhanced_recommendations, unified_engine
+        ENHANCED_ENGINE_AVAILABLE = True
+        logger.info("Enhanced recommendation engine initialized")
+    except ImportError as e:
+        logger.warning(f"Enhanced recommendation engine not available: {e}")
+        ENHANCED_ENGINE_AVAILABLE = False
+
+    try:
+        from phase3_enhanced_engine import (
+            get_enhanced_recommendations_phase3,
+            record_user_feedback_phase3,
+            get_user_learning_insights,
+            get_system_health_phase3
+        )
+        PHASE3_ENGINE_AVAILABLE = True
+        logger.info("Phase 3 enhanced engine initialized")
+    except ImportError as e:
+        logger.warning(f"Phase 3 enhanced engine not available: {e}")
+        PHASE3_ENGINE_AVAILABLE = False
+
+    # Check if SmartRecommendationEngine can be imported (but don't instantiate)
+    try:
+        from smart_recommendation_engine import SmartRecommendationEngine
+        SMART_ENGINE_AVAILABLE = True
+        logger.info("Smart recommendation engine import successful")
+    except ImportError as e:
+        logger.warning(f"Smart recommendation engine not available: {e}")
+        SMART_ENGINE_AVAILABLE = False
+
+    # Check if FastGeminiEngine can be imported (but don't instantiate)
+    try:
+        # Try the correct class name first
+        from fast_gemini_engine import AdvancedGeminiEngine as FastGeminiEngine
+        FAST_GEMINI_AVAILABLE = True
+        logger.info("Fast Gemini engine import successful (AdvancedGeminiEngine)")
+    except ImportError:
+        try:
+            # Fallback to old name if it exists
+            from fast_gemini_engine import FastGeminiEngine
+            FAST_GEMINI_AVAILABLE = True
+            logger.info("Fast Gemini engine import successful (FastGeminiEngine)")
+        except ImportError as e:
+            logger.warning(f"Fast Gemini engine not available: {e}")
+            FAST_GEMINI_AVAILABLE = False
+
+# Lazy initialization functions
+def get_unified_engine():
+    """Get unified engine instance with lazy initialization"""
+    global unified_engine_instance, UNIFIED_ENGINE_AVAILABLE
+    if not UNIFIED_ENGINE_AVAILABLE:
+        try:
+            from unified_recommendation_engine import UnifiedRecommendationEngine
+            unified_engine_instance = UnifiedRecommendationEngine()
+            UNIFIED_ENGINE_AVAILABLE = True
+            logger.info("Unified engine initialized lazily")
+        except Exception as e:
+            logger.error(f"Failed to initialize unified engine: {e}")
+            return None
+    return unified_engine_instance
+
+def get_smart_engine(user_id):
+    """Get smart engine instance with lazy initialization"""
+    try:
+        from smart_recommendation_engine import SmartRecommendationEngine
+        return SmartRecommendationEngine(user_id)
+    except Exception as e:
+        logger.error(f"Failed to initialize smart engine: {e}")
+        return None
+
+def get_fast_gemini_engine(user_id):
+    """Get fast Gemini engine instance with lazy initialization"""
+    try:
+        from fast_gemini_engine import AdvancedGeminiEngine
+        return AdvancedGeminiEngine()
+    except Exception as e:
+        logger.error(f"Failed to initialize fast Gemini engine: {e}")
+        return None
 
 # Cache management functions
 def get_cached_recommendations(cache_key):
     """Get cached recommendations"""
-    return redis_cache.get_cache(cache_key)
+    try:
+        from redis_utils import redis_cache
+        return redis_cache.get_cache(cache_key)
+    except Exception as e:
+        logger.error(f"Error getting cached recommendations: {e}")
+        return None
 
 def cache_recommendations(cache_key, data, ttl=3600):
     """Cache recommendations"""
-    return redis_cache.set_cache(cache_key, data, ttl)
+    try:
+        from redis_utils import redis_cache
+        return redis_cache.set_cache(cache_key, data, ttl)
+    except Exception as e:
+        logger.error(f"Error caching recommendations: {e}")
+        return False
 
 def invalidate_user_recommendations(user_id):
     """Invalidate all cached recommendations for a user"""
     try:
-        # Get all keys for this user
-        pattern = f"*:{user_id}:*"
-        keys = redis_cache.redis_client.keys(pattern)
-        
-        if keys:
-            redis_cache.redis_client.delete(*keys)
-            logger.info(f"Invalidated {len(keys)} cached recommendations for user {user_id}")
-        
-        return True
+        from cache_invalidation_service import cache_invalidator
+        return cache_invalidator.invalidate_recommendation_cache(user_id)
     except Exception as e:
         logger.error(f"Error invalidating user recommendations: {e}")
         return False
 
-# API Routes
-@recommendations_bp.route('/general', methods=['GET'])
+# ============================================================================
+# API ROUTES - Using Unified Orchestrator
+# ============================================================================
+
+@recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
-def get_general_recommendations():
-    """Get general recommendations"""
+def get_unified_orchestrator_recommendations():
+    """Get recommendations using the unified orchestrator (Primary endpoint)"""
     try:
         user_id = get_jwt_identity()
-        user_input = request.args.to_dict()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
         
-        result = unified_engine.get_unified_recommendations(user_id, user_input)
+        if not UNIFIED_ORCHESTRATOR_AVAILABLE:
+            return jsonify({'error': 'Unified orchestrator not available'}), 500
+        
+        # Import required classes
+        from unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        
+        # Create unified request
+        unified_request = UnifiedRecommendationRequest(
+            user_id=user_id,
+            title=data.get('title', ''),
+            description=data.get('description', ''),
+            technologies=data.get('technologies', ''),
+            user_interests=data.get('user_interests', ''),
+            project_id=data.get('project_id'),
+            max_recommendations=data.get('max_recommendations', 10),
+            engine_preference=data.get('engine_preference', 'auto'),
+            diversity_weight=data.get('diversity_weight', 0.3),
+            quality_threshold=data.get('quality_threshold', 6),
+            include_global_content=data.get('include_global_content', True)
+        )
+        
+        # Get orchestrator (already imported above)
+        orchestrator = get_unified_orchestrator()
+        
+        # Get base recommendations
+        recommendations = orchestrator.get_recommendations(unified_request)
+        
+        # Enhance with Gemini if requested
+        if data.get('enhance_with_gemini', False):
+            try:
+                from gemini_integration_layer import enhance_recommendations_with_gemini
+                recommendations = enhance_recommendations_with_gemini(recommendations, unified_request, user_id)
+            except Exception as e:
+                logger.warning(f"Gemini enhancement failed: {e}")
+        
+        # Convert to dictionary format
+        result = []
+        for rec in recommendations:
+            result.append({
+                'id': rec.id,
+                'title': rec.title,
+                'url': rec.url,
+                'score': rec.score,
+                'reason': rec.reason,
+                'content_type': rec.content_type,
+                'difficulty': rec.difficulty,
+                'technologies': rec.technologies,
+                'key_concepts': rec.key_concepts,
+                'quality_score': rec.quality_score,
+                'engine_used': rec.engine_used,
+                'confidence': rec.confidence,
+                'metadata': rec.metadata,
+                'cached': rec.cached
+            })
+        
+        # Get performance metrics
+        performance_metrics = orchestrator.get_performance_metrics()
+        
+        response = {
+            'recommendations': result,
+            'total_recommendations': len(result),
+            'engine_used': 'UnifiedOrchestrator',
+            'performance_metrics': performance_metrics,
+            'request_processed': {
+                'title': unified_request.title,
+                'technologies': unified_request.technologies,
+                'engine_preference': unified_request.engine_preference,
+                'quality_threshold': unified_request.quality_threshold
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error in unified orchestrator recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# API ROUTES - Using Standalone Engines (Legacy)
+# ============================================================================
+
+@recommendations_bp.route('/unified', methods=['POST'])
+@jwt_required()
+def get_unified_recommendations():
+    """Get unified recommendations using UnifiedRecommendationEngine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        engine = get_unified_engine()
+        if not engine:
+            return jsonify({'error': 'Unified recommendation engine not available'}), 500
+        
+        # Import models here to avoid circular imports
+        from models import SavedContent
+        
+        # Extract context from request data
+        title = data.get('title', '')
+        description = data.get('description', '')
+        technologies = data.get('technologies', '')
+        user_interests = data.get('user_interests', '')
+        max_recommendations = data.get('max_recommendations', 10)
+        
+        # Create cache key based on request parameters
+        cache_key = f"unified_recommendations:{user_id}:{hash(f'{title}{description}{technologies}{user_interests}{max_recommendations}')}"
+        
+        # Check cache first
+        cached_result = get_cached_recommendations(cache_key)
+        if cached_result:
+            cached_result['cached'] = True
+            return jsonify(cached_result)
+        
+        # Get high-quality content from all users with proper ordering
+        all_content = SavedContent.query.filter(
+            SavedContent.quality_score >= 7,
+            SavedContent.extracted_text.isnot(None),
+            SavedContent.extracted_text != ''
+        ).order_by(
+            SavedContent.quality_score.desc(),
+            SavedContent.saved_at.desc()
+        ).limit(500).all()
+        
+        # Convert to the format expected by UnifiedRecommendationEngine
+        bookmarks_data = []
+        for bookmark in all_content:
+            bookmarks_data.append({
+                'id': bookmark.id,
+                'title': bookmark.title,
+                'url': bookmark.url,
+                'extracted_text': bookmark.extracted_text or '',
+                'tags': bookmark.tags or '',
+                'notes': bookmark.notes or '',
+                'quality_score': bookmark.quality_score or 7.0,
+                'created_at': bookmark.saved_at
+            })
+        
+        # Extract context using the enhanced context extraction
+        context = engine.extract_context_from_input(
+            title=title,
+            description=description,
+            technologies=technologies,
+            user_interests=user_interests
+        )
+        
+        # Get recommendations using the unified engine
+        recommendations = engine.get_recommendations(
+            bookmarks=bookmarks_data,
+            context=context,
+            max_recommendations=max_recommendations
+        )
+        
+        # Format response
+        result = {
+            'recommendations': recommendations,
+            'context_used': context,
+            'total_candidates': len(bookmarks_data),
+            'engine_used': 'UnifiedRecommendationEngine',
+            'enhanced_features_available': ENHANCED_MODULES_AVAILABLE,
+            'cached': False
+        }
+        
+        # Cache the result for 30 minutes
+        cache_recommendations(cache_key, result, ttl=1800)
         
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in general recommendations: {e}")
+        logger.error(f"Error in unified recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/unified-project/<int:project_id>', methods=['POST'])
+@jwt_required()
+def get_unified_project_recommendations(project_id):
+    """Get unified project recommendations using UnifiedRecommendationEngine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Import models here to avoid circular imports
+        from models import Project, SavedContent
+        
+        # Get project details
+        project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+        
+        engine = get_unified_engine()
+        if not engine:
+            return jsonify({'error': 'Unified recommendation engine not available'}), 500
+        
+        # Create cache key based on project and user
+        cache_key = f"unified_project_recommendations:{user_id}:{project_id}:{hash(f'{project.title}{project.description}{project.technologies}')}"
+        
+        # Check cache first
+        cached_result = get_cached_recommendations(cache_key)
+        if cached_result:
+            cached_result['cached'] = True
+            return jsonify(cached_result)
+        
+        # Get high-quality content from all users with proper ordering
+        all_content = SavedContent.query.filter(
+            SavedContent.quality_score >= 7,
+            SavedContent.extracted_text.isnot(None),
+            SavedContent.extracted_text != ''
+        ).order_by(
+            SavedContent.quality_score.desc(),
+            SavedContent.saved_at.desc()
+        ).limit(500).all()
+        
+        # Convert to the format expected by UnifiedRecommendationEngine
+        bookmarks_data = []
+        for bookmark in all_content:
+            bookmarks_data.append({
+                'id': bookmark.id,
+                'title': bookmark.title,
+                'url': bookmark.url,
+                'extracted_text': bookmark.extracted_text or '',
+                'tags': bookmark.tags or '',
+                'notes': bookmark.notes or '',
+                'quality_score': bookmark.quality_score or 7.0,
+                'created_at': bookmark.saved_at
+            })
+        
+        # Extract context using the enhanced context extraction
+        context = engine.extract_context_from_input(
+            title=project.title,
+            description=project.description or '',
+            technologies=project.technologies or '',
+            user_interests=''
+        )
+        
+        # Get recommendations using the unified engine
+        max_recommendations = data.get('max_recommendations', 10)
+        recommendations = engine.get_recommendations(
+            bookmarks=bookmarks_data,
+            context=context,
+            max_recommendations=max_recommendations
+        )
+        
+        # Format response
+        result = {
+            'recommendations': recommendations,
+            'context_used': context,
+            'project_id': project_id,
+            'project_title': project.title,
+            'total_candidates': len(bookmarks_data),
+            'engine_used': 'UnifiedRecommendationEngine',
+            'enhanced_features_available': ENHANCED_MODULES_AVAILABLE,
+            'cached': False
+        }
+        
+        # Cache the result for 30 minutes
+        cache_recommendations(cache_key, result, ttl=1800)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in unified project recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/project/<int:project_id>', methods=['GET'])
 @jwt_required()
 def get_project_recommendations(project_id):
-    """Get project-specific recommendations"""
+    """Get project-specific recommendations using UnifiedRecommendationEngine"""
     try:
         user_id = get_jwt_identity()
         
-        result = unified_engine.get_unified_project_recommendations(user_id, project_id)
+        engine = get_unified_engine()
+        if not engine:
+            return jsonify({'error': 'Unified recommendation engine not available'}), 500
+        
+        # Import models here to avoid circular imports
+        from models import Project, SavedContent
+        
+        # Get project details
+        project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+        
+        # Get user's saved content
+        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+        
+        # Convert to format expected by UnifiedRecommendationEngine
+        bookmarks_data = []
+        for bookmark in user_bookmarks:
+            bookmarks_data.append({
+                'id': bookmark.id,
+                'title': bookmark.title,
+                'url': bookmark.url,
+                'extracted_text': bookmark.extracted_text or '',
+                'tags': bookmark.tags or '',
+                'notes': bookmark.notes or '',
+                'quality_score': bookmark.quality_score or 7.0,
+                'created_at': bookmark.saved_at
+            })
+        
+        # Extract context from project
+        context = engine.extract_context_from_input(
+            title=project.title,
+            description=project.description or '',
+            technologies=project.technologies or '',
+            user_interests=''
+        )
+        
+        # Get recommendations
+        recommendations = engine.get_recommendations(
+            bookmarks=bookmarks_data,
+            context=context,
+            max_recommendations=10
+        )
+            
+        result = {
+            'recommendations': recommendations,
+            'context_used': context,
+            'project_id': project_id,
+            'project_title': project.title,
+            'total_candidates': len(bookmarks_data),
+            'engine_used': 'UnifiedRecommendationEngine',
+            'enhanced_features_available': ENHANCED_MODULES_AVAILABLE
+        }
         
         return jsonify(result)
         
@@ -1318,61 +553,52 @@ def get_project_recommendations(project_id):
 @recommendations_bp.route('/task/<int:task_id>', methods=['GET'])
 @jwt_required()
 def get_task_recommendations(task_id):
-    """Get task-specific recommendations"""
+    """Get task-specific recommendations using SmartRecommendationEngine"""
     try:
         user_id = get_jwt_identity()
-        
-        result = task_engine.get_task_recommendations(user_id, task_id)
-        
+        engine = get_smart_engine(user_id)
+        if not engine:
+            return jsonify({'error': 'Smart recommendation engine not available'}), 500
+        from models import Task
+        task = Task.query.filter_by(id=task_id, user_id=user_id).first()
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        result = engine.get_task_recommendations(user_id, task_id)
         return jsonify(result)
-        
     except Exception as e:
         logger.error(f"Error in task recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@recommendations_bp.route('/unified', methods=['GET'])
-@jwt_required()
-def get_unified_recommendations():
-    """Get unified recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.args.to_dict()
-        
-        result = unified_engine.get_unified_recommendations(user_id, user_input)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in unified recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@recommendations_bp.route('/unified-project/<int:project_id>', methods=['GET'])
-@jwt_required()
-def get_unified_project_recommendations(project_id):
-    """Get unified project recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        
-        result = unified_engine.get_unified_project_recommendations(user_id, project_id)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in unified project recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/gemini-enhanced', methods=['POST'])
 @jwt_required()
 def get_gemini_enhanced_recommendations():
-    """Get Gemini-enhanced recommendations"""
+    """Get Gemini-enhanced recommendations using FastGeminiEngine"""
     try:
         user_id = get_jwt_identity()
         user_input = request.get_json() or {}
-        
-        result = gemini_enhanced_engine.get_gemini_enhanced_recommendations(user_id, user_input)
-        
+        engine = get_fast_gemini_engine(user_id)
+        if not engine:
+            return jsonify({'error': 'Fast Gemini engine not available'}), 500
+        user_input['user_id'] = user_id
+        from models import SavedContent
+        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+        bookmarks_data = []
+        for bookmark in user_bookmarks:
+            bookmarks_data.append({
+                'id': bookmark.id,
+                'title': bookmark.title,
+                'url': bookmark.url,
+                'content': bookmark.extracted_text or bookmark.title,
+                'quality_score': bookmark.quality_score or 7.0,
+                'similarity_score': 0.5
+            })
+        if hasattr(engine, 'get_fast_gemini_recommendations'):
+            result = engine.get_fast_gemini_recommendations(bookmarks_data, user_input)
+        elif hasattr(engine, 'get_gemini_enhanced_recommendations'):
+            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
+        else:
+            return jsonify({'error': 'No suitable Gemini method available'}), 500
         return jsonify(result)
-        
     except Exception as e:
         logger.error(f"Error in Gemini-enhanced recommendations: {e}")
         return jsonify({'error': str(e)}), 500
@@ -1380,15 +606,28 @@ def get_gemini_enhanced_recommendations():
 @recommendations_bp.route('/gemini-enhanced-project/<int:project_id>', methods=['POST'])
 @jwt_required()
 def get_gemini_enhanced_project_recommendations(project_id):
-    """Get Gemini-enhanced project recommendations"""
+    """Get Gemini-enhanced project recommendations using FastGeminiEngine"""
     try:
         user_id = get_jwt_identity()
         user_input = request.get_json() or {}
-        
-        result = gemini_enhanced_engine.get_gemini_enhanced_project_recommendations(user_id, project_id)
-        
+        engine = get_fast_gemini_engine(user_id)
+        if not engine:
+            return jsonify({'error': 'Fast Gemini engine not available'}), 500
+        if hasattr(engine, 'get_gemini_enhanced_project_recommendations'):
+            result = engine.get_gemini_enhanced_project_recommendations(user_id, project_id)
+        else:
+            from models import Project
+            project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+            if not project:
+                return jsonify({'error': 'Project not found'}), 404
+            user_input.update({
+                'project_id': project_id,
+                'project_title': project.title,
+                'project_description': project.description or '',
+                'project_technologies': project.technologies or ''
+            })
+            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
         return jsonify(result)
-        
     except Exception as e:
         logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
         return jsonify({'error': str(e)}), 500
@@ -1396,75 +635,310 @@ def get_gemini_enhanced_project_recommendations(project_id):
 @recommendations_bp.route('/gemini-status', methods=['GET'])
 @jwt_required()
 def get_gemini_status():
-    """Check if Gemini is available and working"""
+    """Get Gemini API status"""
     try:
-        # Check if Gemini analyzer is available
-        gemini_available = gemini_analyzer is not None and rate_limiter is not None
+        if not gemini_analyzer:
+            return jsonify({
+                'status': 'unavailable',
+                'message': 'Gemini analyzer not initialized'
+            })
         
-        status_info = {
-            'gemini_available': False,
-            'status': 'unavailable',
-            'details': {
-                'analyzer_initialized': gemini_analyzer is not None,
-                'rate_limiter_initialized': rate_limiter is not None,
-                'api_key_set': bool(os.environ.get('GEMINI_API_KEY')),
-                'test_result': None,
-                'error_message': None
-            }
-        }
-        
-        # Test Gemini with a simple call if available
-        if gemini_available:
-            try:
-                # Simple test to see if Gemini is working
-                test_response = gemini_analyzer.analyze_bookmark_content(
-                    title="Test",
-                    description="Test description",
-                    content="Test content",
-                    url=""
-                )
-                
-                if test_response and isinstance(test_response, dict):
-                    gemini_working = True
-                    status_info['details']['test_result'] = 'success'
-                    status_info['details']['test_response_keys'] = list(test_response.keys())
-                else:
-                    gemini_working = False
-                    status_info['details']['test_result'] = 'invalid_response'
-                    status_info['details']['error_message'] = 'Gemini returned invalid response format'
-                    
-            except Exception as e:
-                logger.warning(f"Gemini test failed: {e}")
-                gemini_working = False
-                status_info['details']['test_result'] = 'error'
-                status_info['details']['error_message'] = str(e)
-        else:
-            gemini_working = False
-            status_info['details']['error_message'] = 'Gemini analyzer or rate limiter not initialized'
-        
-        # Update main status
-        status_info['gemini_available'] = gemini_available and gemini_working
-        status_info['status'] = 'working' if gemini_available and gemini_working else 'unavailable'
-        
-        return jsonify(status_info)
+        # Test Gemini availability
+        try:
+            test_response = gemini_analyzer.analyze_text("Test message")
+            return jsonify({
+                'status': 'available',
+                'message': 'Gemini API is working',
+                'test_response': test_response[:100] + '...' if len(str(test_response)) > 100 else test_response
+            })
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Gemini API error: {str(e)}'
+            })
         
     except Exception as e:
         logger.error(f"Error checking Gemini status: {e}")
-        return jsonify({
-            'gemini_available': False,
-            'status': 'error',
-            'details': {
-                'error_message': str(e)
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/smart-recommendations', methods=['POST'])
+@jwt_required()
+def get_smart_recommendations():
+    """Get smart recommendations using SmartRecommendationEngine"""
+    try:
+        user_id = get_jwt_identity()
+        user_input = request.get_json() or {}
+        engine = get_smart_engine(user_id)
+        if not engine:
+            return jsonify({'error': 'Smart recommendation engine not available'}), 500
+        result = engine.get_recommendations(user_id, user_input)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in smart recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/enhanced', methods=['POST'])
+@jwt_required()
+def get_enhanced_recommendations_route():
+    """Get enhanced recommendations using enhanced_recommendation_engine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        if not ENHANCED_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Enhanced recommendation engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from enhanced_recommendation_engine import get_enhanced_recommendations
+        
+        # Use enhanced recommendation engine
+        result = get_enhanced_recommendations(user_id, data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
+@jwt_required()
+def get_enhanced_project_recommendations_route(project_id):
+    """Get enhanced project recommendations using enhanced_recommendation_engine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        data['project_id'] = project_id
+        
+        if not ENHANCED_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Enhanced recommendation engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from enhanced_recommendation_engine import get_enhanced_recommendations
+        
+        # Use enhanced recommendation engine
+        result = get_enhanced_recommendations(user_id, data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced project recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/enhanced-status', methods=['GET'])
+@jwt_required()
+def get_enhanced_engine_status():
+    """Get enhanced engine status"""
+    try:
+        status = {
+            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
+            'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
+            'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
+            'smart_engine_available': SMART_ENGINE_AVAILABLE,
+            'fast_gemini_available': FAST_GEMINI_AVAILABLE,
+            'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
+            'gemini_analyzer_available': gemini_analyzer is not None,
+            'embedding_model_available': embedding_model is not None
+        }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        logger.error(f"Error getting enhanced engine status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/recommendations', methods=['POST'])
+@jwt_required()
+def get_phase3_recommendations():
+    """Get Phase 3 recommendations using phase3_enhanced_engine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from phase3_enhanced_engine import get_enhanced_recommendations_phase3
+        
+        # Use Phase 3 enhanced engine
+        result = get_enhanced_recommendations_phase3(user_id, data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in Phase 3 recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/feedback', methods=['POST'])
+@jwt_required()
+def record_phase3_feedback():
+    """Record Phase 3 feedback using phase3_enhanced_engine"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        recommendation_id = data.get('recommendation_id')
+        feedback_type = data.get('feedback_type')
+        feedback_data = data.get('feedback_data', {})
+        
+        if not recommendation_id or not feedback_type:
+            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from phase3_enhanced_engine import record_user_feedback_phase3
+        
+        # Use Phase 3 enhanced engine
+        record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
+        
+        return jsonify({'message': 'Feedback recorded successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error recording Phase 3 feedback: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/insights', methods=['GET'])
+@jwt_required()
+def get_phase3_insights():
+    """Get Phase 3 insights using phase3_enhanced_engine"""
+    try:
+        user_id = get_jwt_identity()
+        
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from phase3_enhanced_engine import get_user_learning_insights
+        
+        # Use Phase 3 enhanced engine
+        result = get_user_learning_insights(user_id)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error getting Phase 3 insights: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/phase3/health', methods=['GET'])
+@jwt_required()
+def get_phase3_health():
+    """Get Phase 3 system health using phase3_enhanced_engine"""
+    try:
+        if not PHASE3_ENGINE_AVAILABLE:
+            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
+        
+        # Import here to avoid circular imports
+        from phase3_enhanced_engine import get_system_health_phase3
+        
+        # Use Phase 3 enhanced engine
+        result = get_system_health_phase3()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error getting Phase 3 health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# UTILITY ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/status', methods=['GET'])
+def get_engine_status():
+    """Get status of all recommendation engines"""
+    try:
+        status = {
+            'unified_orchestrator_available': UNIFIED_ORCHESTRATOR_AVAILABLE,
+            'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
+            'smart_engine_available': SMART_ENGINE_AVAILABLE,
+            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
+            'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
+            'fast_gemini_available': FAST_GEMINI_AVAILABLE,
+            'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
+            'gemini_analyzer_available': gemini_analyzer is not None,
+            'embedding_model_available': embedding_model is not None,
+            'total_engines_available': sum([
+                UNIFIED_ORCHESTRATOR_AVAILABLE,
+                UNIFIED_ENGINE_AVAILABLE,
+                SMART_ENGINE_AVAILABLE,
+                ENHANCED_ENGINE_AVAILABLE,
+                PHASE3_ENGINE_AVAILABLE,
+                FAST_GEMINI_AVAILABLE
+            ]),
+            'recommended_engine': 'unified_orchestrator' if UNIFIED_ORCHESTRATOR_AVAILABLE else 'unified_engine'
+        }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        logger.error(f"Error getting engine status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/performance-metrics', methods=['GET'])
+@jwt_required()
+def get_performance_metrics():
+    """Get detailed performance metrics for all engines"""
+    try:
+        metrics = {}
+        
+        # Get unified orchestrator metrics
+        if UNIFIED_ORCHESTRATOR_AVAILABLE:
+            try:
+                orchestrator = get_unified_orchestrator()
+                metrics['unified_orchestrator'] = orchestrator.get_performance_metrics()
+            except Exception as e:
+                logger.error(f"Error getting orchestrator metrics: {e}")
+                metrics['unified_orchestrator'] = {'error': str(e)}
+        
+        # Get Gemini integration metrics
+        try:
+            from gemini_integration_layer import get_gemini_integration
+            gemini_layer = get_gemini_integration()
+            metrics['gemini_integration'] = gemini_layer.get_performance_metrics()
+        except Exception as e:
+            logger.error(f"Error getting Gemini metrics: {e}")
+            metrics['gemini_integration'] = {'error': str(e)}
+        
+        # Get Redis cache stats
+        try:
+            from redis_utils import redis_cache
+            metrics['redis_cache'] = redis_cache.get_cache_stats()
+        except Exception as e:
+            logger.error(f"Error getting Redis metrics: {e}")
+            metrics['redis_cache'] = {'error': str(e)}
+        
+        # Get database stats
+        try:
+            from models import SavedContent, ContentAnalysis
+            metrics['database'] = {
+                'total_content': SavedContent.query.count(),
+                'analyzed_content': ContentAnalysis.query.count(),
+                'analysis_coverage': round((ContentAnalysis.query.count() / max(SavedContent.query.count(), 1)) * 100, 2)
             }
-        }), 500
+        except Exception as e:
+            logger.error(f"Error getting database metrics: {e}")
+            metrics['database'] = {'error': str(e)}
+        
+        return jsonify(metrics)
+        
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/cache/clear', methods=['POST'])
 @jwt_required()
 def clear_recommendation_cache():
-    """Clear recommendation cache for current user"""
+    """Clear recommendation cache"""
     try:
         user_id = get_jwt_identity()
-        
         success = invalidate_user_recommendations(user_id)
         
         if success:
@@ -1479,614 +953,520 @@ def clear_recommendation_cache():
 @recommendations_bp.route('/analysis/stats', methods=['GET'])
 @jwt_required()
 def get_analysis_stats():
-    """Get statistics about content analysis coverage"""
+    """Get content analysis statistics"""
     try:
-        from background_analysis_service import background_service
+        user_id = get_jwt_identity()
         
-        stats = background_service.get_analysis_stats()
+        # Import models here to avoid circular imports
+        from models import SavedContent, ContentAnalysis
         
-        return jsonify({
-            'analysis_stats': stats,
-            'message': 'Analysis statistics retrieved successfully'
-        })
+        # Get analysis stats
+        total_content = SavedContent.query.filter_by(user_id=user_id).count()
+        analyzed_content = ContentAnalysis.query.join(SavedContent).filter(
+            SavedContent.user_id == user_id
+        ).count()
+        
+        stats = {
+            'total_content': total_content,
+            'analyzed_content': analyzed_content,
+            'analysis_percentage': round((analyzed_content / max(total_content, 1)) * 100, 2)
+        }
+        
+        return jsonify(stats)
         
     except Exception as e:
         logger.error(f"Error getting analysis stats: {e}")
-        return jsonify({'error': 'Failed to get analysis stats'}), 500
+        return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/analysis/analyze-content/<int:content_id>', methods=['POST'])
-@jwt_required()
-def analyze_content_immediately(content_id):
-    """Analyze a specific content item immediately"""
+@recommendations_bp.route('/phase-status', methods=['GET'])
+def get_phase_status():
+    """Get status of all recommendation phases"""
     try:
-        from background_analysis_service import background_service
-        
-        # Check if content exists and belongs to user
-        user_id = get_jwt_identity()
-        content = SavedContent.query.filter_by(id=content_id, user_id=user_id).first()
-        
-        if not content:
-            return jsonify({'error': 'Content not found or access denied'}), 404
-        
-        # Analyze content immediately
-        analysis_result = background_service.analyze_content_immediately(content_id)
-        
-        if analysis_result:
-            return jsonify({
-                'message': 'Content analyzed successfully',
-                'analysis': analysis_result
-            })
-        else:
-            return jsonify({'error': 'Failed to analyze content'}), 500
-        
-    except Exception as e:
-        logger.error(f"Error analyzing content {content_id}: {e}")
-        return jsonify({'error': 'Failed to analyze content'}), 500
-
-@recommendations_bp.route('/analysis/start-background', methods=['POST'])
-@jwt_required()
-def start_background_analysis():
-    """Start the background analysis service"""
-    try:
-        from background_analysis_service import start_background_service
-        
-        start_background_service()
-        
-        return jsonify({
-            'message': 'Background analysis service started successfully'
-        })
-        
-    except Exception as e:
-        logger.error(f"Error starting background analysis: {e}")
-        return jsonify({'error': 'Failed to start background analysis'}), 500
-
-@recommendations_bp.route('/smart-recommendations', methods=['POST'])
-@jwt_required()
-def get_smart_recommendations():
-    """Get AI-enhanced smart recommendations based on user context"""
-    try:
-        data = request.get_json()
-        user_id = get_jwt_identity()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        project_title = data.get('project_title', '')
-        project_description = data.get('project_description', '')
-        technologies = data.get('technologies', '')
-        learning_goals = data.get('learning_goals', '')
-        limit = data.get('limit', 10)
-        
-        # Use the smart recommendation engine
-        from smart_recommendation_engine import get_smart_recommendations
-        
-        project_info = {
-            'title': project_title,
-            'description': project_description,
-            'technologies': technologies,
-            'learning_goals': learning_goals
-        }
-        
-        recommendations = get_smart_recommendations(user_id, project_info, limit)
-        
-        return jsonify({
-            'recommendations': recommendations,
-            'count': len(recommendations),
-            'user_id': user_id,
-            'analysis_used': True,
-            'enhanced_features': [
-                'learning_path_matching',
-                'project_applicability',
-                'skill_development_tracking',
-                'ai_generated_reasoning'
-            ]
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-@recommendations_bp.route('/learning-path-recommendations', methods=['POST'])
-@jwt_required()
-def get_learning_path_recommendations():
-    """Get recommendations for a specific learning path"""
-    try:
-        data = request.get_json()
-        user_id = get_jwt_identity()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        target_skill = data.get('target_skill', '')
-        current_level = data.get('current_level', 'beginner')
-        limit = data.get('limit', 10)
-        
-        if not target_skill:
-            return jsonify({'error': 'Target skill is required'}), 400
-        
-        # Create learning-focused project info
-        project_info = {
-            'title': f'Learning {target_skill}',
-            'description': f'Master {target_skill} from {current_level} level',
-            'technologies': target_skill,
-            'learning_goals': target_skill
-        }
-        
-        from smart_recommendation_engine import get_smart_recommendations
-        recommendations = get_smart_recommendations(user_id, project_info, limit)
-        
-        # Filter for foundational content first
-        foundational = [r for r in recommendations if r.get('learning_path_fit', 0) > 0.6]
-        foundational.sort(key=lambda x: x.get('learning_path_fit', 0), reverse=True)
-        
-        return jsonify({
-            'recommendations': foundational[:limit],
-            'count': len(foundational[:limit]),
-            'target_skill': target_skill,
-            'current_level': current_level,
-            'learning_path_focused': True
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-@recommendations_bp.route('/project-recommendations', methods=['POST'])
-@jwt_required()
-def get_project_type_recommendations():
-    """Get recommendations for a specific project type"""
-    try:
-        data = request.get_json()
-        user_id = get_jwt_identity()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        project_type = data.get('project_type', 'general')
-        technologies = data.get('technologies', '')
-        complexity = data.get('complexity', 'moderate')
-        limit = data.get('limit', 10)
-        
-        project_info = {
-            'title': f'{project_type.title()} Project',
-            'description': f'Building a {complexity} {project_type}',
-            'technologies': technologies,
-            'learning_goals': f'Implement {project_type} with {technologies}'
-        }
-        
-        from smart_recommendation_engine import get_smart_recommendations
-        recommendations = get_smart_recommendations(user_id, project_info, limit)
-        
-        # Filter for high project applicability
-        project_focused = [r for r in recommendations if r.get('project_applicability', 0) > 0.6]
-        project_focused.sort(key=lambda x: x.get('project_applicability', 0), reverse=True)
-        
-        return jsonify({
-            'recommendations': project_focused[:limit],
-            'count': len(project_focused[:limit]),
-            'project_type': project_type,
-            'complexity': complexity,
-            'project_focused': True
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-# Enhanced Recommendation Engine Integration Routes
-@recommendations_bp.route('/enhanced', methods=['POST'])
-@jwt_required()
-def get_enhanced_recommendations_route():
-    """Get enhanced recommendations using Phase 1 and Phase 2 algorithms"""
-    try:
-        if not ENHANCED_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Enhanced recommendation engine not available'}), 503
-        
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Extract request data
-        request_data = {
-            'project_title': data.get('project_title', ''),
-            'project_description': data.get('project_description', ''),
-            'technologies': data.get('technologies', ''),
-            'learning_goals': data.get('learning_goals', ''),
-            'content_type': data.get('content_type', 'all'),
-            'difficulty': data.get('difficulty', 'all'),
-            'max_recommendations': data.get('max_recommendations', 10)
-        }
-        
-        # Get enhanced recommendations
-        recommendations = get_enhanced_recommendations(user_id, request_data, request_data['max_recommendations'])
-        
-        # Convert to frontend-compatible format
-        formatted_recommendations = []
-        for rec in recommendations:
-            formatted_rec = {
-                'id': rec['id'],
-                'title': rec['title'],
-                'url': rec['url'],
-                'description': rec.get('description', ''),
-                'match_score': rec['score'] * 100,  # Convert to percentage
-                'reason': rec['reasoning'],
-                'content_type': rec['content_type'],
-                'difficulty': rec['difficulty'],
-                'technologies': rec['technologies'],
-                'key_concepts': rec['key_concepts'],
-                'quality_score': rec['quality_score'],
-                'algorithm_used': rec['algorithm_used'],
-                'confidence': rec['confidence'],
-                'learning_path_fit': rec.get('learning_path_fit', 0.0),
-                'project_applicability': rec.get('project_applicability', 0.0),
-                'skill_development': rec.get('skill_development', 0.0),
-                'analysis': {
-                    'technologies': rec['technologies'],
-                    'content_type': rec['content_type'],
-                    'difficulty': rec['difficulty'],
-                    'key_concepts': rec['key_concepts'],
-                    'quality_score': rec['quality_score'],
-                    'algorithm_used': rec['algorithm_used'],
-                    'confidence': rec['confidence']
-                }
-            }
-            formatted_recommendations.append(formatted_rec)
-        
-        return jsonify({
-            'recommendations': formatted_recommendations,
-            'count': len(formatted_recommendations),
-            'enhanced_features': [
-                'learning_path_matching',
-                'project_applicability', 
-                'skill_development_tracking',
-                'ai_generated_reasoning',
-                'multi_algorithm_selection',
-                'diversity_optimization',
-                'semantic_analysis',
-                'content_based_filtering'
-            ],
-            'algorithm_used': 'enhanced_unified_engine',
-            'phase': 'phase_1_and_2'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced recommendations: {e}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-@recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
-@jwt_required()
-def get_enhanced_project_recommendations_route(project_id):
-    """Get enhanced project-specific recommendations"""
-    try:
-        if not ENHANCED_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Enhanced recommendation engine not available'}), 503
-        
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Get project details
-        project = Project.query.get(project_id)
-        if not project:
-            return jsonify({'error': 'Project not found'}), 404
-        
-        # Create request data from project
-        request_data = {
-            'project_title': project.title,
-            'project_description': project.description or '',
-            'technologies': project.technologies or '',
-            'learning_goals': f'Implement {project.title}',
-            'content_type': 'project_focused',
-            'difficulty': 'all',
-            'max_recommendations': data.get('max_recommendations', 10)
-        }
-        
-        # Get enhanced recommendations
-        recommendations = get_enhanced_recommendations(user_id, request_data, request_data['max_recommendations'])
-        
-        # Convert to frontend-compatible format
-        formatted_recommendations = []
-        for rec in recommendations:
-            formatted_rec = {
-                'id': rec['id'],
-                'title': rec['title'],
-                'url': rec['url'],
-                'description': rec.get('description', ''),
-                'match_score': rec['score'] * 100,  # Convert to percentage
-                'reason': rec['reasoning'],
-                'content_type': rec['content_type'],
-                'difficulty': rec['difficulty'],
-                'technologies': rec['technologies'],
-                'key_concepts': rec['key_concepts'],
-                'quality_score': rec['quality_score'],
-                'algorithm_used': rec['algorithm_used'],
-                'confidence': rec['confidence'],
-                'learning_path_fit': rec.get('learning_path_fit', 0.0),
-                'project_applicability': rec.get('project_applicability', 0.0),
-                'skill_development': rec.get('skill_development', 0.0),
-                'analysis': {
-                    'technologies': rec['technologies'],
-                    'content_type': rec['content_type'],
-                    'difficulty': rec['difficulty'],
-                    'key_concepts': rec['key_concepts'],
-                    'quality_score': rec['quality_score'],
-                    'algorithm_used': rec['algorithm_used'],
-                    'confidence': rec['confidence']
-                }
-            }
-            formatted_recommendations.append(formatted_rec)
-        
-        return jsonify({
-            'recommendations': formatted_recommendations,
-            'count': len(formatted_recommendations),
-            'project_id': project_id,
-            'project_title': project.title,
-            'enhanced_features': [
-                'learning_path_matching',
-                'project_applicability',
-                'skill_development_tracking', 
-                'ai_generated_reasoning',
-                'multi_algorithm_selection',
-                'diversity_optimization',
-                'semantic_analysis',
-                'content_based_filtering'
-            ],
-            'algorithm_used': 'enhanced_unified_engine',
-            'phase': 'phase_1_and_2'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced project recommendations: {e}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-@recommendations_bp.route('/enhanced-status', methods=['GET'])
-@jwt_required()
-def get_enhanced_engine_status():
-    """Get enhanced recommendation engine status"""
-    try:
-        user_id = get_jwt_identity()
-        
         status = {
-            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
-            'phase_1_complete': True,
-            'phase_2_complete': True,
-            'phase_3_complete': PHASE3_ENGINE_AVAILABLE,
-            'algorithms_available': ['hybrid', 'semantic', 'content_based'],
-            'features_available': [
-                'multi_algorithm_selection',
-                'diversity_optimization',
-                'semantic_analysis',
-                'content_based_filtering',
-                'performance_monitoring',
-                'smart_caching',
-                'feedback_integration',
-                'contextual_recommendations',
-                'real_time_learning',
-                'advanced_analytics'
-            ]
+            'phase1_smart_engine': SMART_ENGINE_AVAILABLE,
+            'phase2_enhanced_engine': ENHANCED_ENGINE_AVAILABLE,
+            'phase3_advanced_engine': PHASE3_ENGINE_AVAILABLE,
+            'unified_engine': UNIFIED_ENGINE_AVAILABLE,
+            'fast_gemini_engine': FAST_GEMINI_AVAILABLE,
+            'enhanced_modules': ENHANCED_MODULES_AVAILABLE,
+            'total_engines_available': sum([
+                SMART_ENGINE_AVAILABLE,
+                ENHANCED_ENGINE_AVAILABLE,
+                PHASE3_ENGINE_AVAILABLE,
+                UNIFIED_ENGINE_AVAILABLE,
+                FAST_GEMINI_AVAILABLE
+            ])
         }
-        
-        if ENHANCED_ENGINE_AVAILABLE:
-            try:
-                performance_metrics = unified_engine.get_performance_metrics()
-                status['performance_metrics'] = {
-                    'response_time_ms': performance_metrics.response_time_ms,
-                    'cache_hit_rate': performance_metrics.cache_hit_rate,
-                    'error_rate': performance_metrics.error_rate,
-                    'throughput': performance_metrics.throughput
-                }
-            except Exception as e:
-                logging.error(f"Error getting performance metrics: {e}")
-                status['performance_metrics'] = {
-                    'response_time_ms': 0,
-                    'cache_hit_rate': 0,
-                    'error_rate': 0,
-                    'throughput': 0
-                }
         
         return jsonify(status)
         
     except Exception as e:
-        logging.error(f"Error getting enhanced engine status: {e}")
-        return jsonify({
-            'enhanced_engine_available': False,
-            'phase_1_complete': False,
-            'phase_2_complete': False,
-            'phase_3_complete': False,
-            'error': str(e)
-        }), 500
-
-@recommendations_bp.route('/phase3/recommendations', methods=['POST'])
-@jwt_required()
-def get_phase3_recommendations():
-    """Get Phase 3 enhanced recommendations with contextual analysis and real-time learning"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 engine not available'}), 503
-        
-        # Extract request parameters
-        project_title = data.get('project_title', '')
-        project_description = data.get('project_description', '')
-        technologies = data.get('technologies', '')
-        learning_goals = data.get('learning_goals', '')
-        content_type = data.get('content_type', 'all')
-        difficulty = data.get('difficulty', 'all')
-        max_recommendations = data.get('max_recommendations', 10)
-        user_agent = request.headers.get('User-Agent', '')
-        
-        # Build request data
-        request_data = {
-            'project_title': project_title,
-            'project_description': project_description,
-            'technologies': technologies,
-            'learning_goals': learning_goals,
-            'content_type': content_type,
-            'difficulty': difficulty,
-            'max_recommendations': max_recommendations,
-            'user_agent': user_agent
-        }
-        
-        # Get Phase 3 recommendations
-        recommendations = get_enhanced_recommendations_phase3(
-            user_id, request_data, max_recommendations
-        )
-        
-        # Prepare response
-        response = {
-            'recommendations': recommendations,
-            'count': len(recommendations),
-            'phase': 'phase_3_complete',
-            'features_used': [
-                'contextual_analysis',
-                'real_time_learning',
-                'device_optimization',
-                'time_awareness',
-                'session_context',
-                'learning_insights'
-            ]
-        }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logging.error(f"Error getting Phase 3 recommendations: {e}")
+        logger.error(f"Error getting phase status: {e}")
         return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/phase3/feedback', methods=['POST'])
+
+
+# ============================================================================
+# LEGACY ENDPOINTS (for backward compatibility)
+# ============================================================================
+
+@recommendations_bp.route('/learning-path-recommendations', methods=['POST'])
 @jwt_required()
-def record_phase3_feedback():
-    """Record user feedback with Phase 3 learning integration"""
+def get_learning_path_recommendations():
+    """Legacy endpoint - redirects to unified recommendations"""
     try:
         user_id = get_jwt_identity()
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 engine not available'}), 503
-        
-        recommendation_id = data.get('recommendation_id')
-        feedback_type = data.get('feedback_type')  # 'relevant' or 'not_relevant'
-        feedback_data = data.get('feedback_data', {})
-        
-        if not recommendation_id or not feedback_type:
-            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
-        
-        # Record feedback with Phase 3 learning
-        record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
-        
-        return jsonify({
-            'message': 'Feedback recorded successfully',
-            'phase': 'phase_3_complete',
-            'learning_integrated': True
-        })
+        # Redirect to unified recommendations
+        return get_unified_recommendations()
         
     except Exception as e:
-        logging.error(f"Error recording Phase 3 feedback: {e}")
+        logger.error(f"Error in learning path recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/phase3/insights', methods=['GET'])
+@recommendations_bp.route('/project-recommendations', methods=['POST'])
 @jwt_required()
-def get_phase3_insights():
-    """Get user learning insights from Phase 3"""
+def get_project_type_recommendations():
+    """Legacy endpoint - redirects to unified project recommendations"""
     try:
         user_id = get_jwt_identity()
+        data = request.get_json() or {}
         
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        project_id = data.get('project_id')
+        if not project_id:
+            return jsonify({'error': 'Project ID required'}), 400
         
-        # Get learning insights
-        insights = get_user_learning_insights(user_id)
-        
-        return jsonify(insights)
-        
-    except Exception as e:
-        logging.error(f"Error getting Phase 3 insights: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@recommendations_bp.route('/phase3/health', methods=['GET'])
-@jwt_required()
-def get_phase3_health():
-    """Get comprehensive system health with Phase 3 metrics"""
-    try:
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 engine not available'}), 503
-        
-        # Get comprehensive system health
-        health = get_system_health_phase3()
-        
-        return jsonify(health)
+        # Redirect to unified project recommendations
+        return get_unified_project_recommendations(project_id)
         
     except Exception as e:
-        logging.error(f"Error getting Phase 3 health: {e}")
+        logger.error(f"Error in project type recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/contextual', methods=['POST'])
 @jwt_required()
 def get_contextual_recommendations():
-    """Get contextual recommendations based on device, time, and session"""
+    """Legacy endpoint - redirects to Phase 3 recommendations"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Redirect to Phase 3 recommendations
+        return get_phase3_recommendations()
+        
+    except Exception as e:
+        logger.error(f"Error in contextual recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# ANALYSIS ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/analysis/analyze-content/<int:content_id>', methods=['POST'])
+@jwt_required()
+def analyze_content_immediately(content_id):
+    """Analyze content immediately"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # Import models here to avoid circular imports
+        from models import SavedContent
+        
+        # Check if content belongs to user
+        content = SavedContent.query.filter_by(id=content_id, user_id=user_id).first()
+        if not content:
+            return jsonify({'error': 'Content not found'}), 404
+        
+        # Import background analysis service
+        try:
+            from background_analysis_service import analyze_content
+            result = analyze_content(content_id)
+            return jsonify({'message': 'Content analysis started', 'result': result})
+        except ImportError:
+            return jsonify({'error': 'Background analysis service not available'}), 500
+                        
+    except Exception as e:
+        logger.error(f"Error analyzing content: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/analysis/start-background', methods=['POST'])
+@jwt_required()
+def start_background_analysis():
+    """Start background analysis for user's content"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # Import background analysis service
+        try:
+            from background_analysis_service import start_background_analysis_for_user
+            result = start_background_analysis_for_user(user_id)
+            return jsonify({'message': 'Background analysis started', 'result': result})
+        except ImportError:
+            return jsonify({'error': 'Background analysis service not available'}), 500
+        
+    except Exception as e:
+        logger.error(f"Error starting background analysis: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/analysis/batch-analyze', methods=['POST'])
+@jwt_required()
+def batch_analyze_content():
+    """Batch analyze multiple content items"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        content_ids = data.get('content_ids', [])
+        
+        if not content_ids:
+            return jsonify({'error': 'No content IDs provided'}), 400
+        
+        # Import models here to avoid circular imports
+        from models import SavedContent
+        
+        # Verify all content belongs to user
+        user_content = SavedContent.query.filter(
+            SavedContent.id.in_(content_ids),
+            SavedContent.user_id == user_id
+        ).all()
+        
+        if len(user_content) != len(content_ids):
+            return jsonify({'error': 'Some content not found or not owned by user'}), 400
+        
+        # Import background analysis service
+        try:
+            from background_analysis_service import batch_analyze_content as batch_analyze
+            result = batch_analyze(content_ids)
+            return jsonify({'message': 'Batch analysis started', 'result': result})
+        except ImportError:
+            return jsonify({'error': 'Background analysis service not available'}), 500
+        
+    except Exception as e:
+        logger.error(f"Error in batch analysis: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# FEEDBACK AND LEARNING ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/feedback', methods=['POST'])
+@jwt_required()
+def record_recommendation_feedback():
+    """Record feedback for recommendations"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
-        
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 engine not available'}), 503
+        recommendation_id = data.get('recommendation_id')
+        feedback_type = data.get('feedback_type')  # 'positive', 'negative', 'neutral'
+        feedback_data = data.get('feedback_data', {})
         
-        # Extract contextual information
-        user_agent = request.headers.get('User-Agent', '')
-        current_time = datetime.now()
+        if not recommendation_id or not feedback_type:
+            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
         
-        # Build contextual request data
-        request_data = {
-            'project_title': data.get('project_title', ''),
-            'project_description': data.get('project_description', ''),
-            'technologies': data.get('technologies', ''),
-            'learning_goals': data.get('learning_goals', ''),
-            'content_type': data.get('content_type', 'all'),
-            'difficulty': data.get('difficulty', 'all'),
-            'max_recommendations': data.get('max_recommendations', 10),
-            'user_agent': user_agent,
-            'timestamp': current_time.isoformat(),
-            'contextual_request': True
-        }
+        # Import models here to avoid circular imports
+        from models import db, Feedback
         
-        # Get contextual recommendations
-        recommendations = get_enhanced_recommendations_phase3(
-            user_id, request_data, request_data['max_recommendations']
+        # Create feedback record
+        feedback = Feedback(
+            user_id=user_id,
+            recommendation_id=recommendation_id,
+            feedback_type=feedback_type,
+            feedback_data=json.dumps(feedback_data),
+            created_at=datetime.utcnow()
         )
         
-        # Extract contextual information from recommendations
-        contextual_info = {}
-        if recommendations:
-            first_rec = recommendations[0]
-            context = first_rec.get('context', {})
-            contextual_info = {
-                'device_optimized': context.get('device_optimized', 'desktop'),
-                'time_appropriate': context.get('time_appropriate', 'unknown'),
-                'session_context': context.get('session_context', False),
-                'day_of_week': context.get('day_of_week', 'unknown')
-            }
+        db.session.add(feedback)
+        db.session.commit()
         
-        response = {
-            'recommendations': recommendations,
-            'count': len(recommendations),
-            'contextual_info': contextual_info,
-            'phase': 'phase_3_complete',
-            'contextual_features': [
-                'device_detection',
-                'time_analysis',
-                'session_tracking',
-                'learning_context'
-            ]
-        }
+        # If Phase 3 engine is available, also record there
+        if PHASE3_ENGINE_AVAILABLE:
+            try:
+                from phase3_enhanced_engine import record_user_feedback_phase3
+                record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
+            except Exception as e:
+                logger.warning(f"Failed to record Phase 3 feedback: {e}")
         
-        return jsonify(response)
+        return jsonify({'message': 'Feedback recorded successfully'})
         
     except Exception as e:
-        logging.error(f"Error getting contextual recommendations: {e}")
+        logger.error(f"Error recording feedback: {e}")
         return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/user-preferences', methods=['GET'])
+@jwt_required()
+def get_user_preferences():
+    """Get user preferences and learning patterns"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # Import models here to avoid circular imports
+        from models import User, Feedback, SavedContent
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Get user's feedback patterns
+        feedback_stats = db.session.query(
+            Feedback.feedback_type,
+            db.func.count(Feedback.id).label('count')
+        ).filter_by(user_id=user_id).group_by(Feedback.feedback_type).all()
+        
+        # Get user's content statistics
+        content_stats = {
+            'total_bookmarks': SavedContent.query.filter_by(user_id=user_id).count(),
+            'avg_quality_score': db.session.query(
+                db.func.avg(SavedContent.quality_score)
+            ).filter_by(user_id=user_id).scalar() or 0
+        }
+        
+        # Get top technologies from tags
+        top_technologies = db.session.query(
+            SavedContent.tags,
+            db.func.count(SavedContent.id).label('count')
+        ).filter(
+            SavedContent.user_id == user_id,
+            SavedContent.tags.isnot(None)
+        ).group_by(SavedContent.tags).order_by(
+            db.func.count(SavedContent.id).desc()
+        ).limit(10).all()
+        
+        preferences = {
+            'user_id': user_id,
+            'feedback_patterns': {stat.feedback_type: stat.count for stat in feedback_stats},
+            'content_statistics': content_stats,
+            'top_technologies': [{'technology': tag, 'count': count} for tag, count in top_technologies if tag],
+            'learning_style': 'adaptive'  # Could be enhanced with ML
+        }
+        
+        return jsonify(preferences)
+        
+    except Exception as e:
+        logger.error(f"Error getting user preferences: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/learning-insights', methods=['GET'])
+@jwt_required()
+def get_learning_insights():
+    """Get learning insights for user"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # If Phase 3 engine is available, use it
+        if PHASE3_ENGINE_AVAILABLE:
+            try:
+                from phase3_enhanced_engine import get_user_learning_insights
+                result = get_user_learning_insights(user_id)
+                return jsonify(result)
+            except Exception as e:
+                logger.warning(f"Phase 3 insights failed, using fallback: {e}")
+        
+        # Fallback to basic insights
+        from models import SavedContent, Feedback
+        
+        # Basic learning patterns
+        recent_bookmarks = SavedContent.query.filter_by(user_id=user_id).order_by(
+            SavedContent.created_at.desc()
+        ).limit(20).all()
+        
+        # Analyze recent patterns
+        technologies = []
+        for bookmark in recent_bookmarks:
+            if bookmark.tags:
+                technologies.extend(bookmark.tags.split(','))
+        
+        tech_frequency = defaultdict(int)
+        for tech in technologies:
+            tech_frequency[tech.strip().lower()] += 1
+        
+        insights = {
+            'user_id': user_id,
+            'learning_trends': {
+                'recent_technologies': dict(list(tech_frequency.items())[:10]),
+                'learning_velocity': len(recent_bookmarks),
+                'engagement_score': 7.5  # Basic score
+            },
+            'recommendations': [
+                'Continue exploring your current technology stack',
+                'Consider diversifying into related technologies',
+                'Regular review sessions would be beneficial'
+            ],
+            'engine_used': 'basic_insights'
+        }
+        
+        return jsonify(insights)
+        
+    except Exception as e:
+        logger.error(f"Error getting learning insights: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# SEARCH AND DISCOVERY ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/discover', methods=['POST'])
+@jwt_required()
+def discover_recommendations():
+    """Discover new recommendations based on exploration"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Use the best available engine for discovery
+        if PHASE3_ENGINE_AVAILABLE:
+            from phase3_enhanced_engine import get_enhanced_recommendations_phase3
+            result = get_enhanced_recommendations_phase3(user_id, {
+                **data,
+                'discovery_mode': True,
+                'diversity_weight': 0.7
+            })
+        elif ENHANCED_ENGINE_AVAILABLE:
+            from enhanced_recommendation_engine import get_enhanced_recommendations
+            result = get_enhanced_recommendations(user_id, {
+                **data,
+                'discovery_mode': True
+            })
+        elif UNIFIED_ENGINE_AVAILABLE:
+            engine = get_unified_engine()
+            if engine:
+                from models import SavedContent
+                user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+                bookmarks_data = [{
+                    'id': b.id, 'title': b.title, 'url': b.url,
+                    'extracted_text': b.extracted_text or '', 'tags': b.tags or '',
+                    'quality_score': b.quality_score or 7.0, 'created_at': b.created_at
+                } for b in user_bookmarks]
+                
+                context = engine.extract_context_from_input(
+                    title=data.get('title', ''),
+                    description=data.get('description', ''),
+                    technologies=data.get('technologies', ''),
+                    user_interests=data.get('user_interests', '')
+                )
+                
+                recommendations = engine.get_recommendations(
+                    bookmarks=bookmarks_data,
+                    context=context,
+                    max_recommendations=15,
+                    diversity_weight=0.7
+                )
+                
+                result = {
+                    'recommendations': recommendations,
+                    'discovery_mode': True,
+                    'engine_used': 'UnifiedRecommendationEngine'
+                }
+            else:
+                return jsonify({'error': 'No recommendation engine available'}), 500
+        else:
+            return jsonify({'error': 'No discovery engine available'}), 500
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in discovery recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/similar/<int:content_id>', methods=['GET'])
+@jwt_required()
+def get_similar_content(content_id):
+    """Get content similar to a specific bookmark"""
+    try:
+        user_id = get_jwt_identity()
+        
+        # Import models here to avoid circular imports
+        from models import SavedContent
+        
+        # Get the target content
+        target_content = SavedContent.query.filter_by(id=content_id, user_id=user_id).first()
+        if not target_content:
+            return jsonify({'error': 'Content not found'}), 404
+        
+        # Use unified engine for similarity
+        engine = get_unified_engine()
+        if not engine:
+            return jsonify({'error': 'Unified engine not available'}), 500
+        
+        # Get all user content
+        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+        bookmarks_data = []
+        for bookmark in user_bookmarks:
+            if bookmark.id != content_id:  # Exclude the target content
+                bookmarks_data.append({
+                    'id': bookmark.id,
+                    'title': bookmark.title,
+                    'url': bookmark.url,
+                    'extracted_text': bookmark.extracted_text or '',
+                    'tags': bookmark.tags or '',
+                    'notes': bookmark.notes or '',
+                    'quality_score': bookmark.quality_score or 7.0,
+                    'created_at': bookmark.saved_at
+                })
+        
+        # Create context from target content
+        context = engine.extract_context_from_input(
+            title=target_content.title,
+            description=target_content.extracted_text or '',
+            technologies=target_content.tags or '',
+            user_interests=''
+        )
+        
+        # Get similar recommendations
+        recommendations = engine.get_recommendations(
+            bookmarks=bookmarks_data,
+            context=context,
+            max_recommendations=10
+        )
+        
+        result = {
+            'target_content': {
+                'id': target_content.id,
+                'title': target_content.title,
+                'url': target_content.url
+            },
+            'similar_content': recommendations,
+            'context_used': context,
+            'engine_used': 'UnifiedRecommendationEngine'
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error getting similar content: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
+
+def init_recommendations_blueprint():
+    """Initialize the recommendations blueprint"""
+    logger.info("Initializing complete recommendations blueprint...")
+    
+    # Initialize models first
+    init_models()
+    
+    # Initialize engines with error handling
+    try:
+        init_engines()
+    except Exception as e:
+        logger.error(f"Error initializing engines: {e}")
+    
+    # Log engine availability
+    logger.info(f"Unified Engine: {'✅ Available' if UNIFIED_ENGINE_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Smart Engine: {'✅ Available' if SMART_ENGINE_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Enhanced Engine: {'✅ Available' if ENHANCED_ENGINE_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Phase 3 Engine: {'✅ Available' if PHASE3_ENGINE_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Fast Gemini Engine: {'✅ Available' if FAST_GEMINI_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Enhanced Modules: {'✅ Available' if ENHANCED_MODULES_AVAILABLE else '❌ Not Available'}")
+    
+    logger.info(f"Total engines available: {sum([UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE, PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE])}")
+    
+    return recommendations_bp
+
+# Initialize the blueprint when this module is imported
+init_recommendations_blueprint()
+

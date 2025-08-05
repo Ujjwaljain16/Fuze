@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app import app
+# from app import app  # Removed to fix circular import
 from models import db, SavedContent, ContentAnalysis, User, Feedback
 from redis_utils import redis_cache
 
@@ -725,6 +725,12 @@ class UnifiedIntelligentEngine:
             if not candidates:
                 return []
             
+            # Extract technologies from request using improved extraction
+            request_techs = self._extract_project_technologies(request_data)
+            
+            # Update request_data with extracted technologies
+            request_data['technologies'] = request_techs
+            
             results = []
             for content, analysis in candidates:
                 # Analyze content
@@ -768,7 +774,14 @@ class UnifiedIntelligentEngine:
     def _get_candidate_content(self, user_id: int, request_data: Dict[str, Any]) -> List[Tuple[SavedContent, ContentAnalysis]]:
         """Get candidate content for recommendations with improved relevance and performance"""
         try:
-            with app.app_context():
+            # Create a minimal app context without importing app
+            from flask import Flask
+            temp_app = Flask(__name__)
+            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///test.db')
+            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            
+            with temp_app.app_context():
+                db.init_app(temp_app)
                 # Use more efficient query with better filtering
                 base_query = db.session.query(SavedContent, ContentAnalysis).join(
                     ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
@@ -785,8 +798,11 @@ class UnifiedIntelligentEngine:
                     )
                     base_query = base_query.filter(tech_filter)
                 
-                # Limit results for performance
-                candidates = base_query.limit(50).all()
+                # Limit results for performance with proper ordering
+                candidates = base_query.order_by(
+                    SavedContent.quality_score.desc(),
+                    ContentAnalysis.created_at.desc()
+                ).limit(500).all()
                 
                 return candidates
                 
@@ -796,40 +812,65 @@ class UnifiedIntelligentEngine:
     
     def _calculate_hybrid_score(self, content: SavedContent, analysis: ContentAnalysis, 
                               analysis_result: Dict[str, Any], request_data: Dict[str, Any]) -> float:
-        """Calculate hybrid recommendation score with improved relevance"""
+        """Calculate hybrid recommendation score with embedding-based semantic similarity"""
         score = 0.0
         
-        # Technology match (40% - much higher weight for relevance)
+        # Import embedding utilities
+        from embedding_utils import (
+            get_content_embedding, 
+            get_embedding,
+            calculate_cosine_similarity
+        )
+        
+        # Major weight to embedding-based semantic similarity (60%)
+        try:
+            # Get content embedding
+            content_embedding = get_content_embedding(content)
+            
+            # Create request text for embedding
+            request_text = f"technologies: {' '.join(request_data.get('technologies', []))} content_type: {request_data.get('content_type', 'general')} difficulty: {request_data.get('difficulty', 'intermediate')}"
+            request_embedding = get_embedding(request_text)
+            
+            # Calculate semantic similarity
+            semantic_similarity = calculate_cosine_similarity(content_embedding, request_embedding)
+            score += semantic_similarity * 6.0  # Scale to 60%
+            
+        except Exception as embedding_error:
+            print(f"Embedding calculation failed, falling back to keyword matching: {embedding_error}")
+            # Fallback to keyword matching
+            tech_match = self._calculate_technology_match(
+                analysis_result['technologies'], 
+                request_data.get('technologies', [])
+            )
+            score += tech_match * 3.0  # Scale to 30% as fallback
+        
+        # Technology match (reduced weight - 15%)
         tech_match = self._calculate_technology_match(
             analysis_result['technologies'], 
             request_data.get('technologies', [])
         )
-        score += tech_match * 4.0  # Scale to 40%
+        score += tech_match * 1.5  # Scale to 15%
         
-        # Quality score (25%)
-        score += analysis_result['quality_score'] * 0.25
+        # Quality score (reduced weight - 10%)
+        score += analysis_result['quality_score'] * 0.1
         
-        # Content type relevance (20%)
+        # Content type relevance (reduced weight - 10%)
         content_relevance = self._calculate_content_relevance(
             analysis_result['content_type'],
             request_data.get('content_type', 'general')
         )
-        score += content_relevance * 2.0  # Scale to 20%
+        score += content_relevance * 1.0  # Scale to 10%
         
-        # Difficulty alignment (10%)
+        # Difficulty alignment (reduced weight - 3%)
         difficulty_alignment = self._calculate_difficulty_alignment(
             analysis_result['difficulty'],
             request_data.get('difficulty', 'intermediate')
         )
-        score += difficulty_alignment * 1.0  # Scale to 10%
+        score += difficulty_alignment * 0.3  # Scale to 3%
         
-        # Recency bonus (5%)
+        # Recency bonus (reduced weight - 2%)
         recency_bonus = self._calculate_recency_bonus(content.saved_at)
-        score += recency_bonus * 0.5  # Scale to 5%
-        
-        # Apply relevance penalty for low technology match
-        if tech_match < 0.3:  # Very low technology relevance
-            score *= 0.3  # Heavily penalize irrelevant content
+        score += recency_bonus * 0.2  # Scale to 2%
         
         return min(10.0, score)
     
@@ -1047,6 +1088,12 @@ class UnifiedIntelligentEngine:
             if not candidates:
                 return []
             
+            # Extract technologies from request using improved extraction
+            request_techs = self._extract_project_technologies(request_data)
+            
+            # Update request_data with extracted technologies
+            request_data['technologies'] = request_techs
+            
             # Build content corpus for TF-IDF
             content_texts = []
             for content, analysis in candidates:
@@ -1152,25 +1199,106 @@ class UnifiedIntelligentEngine:
         return (tech_similarity * 0.4 + type_similarity * 0.3 + difficulty_similarity * 0.3)
 
     def _build_request_text(self, request_data: Dict[str, Any]) -> str:
-        """Build text representation of request for embedding/similarity"""
+        """Build comprehensive request text for semantic analysis"""
         text_parts = []
         
         if request_data.get('project_title'):
-            text_parts.append(request_data['project_title'])
+            text_parts.append(str(request_data['project_title']))
         
-        if request_data.get('description'):
-            text_parts.append(request_data['description'])
+        if request_data.get('project_description'):
+            text_parts.append(str(request_data['project_description']))
+        
+        if request_data.get('learning_goals'):
+            text_parts.append(str(request_data['learning_goals']))
         
         if request_data.get('technologies'):
-            text_parts.extend(request_data['technologies'])
-        
-        if request_data.get('content_type'):
-            text_parts.append(request_data['content_type'])
-        
-        if request_data.get('difficulty'):
-            text_parts.append(request_data['difficulty'])
+            tech_data = request_data['technologies']
+            if isinstance(tech_data, list):
+                text_parts.append(', '.join(tech_data))
+            else:
+                text_parts.append(str(tech_data))
         
         return ' '.join(text_parts)
+    
+    def _extract_project_technologies(self, request_data: Dict[str, Any]) -> List[str]:
+        """Extract relevant technologies from project information"""
+        technologies = []
+        
+        # Extract from explicit technologies field
+        if request_data.get('technologies'):
+            tech_data = request_data['technologies']
+            if isinstance(tech_data, str):
+                technologies.extend([tech.strip() for tech in tech_data.split(',') if tech.strip()])
+            elif isinstance(tech_data, list):
+                technologies.extend([str(tech).strip() for tech in tech_data if tech])
+        
+        # Extract from project title and description
+        project_text = self._build_request_text(request_data)
+        
+        # Common technology patterns for different project types
+        project_patterns = {
+            'expense': ['python', 'javascript', 'react', 'node.js', 'sql', 'database', 'api', 'web', 'mobile'],
+            'tracker': ['python', 'javascript', 'react', 'node.js', 'sql', 'database', 'api', 'web', 'mobile'],
+            'finance': ['python', 'javascript', 'react', 'node.js', 'sql', 'database', 'api', 'excel', 'analytics'],
+            'budget': ['python', 'javascript', 'react', 'node.js', 'sql', 'database', 'api', 'excel', 'analytics'],
+            'mobile': ['react native', 'flutter', 'android', 'ios', 'javascript', 'dart', 'kotlin', 'swift'],
+            'web': ['html', 'css', 'javascript', 'react', 'vue', 'angular', 'node.js', 'python', 'django', 'flask'],
+            'api': ['python', 'node.js', 'django', 'flask', 'express', 'fastapi', 'rest', 'graphql'],
+            'database': ['sql', 'mysql', 'postgresql', 'mongodb', 'sqlite', 'redis'],
+            'machine learning': ['python', 'tensorflow', 'pytorch', 'scikit-learn', 'pandas', 'numpy'],
+            'data': ['python', 'pandas', 'numpy', 'matplotlib', 'seaborn', 'sql', 'excel'],
+            'game': ['unity', 'unreal', 'c#', 'c++', 'javascript', 'python', 'godot'],
+            'ecommerce': ['react', 'vue', 'angular', 'node.js', 'python', 'django', 'sql', 'payment', 'stripe'],
+            'social': ['react', 'vue', 'angular', 'node.js', 'python', 'django', 'sql', 'websocket', 'real-time'],
+            'dashboard': ['react', 'vue', 'angular', 'd3.js', 'chart.js', 'python', 'django', 'flask'],
+            'automation': ['python', 'selenium', 'requests', 'beautifulsoup', 'api', 'scripting'],
+            'chat': ['react', 'vue', 'angular', 'node.js', 'websocket', 'socket.io', 'real-time', 'api'],
+            'blog': ['react', 'vue', 'angular', 'node.js', 'python', 'django', 'wordpress', 'content management'],
+            'portfolio': ['html', 'css', 'javascript', 'react', 'vue', 'angular', 'design', 'responsive'],
+            'calculator': ['javascript', 'react', 'vue', 'angular', 'python', 'math', 'algorithm'],
+            'todo': ['javascript', 'react', 'vue', 'angular', 'node.js', 'python', 'django', 'flask'],
+            'weather': ['javascript', 'react', 'vue', 'angular', 'api', 'fetch', 'axios', 'python'],
+            'news': ['javascript', 'react', 'vue', 'angular', 'api', 'rss', 'python', 'django', 'flask'],
+            'recipe': ['javascript', 'react', 'vue', 'angular', 'api', 'database', 'python', 'django'],
+            'music': ['javascript', 'react', 'vue', 'angular', 'audio', 'api', 'spotify', 'python'],
+            'fitness': ['javascript', 'react', 'vue', 'angular', 'mobile', 'api', 'python', 'health'],
+            'education': ['javascript', 'react', 'vue', 'angular', 'python', 'django', 'flask', 'learning'],
+            'travel': ['javascript', 'react', 'vue', 'angular', 'api', 'maps', 'python', 'django'],
+            'shopping': ['javascript', 'react', 'vue', 'angular', 'ecommerce', 'payment', 'api', 'python'],
+            'booking': ['javascript', 'react', 'vue', 'angular', 'api', 'database', 'python', 'django'],
+            'analytics': ['python', 'pandas', 'numpy', 'matplotlib', 'seaborn', 'd3.js', 'chart.js', 'sql'],
+            'crm': ['javascript', 'react', 'vue', 'angular', 'python', 'django', 'sql', 'api'],
+            'inventory': ['javascript', 'react', 'vue', 'angular', 'python', 'django', 'sql', 'database'],
+            'scheduling': ['javascript', 'react', 'vue', 'angular', 'python', 'django', 'calendar', 'api'],
+            'file': ['javascript', 'react', 'vue', 'angular', 'python', 'django', 'upload', 'storage'],
+            'image': ['javascript', 'react', 'vue', 'angular', 'python', 'opencv', 'pil', 'processing'],
+            'video': ['javascript', 'react', 'vue', 'angular', 'python', 'opencv', 'ffmpeg', 'streaming'],
+            'audio': ['javascript', 'react', 'vue', 'angular', 'python', 'pyaudio', 'processing', 'music'],
+            'pdf': ['javascript', 'react', 'vue', 'angular', 'python', 'pdf', 'processing', 'generation'],
+            'email': ['javascript', 'react', 'vue', 'angular', 'python', 'smtp', 'email', 'notification'],
+            'notification': ['javascript', 'react', 'vue', 'angular', 'python', 'push', 'email', 'sms'],
+            'authentication': ['javascript', 'react', 'vue', 'angular', 'python', 'jwt', 'oauth', 'security'],
+            'payment': ['javascript', 'react', 'vue', 'angular', 'python', 'stripe', 'paypal', 'payment'],
+            'search': ['javascript', 'react', 'vue', 'angular', 'python', 'elasticsearch', 'search', 'algorithm'],
+            'recommendation': ['javascript', 'react', 'vue', 'angular', 'python', 'machine learning', 'algorithm'],
+            'chatbot': ['javascript', 'react', 'vue', 'angular', 'python', 'nlp', 'ai', 'machine learning'],
+            'ai': ['python', 'tensorflow', 'pytorch', 'scikit-learn', 'nlp', 'machine learning', 'ai'],
+            'blockchain': ['javascript', 'python', 'solidity', 'web3', 'ethereum', 'blockchain', 'crypto'],
+            'iot': ['python', 'raspberry pi', 'arduino', 'sensors', 'mqtt', 'iot', 'hardware'],
+            'vr': ['unity', 'unreal', 'c#', 'c++', 'vr', 'ar', '3d', 'gaming'],
+            'ar': ['unity', 'unreal', 'c#', 'c++', 'ar', 'vr', '3d', 'mobile'],
+        }
+        
+        # Extract technologies based on project keywords
+        project_lower = project_text.lower()
+        for keyword, techs in project_patterns.items():
+            if keyword in project_lower:
+                technologies.extend(techs)
+        
+        # Remove duplicates and normalize
+        unique_techs = list(set([tech.lower().strip() for tech in technologies if tech.strip()]))
+        
+        return unique_techs
 
     def _calculate_cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors"""

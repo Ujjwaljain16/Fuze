@@ -50,7 +50,7 @@ def create_app():
     if app.config.get('DEBUG'):
         # Development: Allow all origins with credentials
         CORS(app, 
-             origins=app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173']), 
+             origins=app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']), 
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
