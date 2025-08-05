@@ -318,6 +318,32 @@ class UnifiedDataLayer:
         except Exception as e:
             logger.error(f"Error calculating semantic similarity: {e}")
             return 0.5
+    
+    def calculate_batch_similarities(self, request_text: str, content_texts: List[str]) -> List[float]:
+        """Calculate semantic similarities for multiple content texts in batch"""
+        try:
+            if not self.embedding_model:
+                return [0.5] * len(content_texts)
+            
+            # Generate embeddings in batch
+            all_texts = [request_text] + content_texts
+            embeddings = self.embedding_model.encode(all_texts, show_progress_bar=False, batch_size=32)
+            
+            # Extract request embedding
+            request_embedding = embeddings[0]
+            content_embeddings = embeddings[1:]
+            
+            # Calculate similarities
+            similarities = []
+            for content_emb in content_embeddings:
+                similarity = np.dot(request_embedding, content_emb) / (np.linalg.norm(request_embedding) * np.linalg.norm(content_emb))
+                similarities.append(float(similarity))
+            
+            return similarities
+            
+        except Exception as e:
+            logger.error(f"Error calculating batch similarities: {e}")
+            return [0.5] * len(content_texts)
 
 class FastSemanticEngine:
     """Fast semantic similarity engine (Primary)"""
@@ -355,14 +381,19 @@ class FastSemanticEngine:
                 except Exception as e:
                     logger.warning(f"Could not load project context: {e}")
             
+            # OPTIMIZATION: Use batch embedding generation instead of individual calls
+            content_texts = []
+            for content in content_list:
+                content_text = f"{content['title']} {content['extracted_text']} {' '.join(content['technologies'])}"
+                content_texts.append(content_text)
+            
+            # Calculate similarities in batch
+            similarities = self.data_layer.calculate_batch_similarities(request_text, content_texts)
+            
             recommendations = []
             
-            for content in content_list:
-                # Create content text
-                content_text = f"{content['title']} {content['extracted_text']} {' '.join(content['technologies'])}"
-                
-                # Calculate semantic similarity
-                similarity = self.data_layer.calculate_semantic_similarity(request_text, content_text)
+            for i, content in enumerate(content_list):
+                similarity = similarities[i]
                 
                 # Calculate technology overlap
                 tech_overlap = self._calculate_technology_overlap(

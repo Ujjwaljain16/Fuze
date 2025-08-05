@@ -29,14 +29,7 @@ const Recommendations = () => {
     { value: 'general', label: 'General' }
   ])
   
-  // Multi-phase recommendation system
-  const [phase1Available, setPhase1Available] = useState(false)
-  const [phase2Available, setPhase2Available] = useState(false)
-  const [phase3Available, setPhase3Available] = useState(false)
-  const [usePhase1, setUsePhase1] = useState(true)
-  const [usePhase2, setUsePhase2] = useState(false)  // Disable Phase 2 by default for speed
-  const [usePhase3, setUsePhase3] = useState(false)  // Disable Phase 3 by default for speed
-  const [performanceMode, setPerformanceMode] = useState(true)  // Enable performance mode by default
+
   
   // Recommendation form
   const [recommendationForm, setRecommendationForm] = useState({
@@ -48,9 +41,42 @@ const Recommendations = () => {
   const [showRecommendationForm, setShowRecommendationForm] = useState(false)
   const [enhancedFeatures, setEnhancedFeatures] = useState([])
   const [performanceMetrics, setPerformanceMetrics] = useState(null)
-  const [learningInsights, setLearningInsights] = useState(null)
-  const [contextualInfo, setContextualInfo] = useState(null)
+
   const [selectedProject, setSelectedProject] = useState(null)
+  
+  // Engine selection state
+  const [selectedEngine, setSelectedEngine] = useState('unified') // Default to unified
+  
+  // Engine configurations with better names and icons
+  const engines = [
+    {
+      id: 'unified',
+      name: 'Swift Match',
+      description: 'Fast & Reliable',
+      color: 'from-blue-500 via-cyan-500 to-blue-600',
+      hoverColor: 'from-blue-400 via-cyan-400 to-blue-500',
+      glowColor: 'shadow-blue-500/50',
+      icon: Zap
+    },
+    {
+      id: 'ensemble',
+      name: 'Smart Fusion',
+      description: 'Multi-Engine Intelligence',
+      color: 'from-purple-500 via-pink-500 to-purple-600',
+      hoverColor: 'from-purple-400 via-pink-400 to-purple-500',
+      glowColor: 'shadow-purple-500/50',
+      icon: Brain
+    },
+    {
+      id: 'gemini',
+      name: 'AI Genius',
+      description: 'Advanced AI Insights',
+      color: 'from-orange-500 via-red-500 to-orange-600',
+      hoverColor: 'from-orange-400 via-red-400 to-orange-500',
+      glowColor: 'shadow-orange-500/50',
+      icon: Sparkles
+    }
+  ]
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -65,7 +91,6 @@ const Recommendations = () => {
     if (isAuthenticated) {
       fetchProjects()
       checkGeminiStatus()
-      checkPhaseStatus()
       fetchPerformanceMetrics()
       fetchRecommendations()
     }
@@ -75,7 +100,7 @@ const Recommendations = () => {
     if (isAuthenticated && filter) {
       fetchRecommendations()
     }
-  }, [filter, usePhase1, usePhase2, usePhase3, selectedProject])
+  }, [filter, selectedProject, selectedEngine])
 
   const checkGeminiStatus = async () => {
     try {
@@ -86,28 +111,16 @@ const Recommendations = () => {
       // Check if unified orchestrator is available
       if (response.data.unified_orchestrator_available) {
         setGeminiAvailable(response.data.gemini_integration_available || false)
-        setPhase1Available(true) // Unified orchestrator includes Phase 1
-        setPhase2Available(response.data.gemini_integration_available || false)
-        setPhase3Available(response.data.gemini_integration_available || false)
       } else {
         setGeminiAvailable(false)
-        setPhase1Available(false)
-        setPhase2Available(false)
-        setPhase3Available(false)
       }
     } catch (error) {
       console.error('Error checking unified orchestrator status:', error)
       setGeminiAvailable(false)
-      setPhase1Available(false)
-      setPhase2Available(false)
-      setPhase3Available(false)
     }
   }
 
-  const checkPhaseStatus = async () => {
-    // This function is now handled by checkGeminiStatus
-    // Keeping it for backward compatibility
-  }
+
 
   const fetchPerformanceMetrics = async () => {
     try {
@@ -137,16 +150,7 @@ const Recommendations = () => {
 
 
 
-  const fetchLearningInsights = async () => {
-    try {
-      if (!phase3Available) return
-      
-      const response = await api.get('/api/recommendations/phase3/insights')
-      setLearningInsights(response.data)
-    } catch (error) {
-      console.error('Error fetching learning insights:', error)
-    }
-  }
+
 
   const fetchProjects = async () => {
     try {
@@ -198,7 +202,27 @@ const Recommendations = () => {
   const fetchRecommendations = async () => {
     try {
       setLoading(true)
-      let endpoint = '/api/recommendations/unified-orchestrator'
+      
+      // Get current engine configuration
+      const currentEngine = engines.find(e => e.id === selectedEngine)
+      if (!currentEngine) return
+
+      // Set endpoint based on selected engine
+      let endpoint
+      switch (selectedEngine) {
+        case 'unified':
+          endpoint = '/api/recommendations/unified-orchestrator'
+          break
+        case 'ensemble':
+          endpoint = '/api/recommendations/ensemble'
+          break
+        case 'gemini':
+          endpoint = '/api/recommendations/gemini'
+          break
+        default:
+          endpoint = '/api/recommendations/unified-orchestrator'
+      }
+      
       let method = 'POST'
       let data = {
         title: selectedProject ? selectedProject.title : 'Learning Project',
@@ -210,7 +234,14 @@ const Recommendations = () => {
         diversity_weight: 0.3,
         quality_threshold: 6,
         include_global_content: true,
-        enhance_with_gemini: geminiAvailable && (usePhase2 || usePhase3)
+        enhance_with_gemini: geminiAvailable
+      }
+      
+      // Add engine-specific payload
+      if (selectedEngine === 'ensemble') {
+        data.engines = ['unified', 'smart', 'enhanced']
+        data.ensemble_method = 'weighted_voting'
+        console.log('Using ensemble with engines:', data.engines)
       }
       
       // Handle project-specific recommendations
@@ -227,7 +258,7 @@ const Recommendations = () => {
       console.log(`Fetching unified orchestrator recommendations from: ${endpoint}`)
       console.log('Request data:', data)
       console.log('Active features:', {
-        gemini: geminiAvailable && (usePhase2 || usePhase3),
+        gemini: geminiAvailable,
         engine_preference: data.engine_preference
       })
       
@@ -244,10 +275,7 @@ const Recommendations = () => {
           setContextualInfo(response.data.contextual_info)
         }
         
-        // Extract learning insights from unified response
-        if (response.data.learning_insights) {
-          setLearningInsights(response.data.learning_insights)
-        }
+        
         
         // Extract performance metrics
         if (response.data.performance_metrics) {
@@ -426,10 +454,10 @@ const Recommendations = () => {
             </div>
 
             {/* Controls Section */}
-            <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-6 border border-gray-800">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+            <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between space-y-6 xl:space-y-0 xl:space-x-8">
                 {/* Filter Controls */}
-                <div className="flex items-center space-x-4">
+                <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
                   <div className="flex items-center space-x-3">
                     <Filter className="w-5 h-5 text-blue-400" />
                     <span className="text-white font-medium">Filter by:</span>
@@ -506,201 +534,77 @@ const Recommendations = () => {
                   )}
                 </div>
                 
-                {/* Performance Mode Toggle */}
-                <div className="flex items-center space-x-3 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 rounded-xl p-3 border border-blue-500/30">
-                  <Zap className="w-5 h-5 text-blue-400" />
-                  <span className="text-white font-medium">Performance Mode:</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={performanceMode}
-                      onChange={(e) => setPerformanceMode(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                  <span className="text-gray-300 text-sm">
-                    {performanceMode ? 'Fast' : 'Full AI'}
+                {/* Engine Selection */}
+                <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
+                  <div className="flex items-center space-x-3">
+                    <Zap className="w-5 h-5 text-green-400" />
+                    <span className="text-white font-medium">Engine:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {engines.map((engine) => {
+                      const IconComponent = engine.icon;
+                      return (
+                        <button
+                          key={engine.id}
+                          onClick={() => setSelectedEngine(engine.id)}
+                          className={`relative px-6 py-4 rounded-xl border-2 transition-all duration-300 hover:scale-105 group overflow-hidden ${
+                            selectedEngine === engine.id
+                              ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
+                              : 'border-gray-700 bg-gray-800/50 hover:border-gray-600 hover:bg-gray-700/50'
+                          }`}
+                        >
+                          {/* Click effect overlay */}
+                          <div className={`absolute inset-0 bg-gradient-to-r ${engine.color} opacity-0 transition-opacity duration-200 ${selectedEngine === engine.id ? 'opacity-15' : ''}`}></div>
+                          
+                          <div className="relative flex items-center gap-3">
+                            <IconComponent className={`w-5 h-5 transition-all duration-200 ${
+                              selectedEngine === engine.id 
+                                ? 'text-white drop-shadow-sm' 
+                                : 'text-gray-300 group-hover:text-white'
+                            }`} />
+                            <div className="text-left">
+                              <div className={`font-semibold text-sm transition-all duration-200 ${
+                                selectedEngine === engine.id 
+                                  ? 'text-white drop-shadow-sm' 
+                                  : 'text-gray-200 group-hover:text-white'
+                              }`}>
+                                {engine.name}
+                              </div>
+                              <div className={`text-xs transition-all duration-200 ${
+                                selectedEngine === engine.id 
+                                  ? 'text-gray-100' 
+                                  : 'text-gray-300 group-hover:text-gray-200'
+                              }`}>
+                                {engine.description}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Selection indicator - Green dot */}
+                          {selectedEngine === engine.id && (
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center shadow-md">
+                              <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Gemini Status */}
+                <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
+                  <Brain className="w-5 h-5 text-yellow-400" />
+                  <span className="text-white font-medium">Gemini:</span>
+                  <div className={`w-2 h-2 rounded-full ${geminiAvailable ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                  <span className={`text-sm ${geminiAvailable ? 'text-green-300' : 'text-red-300'}`}>
+                    {geminiAvailable ? 'Ready' : 'Unavailable'}
                   </span>
                 </div>
-
-                {/* Multi-Phase AI Controls */}
-                <div className="flex items-center space-x-4">
-                  {/* Phase 1 - Smart Match */}
-                  <div className="flex items-center space-x-3 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-xl p-3 border border-green-500/30">
-                    <Sparkles className="w-5 h-5 text-green-400" />
-                    <span className="text-white font-medium">Smart Match:</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={usePhase1 && phase1Available}
-                        onChange={(e) => setUsePhase1(e.target.checked)}
-                        disabled={!phase1Available}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-green-600 peer-checked:to-emerald-600 disabled:opacity-50"></div>
-                    </label>
-                    <span className="text-green-300 text-sm">Fast & Reliable</span>
-                  </div>
-
-                  {/* Phase 2 - Power Boost */}
-                  <div className="flex items-center space-x-3 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 rounded-xl p-3 border border-blue-500/30">
-                    <Zap className="w-5 h-5 text-blue-400" />
-                    <span className="text-white font-medium">Power Boost:</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={usePhase2 && phase2Available}
-                        onChange={(e) => setUsePhase2(e.target.checked)}
-                        disabled={!phase2Available}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-blue-600 peer-checked:to-cyan-600 disabled:opacity-50"></div>
-                    </label>
-                    <span className="text-blue-300 text-sm">Semantic Search</span>
-                  </div>
-
-                  {/* Phase 3 - Genius Mode */}
-                  <div className="flex items-center space-x-3 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl p-3 border border-purple-500/30">
-                    <Brain className="w-5 h-5 text-purple-400" />
-                    <span className="text-white font-medium">Genius Mode:</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={usePhase3 && phase3Available}
-                        onChange={(e) => setUsePhase3(e.target.checked)}
-                        disabled={!phase3Available}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300/25 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-purple-600 peer-checked:to-pink-600 disabled:opacity-50"></div>
-                    </label>
-                    <span className="text-purple-300 text-sm">AI + Context</span>
-                  </div>
-
-                  {/* Gemini Status */}
-                  <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
-                    <Brain className="w-5 h-5 text-yellow-400" />
-                    <span className="text-white font-medium">Gemini:</span>
-                    <div className={`w-2 h-2 rounded-full ${geminiAvailable ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-                    <span className={`text-sm ${geminiAvailable ? 'text-green-300' : 'text-red-300'}`}>
-                      {geminiAvailable ? 'Ready' : 'Unavailable'}
-                    </span>
-                  </div>
-                </div>
               </div>
             </div>
 
-            {/* Multi-Phase AI Recommendation System */}
-            <div className="mb-8 bg-gradient-to-br from-green-900/20 via-blue-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
-              <div className="flex items-center space-x-3 mb-6">
-                <div className="relative">
-                  <Brain className="w-6 h-6 text-green-400" />
-                  <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
-                </div>
-                <h3 className="text-xl font-semibold text-white">Multi-Phase AI Recommendations</h3>
-                <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 via-blue-600/20 to-purple-600/20 px-3 py-1 rounded-full">
-                  <Sparkles className="w-4 h-4 text-green-400" />
-                  <span className="text-green-400 text-sm font-medium">Phase 1+2+3</span>
-                </div>
-              </div>
-              
-              <div className="text-center">
-                <p className="text-gray-300 mb-6">
-                  Get the best recommendations by combining all AI modes: Smart Match (fast & reliable), Power Boost (semantic search), and Genius Mode (AI-powered insights) with Gemini integration for optimal results.
-                </p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-green-800/20 rounded-xl p-4 border border-green-500/30">
-                    <Sparkles className="w-8 h-8 text-green-400 mx-auto mb-2" />
-                    <h4 className="text-green-300 font-semibold">Smart Match</h4>
-                    <p className="text-gray-400 text-sm">Fast & reliable keyword matching</p>
-                  </div>
-                  <div className="bg-blue-800/20 rounded-xl p-4 border border-blue-500/30">
-                    <Zap className="w-8 h-8 text-blue-400 mx-auto mb-2" />
-                    <h4 className="text-blue-300 font-semibold">Power Boost</h4>
-                    <p className="text-gray-400 text-sm">Semantic search & smart caching</p>
-                  </div>
-                  <div className="bg-purple-800/20 rounded-xl p-4 border border-purple-500/30">
-                    <Brain className="w-8 h-8 text-purple-400 mx-auto mb-2" />
-                    <h4 className="text-purple-300 font-semibold">Genius Mode</h4>
-                    <p className="text-gray-400 text-sm">AI-powered contextual insights</p>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => setShowRecommendationForm(!showRecommendationForm)}
-                  disabled={loading}
-                  className="bg-gradient-to-r from-green-600 via-blue-600 to-purple-600 px-8 py-4 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-3 mx-auto"
-                >
-                  <Brain className="w-6 h-6" />
-                  <span>{loading ? 'Processing...' : 'Get Multi-Phase AI Recommendations'}</span>
-                </button>
-                
-                {loading && (
-                  <div className="mt-4 text-green-400 text-sm">
-                    <Clock className="w-4 h-4 inline mr-2" />
-                    Processing with all AI phases (this may take a moment for optimal results)
-                  </div>
-                )}
-              </div>
 
-              {/* Simple Recommendation Form */}
-              {showRecommendationForm && (
-                <div className="mt-6 p-6 bg-gray-800/30 rounded-xl border border-blue-500/30">
-                  <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                    <Brain className="w-5 h-5 text-blue-400" />
-                    <span>Customize Your Request (Optional)</span>
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Project Title</label>
-                      <input
-                        type="text"
-                        value={recommendationForm.project_title}
-                        onChange={(e) => setRecommendationForm(prev => ({ ...prev, project_title: e.target.value }))}
-                        placeholder="e.g., React Learning Project"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Technologies</label>
-                      <input
-                        type="text"
-                        value={recommendationForm.technologies}
-                        onChange={(e) => setRecommendationForm(prev => ({ ...prev, technologies: e.target.value }))}
-                        placeholder="e.g., JavaScript, React, Node.js"
-                        className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-4">
-                    <label className="block text-gray-300 text-sm font-medium mb-2">Learning Goals</label>
-                    <input
-                      type="text"
-                      value={recommendationForm.learning_goals}
-                      onChange={(e) => setRecommendationForm(prev => ({ ...prev, learning_goals: e.target.value }))}
-                      placeholder="e.g., Master React hooks and state management"
-                      className="w-full px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="flex space-x-4">
-                    <button
-                      onClick={() => fetchRecommendations()}
-                      disabled={loading}
-                      className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-lg font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading ? 'Getting Recommendations...' : 'Get Recommendations'}
-                    </button>
-                    <button
-                      onClick={() => setShowRecommendationForm(false)}
-                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-all duration-300"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* Enhanced Features Display */}
             {enhancedFeatures && enhancedFeatures.length > 0 && (
@@ -729,173 +633,11 @@ const Recommendations = () => {
               </div>
             )}
 
-            {/* Learning Insights Display */}
-            {learningInsights && (
-              <div className="mb-8 bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="relative">
-                    <Brain className="w-6 h-6 text-blue-400" />
-                    <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-white">Learning Insights</h3>
-                  <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 px-3 py-1 rounded-full">
-                    <TargetIcon className="w-4 h-4 text-blue-400" />
-                    <span className="text-blue-300 text-sm font-medium">Phase 3</span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {/* Engagement Score */}
-                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-300 text-sm">Engagement</span>
-                      <span className="text-blue-400 font-semibold">
-                        {Math.round(learningInsights.engagement_score * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-500"
-                        style={{ width: `${learningInsights.engagement_score * 100}%` }}
-                      />
-                    </div>
-                  </div>
 
-                  {/* Content Effectiveness */}
-                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-300 text-sm">Effectiveness</span>
-                      <span className="text-green-400 font-semibold">
-                        {Math.round(learningInsights.content_effectiveness * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-500"
-                        style={{ width: `${learningInsights.content_effectiveness * 100}%` }}
-                      />
-                    </div>
-                  </div>
+              
 
-                  {/* Learning Progress */}
-                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-300 text-sm">Progress</span>
-                      <span className="text-yellow-400 font-semibold">
-                        {Math.round(learningInsights.learning_progress * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-500"
-                        style={{ width: `${learningInsights.learning_progress * 100}%` }}
-                      />
-                    </div>
-                  </div>
 
-                  {/* User Satisfaction */}
-                  <div className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-300 text-sm">Satisfaction</span>
-                      <span className="text-purple-400 font-semibold">
-                        {Math.round(learningInsights.user_satisfaction * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
-                        style={{ width: `${learningInsights.user_satisfaction * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                {/* Contextual Information */}
-                {contextualInfo && (
-                  <div className="mt-6 p-4 bg-gray-800/20 rounded-xl border border-gray-700/30">
-                    <h4 className="text-lg font-semibold text-white mb-3">Contextual Analysis</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <span className="text-gray-400 text-sm">Device</span>
-                        <p className="text-blue-300 font-medium">{contextualInfo.device_optimized}</p>
-                      </div>
-                      <div className="text-center">
-                        <span className="text-gray-400 text-sm">Time</span>
-                        <p className="text-green-300 font-medium">{contextualInfo.time_appropriate}</p>
-                      </div>
-                      <div className="text-center">
-                        <span className="text-gray-400 text-sm">Session</span>
-                        <p className="text-yellow-300 font-medium">
-                          {contextualInfo.session_context ? 'Active' : 'New'}
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <span className="text-gray-400 text-sm">Day</span>
-                        <p className="text-purple-300 font-medium">{contextualInfo.day_of_week}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Performance Metrics Display */}
-            {usePhase2 && phase2Available && (
-              <div className="mb-8 bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center space-x-3">
-                    <div className="relative">
-                      <BarChart3 className="w-6 h-6 text-green-400" />
-                      <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-white">Enhanced Engine Performance</h3>
-                    <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 px-3 py-1 rounded-full">
-                      <TrendingUp className="w-4 h-4 text-green-400" />
-                      <span className="text-green-400 text-sm font-medium">Smart Match + Power Boost</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={fetchPerformanceMetrics}
-                    className="bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                </div>
-                
-                {performanceMetrics ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                      <div className="text-green-400 font-semibold mb-2">Response Time</div>
-                      <div className="text-gray-300 text-sm">
-                        {performanceMetrics.performance_metrics?.response_time_ms?.toFixed(2) || 'N/A'} ms
-                      </div>
-                    </div>
-                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                      <div className="text-green-400 font-semibold mb-2">Cache Hit Rate</div>
-                      <div className="text-gray-300 text-sm">
-                        {(performanceMetrics.performance_metrics?.cache_hit_rate * 100)?.toFixed(1) || 'N/A'}%
-                      </div>
-                    </div>
-                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                      <div className="text-green-400 font-semibold mb-2">Error Rate</div>
-                      <div className="text-gray-300 text-sm">
-                        {(performanceMetrics.performance_metrics?.error_rate * 100)?.toFixed(2) || 'N/A'}%
-                      </div>
-                    </div>
-                    <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                      <div className="text-green-400 font-semibold mb-2">Throughput</div>
-                      <div className="text-gray-300 text-sm">
-                        {performanceMetrics.performance_metrics?.throughput || 'N/A'} req/min
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400">Click refresh to load performance metrics</p>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Context Analysis Display (Gemini Enhanced) */}
             {contextAnalysis && (
@@ -1022,47 +764,7 @@ const Recommendations = () => {
               </div>
             )}
 
-            {/* Task Analysis Display */}
-            {taskAnalysis && (
-              <div className="mb-8 bg-gradient-to-br from-green-900/20 to-emerald-900/20 backdrop-blur-xl rounded-2xl p-6 border border-green-500/30">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="relative">
-                    <Target className="w-6 h-6 text-green-400" />
-                    <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-white">Task Analysis</h3>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                    <div className="text-green-400 font-semibold mb-2">Technologies</div>
-                    <div className="text-gray-300 text-sm">
-                      {taskAnalysis.technologies.length > 0 
-                        ? taskAnalysis.technologies.join(', ') 
-                        : 'None detected'
-                      }
-                    </div>
-                  </div>
-                  <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                    <div className="text-green-400 font-semibold mb-2">Task Type</div>
-                    <div className="text-gray-300 text-sm">{taskAnalysis.task_type}</div>
-                  </div>
-                  <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                    <div className="text-green-400 font-semibold mb-2">Complexity</div>
-                    <div className="text-gray-300 text-sm">{taskAnalysis.complexity}</div>
-                  </div>
-                  <div className="bg-gray-800/30 rounded-xl p-4 text-center">
-                    <div className="text-green-400 font-semibold mb-2">Requirements</div>
-                    <div className="text-gray-300 text-sm">
-                      {taskAnalysis.requirements.length > 0 
-                        ? taskAnalysis.requirements.join(', ') 
-                        : 'None detected'
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+
 
             {/* Loading State */}
             {loading ? (

@@ -211,6 +211,92 @@ def invalidate_user_recommendations(user_id):
 # API ROUTES - Using Unified Orchestrator
 # ============================================================================
 
+@recommendations_bp.route('/gemini', methods=['POST'])
+@jwt_required()
+def get_gemini_recommendations():
+    """Get Gemini AI-powered recommendations"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Import Gemini integration
+        try:
+            from gemini_integration_layer import get_gemini_enhanced_recommendations
+        except ImportError as e:
+            logger.error(f"Gemini integration not available: {e}")
+            return jsonify({'error': 'Gemini integration not available'}), 500
+        
+        # Get Gemini recommendations
+        results = get_gemini_enhanced_recommendations(user_id, data)
+        
+        response = {
+            'recommendations': results,
+            'total_recommendations': len(results),
+            'engine_used': 'Gemini AI',
+            'performance_metrics': {
+                'ai_enhanced': True,
+                'total_recommendations': len(results)
+            },
+            'request_processed': {
+                'title': data.get('title', ''),
+                'technologies': data.get('technologies', ''),
+                'ai_enhanced': True
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error in Gemini recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/ensemble', methods=['POST'])
+@jwt_required()
+def get_ensemble_recommendations():
+    """Get ensemble recommendations using multiple engines"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Import ensemble engine
+        try:
+            from ensemble_engine import get_ensemble_recommendations
+        except ImportError as e:
+            logger.error(f"Ensemble engine not available: {e}")
+            return jsonify({'error': 'Ensemble engine not available'}), 500
+        
+        # Get ensemble recommendations
+        results = get_ensemble_recommendations(user_id, data)
+        
+        # Get performance metrics
+        performance_metrics = {
+            'ensemble_engines_used': data.get('engines', ['unified', 'smart']),
+            'total_recommendations': len(results),
+            'engine_used': 'Ensemble'
+        }
+        
+        response = {
+            'recommendations': results,
+            'total_recommendations': len(results),
+            'engine_used': 'Ensemble',
+            'performance_metrics': performance_metrics,
+            'request_processed': {
+                'title': data.get('title', ''),
+                'technologies': data.get('technologies', ''),
+                'engines_used': data.get('engines', ['unified', 'smart'])
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error in ensemble recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
 def get_unified_orchestrator_recommendations():
@@ -855,6 +941,16 @@ def get_phase3_health():
 def get_engine_status():
     """Get status of all recommendation engines"""
     try:
+        # Check Gemini integration availability
+        gemini_integration_available = False
+        try:
+            from gemini_integration_layer import get_gemini_integration
+            gemini_layer = get_gemini_integration()
+            gemini_integration_available = gemini_layer is not None
+        except Exception as e:
+            logger.warning(f"Gemini integration not available: {e}")
+            gemini_integration_available = False
+        
         status = {
             'unified_orchestrator_available': UNIFIED_ORCHESTRATOR_AVAILABLE,
             'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
@@ -864,6 +960,7 @@ def get_engine_status():
             'fast_gemini_available': FAST_GEMINI_AVAILABLE,
             'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
             'gemini_analyzer_available': gemini_analyzer is not None,
+            'gemini_integration_available': gemini_integration_available,
             'embedding_model_available': embedding_model is not None,
             'total_engines_available': sum([
                 UNIFIED_ORCHESTRATOR_AVAILABLE,

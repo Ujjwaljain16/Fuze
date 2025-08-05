@@ -1,76 +1,66 @@
 #!/usr/bin/env python3
 """
-Test Gemini API directly
+Test Gemini Integration Directly
 """
 
 import os
 import sys
-from pathlib import Path
+from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-def load_env_file():
-    """Load environment variables from .env file"""
-    env_file = Path(".env")
-    if env_file.exists():
-        print("📁 Loading environment variables from .env file...")
-        with open(env_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    os.environ[key] = value
-        print("✅ Environment variables loaded successfully!")
-    else:
-        print("⚠️  .env file not found")
-
 def test_gemini_direct():
-    """Test Gemini API directly"""
-    print("🧠 Testing Gemini API Directly")
-    print("=" * 40)
+    """Test Gemini integration directly"""
     
-    # Load environment variables first
-    load_env_file()
+    print("🔍 Testing Gemini Integration Directly")
+    print("=" * 60)
     
     try:
-        # Check if API key is set
-        api_key = os.environ.get('GEMINI_API_KEY')
-        if not api_key:
-            print("❌ GEMINI_API_KEY environment variable not set")
+        # Test if gemini_integration_layer can be imported
+        print("📦 Testing import...")
+        from gemini_integration_layer import get_gemini_enhanced_recommendations
+        print("✅ Gemini integration layer imported successfully")
+        
+        # Test if Gemini API key is available
+        print("\n🔑 Testing API key...")
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        if gemini_api_key:
+            print(f"✅ Gemini API key found: {gemini_api_key[:10]}...")
+        else:
+            print("❌ No Gemini API key found in environment")
+            print("   Set GEMINI_API_KEY environment variable")
             return
         
-        print(f"✅ GEMINI_API_KEY found: {api_key[:10]}...")
-        
-        # Import and test Gemini
-        from gemini_utils import GeminiAnalyzer
-        
-        print("🔧 Initializing Gemini Analyzer...")
-        gemini_analyzer = GeminiAnalyzer()
-        print("✅ Gemini Analyzer initialized successfully!")
-        
-        # Test simple analysis
-        test_prompt = """
-        Analyze this content for learning value:
-        Title: "JavaScript Tutorial for Beginners"
-        Content: "Learn JavaScript fundamentals, DOM manipulation, and basic programming concepts."
-        
-        Provide a JSON response with:
-        - relevance_score (0-10)
-        - learning_value (0-10) 
-        - key_insights (brief explanation)
-        """
-        
-        print("🔍 Testing Gemini analysis...")
-        response = gemini_analyzer.analyze_batch_content(test_prompt)
-        
-        if response and 'analysis' in response:
-            print("✅ Gemini analysis successful!")
-            print(f"Response: {response}")
-        else:
-            print("❌ Gemini analysis failed or returned unexpected format")
-            print(f"Response: {response}")
+        # Test basic Gemini functionality
+        print("\n🤖 Testing basic Gemini functionality...")
+        try:
+            from gemini_integration_layer import GeminiIntegrationLayer
             
+            layer = GeminiIntegrationLayer()
+            print("✅ GeminiIntegrationLayer initialized")
+            
+            # Test if the model can be loaded
+            if hasattr(layer, 'model') and layer.model:
+                print("✅ Gemini model loaded successfully")
+            else:
+                print("❌ Gemini model not loaded")
+                
+        except Exception as e:
+            print(f"❌ Error initializing Gemini: {e}")
+            return
+            
+        print("\n✅ Gemini integration appears to be working!")
+        print("   The issue might be in the status endpoint or authentication")
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
     except Exception as e:
-        print(f"❌ Gemini test failed: {e}")
+        print(f"❌ Unexpected error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app import app
+# Remove circular import - we'll use Flask app context instead
 from models import db, SavedContent, ContentAnalysis
 from gemini_utils import GeminiAnalyzer
 from multi_user_api_manager import get_user_api_key, record_user_request, check_user_rate_limit
@@ -83,19 +83,41 @@ class SmartRecommendationEngine:
     def get_analyzed_bookmarks(self) -> List[tuple]:
         """Get high-quality bookmarks with analysis data from all users"""
         try:
-            with app.app_context():
-                return db.session.query(
-                    SavedContent, ContentAnalysis
-                ).join(
-                    ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
-                ).filter(
-                    SavedContent.quality_score >= 6,  # Lower threshold to get more content
-                    SavedContent.title.notlike('%Test Bookmark%'),  # Only exclude obvious test content
-                    SavedContent.title.notlike('%test bookmark%')
-                ).order_by(
-                    SavedContent.quality_score.desc(),  # Order by quality first
-                    SavedContent.saved_at.desc()
-                ).limit(500).all()  # Get more candidates for better selection
+            # Use Flask app context without importing app directly
+            from flask import current_app
+            if current_app:
+                with current_app.app_context():
+                    return db.session.query(
+                        SavedContent, ContentAnalysis
+                    ).join(
+                        ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+                    ).filter(
+                        SavedContent.quality_score >= 6,  # Lower threshold to get more content
+                        SavedContent.title.notlike('%Test Bookmark%'),  # Only exclude obvious test content
+                        SavedContent.title.notlike('%test bookmark%')
+                    ).order_by(
+                        SavedContent.quality_score.desc(),  # Order by quality first
+                        SavedContent.saved_at.desc()
+                    ).limit(500).all()  # Get more candidates for better selection
+            else:
+                # Fallback: create minimal app context
+                from flask import Flask
+                temp_app = Flask(__name__)
+                temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://localhost/fuze')
+                db.init_app(temp_app)
+                with temp_app.app_context():
+                    return db.session.query(
+                        SavedContent, ContentAnalysis
+                    ).join(
+                        ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+                    ).filter(
+                        SavedContent.quality_score >= 6,
+                        SavedContent.title.notlike('%Test Bookmark%'),
+                        SavedContent.title.notlike('%test bookmark%')
+                    ).order_by(
+                        SavedContent.quality_score.desc(),
+                        SavedContent.saved_at.desc()
+                    ).limit(500).all()
         except Exception as e:
             self.logger.error(f"Error getting analyzed bookmarks: {e}")
             return []
