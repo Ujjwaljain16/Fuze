@@ -74,19 +74,25 @@ class BackgroundAnalysisService:
             
             for content in unanalyzed_content:
                 try:
+                    # Analyze the content (SQLAlchemy handles transactions automatically)
                     self._analyze_single_content(content)
                     time.sleep(2)  # Rate limiting between analyses
                 except Exception as e:
                     logger.error(f"Error analyzing content {content.id}: {e}")
+                    db.session.rollback()  # Rollback on error
+                    # Add to failed analyses to prevent infinite retries
+                    self.failed_analyses.add(content.id)
                     
         except Exception as e:
             logger.error(f"Error processing unanalyzed content: {e}")
+            db.session.rollback()  # Rollback on error
     
     def _get_unanalyzed_content(self) -> List[SavedContent]:
         """Get content that hasn't been analyzed yet"""
         try:
-            # Find content without corresponding analysis
-            analyzed_content_ids = db.session.query(ContentAnalysis.content_id).subquery()
+            # Find content without corresponding analysis using proper select() construct
+            from sqlalchemy import select
+            analyzed_content_ids = select(ContentAnalysis.content_id).subquery()
             
             # Also exclude content that has no extracted_text to avoid repeated failures
             unanalyzed = db.session.query(SavedContent).filter(
@@ -153,6 +159,29 @@ class BackgroundAnalysisService:
             # Invalidate caches using comprehensive cache invalidation service
             from cache_invalidation_service import cache_invalidator
             cache_invalidator.after_analysis_complete(content.id, content.user_id)
+            
+            # Also invalidate recommendation caches for this user
+            try:
+                from redis_utils import redis_cache
+                # Clear user's recommendation caches
+                cache_patterns = [
+                    f"unified_recommendations:*:{content.user_id}:*",
+                    f"ensemble_recommendations:*:{content.user_id}:*",
+                    f"gemini_recommendations:*:{content.user_id}:*",
+                    f"opt_recommendations:{content.user_id}",
+                    f"fast_recommendations:{content.user_id}",
+                    f"*_project_recommendations:{content.user_id}:*"
+                ]
+                for pattern in cache_patterns:
+                    try:
+                        # Use the correct method for pattern deletion
+                        redis_cache.delete_by_pattern(pattern)
+                    except AttributeError:
+                        # Fallback: try to delete individual keys if pattern deletion not available
+                        logger.warning(f"Pattern deletion not available for: {pattern}")
+                logger.info(f"Invalidated recommendation caches for user {content.user_id}")
+            except Exception as e:
+                logger.warning(f"Error invalidating recommendation caches: {e}")
             
             logger.info(f"✅ Analysis completed and stored for content {content.id}")
             

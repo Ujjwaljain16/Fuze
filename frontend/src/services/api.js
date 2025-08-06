@@ -83,6 +83,35 @@ api.interceptors.response.use(
   }
 )
 
+// Proactive token refresh for long-running requests
+export const refreshTokenIfNeeded = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    
+    // Decode JWT token to check expiration (without verification for client-side)
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    const expirationTime = payload.exp * 1000 // Convert to milliseconds
+    const currentTime = Date.now()
+    const timeUntilExpiration = expirationTime - currentTime
+    
+    // If token expires in less than 5 minutes, refresh it
+    if (timeUntilExpiration < 5 * 60 * 1000) {
+      console.log('Token expires soon, refreshing proactively...')
+      const res = await axios.post(
+        `${baseURL}/api/auth/refresh`,
+        {},
+        { withCredentials: true }
+      )
+      const newToken = res.data.access_token
+      localStorage.setItem('token', newToken)
+      console.log('Token refreshed successfully')
+    }
+  } catch (error) {
+    console.warn('Failed to refresh token proactively:', error)
+  }
+}
+
 // Initialize CSRF token on app startup
 export const initializeCSRF = async () => {
   try {

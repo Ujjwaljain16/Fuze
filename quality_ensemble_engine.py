@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Ensemble Recommendation Engine - OPTIMIZED Version
-Combines results from multiple engines for better recommendations
+Quality Ensemble Recommendation Engine
+Prioritizes the bestest recommendations with maximum quality
 """
 
 import time
@@ -23,17 +23,17 @@ from redis_utils import redis_cache
 logger = logging.getLogger(__name__)
 
 @dataclass
-class EnsembleRequest:
+class QualityEnsembleRequest:
     user_id: int
     title: str
     description: str = ""
     technologies: str = ""
     project_id: int = None
     max_recommendations: int = 10
-    engines: List[str] = None  # ['unified', 'smart', 'enhanced']
+    engines: List[str] = None  # ['unified', 'smart', 'enhanced', 'gemini']
 
 @dataclass
-class EnsembleResult:
+class QualityEnsembleResult:
     id: int
     title: str
     url: str
@@ -41,12 +41,13 @@ class EnsembleResult:
     reason: str
     ensemble_score: float
     engine_votes: Dict[str, float]
+    quality_metrics: Dict[str, float]
     technologies: List[str] = None
     content_type: str = "article"
     difficulty: str = "intermediate"
 
-class OptimizedEnsembleEngine:
-    """Optimized ensemble engine with caching, parallel processing, and quality preservation"""
+class QualityEnsembleEngine:
+    """Quality-focused ensemble engine for the bestest recommendations"""
     
     def __init__(self):
         self.engine_weights = {
@@ -57,28 +58,28 @@ class OptimizedEnsembleEngine:
             'fast_gemini': 0.1, # Fast Gemini engine
             'gemini_enhanced': 0.1  # Gemini Enhanced engine
         }
-        self.cache_duration = 900  # 15 minutes (reduced for quality improvements)
+        self.cache_duration = 1800  # 30 minutes (shorter for speed)
         self.max_parallel_engines = 6  # Allow all engines
-        self.timeout_seconds = 30  # Reduced timeout to prevent authentication issues
-        self.quality_threshold = 0.4  # Increased threshold for better quality
-        self.min_recommendations = 5  # Minimum recommendations before early termination
-        logger.info("Complete Ensemble Engine initialized with all engines")
+        self.timeout_seconds = 30  # Reduced from 60 to 30 seconds
+        self.quality_threshold = 0.2  # Lowered threshold for faster results
+        self.min_engine_agreement = 1  # Keep at 1 for speed
+        logger.info("Complete Fast Quality Ensemble Engine initialized with all engines")
     
-    def get_ensemble_recommendations(self, request: EnsembleRequest) -> List[EnsembleResult]:
-        """Get ensemble recommendations with quality optimization"""
+    def get_quality_ensemble_recommendations(self, request: QualityEnsembleRequest) -> List[QualityEnsembleResult]:
+        """Get the bestest ensemble recommendations with maximum quality"""
         start_time = time.time()
         
         try:
             # Generate cache key
             cache_key = self._generate_cache_key(request)
             
-            # Check cache first (but with shorter TTL for quality improvements)
+            # Check cache first
             cached_result = self._get_cached_result(cache_key)
             if cached_result:
-                logger.info("Cache hit for ensemble recommendations")
+                logger.info("Cache hit for quality ensemble recommendations")
                 return cached_result
             
-            # Determine engines to use
+            # Use all quality engines
             engines_to_use = request.engines or ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']  # All engines
             available_engines = self._get_available_engines(engines_to_use)
             
@@ -86,28 +87,28 @@ class OptimizedEnsembleEngine:
                 logger.warning("No engines available, falling back to unified only")
                 available_engines = ['unified']
             
-            logger.info(f"Using engines for quality: {available_engines}")
+            logger.info(f"Using quality engines: {available_engines}")
             
-            # Get recommendations from engines with quality optimization
-            engine_results = self._get_engine_results_quality_optimized(available_engines, request)
+            # Get recommendations from all engines in parallel
+            engine_results = self._get_all_engine_results(available_engines, request)
             
-            # Combine results with quality preservation
-            ensemble_results = self._combine_results_quality_optimized(engine_results, request)
+            # Combine results with maximum quality
+            ensemble_results = self._combine_results_maximum_quality(engine_results, request)
             
-            # Cache results with shorter TTL for quality improvements
+            # Cache results
             self._cache_result(cache_key, ensemble_results)
             
             response_time = (time.time() - start_time) * 1000
-            logger.info(f"Quality-optimized ensemble completed in {response_time:.2f}ms")
+            logger.info(f"Quality ensemble completed in {response_time:.2f}ms")
             
             return ensemble_results
             
         except Exception as e:
-            logger.error(f"Ensemble error: {e}")
+            logger.error(f"Quality ensemble error: {e}")
             return []
     
-    def _generate_cache_key(self, request: EnsembleRequest) -> str:
-        """Generate cache key for ensemble request"""
+    def _generate_cache_key(self, request: QualityEnsembleRequest) -> str:
+        """Generate cache key for quality ensemble request"""
         request_data = {
             'user_id': request.user_id,
             'title': request.title,
@@ -115,27 +116,25 @@ class OptimizedEnsembleEngine:
             'technologies': request.technologies,
             'project_id': request.project_id,
             'max_recommendations': request.max_recommendations,
-            'engines': sorted(request.engines or ['unified'])
+            'engines': sorted(request.engines or ['unified', 'smart', 'enhanced'])
         }
         request_hash = hashlib.md5(json.dumps(request_data, sort_keys=True).encode()).hexdigest()
-        return f"ensemble_recommendations:{request_hash}"
+        return f"quality_ensemble_recommendations:{request_hash}"
     
-    def _get_cached_result(self, cache_key: str) -> List[EnsembleResult]:
-        """Get cached ensemble result"""
+    def _get_cached_result(self, cache_key: str) -> List[QualityEnsembleResult]:
+        """Get cached quality ensemble result"""
         try:
             cached_data = redis_cache.get_cache(cache_key)
             if cached_data:
-                # Convert cached dict back to EnsembleResult objects
-                return [EnsembleResult(**result) for result in cached_data]
+                return [QualityEnsembleResult(**result) for result in cached_data]
             return None
         except Exception as e:
             logger.warning(f"Error getting cached result: {e}")
             return None
     
-    def _cache_result(self, cache_key: str, results: List[EnsembleResult]):
-        """Cache ensemble result"""
+    def _cache_result(self, cache_key: str, results: List[QualityEnsembleResult]):
+        """Cache quality ensemble result"""
         try:
-            # Convert to dict for caching
             cache_data = [asdict(result) for result in results]
             redis_cache.set_cache(cache_key, cache_data, self.cache_duration)
         except Exception as e:
@@ -171,36 +170,55 @@ class OptimizedEnsembleEngine:
         
         return available
     
-    def _get_engine_results_quality_optimized(self, engines: List[str], request: EnsembleRequest) -> Dict[str, List[Dict]]:
-        """Get results from engines with quality optimization"""
-        engine_results = {}
+    def _get_all_engine_results(self, engines: List[str], request: QualityEnsembleRequest) -> Dict[str, List[Dict]]:
+        """Get results from all engines in parallel for maximum quality"""
+        results = {}
         
-        # Always start with unified engine (fastest)
-        if 'unified' in engines:
-            try:
-                logger.info("Getting unified engine results (fastest)...")
-                results = self._get_unified_results_quality(request)
-                engine_results['unified'] = results
-                logger.info(f"Engine unified: {len(results)} results")
-                
-                # Only skip other engines if we have high-quality results
-                if len(results) >= request.max_recommendations * 2 and self._check_quality_sufficient(results):
-                    logger.info("Unified engine provided sufficient high-quality results")
-                    return engine_results
-                    
-            except Exception as e:
-                logger.error(f"Error with unified engine: {e}")
-                engine_results['unified'] = []
+        with ThreadPoolExecutor(max_workers=self.max_parallel_engines) as executor:
+            # Submit tasks for all engines
+            future_to_engine = {
+                executor.submit(self._get_single_engine_results, engine, request): engine 
+                for engine in engines
+            }
+            
+            # Collect results with quality-focused timeout
+            for future in as_completed(future_to_engine, timeout=self.timeout_seconds):
+                engine_name = future_to_engine[future]
+                try:
+                    engine_results = future.result(timeout=20)  # Reduced from 45 to 20 seconds per engine
+                    results[engine_name] = engine_results
+                    logger.info(f"Engine {engine_name}: {len(engine_results)} results")
+                except Exception as e:
+                    logger.warning(f"Engine {engine_name} failed or timed out: {e}")
+                    results[engine_name] = []
         
-        # Get results from quality engines in parallel
-        quality_engines = [eng for eng in engines if eng != 'unified']
-        if quality_engines:
-            engine_results.update(self._get_parallel_quality_engine_results(quality_engines, request))
-        
-        return engine_results
+        return results
     
-    def _get_unified_results_quality(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from unified engine with quality focus"""
+    def _get_single_engine_results(self, engine_name: str, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from a single engine with maximum quality"""
+        try:
+            if engine_name == 'unified':
+                return self._get_unified_results_quality(request)
+            elif engine_name == 'smart':
+                return self._get_smart_results_quality(request)
+            elif engine_name == 'enhanced':
+                return self._get_enhanced_results_quality(request)
+            elif engine_name == 'phase3':
+                return self._get_phase3_results_quality(request)
+            elif engine_name == 'fast_gemini':
+                return self._get_fast_gemini_results_quality(request)
+            elif engine_name == 'gemini_enhanced':
+                return self._get_gemini_enhanced_results_quality(request)
+            else:
+                logger.warning(f"Unknown engine: {engine_name}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error getting {engine_name} results: {e}")
+            return []
+    
+    def _get_unified_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from unified engine with maximum quality"""
         try:
             from unified_recommendation_orchestrator import get_unified_orchestrator, UnifiedRecommendationRequest
             
@@ -211,11 +229,11 @@ class OptimizedEnsembleEngine:
                 description=request.description,
                 technologies=request.technologies,
                 project_id=request.project_id,
-                max_recommendations=request.max_recommendations * 3,  # Get more for quality
-                engine_preference='auto',  # Let it choose best engine
-                cache_duration=900,  # 15 minutes cache
-                quality_threshold=7,  # Higher threshold for quality
-                diversity_weight=0.4  # Better diversity
+                max_recommendations=request.max_recommendations * 2,  # Reduced from 4 to 2 for speed
+                engine_preference='fast',  # Use fast engine preference for speed
+                cache_duration=900,  # 15 minutes cache (shorter for speed)
+                quality_threshold=6,  # Lowered from 8 to 6 for speed
+                diversity_weight=0.3  # Reduced from 0.5 to 0.3 for speed
             )
             
             results = orchestrator.get_recommendations(unified_request)
@@ -225,53 +243,8 @@ class OptimizedEnsembleEngine:
             logger.error(f"Error getting unified results: {e}")
             return []
     
-    def _get_parallel_quality_engine_results(self, engines: List[str], request: EnsembleRequest) -> Dict[str, List[Dict]]:
-        """Get results from quality engines in parallel with longer timeout"""
-        results = {}
-        
-        with ThreadPoolExecutor(max_workers=self.max_parallel_engines) as executor:
-            # Submit tasks
-            future_to_engine = {
-                executor.submit(self._get_single_engine_results, engine, request): engine 
-                for engine in engines
-            }
-            
-            # Collect results with quality-focused timeout
-            for future in as_completed(future_to_engine, timeout=self.timeout_seconds):
-                engine_name = future_to_engine[future]
-                try:
-                    engine_results = future.result(timeout=30)  # 30 second timeout per engine
-                    results[engine_name] = engine_results
-                    logger.info(f"Engine {engine_name}: {len(engine_results)} results")
-                except Exception as e:
-                    logger.warning(f"Engine {engine_name} failed or timed out: {e}")
-                    results[engine_name] = []
-        
-        return results
-    
-    def _get_single_engine_results(self, engine_name: str, request: EnsembleRequest) -> List[Dict]:
-        """Get results from a single engine with error handling"""
-        try:
-            if engine_name == 'smart':
-                return self._get_smart_results(request)
-            elif engine_name == 'enhanced':
-                return self._get_enhanced_results(request)
-            elif engine_name == 'phase3':
-                return self._get_phase3_results(request)
-            elif engine_name == 'fast_gemini':
-                return self._get_fast_gemini_results(request)
-            elif engine_name == 'gemini_enhanced':
-                return self._get_gemini_enhanced_results(request)
-            else:
-                logger.warning(f"Unknown engine: {engine_name}")
-                return []
-                
-        except Exception as e:
-            logger.error(f"Error getting {engine_name} results: {e}")
-            return []
-    
-    def _get_smart_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from smart engine (quality-focused)"""
+    def _get_smart_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from smart engine with maximum quality"""
         try:
             from smart_recommendation_engine import SmartRecommendationEngine
             
@@ -285,7 +258,7 @@ class OptimizedEnsembleEngine:
             
             results = engine.get_smart_recommendations(
                 project_info=project_info,
-                limit=request.max_recommendations * 2  # Get more for quality
+                limit=request.max_recommendations * 2  # Reduced from 3 to 2 for speed
             )
             
             if results:
@@ -309,8 +282,8 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Smart engine not available: {e}")
             return []
     
-    def _get_enhanced_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from enhanced engine (quality-focused)"""
+    def _get_enhanced_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from enhanced engine with maximum quality"""
         try:
             from enhanced_recommendation_engine import get_enhanced_recommendations
             
@@ -322,7 +295,7 @@ class OptimizedEnsembleEngine:
                     'technologies': request.technologies,
                     'project_id': request.project_id
                 },
-                limit=request.max_recommendations * 2  # Get more for quality
+                limit=request.max_recommendations * 2  # Reduced from 3 to 2 for speed
             )
             return results
             
@@ -330,8 +303,8 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Enhanced engine not available: {e}")
             return []
     
-    def _get_phase3_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Phase 3 engine"""
+    def _get_phase3_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from Phase 3 engine with maximum quality"""
         try:
             from phase3_enhanced_engine import get_enhanced_recommendations_phase3
             
@@ -351,8 +324,8 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Phase 3 engine not available: {e}")
             return []
     
-    def _get_fast_gemini_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Fast Gemini engine"""
+    def _get_fast_gemini_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from Fast Gemini engine with maximum quality"""
         try:
             from fast_gemini_engine import fast_gemini_engine
             
@@ -390,8 +363,8 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Fast Gemini engine not available: {e}")
             return []
     
-    def _get_gemini_enhanced_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Gemini Enhanced engine"""
+    def _get_gemini_enhanced_results_quality(self, request: QualityEnsembleRequest) -> List[Dict]:
+        """Get results from Gemini Enhanced engine with maximum quality"""
         try:
             from gemini_enhanced_recommendation_engine import GeminiEnhancedRecommendationEngine
             
@@ -430,29 +403,16 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Gemini Enhanced engine not available: {e}")
             return []
     
-    def _check_quality_sufficient(self, results: List[Dict]) -> bool:
-        """Check if results have sufficient quality"""
-        if not results:
-            return False
-        
-        # Check average score
-        scores = [result.get('score', 0) for result in results]
-        avg_score = sum(scores) / len(scores) if scores else 0
-        
-        # Check if we have enough high-quality results
-        high_quality_count = sum(1 for score in scores if score >= 70)
-        
-        return avg_score >= 60 and high_quality_count >= 3
-    
-    def _combine_results_quality_optimized(self, engine_results: Dict[str, List[Dict]], request: EnsembleRequest) -> List[EnsembleResult]:
-        """Combine results using quality-optimized weighted voting"""
+    def _combine_results_maximum_quality(self, engine_results: Dict[str, List[Dict]], request: QualityEnsembleRequest) -> List[QualityEnsembleResult]:
+        """Combine results using maximum quality voting"""
         # Track votes for each content item
         content_votes = defaultdict(lambda: {
             'votes': defaultdict(float),
             'content': None,
             'total_score': 0.0,
             'quality_score': 0.0,
-            'engine_count': 0
+            'engine_count': 0,
+            'high_quality_votes': 0
         })
         
         # Collect votes from each engine with quality weighting
@@ -464,49 +424,62 @@ class OptimizedEnsembleEngine:
                 if not content_id:
                     continue
                 
-                # Enhanced vote calculation with quality focus
+                # Enhanced vote calculation with maximum quality focus
                 rank_score = 1.0 / (i + 1)  # Higher rank = higher score
                 score = result.get('score', 0) / 100.0  # Normalize score
                 
-                # Quality bonus for high-scoring content
-                quality_bonus = 1.0 if score >= 0.8 else 0.5 if score >= 0.6 else 0.2
+                # Maximum quality bonus for high-scoring content
+                if score >= 0.9:
+                    quality_bonus = 2.0  # Maximum bonus for excellent content
+                elif score >= 0.8:
+                    quality_bonus = 1.5  # High bonus for very good content
+                elif score >= 0.7:
+                    quality_bonus = 1.2  # Good bonus for good content
+                else:
+                    quality_bonus = 0.5  # Low bonus for average content
                 
-                # Calculate vote with quality weighting
-                vote = (rank_score * 0.4 + score * 0.6) * weight * quality_bonus
+                # Calculate vote with maximum quality weighting
+                vote = (rank_score * 0.3 + score * 0.7) * weight * quality_bonus
                 
                 content_votes[content_id]['votes'][engine_name] = vote
                 content_votes[content_id]['total_score'] += vote
                 content_votes[content_id]['quality_score'] += score
                 content_votes[content_id]['engine_count'] += 1
+                if score >= 0.8:
+                    content_votes[content_id]['high_quality_votes'] += 1
                 content_votes[content_id]['content'] = result
         
-        # Convert to ensemble results with quality filtering
+        # Convert to ensemble results with maximum quality filtering
         ensemble_results = []
         for content_id, vote_data in content_votes.items():
             content = vote_data['content']
             if not content:
                 continue
             
-            # Calculate ensemble score with quality consideration
+            # Calculate ensemble score with maximum quality consideration
             avg_quality = vote_data['quality_score'] / vote_data['engine_count'] if vote_data['engine_count'] > 0 else 0
-            ensemble_score = vote_data['total_score'] * (1 + avg_quality * 0.3)  # Quality boost
+            engine_agreement_bonus = min(vote_data['engine_count'] / 3.0, 1.0)  # Bonus for engine agreement
+            quality_boost = (1 + avg_quality * 0.5) * (1 + engine_agreement_bonus * 0.3)
+            ensemble_score = vote_data['total_score'] * quality_boost
             
-            # Filter by quality threshold
-            if avg_quality < self.quality_threshold and vote_data['engine_count'] < 2:
+            # Maximum quality filtering
+            if avg_quality < self.quality_threshold and vote_data['engine_count'] < self.min_engine_agreement:
                 continue  # Skip low-quality content unless multiple engines agree
             
-            # Filter out very low quality content more strictly
-            if avg_quality < 0.2 and vote_data['engine_count'] < 2:
+            # Only filter out very low quality content
+            if avg_quality < 0.1 and vote_data['engine_count'] < 2:
                 continue  # Skip very low-quality content
             
-            # Filter out content with generic reasons
-            reason = content.get('reason', '')
-            if reason and any(generic in reason.lower() for generic in ['helpful', 'useful', 'relevant']):
-                if avg_quality < 0.5:  # Only allow generic reasons for high-quality content
-                    continue
+            # Calculate quality metrics
+            quality_metrics = {
+                'average_quality': avg_quality,
+                'engine_agreement': vote_data['engine_count'],
+                'high_quality_votes': vote_data['high_quality_votes'],
+                'quality_boost': quality_boost
+            }
             
             # Create ensemble result
-            ensemble_result = EnsembleResult(
+            ensemble_result = QualityEnsembleResult(
                 id=content.get('id'),
                 title=content.get('title', ''),
                 url=content.get('url', ''),
@@ -514,6 +487,7 @@ class OptimizedEnsembleEngine:
                 reason=content.get('reason', ''),
                 ensemble_score=ensemble_score,
                 engine_votes=dict(vote_data['votes']),
+                quality_metrics=quality_metrics,
                 technologies=content.get('technologies', []),
                 content_type=content.get('content_type', 'article'),
                 difficulty=content.get('difficulty', 'intermediate')
@@ -525,38 +499,38 @@ class OptimizedEnsembleEngine:
         return ensemble_results[:request.max_recommendations]
 
 # Global instance
-_ensemble_engine = None
+_quality_ensemble_engine = None
 
-def get_ensemble_engine() -> OptimizedEnsembleEngine:
-    """Get singleton ensemble engine instance"""
-    global _ensemble_engine
-    if _ensemble_engine is None:
-        _ensemble_engine = OptimizedEnsembleEngine()
-    return _ensemble_engine
+def get_quality_ensemble_engine() -> QualityEnsembleEngine:
+    """Get singleton quality ensemble engine instance"""
+    global _quality_ensemble_engine
+    if _quality_ensemble_engine is None:
+        _quality_ensemble_engine = QualityEnsembleEngine()
+    return _quality_ensemble_engine
 
-def get_ensemble_recommendations(user_id: int, request_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Get ensemble recommendations (optimized)"""
+def get_quality_ensemble_recommendations(user_id: int, request_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Get quality ensemble recommendations"""
     try:
         # Create request object
-        request = EnsembleRequest(
+        request = QualityEnsembleRequest(
             user_id=user_id,
             title=request_data.get('title', ''),
             description=request_data.get('description', ''),
             technologies=request_data.get('technologies', ''),
             project_id=request_data.get('project_id'),
             max_recommendations=request_data.get('max_recommendations', 10),
-            engines=request_data.get('engines', ['unified'])
+            engines=request_data.get('engines', ['unified', 'smart', 'enhanced'])
         )
         
-        # Get ensemble engine
-        engine = get_ensemble_engine()
+        # Get quality ensemble engine
+        engine = get_quality_ensemble_engine()
         
         # Get recommendations
-        results = engine.get_ensemble_recommendations(request)
+        results = engine.get_quality_ensemble_recommendations(request)
         
         # Convert to dict format
         return [asdict(result) for result in results]
         
     except Exception as e:
-        logger.error(f"Error in get_ensemble_recommendations: {e}")
+        logger.error(f"Error in get_quality_ensemble_recommendations: {e}")
         return [] 

@@ -255,46 +255,91 @@ def get_gemini_recommendations():
 @recommendations_bp.route('/ensemble', methods=['POST'])
 @jwt_required()
 def get_ensemble_recommendations():
-    """Get ensemble recommendations using multiple engines"""
+    """Get ensemble recommendations using optimized ensemble engine"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Import ensemble engine
+        # Use optimized ensemble engine
         try:
-            from ensemble_engine import get_ensemble_recommendations
-        except ImportError as e:
-            logger.error(f"Ensemble engine not available: {e}")
-            return jsonify({'error': 'Ensemble engine not available'}), 500
-        
-        # Get ensemble recommendations
-        results = get_ensemble_recommendations(user_id, data)
-        
-        # Get performance metrics
-        performance_metrics = {
-            'ensemble_engines_used': data.get('engines', ['unified', 'smart']),
-            'total_recommendations': len(results),
-            'engine_used': 'Ensemble'
-        }
-        
-        response = {
-            'recommendations': results,
-            'total_recommendations': len(results),
-            'engine_used': 'Ensemble',
-            'performance_metrics': performance_metrics,
-            'request_processed': {
-                'title': data.get('title', ''),
-                'technologies': data.get('technologies', ''),
-                'engines_used': data.get('engines', ['unified', 'smart'])
+            from ensemble_engine import get_ensemble_recommendations as get_ensemble
+            results = get_ensemble(user_id, data)
+            
+            response = {
+                'recommendations': results,
+                'total_recommendations': len(results),
+                'engine_used': 'CompleteEnsemble',
+                'performance_metrics': {
+                    'cached': False,
+                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
+                    'optimization_level': 'complete_all_engines'
+                }
             }
-        }
-        
-        return jsonify(response)
+            
+            return jsonify(response)
+            
+        except ImportError:
+            # Fallback to original ensemble engine
+            logger.warning("Optimized ensemble engine not available, using fallback")
+            return jsonify({'error': 'Ensemble engine not available'}), 500
         
     except Exception as e:
         logger.error(f"Error in ensemble recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/ensemble/quality', methods=['POST'])
+@jwt_required()
+def get_quality_ensemble_recommendations():
+    """Get the bestest ensemble recommendations with maximum quality"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Use quality ensemble engine
+        try:
+            from quality_ensemble_engine import get_quality_ensemble_recommendations as get_quality_ensemble
+            results = get_quality_ensemble(user_id, data)
+            
+            response = {
+                'recommendations': results,
+                'total_recommendations': len(results),
+                'engine_used': 'CompleteFastQualityEnsemble',
+                'performance_metrics': {
+                    'cached': False,
+                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
+                    'optimization_level': 'complete_fast_quality',
+                    'quality_threshold': 0.2,
+                    'min_engine_agreement': 1
+                }
+            }
+            
+            return jsonify(response)
+            
+        except ImportError:
+            logger.warning("Quality ensemble engine not available, using optimized ensemble fallback")
+            # Fallback to optimized ensemble engine
+            from ensemble_engine import get_ensemble_recommendations as get_ensemble
+            results = get_ensemble(user_id, data)
+            
+            response = {
+                'recommendations': results,
+                'total_recommendations': len(results),
+                'engine_used': 'OptimizedEnsembleFallback',
+                'performance_metrics': {
+                    'cached': False,
+                    'engines_used': data.get('engines', ['unified', 'smart']),
+                    'optimization_level': 'quality_fallback'
+                }
+            }
+            
+            return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error in quality ensemble recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
@@ -1057,17 +1102,40 @@ def get_analysis_stats():
         # Import models here to avoid circular imports
         from models import SavedContent, ContentAnalysis
         
-        # Get analysis stats
-        total_content = SavedContent.query.filter_by(user_id=user_id).count()
-        analyzed_content = ContentAnalysis.query.join(SavedContent).filter(
+        # Get user-specific analysis stats
+        total_user_content = SavedContent.query.filter_by(user_id=user_id).count()
+        analyzed_user_content = ContentAnalysis.query.join(SavedContent).filter(
             SavedContent.user_id == user_id
         ).count()
         
-        stats = {
-            'total_content': total_content,
-            'analyzed_content': analyzed_content,
-            'analysis_percentage': round((analyzed_content / max(total_content, 1)) * 100, 2)
-        }
+        # Calculate pending analysis for this user
+        pending_analysis = total_user_content - analyzed_user_content
+        
+        # Only show batch processing if user has content that needs analysis
+        if pending_analysis > 0 and total_user_content > 0:
+            # Calculate coverage percentage for this user
+            coverage_percentage = round((analyzed_user_content / total_user_content) * 100, 1)
+            
+            stats = {
+                'total_content': total_user_content,
+                'analyzed_content': analyzed_user_content,
+                'pending_analysis': pending_analysis,
+                'coverage_percentage': coverage_percentage,
+                'analysis_percentage': coverage_percentage,  # Keep for backward compatibility
+                'batch_processing_active': True,
+                'batch_message': f"Processing {pending_analysis} items ({coverage_percentage}% complete)"
+            }
+        else:
+            # No batch processing needed for this user
+            stats = {
+                'total_content': total_user_content,
+                'analyzed_content': analyzed_user_content,
+                'pending_analysis': 0,
+                'coverage_percentage': 100.0 if total_user_content > 0 else 0.0,
+                'analysis_percentage': 100.0 if total_user_content > 0 else 0.0,  # Keep for backward compatibility
+                'batch_processing_active': False,
+                'batch_message': None
+            }
         
         return jsonify(stats)
         

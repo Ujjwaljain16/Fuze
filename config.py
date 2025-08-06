@@ -20,7 +20,7 @@ class Config:
     CSRF_ENABLED = os.environ.get('CSRF_ENABLED', 'False').lower() == 'true'
     
     # JWT Configuration
-    JWT_ACCESS_TOKEN_EXPIRES = 15  # minutes
+    JWT_ACCESS_TOKEN_EXPIRES = 60  # minutes (increased from 15 to 60)
     JWT_REFRESH_TOKEN_EXPIRES = 14  # days
     JWT_TOKEN_LOCATION = ['headers', 'cookies']
     JWT_COOKIE_SECURE = HTTPS_ENABLED  # Only send cookies over HTTPS

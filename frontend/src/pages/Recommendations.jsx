@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
+import api, { refreshTokenIfNeeded } from '../services/api'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
   Filter, RefreshCw, Target, CheckCircle, Brain, Zap, Star, Plus,
@@ -41,6 +42,7 @@ const Recommendations = () => {
   const [showRecommendationForm, setShowRecommendationForm] = useState(false)
   const [enhancedFeatures, setEnhancedFeatures] = useState([])
   const [performanceMetrics, setPerformanceMetrics] = useState(null)
+  const [batchProcessingStatus, setBatchProcessingStatus] = useState(null)
 
   const [selectedProject, setSelectedProject] = useState(null)
   
@@ -61,11 +63,20 @@ const Recommendations = () => {
     {
       id: 'ensemble',
       name: 'Smart Fusion',
-      description: 'Multi-Engine Intelligence',
+      description: 'Balanced Intelligence',
       color: 'from-purple-500 via-pink-500 to-purple-600',
       hoverColor: 'from-purple-400 via-pink-400 to-purple-500',
       glowColor: 'shadow-purple-500/50',
       icon: Brain
+    },
+    {
+      id: 'quality',
+      name: 'Bestest Match',
+      description: 'Fast Quality',
+      color: 'from-emerald-500 via-teal-500 to-emerald-600',
+      hoverColor: 'from-emerald-400 via-teal-400 to-emerald-500',
+      glowColor: 'shadow-emerald-500/50',
+      icon: Star
     },
     {
       id: 'gemini',
@@ -92,8 +103,31 @@ const Recommendations = () => {
       fetchProjects()
       checkGeminiStatus()
       fetchPerformanceMetrics()
+      checkBatchProcessingStatus()
       fetchRecommendations()
     }
+  }, [isAuthenticated])
+
+  // Periodic refresh of batch processing status
+  useEffect(() => {
+    if (!isAuthenticated) return
+    
+    const interval = setInterval(() => {
+      checkBatchProcessingStatus()
+    }, 10000) // Check every 10 seconds
+    
+    return () => clearInterval(interval)
+  }, [isAuthenticated])
+
+  // Periodic token refresh to prevent expiration
+  useEffect(() => {
+    if (!isAuthenticated) return
+    
+    const tokenRefreshInterval = setInterval(() => {
+      refreshTokenIfNeeded()
+    }, 5 * 60 * 1000) // Refresh every 5 minutes
+    
+    return () => clearInterval(tokenRefreshInterval)
   }, [isAuthenticated])
 
   useEffect(() => {
@@ -146,11 +180,15 @@ const Recommendations = () => {
     }
   }
 
-
-
-
-
-
+  const checkBatchProcessingStatus = async () => {
+    try {
+      const response = await api.get('/api/recommendations/analysis/stats')
+      console.log('Batch processing status:', response.data)
+      setBatchProcessingStatus(response.data)
+    } catch (error) {
+      console.error('Error fetching batch processing status:', error)
+    }
+  }
 
   const fetchProjects = async () => {
     try {
@@ -200,14 +238,20 @@ const Recommendations = () => {
   }
 
   const fetchRecommendations = async () => {
+    if (!isAuthenticated) return
+    
+    setLoading(true)
+    setError(null)
+    
     try {
-      setLoading(true)
+      // Proactively refresh token if needed before making request
+      await refreshTokenIfNeeded()
       
-      // Get current engine configuration
-      const currentEngine = engines.find(e => e.id === selectedEngine)
-      if (!currentEngine) return
-
-      // Set endpoint based on selected engine
+      console.log('Fetching recommendations with engine:', selectedEngine)
+      console.log('Filter:', filter)
+      console.log('Selected project:', selectedProject)
+      
+      // Determine endpoint based on selected engine
       let endpoint
       switch (selectedEngine) {
         case 'unified':
@@ -216,6 +260,9 @@ const Recommendations = () => {
         case 'ensemble':
           endpoint = '/api/recommendations/ensemble'
           break
+        case 'quality':
+          endpoint = '/api/recommendations/ensemble/quality'
+          break
         case 'gemini':
           endpoint = '/api/recommendations/gemini'
           break
@@ -223,7 +270,6 @@ const Recommendations = () => {
           endpoint = '/api/recommendations/unified-orchestrator'
       }
       
-      let method = 'POST'
       let data = {
         title: selectedProject ? selectedProject.title : 'Learning Project',
         description: selectedProject ? selectedProject.description : 'I want to learn and improve my skills',
@@ -239,9 +285,9 @@ const Recommendations = () => {
       
       // Add engine-specific payload
       if (selectedEngine === 'ensemble') {
-        data.engines = ['unified', 'smart', 'enhanced']
+        data.engines = ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']
         data.ensemble_method = 'weighted_voting'
-        console.log('Using ensemble with engines:', data.engines)
+        console.log('Using ensemble with all engines:', data.engines)
       }
       
       // Handle project-specific recommendations
@@ -251,20 +297,19 @@ const Recommendations = () => {
       } else if (filter.startsWith('task_')) {
         const taskId = filter.replace('task_', '')
         endpoint = `/api/recommendations/task/${taskId}`
-        method = 'GET'
         data = null
       }
       
-      console.log(`Fetching unified orchestrator recommendations from: ${endpoint}`)
+      console.log(`Fetching recommendations from: ${endpoint}`)
       console.log('Request data:', data)
       console.log('Active features:', {
         gemini: geminiAvailable,
         engine_preference: data.engine_preference
       })
       
-      const response = method === 'GET' ? 
-        await api.get(endpoint) : 
-        await api.post(endpoint, data)
+      const response = data ? 
+        await api.post(endpoint, data) : 
+        await api.get(endpoint)
       
       if (response.data.recommendations) {
         setRecommendations(response.data.recommendations)
@@ -274,8 +319,6 @@ const Recommendations = () => {
         if (response.data.contextual_info) {
           setContextualInfo(response.data.contextual_info)
         }
-        
-        
         
         // Extract performance metrics
         if (response.data.performance_metrics) {
@@ -453,7 +496,54 @@ const Recommendations = () => {
               </div>
             </div>
 
-            {/* Controls Section */}
+            {/* Engine Selection */}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-200 mb-4">Choose Your Engine</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {engines.map((engine) => {
+                  const IconComponent = engine.icon
+                  const isSelected = selectedEngine === engine.id
+                  return (
+                    <button
+                      key={engine.id}
+                      onClick={() => setSelectedEngine(engine.id)}
+                      className={`relative p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                        isSelected
+                          ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
+                          : 'border-gray-600 bg-gray-800/50 hover:border-gray-500'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <IconComponent className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
+                        <div className="text-left">
+                          <div className={`font-semibold ${isSelected ? 'text-white' : 'text-gray-200'}`}>
+                            {engine.name}
+                          </div>
+                          <div className={`text-sm ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                            {engine.description}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Batch Processing Status */}
+            {batchProcessingStatus && batchProcessingStatus.batch_processing_active && (
+              <div className="mb-6 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                  <div className="text-sm text-blue-300">
+                    <span className="font-medium">Background Analysis Active:</span> 
+                    {batchProcessingStatus.batch_message || `Processing ${batchProcessingStatus.pending_analysis || 0} items (${batchProcessingStatus.coverage_percentage || 0}% complete)`}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Filter Controls */}
             <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800">
               <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between space-y-6 xl:space-y-0 xl:space-x-8">
                 {/* Filter Controls */}
@@ -535,62 +625,7 @@ const Recommendations = () => {
                 </div>
                 
                 {/* Engine Selection */}
-                <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
-                  <div className="flex items-center space-x-3">
-                    <Zap className="w-5 h-5 text-green-400" />
-                    <span className="text-white font-medium">Engine:</span>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {engines.map((engine) => {
-                      const IconComponent = engine.icon;
-                      return (
-                        <button
-                          key={engine.id}
-                          onClick={() => setSelectedEngine(engine.id)}
-                          className={`relative px-6 py-4 rounded-xl border-2 transition-all duration-300 hover:scale-105 group overflow-hidden ${
-                            selectedEngine === engine.id
-                              ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
-                              : 'border-gray-700 bg-gray-800/50 hover:border-gray-600 hover:bg-gray-700/50'
-                          }`}
-                        >
-                          {/* Click effect overlay */}
-                          <div className={`absolute inset-0 bg-gradient-to-r ${engine.color} opacity-0 transition-opacity duration-200 ${selectedEngine === engine.id ? 'opacity-15' : ''}`}></div>
-                          
-                          <div className="relative flex items-center gap-3">
-                            <IconComponent className={`w-5 h-5 transition-all duration-200 ${
-                              selectedEngine === engine.id 
-                                ? 'text-white drop-shadow-sm' 
-                                : 'text-gray-300 group-hover:text-white'
-                            }`} />
-                            <div className="text-left">
-                              <div className={`font-semibold text-sm transition-all duration-200 ${
-                                selectedEngine === engine.id 
-                                  ? 'text-white drop-shadow-sm' 
-                                  : 'text-gray-200 group-hover:text-white'
-                              }`}>
-                                {engine.name}
-                              </div>
-                              <div className={`text-xs transition-all duration-200 ${
-                                selectedEngine === engine.id 
-                                  ? 'text-gray-100' 
-                                  : 'text-gray-300 group-hover:text-gray-200'
-                              }`}>
-                                {engine.description}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Selection indicator - Green dot */}
-                          {selectedEngine === engine.id && (
-                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center shadow-md">
-                              <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                {/* The Engine Selection block is now moved outside the filter section */}
                 
                 {/* Gemini Status */}
                 <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
