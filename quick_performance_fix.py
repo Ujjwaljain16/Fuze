@@ -171,10 +171,20 @@ def optimize_embedding_utils():
     try:
         # Check if we can import the embedding model
         from sentence_transformers import SentenceTransformer
+        import torch
         
         # Test model loading
         start_time = time.time()
         model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Fix meta tensor issue by using to_empty() instead of to()
+        if hasattr(torch, 'meta') and torch.meta.is_available():
+            # Use to_empty() for meta tensors
+            model = model.to_empty(device='cpu')
+        else:
+            # Fallback to CPU
+            model = model.to('cpu')
+        
         load_time = time.time() - start_time
         
         print(f"📊 Model Loading:")

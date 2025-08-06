@@ -289,7 +289,7 @@ export default function FuzeAuth() {
           <p className="mt-1">Your data is encrypted and secure</p>
         </div>
       </div>
-      <style jsx>{`
+      <style>{`
         @keyframes lightning {
           0%, 100% { opacity: 0.1; }
           50% { opacity: 0.3; }

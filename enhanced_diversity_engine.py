@@ -28,7 +28,17 @@ class EnhancedDiversityEngine:
     def __init__(self):
         # Initialize embedding model for semantic similarity
         try:
+            import torch
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            # Fix meta tensor issue by using to_empty() instead of to()
+            if hasattr(torch, 'meta') and torch.meta.is_available():
+                # Use to_empty() for meta tensors
+                self.embedding_model = self.embedding_model.to_empty(device='cpu')
+            else:
+                # Fallback to CPU
+                self.embedding_model = self.embedding_model.to('cpu')
+            
             self.embedding_available = True
             logger.info("Embedding model loaded successfully for diversity analysis")
         except Exception as e:

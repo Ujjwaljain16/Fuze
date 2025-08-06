@@ -6,6 +6,7 @@ Combines results from multiple engines for better recommendations
 
 import time
 import logging
+
 from typing import List, Dict, Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict
@@ -78,8 +79,8 @@ class OptimizedEnsembleEngine:
                 logger.info("Cache hit for ensemble recommendations")
                 return cached_result
             
-            # Determine engines to use
-            engines_to_use = request.engines or ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']  # All engines
+            # Determine engines to use - only use reliable engines
+            engines_to_use = request.engines or ['unified']  # Default to unified only for reliability
             available_engines = self._get_available_engines(engines_to_use)
             
             if not available_engines:
@@ -228,25 +229,32 @@ class OptimizedEnsembleEngine:
     def _get_parallel_quality_engine_results(self, engines: List[str], request: EnsembleRequest) -> Dict[str, List[Dict]]:
         """Get results from quality engines in parallel with longer timeout"""
         results = {}
-        
+        failed_engines = []
         with ThreadPoolExecutor(max_workers=self.max_parallel_engines) as executor:
             # Submit tasks
             future_to_engine = {
                 executor.submit(self._get_single_engine_results, engine, request): engine 
                 for engine in engines
             }
-            
-            # Collect results with quality-focused timeout
-            for future in as_completed(future_to_engine, timeout=self.timeout_seconds):
-                engine_name = future_to_engine[future]
-                try:
-                    engine_results = future.result(timeout=30)  # 30 second timeout per engine
-                    results[engine_name] = engine_results
-                    logger.info(f"Engine {engine_name}: {len(engine_results)} results")
-                except Exception as e:
-                    logger.warning(f"Engine {engine_name} failed or timed out: {e}")
+            try:
+                for future in as_completed(future_to_engine, timeout=self.timeout_seconds):
+                    engine_name = future_to_engine[future]
+                    try:
+                        engine_results = future.result(timeout=30)  # 30 second timeout per engine
+                        results[engine_name] = engine_results
+                        logger.info(f"Engine {engine_name}: {len(engine_results)} results")
+                    except Exception as e:
+                        logger.warning(f"Engine {engine_name} failed or timed out: {e}")
+                        results[engine_name] = []
+                        failed_engines.append(engine_name)
+            except Exception as e:
+                logger.error(f"Error during parallel engine execution: {e}")
+            # Check for unfinished futures
+            unfinished = set(future_to_engine.values()) - set(results.keys())
+            if unfinished:
+                logger.error(f"Ensemble error: {len(unfinished)} (of {len(engines)}) futures unfinished: {list(unfinished)}")
+                for engine_name in unfinished:
                     results[engine_name] = []
-        
         return results
     
     def _get_single_engine_results(self, engine_name: str, request: EnsembleRequest) -> List[Dict]:
@@ -522,7 +530,48 @@ class OptimizedEnsembleEngine:
         
         # Sort by ensemble score and limit results
         ensemble_results.sort(key=lambda x: x.ensemble_score, reverse=True)
-        return ensemble_results[:request.max_recommendations]
+        
+        # Apply quality filters and return final results
+        final_recommendations = self._apply_quality_filters(ensemble_results)
+        
+        return final_recommendations[:request.max_recommendations]
+
+    def _apply_quality_filters(self, recommendations: List[EnsembleResult]) -> List[EnsembleResult]:
+        """Apply quality filters to ensure only high-quality recommendations are returned"""
+        filtered_recommendations = []
+        
+        for rec in recommendations:
+            # Skip very low quality recommendations
+            if rec.score < 20:
+                continue
+                
+            # Skip generic content (titles that are too generic)
+            title = rec.title.lower()
+            if any(generic in title for generic in [
+                'javascript tutorial', 'python tutorial', 'html tutorial', 'css tutorial',
+                'programming basics', 'coding tutorial', 'learn to code'
+            ]):
+                # Only include if it has very high score
+                if rec.score < 40:
+                    continue
+            
+            # Skip dictionary or reference content unless highly relevant
+            if any(ref in title for ref in ['dictionary', 'reference', 'glossary']):
+                if rec.score < 35:
+                    continue
+            
+            # Boost user's own content (if we have that attribute)
+            if hasattr(rec, 'is_user_content') and rec.is_user_content:
+                rec.score = rec.score * 1.3  # 30% boost
+                if hasattr(rec, 'confidence'):
+                    rec.confidence = min(1.0, rec.confidence * 1.2)
+            
+            filtered_recommendations.append(rec)
+        
+        # Sort by score
+        filtered_recommendations.sort(key=lambda x: x.score, reverse=True)
+        
+        return filtered_recommendations
 
 # Global instance
 _ensemble_engine = None

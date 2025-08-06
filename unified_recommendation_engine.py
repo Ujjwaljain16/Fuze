@@ -27,7 +27,16 @@ class UnifiedRecommendationEngine:
     
     def __init__(self):
         # Initialize embedding model for semantic similarity
+        import torch
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Fix meta tensor issue by using to_empty() instead of to()
+        if hasattr(torch, 'meta') and torch.meta.is_available():
+            # Use to_empty() for meta tensors
+            self.embedding_model = self.embedding_model.to_empty(device='cpu')
+        else:
+            # Fallback to CPU
+            self.embedding_model = self.embedding_model.to('cpu')
         
         # TF-IDF for keyword-based similarity
         self.tfidf_vectorizer = TfidfVectorizer(
@@ -461,7 +470,7 @@ class UnifiedRecommendationEngine:
         }
 
     def _calculate_technology_match(self, bookmark_analysis: Dict, context: Dict) -> float:
-        """Calculate technology match score with improved accuracy"""
+        """Calculate technology match score with improved accuracy for React Native, UPI, mobile development"""
         # Extract technology categories from both bookmark and context
         bookmark_techs = []
         if 'technologies' in bookmark_analysis:
@@ -482,6 +491,42 @@ class UnifiedRecommendationEngine:
         # Also check primary_technologies from context
         if 'primary_technologies' in context:
             context_techs.extend(context['primary_technologies'])
+        
+        # Get text content for keyword matching
+        bookmark_text = f"{bookmark_analysis.get('title', '')} {bookmark_analysis.get('content', '')}".lower()
+        context_text = context.get('full_text', '').lower()
+        
+        # React Native specific technologies
+        react_native_keywords = {
+            'react native', 'react-native', 'expo', 'react native cli', 'metro bundler',
+            'react navigation', 'react-navigation', 'react native elements',
+            'react native paper', 'react native vector icons', 'react native maps',
+            'react native firebase', 'react native async storage', 'react native permissions'
+        }
+        
+        # UPI specific keywords
+        upi_keywords = {
+            'upi', 'unified payments interface', 'upi integration', 'upi payment',
+            'upi sdk', 'upi deep linking', 'upi intent', 'upi merchant',
+            'upi payment gateway', 'upi transaction', 'upi qr code', 'setu'
+        }
+        
+        # Mobile development keywords
+        mobile_keywords = {
+            'mobile app', 'mobile development', 'ios', 'android', 'cross platform',
+            'native app', 'hybrid app', 'mobile ui', 'mobile ux', 'mobile testing',
+            'app store', 'google play', 'mobile deployment', 'mobile performance'
+        }
+        
+        # Check for specific technology matches
+        bookmark_react_native = any(keyword in bookmark_text for keyword in react_native_keywords)
+        context_react_native = any(keyword in context_text for keyword in react_native_keywords)
+        
+        bookmark_upi = any(keyword in bookmark_text for keyword in upi_keywords)
+        context_upi = any(keyword in context_text for keyword in upi_keywords)
+        
+        bookmark_mobile = any(keyword in bookmark_text for keyword in mobile_keywords)
+        context_mobile = any(keyword in context_text for keyword in mobile_keywords)
         
         if not context_techs:
             return 15  # Neutral if no context techs
@@ -519,23 +564,45 @@ class UnifiedRecommendationEngine:
             return 15
         
         # Calculate final score with more granularity
+        base_score = 0
         if overlap_scores:
             overlap_score = sum(overlap_scores)
             match_ratio = overlap_score / total_context_weight
             
             # Apply non-linear scaling for better differentiation
             if match_ratio >= 0.8:
-                return 30  # Perfect match
+                base_score = 25  # Perfect match
             elif match_ratio >= 0.6:
-                return 25  # Very good match
+                base_score = 20  # Very good match
             elif match_ratio >= 0.4:
-                return 20  # Good match
+                base_score = 15  # Good match
             elif match_ratio >= 0.2:
-                return 15  # Moderate match
+                base_score = 10  # Moderate match
             else:
-                return 10  # Weak match
+                base_score = 5   # Weak match
         else:
-            return 5  # No overlap
+            base_score = 5  # No overlap
+        
+        # BOOST SCORE FOR SPECIFIC TECHNOLOGY MATCHES
+        boost = 0
+        
+        # Perfect React Native match
+        if bookmark_react_native and context_react_native:
+            boost += 10
+        
+        # Perfect UPI match
+        if bookmark_upi and context_upi:
+            boost += 10
+        
+        # Perfect mobile development match
+        if bookmark_mobile and context_mobile:
+            boost += 8
+        
+        # Partial matches (one side has the technology)
+        if (bookmark_react_native or bookmark_upi or bookmark_mobile) and (context_react_native or context_upi or context_mobile):
+            boost += 5
+        
+        return min(30, base_score + boost)  # Cap at 30 points
 
     def _calculate_content_relevance(self, bookmark_analysis: Dict, context: Dict) -> float:
         """Calculate content type relevance"""
@@ -928,6 +995,11 @@ class UnifiedRecommendationEngine:
         for bookmark in bookmarks:
             score_data = self.calculate_recommendation_score(bookmark, context)
             
+            # BOOST USER'S OWN CONTENT
+            if bookmark.get('is_user_content', False):
+                score_data['total_score'] *= 1.5  # 50% boost for user's own content
+                score_data['confidence'] = min(1.0, score_data['confidence'] * 1.2)
+            
             # Format for frontend compatibility
             formatted_bookmark = {
                 **bookmark,
@@ -955,31 +1027,24 @@ class UnifiedRecommendationEngine:
         
         # Apply technology-based boosting for better relevance
         context_primary_techs = []
-        if 'primary_technologies' in context:
-            context_primary_techs.extend(context['primary_technologies'])
         if 'technologies' in context:
-            for tech in context['technologies']:
-                if isinstance(tech, dict) and tech.get('confidence', 0) > 0.7:
-                    context_primary_techs.append(tech.get('category', ''))
-                elif isinstance(tech, str):
-                    context_primary_techs.append(tech)
+            context_primary_techs = [tech['category'] if isinstance(tech, dict) else tech 
+                                   for tech in context['technologies']]
         
+        # Apply boosting and penalties
         for bookmark in scored_bookmarks:
-            bookmark_techs = []
-            if 'technologies' in bookmark['score_data']['bookmark_analysis']:
-                for tech in bookmark['score_data']['bookmark_analysis']['technologies']:
-                    if isinstance(tech, dict) and 'category' in tech:
-                        bookmark_techs.append(tech['category'])
-                    elif isinstance(tech, str):
-                        bookmark_techs.append(tech)
+            bookmark_techs = bookmark.get('technologies', [])
             
-            # Boost score if primary technologies match
-            tech_overlap = set(bookmark_techs).intersection(set(context_primary_techs))
-            if tech_overlap:
-                # Boost by 15% for each matching primary technology
-                boost_factor = 1 + (len(tech_overlap) * 0.15)
-                bookmark['score'] *= boost_factor
-                bookmark['match_score'] *= boost_factor
+            # Boost for technology overlap
+            tech_overlap = False
+            if context_primary_techs and bookmark_techs:
+                overlap = set(context_primary_techs).intersection(set(bookmark_techs))
+                if overlap:
+                    tech_overlap = True
+                    # Boost based on overlap strength
+                    overlap_ratio = len(overlap) / len(context_primary_techs)
+                    bookmark['score'] *= (1 + overlap_ratio * 0.3)  # Up to 30% boost
+                    bookmark['match_score'] *= (1 + overlap_ratio * 0.3)
             
             # Apply penalty for major technology mismatches
             if context_primary_techs:
@@ -1001,11 +1066,19 @@ class UnifiedRecommendationEngine:
         # Re-sort after boosting
         scored_bookmarks.sort(key=lambda x: x['score'], reverse=True)
         
-        # Filter by minimum relevance (25 points = 25% - slightly lower to allow more diversity)
+        # Apply stricter quality filter - only show high-quality recommendations
         relevant_bookmarks = [
             b for b in scored_bookmarks 
-            if b['score'] >= 25
+            if b['score'] >= 35  # Increased from 25 to 35 for stricter filtering
         ]
+        
+        # If we don't have enough high-quality recommendations, include some medium quality
+        if len(relevant_bookmarks) < 3:
+            medium_quality = [
+                b for b in scored_bookmarks 
+                if b['score'] >= 25 and b not in relevant_bookmarks
+            ]
+            relevant_bookmarks.extend(medium_quality[:2])  # Add max 2 medium quality
         
         # Return top recommendations
         return relevant_bookmarks[:max_recommendations]

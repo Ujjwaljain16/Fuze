@@ -49,8 +49,9 @@ class FastEnsembleEngine:
     
     def __init__(self):
         self.engine_weights = {
-            'unified': 0.7,    # Heavy weight for unified (fastest)
-            'fast': 0.3        # Light weight for fast engine
+            'unified': 0.5,        # Balanced weight for unified
+            'fast': 0.2,           # Light weight for fast engine
+            'high_relevance': 0.3  # High weight for relevance engine
         }
         self.cache_duration = 900  # 15 minutes (shorter for speed)
         self.timeout_seconds = 10  # Very short timeout
@@ -70,8 +71,8 @@ class FastEnsembleEngine:
                 logger.info("Cache hit for fast ensemble recommendations")
                 return cached_result
             
-            # Use only fast engines
-            engines_to_use = ['unified']  # Always start with unified
+            # Use fast engines including high relevance
+            engines_to_use = ['unified', 'high_relevance']  # Always include unified and high relevance
             if 'fast' in (request.engines or []):
                 engines_to_use.append('fast')
             
@@ -94,8 +95,19 @@ class FastEnsembleEngine:
                 logger.error(f"Error with unified engine: {e}")
                 engine_results['unified'] = []
             
-            # Only try fast engine if unified didn't provide enough results
-            if len(engine_results.get('unified', [])) < request.max_recommendations and 'fast' in engines_to_use:
+            # Get high relevance results (high priority for quality)
+            if 'high_relevance' in engines_to_use:
+                try:
+                    logger.info("Getting high relevance engine results...")
+                    results = self._get_high_relevance_results(request)
+                    engine_results['high_relevance'] = results
+                    logger.info(f"Engine high_relevance: {len(results)} results")
+                except Exception as e:
+                    logger.error(f"Error with high relevance engine: {e}")
+                    engine_results['high_relevance'] = []
+            
+            # Only try fast engine if we still need more results
+            if len(engine_results.get('unified', [])) + len(engine_results.get('high_relevance', [])) < request.max_recommendations and 'fast' in engines_to_use:
                 try:
                     logger.info("Getting fast engine results...")
                     results = self._get_fast_results(request)
@@ -193,6 +205,82 @@ class FastEnsembleEngine:
             
         except Exception as e:
             logger.warning(f"Fast engine not available: {e}")
+            return []
+    
+    def _get_high_relevance_results(self, request: FastEnsembleRequest) -> List[Dict]:
+        """Get results from high relevance engine"""
+        try:
+            from high_relevance_engine import high_relevance_engine
+            from models import SavedContent, db
+            from flask import Flask
+            from dotenv import load_dotenv
+            import os
+            
+            # Load environment variables
+            load_dotenv()
+            
+            # Create temporary Flask app for database context
+            temp_app = Flask(__name__)
+            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            
+            # Initialize SQLAlchemy with the temporary app
+            db.init_app(temp_app)
+            
+            with temp_app.app_context():
+                # Get user's saved content dynamically
+                with db.session.begin():
+                    # Get high-quality content from all users (dynamic, not hardcoded)
+                    all_content = SavedContent.query.filter(
+                        SavedContent.quality_score >= 5,  # Dynamic quality threshold
+                        SavedContent.extracted_text.isnot(None),
+                        SavedContent.extracted_text != ''
+                    ).order_by(
+                        SavedContent.quality_score.desc(),
+                        SavedContent.saved_at.desc()
+                    ).limit(50).all()  # Further reduced limit for faster processing
+                
+                # Convert to format expected by high relevance engine (while still in app context)
+                bookmarks_data = []
+                for content in all_content:
+                    # Get technologies from ContentAnalysis if available
+                    technologies = []
+                    if content.analyses:
+                        for analysis in content.analyses:
+                            if analysis.technology_tags:
+                                technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
+                    
+                    bookmarks_data.append({
+                        'id': content.id,
+                        'title': content.title,
+                        'url': content.url,
+                        'extracted_text': content.extracted_text or '',
+                        'tags': content.tags or '',
+                        'notes': content.notes or '',
+                        'quality_score': content.quality_score or 5.0,
+                        'created_at': content.saved_at,
+                        'technologies': technologies
+                    })
+                
+                # Prepare user input for high relevance engine
+                user_input = {
+                    'title': request.title,
+                    'description': request.description,
+                    'technologies': request.technologies,
+                    'project_id': request.project_id
+                }
+                
+                # Get high relevance recommendations
+                results = high_relevance_engine.get_high_relevance_recommendations(
+                    bookmarks=bookmarks_data,
+                    user_input=user_input,
+                    max_recommendations=request.max_recommendations * 2  # Get more for ensemble
+                )
+                
+                return results
+                
+        except Exception as e:
+            logger.error(f"Error getting high relevance results: {e}")
             return []
     
     def _combine_results(self, engine_results: Dict[str, List[Dict]], request: FastEnsembleRequest) -> List[FastEnsembleResult]:

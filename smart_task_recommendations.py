@@ -7,7 +7,16 @@ from collections import Counter
 
 class SmartTaskRecommendationEngine:
     def __init__(self):
+        import torch
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Fix meta tensor issue by using to_empty() instead of to()
+        if hasattr(torch, 'meta') and torch.meta.is_available():
+            # Use to_empty() for meta tensors
+            self.embedding_model = self.embedding_model.to_empty(device='cpu')
+        else:
+            # Fallback to CPU
+            self.embedding_model = self.embedding_model.to('cpu')
         
         # Technology and concept keywords for precise matching
         self.tech_concepts = {

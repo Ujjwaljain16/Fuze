@@ -65,10 +65,14 @@ api.interceptors.response.use(
       originalRequest._retry = true
       try {
         // Attempt to refresh the access token
+        const oldToken = localStorage.getItem('token');
         const res = await axios.post(
           `${baseURL}/api/auth/refresh`,
           {},
-          { withCredentials: true }
+          {
+            withCredentials: true,
+            headers: oldToken ? { Authorization: `Bearer ${oldToken}` } : {}
+          }
         )
         const newToken = res.data.access_token
         localStorage.setItem('token', newToken)
@@ -101,7 +105,10 @@ export const refreshTokenIfNeeded = async () => {
       const res = await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
-        { withCredentials: true }
+        {
+          withCredentials: true,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }
       )
       const newToken = res.data.access_token
       localStorage.setItem('token', newToken)

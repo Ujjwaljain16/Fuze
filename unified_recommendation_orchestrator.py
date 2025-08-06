@@ -20,6 +20,13 @@ import threading
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not available, continue without it
+
 from models import db, SavedContent, ContentAnalysis, User
 from redis_utils import redis_cache
 
@@ -80,14 +87,30 @@ class UnifiedDataLayer:
         self._init_embedding_model()
     
     def _init_embedding_model(self):
-        """Initialize embedding model with error handling"""
+        """Initialize embedding model with fallback for network issues"""
         try:
+            import torch
             from sentence_transformers import SentenceTransformer
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Embedding model initialized successfully")
+            
+            # Try to load the model with network fallback
+            try:
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                if hasattr(torch, 'meta') and torch.meta.is_available():
+                    self.embedding_model = self.embedding_model.to_empty(device='cpu')
+                else:
+                    self.embedding_model = self.embedding_model.to('cpu')
+                logger.info("✅ Embedding model loaded successfully")
+            except Exception as network_error:
+                logger.warning(f"Network error loading embedding model: {network_error}")
+                logger.info("Using fallback embedding approach...")
+                # Create a simple fallback embedding function
+                self.embedding_model = None
+                self._use_fallback_embeddings = True
+                
         except Exception as e:
-            logger.warning(f"Embedding model not available: {e}")
+            logger.error(f"Error initializing embedding model: {e}")
             self.embedding_model = None
+            self._use_fallback_embeddings = True
     
     def normalize_content_data(self, content: SavedContent, analysis: Optional[ContentAnalysis] = None) -> Dict[str, Any]:
         """Normalize content data to unified format"""
@@ -174,83 +197,133 @@ class UnifiedDataLayer:
     def get_candidate_content(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
         """Get candidate content in unified format"""
         try:
-            # Create a minimal app context if needed
             from flask import Flask
-            if not hasattr(db, 'app') or db.app is None:
-                temp_app = Flask(__name__)
-                temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://localhost/fuze')
-                db.init_app(temp_app)
-                with temp_app.app_context():
-                    return self._get_content_from_db(user_id, request)
-            else:
-                with db.app.app_context():
-                    return self._get_content_from_db(user_id, request)
+            temp_app = Flask(__name__)
+            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://localhost/fuze')
+            db.init_app(temp_app)
+            with temp_app.app_context():
+                return self._get_content_from_db(user_id, request)
         except Exception as e:
             logger.error(f"Error getting candidate content: {e}")
             return []
     
     def _get_content_from_db(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
-        """Get content from database with proper error handling"""
+        """Get content from database with focus on the requesting user's own saved content"""
         try:
-            # Build query
+            from flask import Flask
+            temp_app = Flask(__name__)
+            
+            # Use the correct DATABASE_URL from environment variables
+            database_url = os.environ.get('DATABASE_URL')
+            if not database_url:
+                logger.error("DATABASE_URL not found in environment variables")
+                return []
+                
+            temp_app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+            db.init_app(temp_app)
+            
+            with temp_app.app_context():
+                # Build query - FOCUS ON THE REQUESTING USER'S OWN SAVED CONTENT
                 query = db.session.query(SavedContent, ContentAnalysis).outerjoin(
                     ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
                 )
                 
-                # Apply quality filter
-                query = query.filter(SavedContent.quality_score >= request.quality_threshold)
+                # Filter for the requesting user's content
+                query = query.filter(SavedContent.user_id == user_id)
                 
-                # Filter out test content
+                # Apply quality filter - but be more inclusive for user's own content
+                query = query.filter(SavedContent.quality_score >= 3)  # Lowered to include more user content
+                
+                # Filter out test content and generic/low-quality content
                 query = query.filter(
                     ~SavedContent.title.like('%Test Bookmark%'),
-                    ~SavedContent.title.like('%test bookmark%')
+                    ~SavedContent.title.like('%test bookmark%'),
+                    ~SavedContent.title.like('%Dictionary%'),
+                    ~SavedContent.title.like('%dictionary%'),
+                    ~SavedContent.title.like('%International%'),
+                    ~SavedContent.url.like('%dbooks.org%'),
+                    ~SavedContent.url.like('%pdfdrive.com%'),
+                    ~SavedContent.url.like('%scribd.com%')
                 )
                 
-                # Include global content if requested
-                if not request.include_global_content:
-                    query = query.filter(SavedContent.user_id == user_id)
+                # Extract request technologies for relevance filtering
+                request_techs = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
+                request_text = f"{request.title} {request.description}".lower()
                 
-                # For project-based recommendations, prioritize content that might be relevant
-                if request.project_id:
-                    # Get project details to enhance filtering
-                    from models import Project
-                    project = Project.query.filter_by(id=request.project_id, user_id=user_id).first()
-                    if project:
-                        # Boost content that mentions project technologies
-                        project_techs = [tech.strip().lower() for tech in (project.technologies or '').split(',') if tech.strip()]
-                        if project_techs:
-                            # Add a subquery to boost relevant content
-                            logger.info(f"Project technologies: {project_techs}")
-                
-                # Order by quality and recency
-                query = query.order_by(
+                # Get ALL user's own content ordered by quality and recency
+                user_content = query.order_by(
                     SavedContent.quality_score.desc(),
                     SavedContent.saved_at.desc()
-                )
+                ).limit(200).all()  # Increased limit to get more user content
                 
-                # Limit results
-                query = query.limit(500)
+                logger.info(f"Found {len(user_content)} content items from user {user_id}")
                 
-                # Execute query
-                results = query.all()
-                
-                # Normalize data
-                normalized_content = []
-                for content, analysis in results:
-                    normalized = self.normalize_content_data(content, analysis)
+                # Convert to dict format with proper normalization and relevance scoring
+                content_list = []
+                for content, analysis in user_content:
+                    # Use the normalize_content_data method to ensure all required fields
+                    normalized_content = self.normalize_content_data(content, analysis)
                     
-                    # Boost score for project-relevant content
-                    if request.project_id:
-                        normalized = self._boost_project_relevance(normalized, request)
+                    # Calculate relevance score for this content
+                    relevance_score = self._calculate_content_relevance(
+                        normalized_content, request_techs, request_text, request
+                    )
                     
-                    normalized_content.append(normalized)
+                    # Add additional fields needed by engines
+                    normalized_content.update({
+                        'user_id': content.user_id,  # This will be the requesting user's ID
+                        'is_user_content': True,  # All content is from the requesting user
+                        'project_relevance_boost': relevance_score,  # Use calculated relevance
+                        'relevance_score': relevance_score  # Add relevance score
+                    })
+                    
+                    # Include all user's own content but prioritize by relevance
+                    content_list.append(normalized_content)
                 
-                logger.info(f"Retrieved {len(normalized_content)} candidate content items")
-                return normalized_content
+                # Sort by relevance score first, then by quality
+                content_list.sort(key=lambda x: (x.get('relevance_score', 0), x.get('quality_score', 0)), reverse=True)
+                
+                logger.info(f"Retrieved {len(content_list)} content items from user {user_id}")
+                return content_list
                 
         except Exception as e:
-            logger.error(f"Error getting candidate content: {e}")
+            logger.error(f"Error getting content from database: {e}")
             return []
+    
+    def _calculate_content_relevance(self, content: Dict[str, Any], request_techs: List[str], request_text: str, request: UnifiedRecommendationRequest) -> float:
+        """Calculate relevance score for user's own content"""
+        relevance_score = 0.0
+        
+        # Technology overlap (50% weight) - Higher weight for user content
+        content_techs = content.get('technologies', [])
+        if request_techs and content_techs:
+            tech_overlap = len(set(request_techs).intersection(set(content_techs)))
+            tech_relevance = tech_overlap / len(request_techs) if request_techs else 0
+            relevance_score += tech_relevance * 0.5
+        
+        # Text similarity (30% weight)
+        content_text = f"{content.get('title', '')} {content.get('extracted_text', '')}".lower()
+        if request_text and content_text:
+            # Simple keyword matching for now
+            request_words = set(request_text.split())
+            content_words = set(content_text.split())
+            word_overlap = len(request_words.intersection(content_words))
+            text_relevance = word_overlap / len(request_words) if request_words else 0
+            relevance_score += text_relevance * 0.3
+        
+        # Quality score (15% weight) - Lower weight since it's user's own content
+        quality_score = content.get('quality_score', 5) / 10.0
+        relevance_score += quality_score * 0.15
+        
+        # User content boost (5% weight) - Small boost since all content is user's
+        relevance_score += 0.05
+        
+        # Project-specific boost
+        if request.project_id:
+            project_boost = content.get('project_relevance_boost', 0) / 10.0
+            relevance_score += project_boost * 0.1
+        
+        return min(relevance_score, 1.0)  # Cap at 1.0
     
     def _boost_project_relevance(self, content: Dict[str, Any], request: UnifiedRecommendationRequest) -> Dict[str, Any]:
         """Boost content relevance for project-based recommendations"""
@@ -345,6 +418,51 @@ class UnifiedDataLayer:
             logger.error(f"Error calculating batch similarities: {e}")
             return [0.5] * len(content_texts)
 
+    def _get_embedding(self, text: str) -> List[float]:
+        """Get embedding for text with fallback support"""
+        if self.embedding_model is not None:
+            try:
+                return self.embedding_model.encode(text).tolist()
+            except Exception as e:
+                logger.warning(f"Error with embedding model: {e}")
+                return self._fallback_embedding(text)
+        else:
+            return self._fallback_embedding(text)
+    
+    def _fallback_embedding(self, text: str) -> List[float]:
+        """Simple fallback embedding using TF-IDF-like approach"""
+        try:
+            import re
+            from collections import Counter
+            
+            # Simple text preprocessing
+            text = text.lower()
+            words = re.findall(r'\b\w+\b', text)
+            
+            # Create a simple vector representation
+            word_counts = Counter(words)
+            
+            # Create a fixed-size vector (384 dimensions like the original model)
+            vector = [0.0] * 384
+            
+            # Simple hash-based embedding
+            for word, count in word_counts.items():
+                # Use hash to distribute words across dimensions
+                hash_val = hash(word) % 384
+                vector[hash_val] += count * 0.1  # Normalize
+            
+            # Normalize the vector
+            magnitude = sum(x*x for x in vector) ** 0.5
+            if magnitude > 0:
+                vector = [x / magnitude for x in vector]
+            
+            return vector
+            
+        except Exception as e:
+            logger.error(f"Error in fallback embedding: {e}")
+            # Return zero vector as last resort
+            return [0.0] * 384
+
 class FastSemanticEngine:
     """Fast semantic similarity engine (Primary)"""
     
@@ -384,7 +502,12 @@ class FastSemanticEngine:
             # OPTIMIZATION: Use batch embedding generation instead of individual calls
             content_texts = []
             for content in content_list:
-                content_text = f"{content['title']} {content['extracted_text']} {' '.join(content['technologies'])}"
+                # Ensure technologies field exists
+                technologies = content.get('technologies', [])
+                if not isinstance(technologies, list):
+                    technologies = []
+                
+                content_text = f"{content['title']} {content['extracted_text']} {' '.join(technologies)}"
                 content_texts.append(content_text)
             
             # Calculate similarities in batch
@@ -396,19 +519,32 @@ class FastSemanticEngine:
                 similarity = similarities[i]
                 
                 # Calculate technology overlap
+                content_techs = content.get('technologies', [])
+                if not isinstance(content_techs, list):
+                    content_techs = []
+                
                 tech_overlap = self._calculate_technology_overlap(
-                    content['technologies'],
+                    content_techs,
                     [tech.strip() for tech in request.technologies.split(',') if tech.strip()]
                 )
                 
-                # Calculate final score (70% semantic + 30% tech overlap)
-                final_score = (similarity * 0.7) + (tech_overlap * 0.3)
+                # Calculate final score with improved weighting for user content
+                # Technology overlap (40%) + Semantic similarity (35%) + Quality (15%) + User content boost (10%)
+                final_score = (tech_overlap * 0.4) + (similarity * 0.35) + (content.get('quality_score', 6) / 10.0 * 0.15)
+                
+                # Apply user content boost (all content is user's own)
+                final_score += 0.1
                 
                 # Apply project-specific boosts
                 if request.project_id and 'project_relevance_boost' in content:
                     project_boost = content['project_relevance_boost'] / 10.0  # Normalize boost
                     final_score = min(final_score + project_boost, 1.0)  # Cap at 1.0
                     logger.debug(f"Applied project boost of {project_boost} to content {content['id']}")
+                
+                # Apply relevance score boost
+                relevance_score = content.get('relevance_score', 0)
+                if relevance_score > 0:
+                    final_score = min(final_score + (relevance_score * 0.2), 1.0)
                 
                 # Generate reason
                 reason = self._generate_reason(content, similarity, tech_overlap, request.project_id)
@@ -420,17 +556,18 @@ class FastSemanticEngine:
                     url=content['url'],
                     score=final_score * 100,  # Convert to percentage
                     reason=reason,
-                    content_type=content['content_type'],
-                    difficulty=content['difficulty'],
-                    technologies=content['technologies'],
-                    key_concepts=content['key_concepts'],
-                    quality_score=content['quality_score'],
+                    content_type=content.get('content_type', 'article'),
+                    difficulty=content.get('difficulty', 'intermediate'),
+                    technologies=content.get('technologies', []),
+                    key_concepts=content.get('key_concepts', []),
+                    quality_score=content.get('quality_score', 6),
                     engine_used=self.name,
                     confidence=similarity,
                     metadata={
                         'semantic_similarity': similarity,
                         'tech_overlap': tech_overlap,
                         'project_boost': content.get('project_relevance_boost', 0),
+                        'relevance_score': relevance_score,
                         'response_time_ms': (time.time() - start_time) * 1000
                     }
                 )
@@ -439,12 +576,24 @@ class FastSemanticEngine:
             
             # Sort by score and limit
             recommendations.sort(key=lambda x: x.score, reverse=True)
-            recommendations = recommendations[:request.max_recommendations]
+            
+            # Filter out low-quality recommendations
+            min_score_threshold = 25  # Minimum score to be considered relevant
+            filtered_recommendations = [r for r in recommendations if r.score >= min_score_threshold]
+            
+            # If we don't have enough high-quality recommendations, include some medium quality
+            if len(filtered_recommendations) < 3:
+                medium_threshold = 15
+                medium_quality = [r for r in recommendations if r.score >= medium_threshold and r not in filtered_recommendations]
+                filtered_recommendations.extend(medium_quality[:2])  # Add max 2 medium quality
+            
+            # Limit to requested number
+            filtered_recommendations = filtered_recommendations[:request.max_recommendations]
             
             # Update performance metrics
             self._update_performance(start_time, True)
             
-            return recommendations
+            return filtered_recommendations
             
         except Exception as e:
             logger.error(f"Error in FastSemanticEngine: {e}")
@@ -452,43 +601,132 @@ class FastSemanticEngine:
             return []
     
     def _calculate_technology_overlap(self, content_techs: List[str], request_techs: List[str]) -> float:
-        """Calculate technology overlap score"""
+        """Calculate technology overlap score with improved accuracy"""
         if not content_techs or not request_techs:
             return 0.0
         
-        # Normalize to lowercase
-        content_set = set([tech.lower() for tech in content_techs])
-        request_set = set([tech.lower() for tech in request_techs])
+        # Normalize to lowercase and clean
+        content_set = set([tech.lower().strip() for tech in content_techs if tech.strip()])
+        request_set = set([tech.lower().strip() for tech in request_techs if tech.strip()])
         
-        # Calculate Jaccard similarity
-        intersection = len(content_set.intersection(request_set))
-        union = len(content_set.union(request_set))
+        if not content_set or not request_set:
+            return 0.0
         
-        return intersection / union if union > 0 else 0.0
+        # Calculate exact matches
+        exact_matches = len(content_set.intersection(request_set))
+        
+        # Calculate partial matches (one technology contains another)
+        partial_matches = 0
+        for req_tech in request_set:
+            for content_tech in content_set:
+                if req_tech in content_tech or content_tech in req_tech:
+                    partial_matches += 0.5
+                    break
+        
+        # Calculate related technology matches
+        related_matches = 0
+        tech_relations = {
+            'javascript': ['js', 'node', 'nodejs', 'react', 'vue', 'angular'],
+            'python': ['py', 'django', 'flask', 'fastapi'],
+            'java': ['spring', 'maven', 'gradle'],
+            'react': ['reactjs', 'jsx', 'tsx'],
+            'typescript': ['ts', 'javascript'],
+            'node': ['nodejs', 'javascript'],
+            'sql': ['mysql', 'postgresql', 'database'],
+            'mongodb': ['nosql', 'database'],
+            'docker': ['container', 'kubernetes'],
+            'aws': ['amazon', 'cloud'],
+            'git': ['github', 'gitlab', 'version control']
+        }
+        
+        for req_tech in request_set:
+            if req_tech in tech_relations:
+                related_techs = tech_relations[req_tech]
+                for content_tech in content_set:
+                    if content_tech in related_techs:
+                        related_matches += 0.3
+                        break
+        
+        # Calculate total matches
+        total_matches = exact_matches + partial_matches + related_matches
+        
+        # Calculate overlap ratio
+        union_size = len(content_set.union(request_set))
+        overlap_ratio = total_matches / union_size if union_size > 0 else 0.0
+        
+        # Apply non-linear scaling for better differentiation
+        if overlap_ratio >= 0.8:
+            return 1.0
+        elif overlap_ratio >= 0.6:
+            return 0.8
+        elif overlap_ratio >= 0.4:
+            return 0.6
+        elif overlap_ratio >= 0.2:
+            return 0.4
+        else:
+            return overlap_ratio * 2  # Scale up small overlaps
     
     def _generate_reason(self, content: Dict, similarity: float, tech_overlap: float, project_id: Optional[int]) -> str:
-        """Generate recommendation reason"""
+        """Generate recommendation reason with improved accuracy"""
         reasons = []
         
-        if similarity > 0.7:
-            reasons.append("High semantic relevance to your project")
-        elif similarity > 0.5:
-            reasons.append("Moderate semantic relevance")
+        # Semantic relevance
+        if similarity > 0.8:
+            reasons.append("Highly relevant to your request")
+        elif similarity > 0.6:
+            reasons.append("Very relevant to your request")
+        elif similarity > 0.4:
+            reasons.append("Moderately relevant to your request")
+        elif similarity > 0.2:
+            reasons.append("Somewhat relevant to your request")
         
-        if tech_overlap > 0.5:
-            tech_list = ', '.join(content['technologies'][:3])
+        # Technology match
+        if tech_overlap > 0.7:
+            tech_list = ', '.join(content.get('technologies', [])[:3])
             reasons.append(f"Directly covers {tech_list} technologies")
+        elif tech_overlap > 0.4:
+            tech_list = ', '.join(content.get('technologies', [])[:2])
+            reasons.append(f"Includes {tech_list} technologies")
         elif tech_overlap > 0.2:
             reasons.append("Some technology overlap")
         
-        if content['quality_score'] >= 8:
+        # Quality indicator
+        quality_score = content.get('quality_score', 0)
+        if quality_score >= 9:
+            reasons.append("Exceptional quality content")
+        elif quality_score >= 8:
             reasons.append("High-quality content")
+        elif quality_score >= 7:
+            reasons.append("Good quality content")
         
+        # Content type
+        content_type = content.get('content_type', 'article')
+        if content_type in ['tutorial', 'guide', 'example']:
+            reasons.append(f"Practical {content_type} content")
+        elif content_type == 'documentation':
+            reasons.append("Comprehensive documentation")
+        
+        # User content boost
+        if content.get('is_user_content', False):
+            reasons.append("From your saved content")
+        
+        # Project relevance
         if project_id:
-            reasons.append(f"Relevant to your project: {project_id}")
+            reasons.append(f"Relevant to your project")
         
+        # Relevance score
+        relevance_score = content.get('relevance_score', 0)
+        if relevance_score > 0.7:
+            reasons.append("Highly relevant based on your request")
+        elif relevance_score > 0.5:
+            reasons.append("Very relevant based on your request")
+        
+        # Fallback if no specific reasons
         if not reasons:
-            reasons.append("Relevant learning material")
+            if similarity > 0.1:
+                reasons.append("Relevant learning material from your saved content")
+            else:
+                reasons.append("Quality content from your saved bookmarks")
         
         return ". ".join(reasons) + "."
     
@@ -537,14 +775,22 @@ class ContextAwareEngine:
                 # Calculate comprehensive score
                 score_components = self._calculate_score_components(content, context)
                 
-                # Weighted final score
+                # Weighted final score with improved weighting for user content
                 final_score = (
-                    score_components['semantic'] * 0.4 +
-                    score_components['technology'] * 0.3 +
-                    score_components['content_type'] * 0.15 +
-                    score_components['difficulty'] * 0.1 +
-                    score_components['quality'] * 0.05
+                    score_components['technology'] * 0.4 +     # Higher tech weight for user content
+                    score_components['semantic'] * 0.3 +       # Reduced semantic weight
+                    score_components['content_type'] * 0.15 +  # Keep content type
+                    score_components['difficulty'] * 0.1 +     # Keep difficulty
+                    score_components['quality'] * 0.05         # Keep quality
                 )
+                
+                # Apply user content boost (all content is user's own)
+                final_score += 0.1
+                
+                # Apply relevance score boost
+                relevance_score = content.get('relevance_score', 0)
+                if relevance_score > 0:
+                    final_score = min(final_score + (relevance_score * 0.15), 1.0)
                 
                 # Generate detailed reason
                 reason = self._generate_detailed_reason(content, context, score_components)
@@ -556,11 +802,11 @@ class ContextAwareEngine:
                     url=content['url'],
                     score=final_score * 100,
                     reason=reason,
-                    content_type=content['content_type'],
-                    difficulty=content['difficulty'],
-                    technologies=content['technologies'],
-                    key_concepts=content['key_concepts'],
-                    quality_score=content['quality_score'],
+                    content_type=content.get('content_type', 'article'),
+                    difficulty=content.get('difficulty', 'intermediate'),
+                    technologies=content.get('technologies', []),
+                    key_concepts=content.get('key_concepts', []),
+                    quality_score=content.get('quality_score', 6),
                     engine_used=self.name,
                     confidence=score_components['semantic'],
                     metadata={
@@ -574,12 +820,24 @@ class ContextAwareEngine:
             
             # Sort and limit
             recommendations.sort(key=lambda x: x.score, reverse=True)
-            recommendations = recommendations[:request.max_recommendations]
+            
+            # Filter out low-quality recommendations
+            min_score_threshold = 25  # Minimum score to be considered relevant
+            filtered_recommendations = [r for r in recommendations if r.score >= min_score_threshold]
+            
+            # If we don't have enough high-quality recommendations, include some medium quality
+            if len(filtered_recommendations) < 3:
+                medium_threshold = 15
+                medium_quality = [r for r in recommendations if r.score >= medium_threshold and r not in filtered_recommendations]
+                filtered_recommendations.extend(medium_quality[:2])  # Add max 2 medium quality
+            
+            # Limit to requested number
+            filtered_recommendations = filtered_recommendations[:request.max_recommendations]
             
             # Update performance
             self._update_performance(start_time, True)
             
-            return recommendations
+            return filtered_recommendations
             
         except Exception as e:
             logger.error(f"Error in ContextAwareEngine: {e}")
@@ -620,25 +878,34 @@ class ContextAwareEngine:
         """Calculate individual score components"""
         components = {}
         
+        # Ensure technologies fields exist
+        content_techs = content.get('technologies', [])
+        if not isinstance(content_techs, list):
+            content_techs = []
+        
+        context_techs = context.get('technologies', [])
+        if not isinstance(context_techs, list):
+            context_techs = []
+        
         # Semantic similarity
-        request_text = f"{context['title']} {context['description']} {' '.join(context['technologies'])}"
-        content_text = f"{content['title']} {content['extracted_text']} {' '.join(content['technologies'])}"
+        request_text = f"{context['title']} {context['description']} {' '.join(context_techs)}"
+        content_text = f"{content['title']} {content['extracted_text']} {' '.join(content_techs)}"
         components['semantic'] = self.data_layer.calculate_semantic_similarity(request_text, content_text)
         
         # Technology match
-        tech_overlap = self._calculate_technology_overlap(content['technologies'], context['technologies'])
+        tech_overlap = self._calculate_technology_overlap(content_techs, context_techs)
         components['technology'] = tech_overlap
         
         # Content type match
-        content_type_match = 1.0 if content['content_type'] == context['content_type'] else 0.3
+        content_type_match = 1.0 if content.get('content_type', 'article') == context.get('content_type', 'article') else 0.3
         components['content_type'] = content_type_match
         
         # Difficulty match
-        difficulty_match = self._calculate_difficulty_match(content['difficulty'], context['difficulty'])
+        difficulty_match = self._calculate_difficulty_match(content.get('difficulty', 'intermediate'), context.get('difficulty', 'intermediate'))
         components['difficulty'] = difficulty_match
         
         # Quality score (normalized to 0-1)
-        components['quality'] = min(content['quality_score'] / 10.0, 1.0)
+        components['quality'] = min(content.get('quality_score', 6) / 10.0, 1.0)
         
         return components
     
@@ -690,20 +957,20 @@ class ContextAwareEngine:
         
         # Technology match
         if components['technology'] > 0.5:
-            tech_list = ', '.join(content['technologies'][:3])
+            tech_list = ', '.join(content.get('technologies', [])[:3])
             reasons.append(f"Directly covers {tech_list} technologies")
         elif components['technology'] > 0.2:
             reasons.append("Some technology overlap with your project")
         
         # Content type
         if components['content_type'] > 0.8:
-            reasons.append(f"Perfect {content['content_type']} content for your needs")
+            reasons.append(f"Perfect {content.get('content_type', 'article')} content for your needs")
         elif components['content_type'] > 0.5:
-            reasons.append(f"Good {content['content_type']} material")
+            reasons.append(f"Good {content.get('content_type', 'article')} material")
         
         # Difficulty
         if components['difficulty'] > 0.8:
-            reasons.append(f"Appropriate {content['difficulty']} level for your project")
+            reasons.append(f"Appropriate {content.get('difficulty', 'intermediate')} level for your project")
         
         # Quality
         if components['quality'] > 0.8:
@@ -713,8 +980,26 @@ class ContextAwareEngine:
         if components['semantic'] > 0.7:
             reasons.append("High semantic relevance to your project")
         
+        # User content boost - ADD THIS
+        if content.get('is_user_content', False):
+            reasons.append("From your saved content")
+        
+        # Project relevance
+        if context.get('project_id'):
+            reasons.append("Relevant to your project")
+        
+        # Relevance score
+        relevance_score = content.get('relevance_score', 0)
+        if relevance_score > 0.7:
+            reasons.append("Highly relevant based on your request")
+        elif relevance_score > 0.5:
+            reasons.append("Very relevant based on your request")
+        
         if not reasons:
-            reasons.append("Relevant learning material for your project")
+            if components['semantic'] > 0.1:
+                reasons.append("Relevant learning material from your saved content")
+            else:
+                reasons.append("Quality content from your saved bookmarks")
         
         return ". ".join(reasons) + "."
     

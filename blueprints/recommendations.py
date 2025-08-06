@@ -47,7 +47,19 @@ def init_models():
     
     try:
         from sentence_transformers import SentenceTransformer
+        import torch
+        
+        # Initialize model
         embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Fix meta tensor issue by using to_empty() instead of to()
+        if hasattr(torch, 'meta') and torch.meta.is_available():
+            # Use to_empty() for meta tensors
+            embedding_model = embedding_model.to_empty(device='cpu')
+        else:
+            # Fallback to CPU
+            embedding_model = embedding_model.to('cpu')
+        
         logger.info("Embedding model initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing embedding model: {e}")
@@ -270,11 +282,11 @@ def get_ensemble_recommendations():
             response = {
                 'recommendations': results,
                 'total_recommendations': len(results),
-                'engine_used': 'CompleteEnsemble',
+                'engine_used': 'ReliableEnsemble',
                 'performance_metrics': {
                     'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
-                    'optimization_level': 'complete_all_engines'
+                    'engines_used': data.get('engines', ['unified']),
+                    'optimization_level': 'reliable_unified_only'
                 }
             }
             
@@ -292,51 +304,161 @@ def get_ensemble_recommendations():
 @recommendations_bp.route('/ensemble/quality', methods=['POST'])
 @jwt_required()
 def get_quality_ensemble_recommendations():
-    """Get the bestest ensemble recommendations with maximum quality"""
+    """Get high relevance recommendations using High Relevance Engine directly"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Use quality ensemble engine
+        # Use High Relevance Engine directly
         try:
-            from quality_ensemble_engine import get_quality_ensemble_recommendations as get_quality_ensemble
-            results = get_quality_ensemble(user_id, data)
+            from high_relevance_engine import high_relevance_engine
+            from models import SavedContent, db
+            from flask import Flask
+            from dotenv import load_dotenv
+            import os
+            
+            # Load environment variables
+            load_dotenv()
+            
+            # Create temporary Flask app for database context
+            temp_app = Flask(__name__)
+            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            
+            # Initialize SQLAlchemy with the temporary app
+            db.init_app(temp_app)
+            
+            with temp_app.app_context():
+                with db.session.begin():
+                    # Get user's technologies for filtering
+                    user_technologies = [tech.strip().lower() for tech in data.get('technologies', '').split(',') if tech.strip()]
+                    
+                    # Build base query for high-quality content
+                    base_query = SavedContent.query.filter(
+                        SavedContent.quality_score >= 5,
+                        SavedContent.extracted_text.isnot(None),
+                        SavedContent.extracted_text != ''
+                    )
+                    
+                    # Try to find content with matching technologies first
+                    if user_technologies:
+                        # Look for content with matching technologies in analysis
+                        from models import ContentAnalysis
+                        
+                        # First, try to find content with PRIMARY technology matches (exact matches)
+                        primary_tech_conditions = []
+                        for tech in user_technologies:
+                            primary_tech_conditions.append(
+                                SavedContent.analyses.any(
+                                    ContentAnalysis.technology_tags.ilike(f'%{tech}%')
+                                )
+                            )
+                        
+                        # Get content with primary technology matches
+                        primary_matched_content = base_query.filter(
+                            db.or_(*primary_tech_conditions)
+                        ).order_by(
+                            SavedContent.quality_score.desc(),
+                            SavedContent.saved_at.desc()
+                        ).limit(15).all()
+                        
+                        # Filter to prioritize content with more relevant technologies
+                        tech_matched_content = []
+                        for content in primary_matched_content:
+                            # Get technologies for this content
+                            content_technologies = []
+                            if content.analyses:
+                                for analysis in content.analyses:
+                                    if analysis.technology_tags:
+                                        content_technologies.extend([tech.strip().lower() for tech in analysis.technology_tags.split(',')])
+                            
+                            # Calculate relevance score
+                            relevant_tech_count = sum(1 for user_tech in user_technologies if user_tech in content_technologies)
+                            
+                            # Only include if it has good relevance (at least 30% of user techs or primary tech match)
+                            if relevant_tech_count >= 1 and (relevant_tech_count / max(len(user_technologies), 1)) >= 0.3:
+                                tech_matched_content.append(content)
+                            
+                            # Limit to top 10 most relevant
+                            if len(tech_matched_content) >= 10:
+                                break
+                        
+                        # If we have enough tech-matched content, use it
+                        if len(tech_matched_content) >= 3:
+                            all_content = tech_matched_content
+                            logger.info(f"Found {len(all_content)} content items with matching technologies: {user_technologies}")
+                        else:
+                            # Otherwise get general high-quality content
+                            all_content = base_query.order_by(
+                                SavedContent.quality_score.desc(),
+                                SavedContent.saved_at.desc()
+                            ).limit(15).all()
+                            logger.info(f"Not enough tech-matched content, using {len(all_content)} general high-quality items")
+                    else:
+                        # No specific technologies, get general content
+                        all_content = base_query.order_by(
+                            SavedContent.quality_score.desc(),
+                            SavedContent.saved_at.desc()
+                        ).limit(15).all()
+                        logger.info(f"Using {len(all_content)} general high-quality content items")
+                
+                # Convert to format expected by high relevance engine
+                bookmarks_data = []
+                for content in all_content:
+                    # Get technologies from ContentAnalysis if available
+                    technologies = []
+                    if content.analyses:
+                        for analysis in content.analyses:
+                            if analysis.technology_tags:
+                                technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
+                    
+                    bookmarks_data.append({
+                        'id': content.id,
+                        'title': content.title,
+                        'url': content.url,
+                        'extracted_text': content.extracted_text or '',
+                        'tags': content.tags or '',
+                        'notes': content.notes or '',
+                        'quality_score': content.quality_score or 5.0,
+                        'created_at': content.saved_at,
+                        'technologies': technologies
+                    })
+            
+            # Prepare user input for high relevance engine
+            user_input = {
+                'title': data.get('title', ''),
+                'description': data.get('description', ''),
+                'technologies': data.get('technologies', ''),
+                'project_id': data.get('project_id')
+            }
+            
+            # Get high relevance recommendations
+            results = high_relevance_engine.get_high_relevance_recommendations(
+                bookmarks=bookmarks_data[:10],  # Only process top 10 bookmarks for speed
+                user_input=user_input,
+                max_recommendations=data.get('max_recommendations', 5)
+            )
             
             response = {
                 'recommendations': results,
                 'total_recommendations': len(results),
-                'engine_used': 'CompleteFastQualityEnsemble',
+                'engine_used': 'HighRelevanceEngine',
                 'performance_metrics': {
                     'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
-                    'optimization_level': 'complete_fast_quality',
-                    'quality_threshold': 0.2,
-                    'min_engine_agreement': 1
+                    'engines_used': ['high_relevance'],
+                    'optimization_level': 'direct_high_relevance',
+                    'technology_filtering': 'enabled',
+                    'quality_threshold': 5
                 }
             }
             
             return jsonify(response)
             
-        except ImportError:
-            logger.warning("Quality ensemble engine not available, using optimized ensemble fallback")
-            # Fallback to optimized ensemble engine
-            from ensemble_engine import get_ensemble_recommendations as get_ensemble
-            results = get_ensemble(user_id, data)
-            
-            response = {
-                'recommendations': results,
-                'total_recommendations': len(results),
-                'engine_used': 'OptimizedEnsembleFallback',
-                'performance_metrics': {
-                    'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart']),
-                    'optimization_level': 'quality_fallback'
-                }
-            }
-            
-            return jsonify(response)
+        except Exception as e:
+            logger.error(f"Error in high relevance engine: {e}")
+            return jsonify({'error': str(e)}), 500
         
     except Exception as e:
         logger.error(f"Error in quality ensemble recommendations: {e}")
