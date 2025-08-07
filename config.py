@@ -7,6 +7,23 @@ load_dotenv()
 class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False # Suppresses a warning; good practice to set to False
+    
+    # Database connection pool settings to fix connection issues
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,  # Number of connections to maintain
+        'pool_timeout': 20,  # Timeout for getting connection from pool
+        'pool_recycle': 3600,  # Recycle connections after 1 hour
+        'pool_pre_ping': True,  # Verify connections before use
+        'max_overflow': 20,  # Additional connections beyond pool_size
+        'connect_args': {
+            'connect_timeout': 10,  # Connection timeout
+            'application_name': 'fuze_app',  # Application name for monitoring
+            'keepalives_idle': 600,  # Send keepalive after 10 minutes of inactivity
+            'keepalives_interval': 30,  # Send keepalive every 30 seconds
+            'keepalives_count': 3,  # Number of keepalives before considering connection dead
+        }
+    }
+    
     SECRET_KEY = os.environ.get('SECRET_KEY')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')

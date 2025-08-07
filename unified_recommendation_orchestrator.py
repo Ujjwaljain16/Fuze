@@ -29,6 +29,7 @@ except ImportError:
 
 from models import db, SavedContent, ContentAnalysis, User
 from redis_utils import redis_cache
+from intent_analysis_engine import analyze_user_intent, IntentAnalysisResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,7 +45,7 @@ class UnifiedRecommendationRequest:
     user_interests: str = ""
     project_id: Optional[int] = None
     max_recommendations: int = 10
-    engine_preference: Optional[str] = None  # 'fast', 'context', 'gemini', 'auto'
+    engine_preference: Optional[str] = "context"  # Default to 'context' for better quality
     diversity_weight: float = 0.3
     quality_threshold: int = 6
     include_global_content: bool = True
@@ -1082,26 +1083,28 @@ class UnifiedRecommendationOrchestrator:
     def _execute_engine_strategy(self, request: UnifiedRecommendationRequest, content_list: List[Dict]) -> List[UnifiedRecommendationResult]:
         """Execute engine selection strategy"""
         
-        # Engine selection logic
+        # Engine selection logic - ContextAwareEngine is now the default
         if request.engine_preference == 'fast':
             return self.fast_engine.get_recommendations(content_list, request)
         elif request.engine_preference == 'context':
             return self.context_engine.get_recommendations(content_list, request)
         else:
-            # Auto-selection based on request characteristics
-            return self._auto_select_engine(request, content_list)
+            # Default to ContextAwareEngine for better quality (unless explicitly overridden)
+            return self.context_engine.get_recommendations(content_list, request)
     
     def _auto_select_engine(self, request: UnifiedRecommendationRequest, content_list: List[Dict]) -> List[UnifiedRecommendationResult]:
         """Auto-select best engine based on request characteristics"""
         
-        # Simple heuristics for engine selection
+        # ALWAYS use ContextAwareEngine by default for better quality
+        # Only use FastSemanticEngine for very simple requests or when explicitly requested
         request_complexity = self._assess_request_complexity(request)
         
-        if request_complexity == 'simple':
-            # Use fast engine for simple requests
+        # Use ContextAwareEngine for most requests (better quality)
+        if request_complexity == 'simple' and len(request.title) < 20 and len(request.description) < 50:
+            # Only use fast engine for very simple requests
             return self.fast_engine.get_recommendations(content_list, request)
         else:
-            # Use context engine for complex requests
+            # Use context engine for everything else (default)
             return self.context_engine.get_recommendations(content_list, request)
     
     def _assess_request_complexity(self, request: UnifiedRecommendationRequest) -> str:

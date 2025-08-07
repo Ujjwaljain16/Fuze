@@ -304,16 +304,16 @@ def get_ensemble_recommendations():
 @recommendations_bp.route('/ensemble/quality', methods=['POST'])
 @jwt_required()
 def get_quality_ensemble_recommendations():
-    """Get high relevance recommendations using High Relevance Engine directly"""
+    """Get recommendations using FastSemanticEngine alone for testing"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Use High Relevance Engine directly
+        # Use FastSemanticEngine directly from unified orchestrator
         try:
-            from high_relevance_engine import high_relevance_engine
+            from unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
             from models import SavedContent, db
             from flask import Flask
             from dotenv import load_dotenv
@@ -404,8 +404,8 @@ def get_quality_ensemble_recommendations():
                         ).limit(15).all()
                         logger.info(f"Using {len(all_content)} general high-quality content items")
                 
-                # Convert to format expected by high relevance engine
-                bookmarks_data = []
+                # Convert to format expected by FastSemanticEngine
+                content_list = []
                 for content in all_content:
                     # Get technologies from ContentAnalysis if available
                     technologies = []
@@ -414,7 +414,7 @@ def get_quality_ensemble_recommendations():
                             if analysis.technology_tags:
                                 technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
                     
-                    bookmarks_data.append({
+                    content_list.append({
                         'id': content.id,
                         'title': content.title,
                         'url': content.url,
@@ -422,42 +422,81 @@ def get_quality_ensemble_recommendations():
                         'tags': content.tags or '',
                         'notes': content.notes or '',
                         'quality_score': content.quality_score or 5.0,
-                        'created_at': content.saved_at,
-                        'technologies': technologies
+                        'saved_at': content.saved_at,
+                        'technologies': technologies,
+                        'content_type': 'article',
+                        'difficulty': 'intermediate',
+                        'key_concepts': [],
+                        'user_id': user_id,
+                        'is_user_content': True,
+                        'relevance_score': 0.5
                     })
             
-            # Prepare user input for high relevance engine
-            user_input = {
-                'title': data.get('title', ''),
-                'description': data.get('description', ''),
-                'technologies': data.get('technologies', ''),
-                'project_id': data.get('project_id')
-            }
-            
-            # Get high relevance recommendations
-            results = high_relevance_engine.get_high_relevance_recommendations(
-                bookmarks=bookmarks_data[:10],  # Only process top 10 bookmarks for speed
-                user_input=user_input,
-                max_recommendations=data.get('max_recommendations', 5)
+            # Create unified request with FAST engine preference
+            unified_request = UnifiedRecommendationRequest(
+                user_id=user_id,
+                title=data.get('title', ''),
+                description=data.get('description', ''),
+                technologies=data.get('technologies', ''),
+                user_interests=data.get('user_interests', ''),
+                project_id=data.get('project_id'),
+                max_recommendations=data.get('max_recommendations', 5),
+                engine_preference='fast',  # FORCE FastSemanticEngine
+                diversity_weight=data.get('diversity_weight', 0.3),
+                quality_threshold=data.get('quality_threshold', 5),
+                include_global_content=data.get('include_global_content', True)
             )
             
+            # Get orchestrator and use FastSemanticEngine directly
+            orchestrator = get_unified_orchestrator()
+            
+            # Use FastSemanticEngine directly instead of going through orchestrator
+            from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer
+            
+            # Create data layer and fast engine
+            data_layer = UnifiedDataLayer()
+            fast_engine = FastSemanticEngine(data_layer)
+            
+            # Get recommendations using FastSemanticEngine
+            results = fast_engine.get_recommendations(content_list, unified_request)
+            
+            # Convert results to API format
+            api_results = []
+            for result in results:
+                api_results.append({
+                    'id': result.id,
+                    'title': result.title,
+                    'url': result.url,
+                    'score': result.score,
+                    'reason': result.reason,
+                    'content_type': result.content_type,
+                    'difficulty': result.difficulty,
+                    'technologies': result.technologies,
+                    'key_concepts': result.key_concepts,
+                    'quality_score': result.quality_score,
+                    'engine_used': result.engine_used,
+                    'confidence': result.confidence,
+                    'metadata': result.metadata
+                })
+            
             response = {
-                'recommendations': results,
-                'total_recommendations': len(results),
-                'engine_used': 'HighRelevanceEngine',
+                'recommendations': api_results,
+                'total_recommendations': len(api_results),
+                'engine_used': 'FastSemanticEngine',
                 'performance_metrics': {
                     'cached': False,
-                    'engines_used': ['high_relevance'],
-                    'optimization_level': 'direct_high_relevance',
+                    'engines_used': ['fast_semantic'],
+                    'optimization_level': 'direct_fast_semantic',
                     'technology_filtering': 'enabled',
-                    'quality_threshold': 5
+                    'quality_threshold': 5,
+                    'engine_preference': 'fast'
                 }
             }
             
             return jsonify(response)
             
         except Exception as e:
-            logger.error(f"Error in high relevance engine: {e}")
+            logger.error(f"Error in FastSemanticEngine: {e}")
             return jsonify({'error': str(e)}), 500
         
     except Exception as e:

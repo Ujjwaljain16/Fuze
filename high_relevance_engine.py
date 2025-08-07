@@ -235,15 +235,21 @@ class HighRelevanceEngine:
         if isinstance(content_techs, str):
             content_techs = [tech.strip() for tech in content_techs.split(',') if tech.strip()]
         
-        # Count exact matches
+        # Count exact matches with stricter matching
         exact_matches = 0
         for user_tech in user_techs:
-            # Check in content text
-            if user_tech.lower() in content_text:
+            user_tech_lower = user_tech.lower()
+            
+            # Check in content text with word boundaries
+            pattern = r'\b' + re.escape(user_tech_lower) + r'\b'
+            if re.search(pattern, content_text):
                 exact_matches += 1
-            # Check in content technologies
-            elif any(user_tech.lower() in tech.lower() for tech in content_techs):
+            # Check in content technologies with exact match
+            elif any(user_tech_lower == tech.lower() for tech in content_techs):
                 exact_matches += 1
+            # Check for partial matches in content technologies (for variations like "python" vs "python3")
+            elif any(user_tech_lower in tech.lower() or tech.lower() in user_tech_lower for tech in content_techs):
+                exact_matches += 0.5  # Partial match gets half credit
         
         return min(1.0, exact_matches / len(user_techs))
     
@@ -334,6 +340,23 @@ class HighRelevanceEngine:
         for bookmark in bookmarks:
             scores = self.calculate_high_relevance_score(bookmark, user_analysis)
             
+            # STRICT FILTERING: Only include content with reasonable technology relevance
+            if user_analysis['exact_technologies']:
+                # If user specified technologies, require at least 30% tech match
+                if scores['exact_tech_match'] < 0.3:
+                    continue  # Skip content with low tech relevance
+            else:
+                # If no specific technologies, require at least 20% overall relevance
+                total_relevance = (
+                    scores['exact_tech_match'] * 0.35 +
+                    scores['requirements_match'] * 0.25 +
+                    scores['content_type_match'] * 0.20 +
+                    scores['task_relevance'] * 0.15 +
+                    scores['quality_recency'] * 0.05
+                )
+                if total_relevance < 0.2:
+                    continue  # Skip low relevance content
+            
             # Calculate weighted total score
             total_score = (
                 scores['exact_tech_match'] * 0.35 +
@@ -349,6 +372,10 @@ class HighRelevanceEngine:
             
             if scores['requirements_match'] > 0.7:
                 total_score += 15  # Bonus for high requirements match
+            
+            # ADDITIONAL FILTER: Only include content with reasonable overall score
+            if total_score < 25:  # Minimum 25% overall relevance
+                continue
             
             scored_bookmark = {
                 **bookmark,

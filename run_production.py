@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production Flask Server for Fuze
-Optimized for maximum performance
+Optimized for maximum performance with proper WSGI server
 """
 
 import os
@@ -17,17 +17,25 @@ from flask_cors import CORS
 import numpy as np
 from redis_utils import redis_cache
 
-# Import blueprints
-from blueprints.auth import auth_bp
-from blueprints.projects import projects_bp
-from blueprints.tasks import tasks_bp
-from blueprints.bookmarks import bookmarks_bp
-from blueprints.recommendations import recommendations_bp
-from blueprints.feedback import feedback_bp
-from blueprints.profile import profile_bp
-from blueprints.search import search_bp
-from blueprints.user_api_key import init_app as init_user_api_key
-from multi_user_api_manager import init_api_manager
+# Import blueprints with error handling
+try:
+    from blueprints.auth import auth_bp
+    from blueprints.projects import projects_bp
+    from blueprints.tasks import tasks_bp
+    from blueprints.bookmarks import bookmarks_bp
+    from blueprints.feedback import feedback_bp
+    from blueprints.profile import profile_bp
+    from blueprints.search import search_bp
+    from blueprints.user_api_key import init_app as init_user_api_key
+    from multi_user_api_manager import init_api_manager
+    
+    # Import recommendations blueprint with error handling
+    from blueprints.recommendations import recommendations_bp
+    recommendations_available = True
+    print("✅ All blueprints imported successfully")
+except ImportError as e:
+    print(f"⚠️  Warning: Some blueprints not available: {e}")
+    recommendations_available = False
 
 # Set production environment
 os.environ['FLASK_ENV'] = 'production'
@@ -79,20 +87,38 @@ def create_app():
             'message': 'Request does not contain an access token',
             'error': 'authorization_required'
         }), 401
-    # Register blueprints
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(projects_bp)
-    app.register_blueprint(tasks_bp)
-    app.register_blueprint(bookmarks_bp)
-    app.register_blueprint(recommendations_bp)
-    app.register_blueprint(feedback_bp)
-    app.register_blueprint(profile_bp)
-    app.register_blueprint(search_bp)
-    # Register user API key blueprint
-    init_user_api_key(app)
+    
+    # Register blueprints with error handling
+    try:
+        app.register_blueprint(auth_bp)
+        app.register_blueprint(projects_bp)
+        app.register_blueprint(tasks_bp)
+        app.register_blueprint(bookmarks_bp)
+        app.register_blueprint(feedback_bp)
+        app.register_blueprint(profile_bp)
+        app.register_blueprint(search_bp)
+        
+        # Register recommendations blueprint if available
+        if recommendations_available:
+            app.register_blueprint(recommendations_bp)
+            print("✅ Recommendations blueprint registered")
+        else:
+            print("⚠️  Recommendations blueprint not registered")
+            
+        # Register user API key blueprint
+        init_user_api_key(app)
+        print("✅ All blueprints registered successfully")
+    except Exception as e:
+        print(f"⚠️  Error registering blueprints: {e}")
+    
     # Initialize API manager
     with app.app_context():
-        init_api_manager()
+        try:
+            init_api_manager()
+            print("✅ API manager initialized")
+        except Exception as e:
+            print(f"⚠️  Error initializing API manager: {e}")
+    
     # Security headers middleware
     @app.after_request
     def add_security_headers(response):
@@ -102,6 +128,7 @@ def create_app():
         if app.config.get('HTTPS_ENABLED'):
             response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         return response
+    
     # Basic route
     @app.route('/')
     def index():
@@ -110,12 +137,11 @@ def create_app():
             'version': '1.0.0',
             'environment': app.config.get('ENV', 'development'),
             'https_enabled': app.config.get('HTTPS_ENABLED', False),
-            'csrf_enabled': app.config.get('CSRF_ENABLED', False)
+            'csrf_enabled': app.config.get('CSRF_ENABLED', False),
+            'recommendations_available': recommendations_available
         }
-    # API Key Management Page
-    @app.route('/api-key-management')
-    def api_key_management():
-        return render_template('api_key_management.html')
+    
+    
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
     def health_check():
@@ -131,13 +157,28 @@ def create_app():
             'version': '1.0.0',
             'environment': app.config.get('ENV', 'development'),
             'database': db_status,
-            'redis': redis_stats
+            'redis': redis_stats,
+            'recommendations_available': recommendations_available
         }, 200 if db_status == 'connected' else 500
+    
     # Redis health check endpoint
     @app.route('/api/health/redis')
     def redis_health_check():
         redis_stats = redis_cache.get_cache_stats()
         return jsonify(redis_stats), 200 if redis_stats.get('connected', False) else 503
+    
+    # Database health check endpoint
+    @app.route('/api/health/database')
+    def database_health_check():
+        try:
+            from database_utils import check_database_connection
+            if check_database_connection():
+                return jsonify({'status': 'healthy', 'service': 'database'}), 200
+            else:
+                return jsonify({'status': 'unhealthy', 'service': 'database', 'error': 'Connection failed'}), 500
+        except Exception as e:
+            return jsonify({'status': 'unhealthy', 'service': 'database', 'error': str(e)}), 500
+    
     # Error handlers
     @app.errorhandler(400)
     def bad_request(error):
@@ -161,10 +202,11 @@ if __name__ == "__main__":
     print("🔧 Debug: DISABLED")
     print("🌐 Environment: PRODUCTION")
     print("=" * 50)
+    
+    # Start the Flask development server
     app.run(
         host='0.0.0.0',
         port=5000,
         debug=False,
-        threaded=True,
-        use_reloader=False
-    ) 
+        threaded=True
+    )

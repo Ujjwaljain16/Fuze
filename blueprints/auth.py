@@ -5,10 +5,12 @@ from flask_jwt_extended import (
 )
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
+from database_utils import retry_on_connection_error, ensure_database_connection
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 @auth_bp.route('/register', methods=['POST'])
+@retry_on_connection_error(max_retries=3, delay=1)
 def register():
     data = request.get_json()
     username = data.get('username')
@@ -18,6 +20,9 @@ def register():
     
     if not username or not email or not password:
         return jsonify({'message': 'Username, email, and password are required'}), 400
+    
+    # Ensure database connection before queries
+    ensure_database_connection()
     
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'Username already exists'}), 409
@@ -30,6 +35,7 @@ def register():
     return jsonify({'message': 'User registered'}), 201
 
 @auth_bp.route('/login', methods=['POST'])
+@retry_on_connection_error(max_retries=3, delay=1)
 def login():
     data = request.get_json()
     identifier = data.get('username') or data.get('email')
@@ -37,6 +43,9 @@ def login():
     
     if not identifier or not password:
         return jsonify({'message': 'Username/email and password required'}), 400
+    
+    # Ensure database connection before query
+    ensure_database_connection()
     
     user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
     if not user or not check_password_hash(user.password_hash, password):
@@ -81,9 +90,14 @@ def get_csrf_token_endpoint():
 
 @auth_bp.route('/verify-token', methods=['POST'])
 @jwt_required()
+@retry_on_connection_error(max_retries=3, delay=1)
 def verify_token():
     """Verify if the current token is valid"""
     current_user_id = get_jwt_identity()
+    
+    # Ensure database connection before query
+    ensure_database_connection()
+    
     user = User.query.get(current_user_id)
     
     if not user:
