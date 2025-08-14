@@ -1,7 +1,27 @@
 import axios from 'axios'
 
-// Get base URL from environment or default to 127.0.0.1 (faster than localhost)
-const baseURL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
+// Get base URL from environment or automatically detect
+const getBaseURL = () => {
+  // Check if we're in development (localhost, 127.0.0.1, or local IP)
+  const isDevelopment = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1' || 
+                       window.location.hostname.includes('10.51.11.170') ||
+                       window.location.hostname.includes('172.23.0.1')
+  
+  if (isDevelopment) {
+    // Development: Use HTTP localhost
+    return 'http://127.0.0.1:5000'
+  } else {
+    // Production: Use environment variable or fallback
+    return import.meta.env.VITE_API_URL || 'https://your-backend-domain.com'
+  }
+}
+
+const baseURL = getBaseURL()
+
+console.log('🌐 API Base URL:', baseURL)
+console.log('🏠 Current hostname:', window.location.hostname)
+console.log('🔧 Development mode:', window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
 const api = axios.create({
   baseURL,

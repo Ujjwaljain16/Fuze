@@ -75,15 +75,6 @@ const Recommendations = () => {
       hoverColor: 'from-emerald-400 via-teal-400 to-emerald-500',
       glowColor: 'shadow-emerald-500/50',
       icon: Star
-    },
-    {
-      id: 'gemini',
-      name: 'AI Genius',
-      description: 'Advanced AI Insights',
-      color: 'from-orange-500 via-red-500 to-orange-600',
-      hoverColor: 'from-orange-400 via-red-400 to-orange-500',
-      glowColor: 'shadow-orange-500/50',
-      icon: Sparkles
     }
   ]
 
@@ -133,7 +124,7 @@ const Recommendations = () => {
       
       // Check if unified orchestrator is available
       if (response.data.unified_orchestrator_available) {
-        setGeminiAvailable(response.data.gemini_integration_available || false)
+        setGeminiAvailable(response.data.fast_gemini_available || false)
       } else {
         setGeminiAvailable(false)
       }

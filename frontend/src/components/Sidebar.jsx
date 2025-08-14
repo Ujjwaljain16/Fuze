@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Bookmark, 
   FolderOpen, 
@@ -22,12 +22,12 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
   const location = useLocation()
 
   const navigation = [
-    { name: 'Dashboard', href: '/app/dashboard', icon: Grid3X3 },
-    { name: 'All Bookmarks', href: '/app/bookmarks', icon: Bookmark },
-    { name: 'Projects', href: '/app/projects', icon: FolderOpen },
-    { name: 'Save Content', href: '/app/save-content', icon: Plus },
-    { name: 'Recommendations', href: '/app/recommendations', icon: Sparkles },
-    { name: 'Settings', href: '/app/profile', icon: Settings },
+    { name: 'Dashboard', href: '/dashboard', icon: Grid3X3 },
+    { name: 'All Bookmarks', href: '/bookmarks', icon: Bookmark },
+    { name: 'Projects', href: '/projects', icon: FolderOpen },
+    { name: 'Save Content', href: '/save-content', icon: Plus },
+    { name: 'Recommendations', href: '/recommendations', icon: Sparkles },
+    { name: 'Settings', href: '/profile', icon: Settings },
   ]
 
   // Helper function to check if nav item is active
@@ -45,13 +45,11 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
   // Clean class name construction with proper state management
   const sidebarClasses = [
     'sidebar',
-    isMobile && isOpen ? 'sidebar-open' : '',
-    !isMobile && collapsed ? 'sidebar-collapsed' : '',
-    !isMobile && !collapsed ? 'sidebar-expanded' : ''
+    isMobile ? (isOpen ? 'sidebar-open' : '') : (collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')
   ].filter(Boolean).join(' ')
 
   // Debug logging
-  // console.log('Sidebar classes:', sidebarClasses, { isMobile, isOpen, collapsed });
+  console.log('Sidebar state:', { isMobile, isOpen, collapsed, sidebarClasses });
 
   return (
     <>
@@ -69,18 +67,26 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             style={{
               position: 'absolute',
-              top: 18,
-              left: collapsed ? 12 : 18,
-              zIndex: 10,
-              background: 'none',
-              border: 'none',
+              top: 20,
+              left: collapsed ? 16 : 22,
+              zIndex: 1003,
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(147,51,234,0.2))',
+              border: '1px solid rgba(59,130,246,0.4)',
               cursor: 'pointer',
-              padding: 4,
-              borderRadius: 8,
-              transition: 'left 0.3s',
+              padding: 10,
+              borderRadius: 10,
+              transition: 'all 0.3s ease',
+              color: '#60a5fa',
+              boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
+              minWidth: '36px',
+              minHeight: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transform: 'translateY(0)',
             }}
           >
-            {collapsed ? <PanelLeftOpen size={22} /> : <PanelLeftClose size={22} />}
+            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
         )}
         {/* Logo and Brand */}

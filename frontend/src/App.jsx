@@ -1,144 +1,185 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import Navbar from './components/Navbar'
-import Sidebar from './components/Sidebar'
-import ProtectedRoute from './components/ProtectedRoute'
-import Dashboard from './pages/Dashboard'
-import Bookmarks from './pages/Bookmarks'
-import Projects from './pages/Projects'
-import ProjectDetail from './pages/ProjectDetail'
-import Recommendations from './pages/Recommendations'
-import SaveContent from './pages/SaveContent'
-import Profile from './pages/Profile'
-import Login from './pages/Login'
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+import Landing from './pages/Landing';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Profile from './pages/Profile';
+import Projects from './pages/Projects';
+import ProjectDetail from './pages/ProjectDetail';
+import Recommendations from './pages/Recommendations';
+import Bookmarks from './pages/Bookmarks';
+import SaveContent from './pages/SaveContent';
+import LinkedInAnalyzer from './pages/LinkedInAnalyzer';
+import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
+import ProtectedRoute from './components/ProtectedRoute';
+import './App.css';
 
-import FuzeLanding from './pages/Landing'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { ToastProvider } from './contexts/ToastContext'
+function App() {
+  const { user, loading } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(true); // Start collapsed by default
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
 
-
-// Component to redirect authenticated users away from auth pages
-const AuthRedirect = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth()
-  
-  if (loading) {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        background: '#0a0a0a',
-        color: '#ffffff'
-      }}>
-        <div className="loading-spinner"></div>
-        <span style={{ marginLeft: '10px' }}>Loading...</span>
-      </div>
-    )
-  }
-  
-  if (isAuthenticated) {
-    return <Navigate to="/app/dashboard" replace />
-  }
-  
-  return children
-}
-
-function AppRoutes() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(true)
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900)
+  // Debug: Log initial state
+  console.log('App initial state:', { collapsed, isMobile, sidebarOpen });
 
   useEffect(() => {
     const handleResize = () => {
-      const newIsMobile = window.innerWidth <= 900
-      setIsMobile(newIsMobile)
-      
-      // Reset sidebar state on resize
-      if (newIsMobile) {
-        setSidebarOpen(false)
-        setCollapsed(true)
-      } else {
-        setSidebarOpen(false)
-        // Keep collapsed state for desktop
+      setIsMobile(window.innerWidth <= 900);
+      if (window.innerWidth > 900) {
+        setSidebarOpen(false);
+        setCollapsed(false); // Keep expanded on desktop
       }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Add sidebar state class to body - CRITICAL for layout
+  useEffect(() => {
+    // Clear all classes first
+    document.body.classList.remove('sidebar-collapsed', 'sidebar-expanded');
+    
+    if (!isMobile) {
+      if (collapsed) {
+        document.body.classList.add('sidebar-collapsed');
+        console.log('Added sidebar-collapsed class to body');
+      } else {
+        document.body.classList.add('sidebar-expanded');
+        console.log('Added sidebar-expanded class to body');
+      }
+      
+      // Force immediate layout recalculation
+      document.body.offsetHeight;
+      
+      // Force a repaint to ensure layout is applied
+      window.requestAnimationFrame(() => {
+        document.body.offsetHeight;
+      });
     }
     
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+    // Debug: log current body classes
+    console.log('Current body classes:', document.body.className);
+  }, [collapsed, isMobile]);
 
-  // Add sidebar state class to body
+  // Ensure initial body class is applied on mount
   useEffect(() => {
-    if (isMobile) {
-      document.body.classList.remove('sidebar-collapsed', 'sidebar-expanded')
-    } else {
-      if (collapsed) {
-        document.body.classList.remove('sidebar-expanded')
-        document.body.classList.add('sidebar-collapsed')
-      } else {
-        document.body.classList.remove('sidebar-collapsed')
-        document.body.classList.add('sidebar-expanded')
-      }
+    if (!isMobile) {
+      // Apply immediately without delay to fix layout
+      document.body.classList.add('sidebar-collapsed'); // Start collapsed
+      console.log('Initial body class applied on mount - collapsed');
+      
+      // Force layout recalculation
+      document.body.offsetHeight;
     }
-  }, [collapsed, isMobile])
+  }, []); // Empty dependency array - runs only on mount
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading Fuze...</p>
+      </div>
+    );
+  }
 
   return (
     <Router>
-      <Routes>
-        {/* Landing page - accessible to all */}
-        <Route path="/" element={<FuzeLanding />} />
-        
-        {/* Auth pages - rendered outside main layout */}
-        <Route path="/login" element={
-          <AuthRedirect>
-            <Login />
-          </AuthRedirect>
-        } />
-
-        
-        {/* Main app routes - rendered inside layout */}
-        <Route path="/app/*" element={
-          <ProtectedRoute>
-            <div className="app">
-              <Navbar />
-              <div className="app-layout">
-                <Sidebar
-                  isOpen={isMobile ? sidebarOpen : true}
-                  onClose={() => setSidebarOpen(false)}
-                  collapsed={!isMobile && collapsed}
-                  setCollapsed={setCollapsed}
-                  isMobile={isMobile}
-                />
-                <main className="main-content">
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/bookmarks" element={<Bookmarks />} />
-                    <Route path="/projects" element={<Projects />} />
-                    <Route path="/projects/:id" element={<ProjectDetail />} />
-                    <Route path="/recommendations" element={<Recommendations />} />
-                    <Route path="/save-content" element={<SaveContent />} />
-                    <Route path="/profile" element={<Profile />} />
-                  </Routes>
-                </main>
-              </div>
-            </div>
-          </ProtectedRoute>
-        } />
-      </Routes>
+      <div className="App">
+        {user && <Navbar />}
+        <div className="app-container">
+          {user && (
+            <Sidebar
+              isOpen={isMobile ? sidebarOpen : true}
+              onClose={() => setSidebarOpen(false)}
+              collapsed={!isMobile && collapsed}
+              setCollapsed={setCollapsed}
+              isMobile={isMobile}
+            />
+          )}
+          <main className="main-content">
+            <Routes>
+              <Route 
+                path="/" 
+                element={user ? <Navigate to="/dashboard" /> : <Landing />} 
+              />
+              <Route 
+                path="/login" 
+                element={user ? <Navigate to="/dashboard" /> : <Login />} 
+              />
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/profile" 
+                element={
+                  <ProtectedRoute>
+                    <Profile />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/projects" 
+                element={
+                  <ProtectedRoute>
+                    <Projects />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/projects/:id" 
+                element={
+                  <ProtectedRoute>
+                    <ProjectDetail />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/recommendations" 
+                element={
+                  <ProtectedRoute>
+                    <Recommendations />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/bookmarks" 
+                element={
+                  <ProtectedRoute>
+                    <Bookmarks />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/save-content" 
+                element={
+                  <ProtectedRoute>
+                    <SaveContent />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/linkedin-analyzer" 
+                element={
+                  <ProtectedRoute>
+                    <LinkedInAnalyzer />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </main>
+        </div>
+      </div>
     </Router>
-  )
+  );
 }
 
-function App() {
-  return (
-    <AuthProvider>
-      <ToastProvider>
-        <AppRoutes />
-      </ToastProvider>
-    </AuthProvider>
-  )
-}
-
-export default App
+export default App;
