@@ -895,5 +895,47 @@ Format: JSON with keys: relevance_score, key_benefit, difficulty
             logger.error(f"Error determining content category: {e}")
             return 'general'
 
+# Add the compatibility method to the class
+def get_gemini_enhanced_recommendations(self, user_id, user_input):
+    """Compatibility method for old API"""
+    # Get user bookmarks
+    try:
+        from models import SavedContent
+        from flask import current_app
+        
+        with current_app.app_context():
+            user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+            bookmarks_data = []
+            for bookmark in user_bookmarks:
+                bookmarks_data.append({
+                    'id': bookmark.id,
+                    'title': bookmark.title,
+                    'url': bookmark.url,
+                    'content': bookmark.extracted_text or bookmark.title,
+                    'quality_score': bookmark.quality_score or 7.0,
+                    'similarity_score': 0.5
+                })
+        
+        # Add user_id to input
+        user_input['user_id'] = user_id
+        
+        return self.get_fast_gemini_recommendations(bookmarks_data, user_input)
+        
+    except Exception as e:
+        logger.error(f"Error in compatibility method: {e}")
+        return {
+            "recommendations": [],
+            "error": str(e)
+        }
+
+# Add the compatibility method to the class
+AdvancedGeminiEngine.get_gemini_enhanced_recommendations = get_gemini_enhanced_recommendations
+
+# Create alias for backward compatibility and proper exports
+FastGeminiEngine = AdvancedGeminiEngine
+
 # Global instance
-fast_gemini_engine = AdvancedGeminiEngine() 
+fast_gemini_engine = AdvancedGeminiEngine()
+
+# Make sure both names are available for import
+__all__ = ['AdvancedGeminiEngine', 'FastGeminiEngine', 'fast_gemini_engine']

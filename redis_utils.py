@@ -7,6 +7,10 @@ from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import numpy as np
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 class RedisCache:
     """Redis cache utility for Fuze application"""
     

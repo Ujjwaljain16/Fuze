@@ -6,16 +6,47 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-import torch
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+# Singleton pattern for embedding model
+_embedding_model = None
+_embedding_model_initialized = False
 
-# Fix meta tensor issue by using to_empty() instead of to()
-if hasattr(torch, 'meta') and torch.meta.is_available():
-    # Use to_empty() for meta tensors
-    embedding_model = embedding_model.to_empty(device='cpu')
-else:
-    # Fallback to CPU
-    embedding_model = embedding_model.to('cpu')
+def get_embedding_model():
+    """Get or create the embedding model singleton"""
+    global _embedding_model, _embedding_model_initialized
+    
+    if not _embedding_model_initialized:
+        try:
+            import torch
+            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            # More robust meta tensor handling
+            try:
+                # Check if we're dealing with meta tensors
+                if hasattr(torch, 'meta') and torch.meta.is_available():
+                    # Use to_empty() for meta tensors
+                    _embedding_model = _embedding_model.to_empty(device='cpu')
+                    logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
+                else:
+                    # Fallback to CPU
+                    _embedding_model = _embedding_model.to('cpu')
+                    logger.info("✅ Embedding model loaded with to() for CPU")
+            except Exception as tensor_error:
+                logger.warning(f"Tensor device placement error: {tensor_error}")
+                # Try alternative approach - don't move the model
+                logger.info("Using embedding model without device placement")
+                # The model will work without explicit device placement
+            
+            _embedding_model_initialized = True
+            logger.info("✅ Global embedding model initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing global embedding model: {e}")
+            _embedding_model = None
+            _embedding_model_initialized = True  # Prevent retries
+    
+    return _embedding_model
+
+# Initialize the global embedding model
+embedding_model = get_embedding_model()
 
 def get_embedding(text):
     """Get embedding for text with Redis caching"""

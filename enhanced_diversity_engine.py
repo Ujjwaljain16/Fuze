@@ -31,13 +31,22 @@ class EnhancedDiversityEngine:
             import torch
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
             
-            # Fix meta tensor issue by using to_empty() instead of to()
-            if hasattr(torch, 'meta') and torch.meta.is_available():
-                # Use to_empty() for meta tensors
-                self.embedding_model = self.embedding_model.to_empty(device='cpu')
-            else:
-                # Fallback to CPU
-                self.embedding_model = self.embedding_model.to('cpu')
+            # More robust meta tensor handling
+            try:
+                # Check if we're dealing with meta tensors
+                if hasattr(torch, 'meta') and torch.meta.is_available():
+                    # Use to_empty() for meta tensors
+                    self.embedding_model = self.embedding_model.to_empty(device='cpu')
+                    logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
+                else:
+                    # Fallback to CPU
+                    self.embedding_model = self.embedding_model.to('cpu')
+                    logger.info("✅ Embedding model loaded with to() for CPU")
+            except Exception as tensor_error:
+                logger.warning(f"Tensor device placement error: {tensor_error}")
+                # Try alternative approach - don't move the model
+                logger.info("Using embedding model without device placement")
+                # The model will work without explicit device placement
             
             self.embedding_available = True
             logger.info("Embedding model loaded successfully for diversity analysis")

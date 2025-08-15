@@ -427,262 +427,318 @@ class UnifiedRecommendationEngine:
 
     def calculate_recommendation_score(self, bookmark: Dict, context: Dict) -> Dict:
         """
-        Calculate comprehensive recommendation score
+        Calculate comprehensive recommendation score with intent-aware enhancements
         """
-        # Extract bookmark analysis
-        bookmark_text = f"{bookmark.get('title', '')} {bookmark.get('notes', '')} {bookmark.get('extracted_text', '')}"
-        bookmark_analysis = self.extract_context_from_input(
-            bookmark.get('title', ''),
-            bookmark.get('notes', '') + ' ' + bookmark.get('extracted_text', '')
-        )
-        
-        # Calculate various similarity scores
-        scores = {}
-        
-        # 1. Technology Match (0-30 points)
-        scores['tech_match'] = self._calculate_technology_match(bookmark_analysis, context)
-        
-        # 2. Content Type Relevance (0-20 points)
-        scores['content_relevance'] = self._calculate_content_relevance(bookmark_analysis, context)
-        
-        # 3. Difficulty Alignment (0-15 points)
-        scores['difficulty_alignment'] = self._calculate_difficulty_alignment(bookmark_analysis, context)
-        
-        # 4. Intent Alignment (0-15 points)
-        scores['intent_alignment'] = self._calculate_intent_alignment(bookmark_analysis, context)
-        
-        # 5. Semantic Similarity (0-20 points)
-        scores['semantic_similarity'] = self._calculate_semantic_similarity(bookmark_text, context['full_text'])
-        
-        # Calculate total score
-        total_score = sum(scores.values())
-        
-        # Generate reason
-        reason = self._generate_reason(bookmark_analysis, context, scores, total_score)
-        
-        return {
-            'total_score': total_score,
-            'scores': scores,
-            'bookmark_analysis': bookmark_analysis,
-            'context_analysis': context,
-            'reason': reason,
-            'confidence': self._calculate_confidence(scores, total_score)
-        }
-
-    def _calculate_technology_match(self, bookmark_analysis: Dict, context: Dict) -> float:
-        """Calculate technology match score with improved accuracy for React Native, UPI, mobile development"""
-        # Extract technology categories from both bookmark and context
-        bookmark_techs = []
-        if 'technologies' in bookmark_analysis:
-            for tech in bookmark_analysis['technologies']:
-                if isinstance(tech, dict) and 'category' in tech:
-                    bookmark_techs.append(tech['category'])
-                elif isinstance(tech, str):
-                    bookmark_techs.append(tech)
-        
-        context_techs = []
-        if 'technologies' in context:
-            for tech in context['technologies']:
-                if isinstance(tech, dict) and 'category' in tech:
-                    context_techs.append(tech['category'])
-                elif isinstance(tech, str):
-                    context_techs.append(tech)
-        
-        # Also check primary_technologies from context
-        if 'primary_technologies' in context:
-            context_techs.extend(context['primary_technologies'])
-        
-        # Get text content for keyword matching
-        bookmark_text = f"{bookmark_analysis.get('title', '')} {bookmark_analysis.get('content', '')}".lower()
-        context_text = context.get('full_text', '').lower()
-        
-        # React Native specific technologies
-        react_native_keywords = {
-            'react native', 'react-native', 'expo', 'react native cli', 'metro bundler',
-            'react navigation', 'react-navigation', 'react native elements',
-            'react native paper', 'react native vector icons', 'react native maps',
-            'react native firebase', 'react native async storage', 'react native permissions'
-        }
-        
-        # UPI specific keywords
-        upi_keywords = {
-            'upi', 'unified payments interface', 'upi integration', 'upi payment',
-            'upi sdk', 'upi deep linking', 'upi intent', 'upi merchant',
-            'upi payment gateway', 'upi transaction', 'upi qr code', 'setu'
-        }
-        
-        # Mobile development keywords
-        mobile_keywords = {
-            'mobile app', 'mobile development', 'ios', 'android', 'cross platform',
-            'native app', 'hybrid app', 'mobile ui', 'mobile ux', 'mobile testing',
-            'app store', 'google play', 'mobile deployment', 'mobile performance'
-        }
-        
-        # Check for specific technology matches
-        bookmark_react_native = any(keyword in bookmark_text for keyword in react_native_keywords)
-        context_react_native = any(keyword in context_text for keyword in react_native_keywords)
-        
-        bookmark_upi = any(keyword in bookmark_text for keyword in upi_keywords)
-        context_upi = any(keyword in context_text for keyword in upi_keywords)
-        
-        bookmark_mobile = any(keyword in bookmark_text for keyword in mobile_keywords)
-        context_mobile = any(keyword in context_text for keyword in mobile_keywords)
-        
-        if not context_techs:
-            return 15  # Neutral if no context techs
-        
-        if not bookmark_techs:
-            return 5   # Low score if no bookmark techs
-        
-        # Calculate overlap
-        bookmark_set = set(bookmark_techs)
-        context_set = set(context_techs)
-        overlap = bookmark_set.intersection(context_set)
-        
-        # Calculate weighted scores for overlapping technologies
-        overlap_scores = []
-        for cat in overlap:
-            # Find the technology objects for this category
-            bookmark_tech = next((tech for tech in bookmark_analysis.get('technologies', []) 
-                                if isinstance(tech, dict) and tech.get('category') == cat), None)
-            context_tech = next((tech for tech in context.get('technologies', []) 
-                               if isinstance(tech, dict) and tech.get('category') == cat), None)
+        try:
+            # Get intent analysis if available
+            intent_analysis = context.get('intent_analysis', {})
+            scoring_weights = intent_analysis.get('scoring_weights', {})
             
-            if bookmark_tech and context_tech:
-                # Calculate confidence-weighted score
-                confidence_score = (bookmark_tech.get('confidence', 0.5) + context_tech.get('confidence', 0.5)) / 2
-                weight_score = (bookmark_tech.get('weight', 1.0) + context_tech.get('weight', 1.0)) / 2
-                overlap_scores.append(confidence_score * weight_score)
-            else:
-                # Simple overlap
-                overlap_scores.append(1.0)
-        
-        # Calculate total context weight
-        total_context_weight = len(context_set)
-        
-        if total_context_weight == 0:
-            return 15
-        
-        # Calculate final score with more granularity
-        base_score = 0
-        if overlap_scores:
-            overlap_score = sum(overlap_scores)
-            match_ratio = overlap_score / total_context_weight
+            # Initialize scores
+            scores = {}
             
-            # Apply non-linear scaling for better differentiation
-            if match_ratio >= 0.8:
-                base_score = 25  # Perfect match
-            elif match_ratio >= 0.6:
-                base_score = 20  # Very good match
-            elif match_ratio >= 0.4:
-                base_score = 15  # Good match
-            elif match_ratio >= 0.2:
-                base_score = 10  # Moderate match
+            # 1. Semantic Similarity (20% weight)
+            semantic_score = self._calculate_semantic_similarity(bookmark, context)
+            scores['semantic_similarity'] = semantic_score
+            
+            # 2. Technology Match (25% weight - enhanced with intent)
+            tech_match_score = self._calculate_enhanced_tech_match(bookmark, context, intent_analysis)
+            scores['tech_match'] = tech_match_score
+            
+            # 3. Content Relevance (20% weight - enhanced with intent)
+            content_relevance_score = self._calculate_enhanced_content_relevance(bookmark, context, intent_analysis)
+            scores['content_relevance'] = content_relevance_score
+            
+            # 4. Difficulty Alignment (15% weight - enhanced with intent)
+            difficulty_score = self._calculate_enhanced_difficulty_alignment(bookmark, context, intent_analysis)
+            scores['difficulty_alignment'] = difficulty_score
+            
+            # 5. Intent Alignment (20% weight - new intent-aware scoring)
+            intent_score = self._calculate_intent_alignment(bookmark, context, intent_analysis)
+            scores['intent_alignment'] = intent_score
+            
+            # Calculate weighted total score
+            weights = {
+                'semantic_similarity': 0.20,
+                'tech_match': scoring_weights.get('technology_match', 0.25),
+                'content_relevance': scoring_weights.get('content_type_match', 0.20),
+                'difficulty_alignment': scoring_weights.get('difficulty_alignment', 0.15),
+                'intent_alignment': scoring_weights.get('learning_stage_alignment', 0.20)
+            }
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(weights.values())
+            normalized_weights = {k: v / total_weight for k, v in weights.items()}
+            
+            total_score = sum(scores[k] * normalized_weights[k] for k in scores.keys())
+            
+            # Apply urgency boost if available
+            if intent_analysis.get('urgency_level') == 'high':
+                urgency_boost = scoring_weights.get('urgency_boost', 0.1)
+                total_score *= (1 + urgency_boost)
+            
+            # Calculate confidence
+            confidence = self._calculate_confidence(scores, total_score)
+            
+            # Generate reason
+            reason = self._generate_enhanced_reason(bookmark, context, scores, intent_analysis)
+            
+            return {
+                'scores': scores,
+                'total_score': min(100, total_score * 100),  # Scale to 0-100
+                'confidence': confidence,
+                'reason': reason,
+                'bookmark_analysis': self._analyze_bookmark(bookmark),
+                'intent_alignment': intent_score
+            }
+            
+        except Exception as e:
+            print(f"Error calculating recommendation score: {e}")
+            return {
+                'scores': {'error': 0},
+                'total_score': 0,
+                'confidence': 0,
+                'reason': 'Error calculating score',
+                'bookmark_analysis': {},
+                'intent_alignment': 0
+            }
+    
+    def _calculate_enhanced_tech_match(self, bookmark: Dict, context: Dict, intent_analysis: Dict) -> float:
+        """Calculate enhanced technology match with intent awareness"""
+        try:
+            # Get technologies from both bookmark and context
+            bookmark_techs = bookmark.get('technologies', [])
+            context_techs = context.get('technologies', [])
+            
+            if not context_techs or not bookmark_techs:
+                return 0.5
+            
+            # Convert to sets for comparison
+            if isinstance(bookmark_techs, str):
+                bookmark_techs = [tech.strip().lower() for tech in bookmark_techs.split(',') if tech.strip()]
+            if isinstance(context_techs, str):
+                context_techs = [tech.strip().lower() for tech in context_techs.split(',') if tech.strip()]
+            
+            # Calculate exact matches
+            exact_matches = set(bookmark_techs).intersection(set(context_techs))
+            
+            # Calculate partial matches (for technology variations)
+            partial_matches = 0
+            for context_tech in context_techs:
+                for bookmark_tech in bookmark_techs:
+                    if (context_tech in bookmark_tech or bookmark_tech in context_tech) and context_tech != bookmark_tech:
+                        partial_matches += 0.5
+            
+            # Calculate technology overlap score
+            if context_techs:
+                exact_score = len(exact_matches) / len(context_techs)
+                partial_score = min(partial_matches / len(context_techs), 0.3)  # Cap partial matches
+                tech_score = exact_score + partial_score
             else:
-                base_score = 5   # Weak match
-        else:
-            base_score = 5  # No overlap
-        
-        # BOOST SCORE FOR SPECIFIC TECHNOLOGY MATCHES
-        boost = 0
-        
-        # Perfect React Native match
-        if bookmark_react_native and context_react_native:
-            boost += 10
-        
-        # Perfect UPI match
-        if bookmark_upi and context_upi:
-            boost += 10
-        
-        # Perfect mobile development match
-        if bookmark_mobile and context_mobile:
-            boost += 8
-        
-        # Partial matches (one side has the technology)
-        if (bookmark_react_native or bookmark_upi or bookmark_mobile) and (context_react_native or context_upi or context_mobile):
-            boost += 5
-        
-        return min(30, base_score + boost)  # Cap at 30 points
-
-    def _calculate_content_relevance(self, bookmark_analysis: Dict, context: Dict) -> float:
-        """Calculate content type relevance"""
-        bookmark_type = bookmark_analysis['content_type']
-        context_type = context['content_type']
-        
-        # Perfect match
-        if bookmark_type == context_type:
-            return 20
-        
-        # Good matches
-        good_matches = {
-            ('tutorial', 'learning'): 18,
-            ('example', 'implementation'): 18,
-            ('documentation', 'implementation'): 16,
-            ('troubleshooting', 'troubleshooting'): 18
-        }
-        
-        for (bt, ct), score in good_matches.items():
-            if bookmark_type == bt and context['intent'] == ct:
-                return score
-        
-        # Default score
-        return 10
-
-    def _calculate_difficulty_alignment(self, bookmark_analysis: Dict, context: Dict) -> float:
-        """Calculate difficulty alignment with improved logic"""
-        bookmark_diff = bookmark_analysis['difficulty']
-        context_diff = context['difficulty']
-        
-        # Perfect match
-        if bookmark_diff == context_diff:
-            return 15
-        
-        # Handle unknown difficulties
-        if bookmark_diff == 'unknown' or context_diff == 'unknown':
-            return 10
-        
-        # Define difficulty hierarchy
-        difficulty_levels = {
+                tech_score = 0.5
+            
+            # Apply intent-based boosting
+            if intent_analysis:
+                primary_goal = intent_analysis.get('primary_goal', '')
+                if primary_goal in ['build', 'implement', 'optimize']:
+                    # Boost for implementation-focused intents
+                    tech_score *= 1.2
+                elif primary_goal == 'learn':
+                    # Boost for learning-focused intents
+                    tech_score *= 1.1
+            
+            return min(1.0, tech_score)
+            
+        except Exception as e:
+            print(f"Error in enhanced tech match: {e}")
+            return 0.5
+    
+    def _calculate_enhanced_content_relevance(self, bookmark: Dict, context: Dict, intent_analysis: Dict) -> float:
+        """Calculate enhanced content relevance with intent awareness"""
+        try:
+            # Get content type from bookmark analysis
+            bookmark_analysis = self._analyze_bookmark(bookmark)
+            bookmark_content_type = bookmark_analysis.get('content_type', 'general')
+            
+            # Determine needed content type based on intent
+            needed_content_type = self._determine_needed_content_type(intent_analysis)
+            
+            # Calculate content type match
+            if needed_content_type == bookmark_content_type:
+                content_type_score = 1.0
+            elif needed_content_type in ['general', 'mixed'] or bookmark_content_type in ['general', 'mixed']:
+                content_type_score = 0.7
+            else:
+                content_type_score = 0.3
+            
+            # Apply intent-based adjustments
+            if intent_analysis:
+                time_constraint = intent_analysis.get('time_constraint', '')
+                if time_constraint == 'quick_tutorial' and bookmark_content_type == 'tutorial':
+                    content_type_score *= 1.2
+                elif time_constraint == 'deep_dive' and bookmark_content_type in ['documentation', 'course']:
+                    content_type_score *= 1.2
+                elif time_constraint == 'reference' and bookmark_content_type == 'documentation':
+                    content_type_score *= 1.2
+            
+            return min(1.0, content_type_score)
+            
+        except Exception as e:
+            print(f"Error in enhanced content relevance: {e}")
+            return 0.5
+    
+    def _calculate_enhanced_difficulty_alignment(self, bookmark: Dict, context: Dict, intent_analysis: Dict) -> float:
+        """Calculate enhanced difficulty alignment with intent awareness"""
+        try:
+            # Get difficulty levels
+            bookmark_analysis = self._analyze_bookmark(bookmark)
+            bookmark_difficulty = bookmark_analysis.get('difficulty', 'intermediate')
+            user_learning_stage = intent_analysis.get('learning_stage', 'intermediate') if intent_analysis else 'intermediate'
+            
+            # Calculate difficulty alignment
+            difficulty_mapping = {
+                'beginner': 1,
+                'intermediate': 2,
+                'advanced': 3
+            }
+            
+            bookmark_level = difficulty_mapping.get(bookmark_difficulty, 2)
+            user_level = difficulty_mapping.get(user_learning_stage, 2)
+            
+            # Perfect alignment
+            if bookmark_level == user_level:
+                difficulty_score = 1.0
+            # Slightly off (adjacent levels)
+            elif abs(bookmark_level - user_level) == 1:
+                difficulty_score = 0.8
+            # Far off (skip one level)
+            elif abs(bookmark_level - user_level) == 2:
+                difficulty_score = 0.4
+            else:
+                difficulty_score = 0.2
+            
+            # Apply intent-based adjustments
+            if intent_analysis:
+                primary_goal = intent_analysis.get('primary_goal', '')
+                if primary_goal == 'learn':
+                    # For learning, prefer slightly challenging content
+                    if bookmark_level == user_level + 1:
+                        difficulty_score *= 1.1
+                    elif bookmark_level == user_level - 1:
+                        difficulty_score *= 0.9
+            
+            return min(1.0, difficulty_score)
+            
+        except Exception as e:
+            print(f"Error in enhanced difficulty alignment: {e}")
+            return 0.5
+    
+    def _calculate_intent_alignment(self, bookmark: Dict, context: Dict, intent_analysis: Dict) -> float:
+        """Calculate intent alignment score - new intent-aware scoring"""
+        try:
+            if not intent_analysis:
+                return 0.5
+            
+            intent_score = 0.0
+            factors = 0
+            
+            # 1. Project type alignment
+            if intent_analysis.get('project_type'):
+                bookmark_analysis = self._analyze_bookmark(bookmark)
+                bookmark_content = f"{bookmark.get('title', '')} {bookmark.get('extracted_text', '')}".lower()
+                
+                project_type = intent_analysis['project_type']
+                if project_type in ['web_app', 'mobile_app', 'api', 'data_science']:
+                    # Check if content mentions relevant project types
+                    if any(tech in bookmark_content for tech in [project_type, 'web', 'mobile', 'api', 'data']):
+                        intent_score += 1.0
+                    else:
+                        intent_score += 0.3
+                factors += 1
+            
+            # 2. Learning stage alignment
+            if intent_analysis.get('learning_stage'):
+                bookmark_analysis = self._analyze_bookmark(bookmark)
+                bookmark_difficulty = bookmark_analysis.get('difficulty', 'intermediate')
+                
+                if intent_analysis['learning_stage'] == bookmark_difficulty:
+                    intent_score += 1.0
+                elif abs(self._difficulty_to_number(intent_analysis['learning_stage']) - 
+                        self._difficulty_to_number(bookmark_difficulty)) == 1:
+                    intent_score += 0.7
+                else:
+                    intent_score += 0.3
+                factors += 1
+            
+            # 3. Focus areas alignment
+            if intent_analysis.get('focus_areas'):
+                bookmark_content = f"{bookmark.get('title', '')} {bookmark.get('extracted_text', '')}".lower()
+                focus_areas = intent_analysis['focus_areas']
+                
+                focus_matches = sum(1 for area in focus_areas if area.lower() in bookmark_content)
+                if focus_areas:
+                    intent_score += (focus_matches / len(focus_areas))
+                factors += 1
+            
+            # 4. Time constraint alignment
+            if intent_analysis.get('time_constraint'):
+                bookmark_analysis = self._analyze_bookmark(bookmark)
+                bookmark_content_type = bookmark_analysis.get('content_type', 'general')
+                
+                time_constraint = intent_analysis['time_constraint']
+                if time_constraint == 'quick_tutorial' and bookmark_content_type == 'tutorial':
+                    intent_score += 1.0
+                elif time_constraint == 'deep_dive' and bookmark_content_type in ['documentation', 'course']:
+                    intent_score += 1.0
+                elif time_constraint == 'reference' and bookmark_content_type == 'documentation':
+                    intent_score += 1.0
+                else:
+                    intent_score += 0.5
+                factors += 1
+            
+            # Return average score
+            return intent_score / factors if factors > 0 else 0.5
+            
+        except Exception as e:
+            print(f"Error in intent alignment: {e}")
+            return 0.5
+    
+    def _difficulty_to_number(self, difficulty: str) -> int:
+        """Convert difficulty string to number for comparison"""
+        difficulty_mapping = {
             'beginner': 1,
             'intermediate': 2,
             'advanced': 3
         }
+        return difficulty_mapping.get(difficulty, 2)
+    
+    def _determine_needed_content_type(self, intent_analysis: Dict) -> str:
+        """Determine needed content type based on intent analysis"""
+        if not intent_analysis:
+            return 'general'
         
-        bookmark_level = difficulty_levels.get(bookmark_diff, 2)
-        context_level = difficulty_levels.get(context_diff, 2)
+        time_constraint = intent_analysis.get('time_constraint', '')
+        primary_goal = intent_analysis.get('primary_goal', '')
         
-        # Calculate level difference
-        level_diff = abs(bookmark_level - context_level)
-        
-        if level_diff == 0:
-            return 15  # Same level
-        elif level_diff == 1:
-            # Adjacent levels - moderate penalty
-            if context_level > bookmark_level:
-                # Context is harder than bookmark - slight penalty
-                return 12
-            else:
-                # Context is easier than bookmark - more penalty for advanced projects
-                return 8
+        if time_constraint == 'quick_tutorial':
+            return 'tutorial'
+        elif time_constraint == 'deep_dive':
+            return 'documentation'
+        elif time_constraint == 'reference':
+            return 'documentation'
+        elif primary_goal == 'learn':
+            return 'tutorial'
+        elif primary_goal == 'build':
+            return 'example'
         else:
-            # Two levels apart - significant penalty
-            return 3
+            return 'general'
 
-    def _calculate_intent_alignment(self, bookmark_analysis: Dict, context: Dict) -> float:
-        """Calculate intent alignment"""
-        bookmark_intent = bookmark_analysis['intent']
-        context_intent = context['intent']
-        
-        if bookmark_intent == context_intent:
-            return 15
-        elif bookmark_intent == 'general' or context_intent == 'general':
-            return 10
-        else:
-            return 5
-
-    def _calculate_semantic_similarity(self, bookmark_text: str, context_text: str) -> float:
+    def _calculate_semantic_similarity(self, bookmark: Dict, context: Dict) -> float:
         """Calculate semantic similarity using embeddings"""
         try:
+            bookmark_text = f"{bookmark.get('title', '')} {bookmark.get('notes', '')} {bookmark.get('extracted_text', '')}"
+            context_text = context.get('full_text', '').lower()
+            
             bookmark_emb = self.embedding_model.encode([bookmark_text])[0]
             context_emb = self.embedding_model.encode([context_text])[0]
             
@@ -693,82 +749,134 @@ class UnifiedRecommendationEngine:
         except:
             return 10  # Neutral score if embedding fails
 
-    def _generate_reason(self, bookmark_analysis: Dict, context: Dict, scores: Dict, total_score: float) -> str:
-        """Generate personalized, actionable recommendation reason with improved specificity"""
-        
-        # Get specific technology matches
-        bookmark_techs = []
-        if 'technologies' in bookmark_analysis:
-            for tech in bookmark_analysis['technologies']:
-                if isinstance(tech, dict) and 'category' in tech:
-                    bookmark_techs.append(tech['category'])
-                elif isinstance(tech, str):
-                    bookmark_techs.append(tech)
-        
-        context_techs = []
-        if 'technologies' in context:
-            for tech in context['technologies']:
-                if isinstance(tech, dict) and 'category' in tech:
-                    context_techs.append(tech['category'])
-                elif isinstance(tech, str):
-                    context_techs.append(tech)
-        if 'primary_technologies' in context:
-            context_techs.extend(context['primary_technologies'])
-        
-        tech_matches = set(bookmark_techs).intersection(set(context_techs))
-        
-        # Build specific reason components
-        reason_parts = []
-        
-        # Technology match explanation
-        if tech_matches:
-            tech_str = ", ".join(list(tech_matches)[:3])  # Limit to top 3
-            reason_parts.append(f"Directly covers {tech_str} technologies")
-        elif scores['tech_match'] > 15:
-            reason_parts.append("Relevant technology overlap")
-        elif scores['tech_match'] < 10:
-            reason_parts.append("Limited technology relevance")
-        
-        # Difficulty explanation
-        if bookmark_analysis['difficulty'] == context['difficulty']:
-            reason_parts.append("Perfect difficulty match for your skill level")
-        elif scores['difficulty_alignment'] > 10:
-            reason_parts.append("Appropriate difficulty level")
-        elif scores['difficulty_alignment'] < 8:
-            reason_parts.append("May be too basic for your advanced project")
-        
-        # Content type explanation
-        content_type = bookmark_analysis['content_type']
-        if content_type == 'tutorial' and context['intent'] == 'learning':
-            reason_parts.append("Structured learning approach")
-        elif content_type == 'example' and context['intent'] == 'implementation':
-            reason_parts.append("Practical implementation examples")
-        elif content_type == 'documentation':
-            reason_parts.append("Comprehensive technical reference")
-        
-        # Intent alignment
-        if bookmark_analysis['intent'] == context['intent']:
-            reason_parts.append("Matches your learning intent")
-        
-        # Semantic relevance
-        if scores['semantic_similarity'] > 15:
-            reason_parts.append("High semantic relevance to your project")
-        elif scores['semantic_similarity'] > 10:
-            reason_parts.append("Moderate semantic relevance")
-        
-        # Overall assessment
-        if total_score > 70:
-            reason_parts.append("Highly recommended for your project")
-        elif total_score > 50:
-            reason_parts.append("Worth considering for your project")
-        else:
-            reason_parts.append("May provide some useful insights")
-        
-        # Combine all parts
-        if reason_parts:
-            return ". ".join(reason_parts) + "."
-        else:
-            return "Provides relevant content for your project needs."
+    def _generate_enhanced_reason(self, bookmark: Dict, context: Dict, scores: Dict, intent_analysis: Dict) -> str:
+        """Generate enhanced reason with intent awareness"""
+        try:
+            reasons = []
+            
+            # Technology match explanation
+            tech_score = scores.get('tech_match', 0)
+            if tech_score > 0.7:
+                tech_explanation = self._get_tech_explanation(bookmark, context)
+                if tech_explanation:
+                    reasons.append(tech_explanation)
+            
+            # Intent-based explanation
+            if intent_analysis:
+                intent_explanation = self._get_intent_explanation(context, self._analyze_bookmark(bookmark))
+                if intent_explanation:
+                    reasons.append(intent_explanation)
+            
+            # Content type benefit
+            content_type_benefit = self._get_content_type_benefit(self._analyze_bookmark(bookmark), context)
+            if content_type_benefit:
+                reasons.append(content_type_benefit)
+            
+            # Difficulty alignment note
+            difficulty_note = self._get_difficulty_note(self._analyze_bookmark(bookmark), context)
+            if difficulty_note:
+                reasons.append(difficulty_note)
+            
+            # Learning objective note
+            learning_note = self._get_learning_objective_note(self._analyze_bookmark(bookmark), context)
+            if learning_note:
+                reasons.append(learning_note)
+            
+            # Relevance strength
+            total_score = sum(scores.values()) / len(scores) if scores else 0
+            relevance_strength = self._get_relevance_strength(total_score)
+            if relevance_strength:
+                reasons.append(relevance_strength)
+            
+            # Combine reasons
+            if reasons:
+                return " ".join(reasons)
+            else:
+                return "This content is relevant to your project."
+                
+        except Exception as e:
+            print(f"Error generating enhanced reason: {e}")
+            return "This content matches your project requirements."
+    
+    def _get_intent_explanation(self, context: Dict, bookmark_analysis: Dict) -> str:
+        """Get intent-based explanation with enhanced context"""
+        try:
+            intent_analysis = context.get('intent_analysis', {})
+            if not intent_analysis:
+                return ""
+            
+            primary_goal = intent_analysis.get('primary_goal', '')
+            project_type = intent_analysis.get('project_type', '')
+            learning_stage = intent_analysis.get('learning_stage', '')
+            
+            bookmark_type = bookmark_analysis.get('content_type', 'general')
+            
+            # Enhanced intent mapping
+            intent_mapping = {
+                'learn': {
+                    'tutorial': f"Provides structured learning path for {project_type or 'your project'}",
+                    'documentation': f"Offers comprehensive reference for {project_type or 'your project'}",
+                    'example': f"Demonstrates practical examples of {project_type or 'your project'}",
+                    'best_practice': f"Teaches best practices for {project_type or 'your project'}",
+                    'general': f"Helps you learn about {project_type or 'your project'}"
+                },
+                'build': {
+                    'tutorial': f"Guides you through building {project_type or 'your project'}",
+                    'documentation': f"Provides implementation details for {project_type or 'your project'}",
+                    'example': f"Shows how to build {project_type or 'your project'}",
+                    'best_practice': f"Demonstrates proper implementation of {project_type or 'your project'}",
+                    'general': f"Helps you build {project_type or 'your project'}"
+                },
+                'optimize': {
+                    'tutorial': f"Teaches optimization techniques for {project_type or 'your project'}",
+                    'documentation': f"Provides optimization guidelines for {project_type or 'your project'}",
+                    'example': f"Demonstrates optimized approaches to {project_type or 'your project'}",
+                    'best_practice': f"Shows performance best practices for {project_type or 'your project'}",
+                    'general': f"Helps you optimize {project_type or 'your project'}"
+                }
+            }
+            
+            intent_explanations = intent_mapping.get(primary_goal, {})
+            explanation = intent_explanations.get(bookmark_type, intent_explanations.get('general', ''))
+            
+            if explanation:
+                # Add learning stage context
+                if learning_stage and learning_stage != 'intermediate':
+                    explanation += f" (suitable for {learning_stage} level)"
+                
+                return explanation
+            
+            return ""
+            
+        except Exception as e:
+            print(f"Error in intent explanation: {e}")
+            return ""
+    
+    def _get_learning_objective_note(self, bookmark_analysis: Dict, context: Dict) -> str:
+        """Get learning objective alignment note with intent awareness"""
+        try:
+            intent_analysis = context.get('intent_analysis', {})
+            if not intent_analysis:
+                return ""
+            
+            bookmark_objectives = bookmark_analysis.get('learning_objectives', [])
+            focus_areas = intent_analysis.get('focus_areas', [])
+            
+            if not bookmark_objectives or not focus_areas:
+                return ""
+            
+            # Find overlapping focus areas
+            overlap = set(bookmark_objectives).intersection(set(focus_areas))
+            
+            if overlap:
+                objectives = ", ".join(list(overlap)[:2])  # Limit to 2 for readability
+                return f"Specifically addresses your learning goals: {objectives}."
+            
+            return ""
+            
+        except Exception as e:
+            print(f"Error in learning objective note: {e}")
+            return ""
 
     def _get_skill_level_note(self, context: Dict, bookmark_analysis: Dict) -> str:
         """Get personalized skill level note"""
@@ -820,51 +928,6 @@ class UnifiedRecommendationEngine:
         
         return ""
 
-    def _get_intent_explanation(self, context: Dict, bookmark_analysis: Dict) -> str:
-        """Get intent-based explanation"""
-        context_intent = context.get('intent', 'general')
-        bookmark_type = bookmark_analysis.get('content_type', 'general')
-        
-        intent_mapping = {
-            'learning': {
-                'tutorial': "Provides structured learning path for",
-                'documentation': "Offers comprehensive reference for",
-                'example': "Demonstrates practical examples of",
-                'best_practice': "Teaches best practices for",
-                'general': "Helps you learn about"
-            },
-            'implementation': {
-                'tutorial': "Guides you through implementing",
-                'documentation': "Provides implementation details for",
-                'example': "Shows how to implement",
-                'best_practice': "Demonstrates proper implementation of",
-                'general': "Helps you implement"
-            },
-            'troubleshooting': {
-                'tutorial': "Walks through solving issues with",
-                'documentation': "Contains troubleshooting guides for",
-                'example': "Shows solutions for common problems with",
-                'best_practice': "Prevents issues by teaching best practices for",
-                'general': "Helps you troubleshoot"
-            },
-            'optimization': {
-                'tutorial': "Teaches optimization techniques for",
-                'documentation': "Provides optimization guidelines for",
-                'example': "Demonstrates optimized approaches to",
-                'best_practice': "Shows performance best practices for",
-                'general': "Helps you optimize"
-            }
-        }
-        
-        intent_explanations = intent_mapping.get(context_intent, {})
-        explanation = intent_explanations.get(bookmark_type, intent_explanations.get('general', ''))
-        
-        if explanation:
-            project_title = context.get('title', 'your project')
-            return f"{explanation} {project_title}."
-        
-        return ""
-
     def _get_content_type_benefit(self, bookmark_analysis: Dict, context: Dict) -> str:
         """Get content type specific benefits"""
         content_type = bookmark_analysis.get('content_type', 'general')
@@ -881,46 +944,88 @@ class UnifiedRecommendationEngine:
         return benefits.get(content_type, "")
 
     def _get_difficulty_note(self, bookmark_analysis: Dict, context: Dict) -> str:
-        """Get difficulty alignment explanation"""
-        bookmark_diff = bookmark_analysis.get('difficulty', 'intermediate')
-        context_diff = context.get('difficulty', 'intermediate')
-        
-        if bookmark_diff == context_diff:
-            return f"Difficulty level ({bookmark_diff}) matches your project requirements."
-        elif bookmark_diff == 'beginner' and context_diff in ['intermediate', 'advanced']:
-            return "Provides foundational knowledge that builds up to your project complexity."
-        elif bookmark_diff == 'advanced' and context_diff in ['beginner', 'intermediate']:
-            return "Offers advanced insights that will help you grow beyond current requirements."
-        else:
+        """Get difficulty alignment explanation with intent awareness"""
+        try:
+            intent_analysis = context.get('intent_analysis', {})
+            bookmark_diff = bookmark_analysis.get('difficulty', 'intermediate')
+            context_diff = context.get('difficulty', 'intermediate')
+            
+            # Use intent analysis if available
+            if intent_analysis:
+                user_level = intent_analysis.get('learning_stage', context_diff)
+                if bookmark_diff == user_level:
+                    return f"Difficulty level ({bookmark_diff}) matches your skill level."
+                elif bookmark_diff == 'beginner' and user_level in ['intermediate', 'advanced']:
+                    return "Provides foundational knowledge that builds up to your project complexity."
+                elif bookmark_diff == 'advanced' and user_level in ['beginner', 'intermediate']:
+                    return "Offers advanced insights that will help you grow beyond current requirements."
+                else:
+                    return f"Appropriate difficulty level ({bookmark_diff}) for your needs."
+            else:
+                # Fallback to context-based difficulty
+                if bookmark_diff == context_diff:
+                    return f"Difficulty level ({bookmark_diff}) matches your project requirements."
+                elif bookmark_diff == 'beginner' and context_diff in ['intermediate', 'advanced']:
+                    return "Provides foundational knowledge that builds up to your project complexity."
+                elif bookmark_diff == 'advanced' and context_diff in ['beginner', 'intermediate']:
+                    return "Offers advanced insights that will help you grow beyond current requirements."
+                else:
+                    return ""
+            
+        except Exception as e:
+            print(f"Error in difficulty note: {e}")
             return ""
-
-    def _get_learning_objective_note(self, bookmark_analysis: Dict, context: Dict) -> str:
-        """Get learning objective alignment note"""
-        bookmark_objectives = bookmark_analysis.get('learning_objectives', [])
-        context_objectives = context.get('learning_objectives', [])
-        
-        if not bookmark_objectives or not context_objectives:
+    
+    def _get_content_type_benefit(self, bookmark_analysis: Dict, context: Dict) -> str:
+        """Get content type specific benefits with intent awareness"""
+        try:
+            content_type = bookmark_analysis.get('content_type', 'general')
+            intent_analysis = context.get('intent_analysis', {})
+            
+            benefits = {
+                'tutorial': "Includes step-by-step instructions and explanations.",
+                'documentation': "Provides comprehensive technical reference and API details.",
+                'example': "Offers practical code examples and real-world scenarios.",
+                'troubleshooting': "Focuses on problem-solving and debugging techniques.",
+                'best_practice': "Teaches industry standards and proven patterns.",
+                'project': "Shows complete project implementation from start to finish."
+            }
+            
+            base_benefit = benefits.get(content_type, "")
+            
+            # Add intent-specific context
+            if intent_analysis:
+                primary_goal = intent_analysis.get('primary_goal', '')
+                time_constraint = intent_analysis.get('time_constraint', '')
+                
+                if primary_goal == 'learn' and time_constraint == 'quick_tutorial':
+                    base_benefit += " Perfect for quick learning."
+                elif primary_goal == 'build' and content_type == 'example':
+                    base_benefit += " Ideal for implementation reference."
+                elif primary_goal == 'optimize' and content_type == 'best_practice':
+                    base_benefit += " Essential for performance optimization."
+            
+            return base_benefit
+            
+        except Exception as e:
+            print(f"Error in content type benefit: {e}")
             return ""
-        
-        # Find overlapping learning objectives
-        overlap = set(bookmark_objectives).intersection(set(context_objectives))
-        
-        if overlap:
-            objectives = ", ".join(list(overlap)[:2])  # Limit to 2 for readability
-            return f"Specifically addresses your learning goals: {objectives}."
-        
-        return ""
-
+    
     def _get_relevance_strength(self, total_score: float) -> str:
-        """Get relevance strength indicator"""
-        if total_score >= 85:
-            return "This is a highly relevant resource for your needs."
-        elif total_score >= 70:
-            return "This resource is very relevant to your project."
-        elif total_score >= 50:
-            return "This content is relevant and worth considering."
-        else:
-            return "This may be useful as supplementary material."
+        """Get relevance strength indicator with intent awareness"""
+        try:
+            if total_score >= 0.85:
+                return "This is a highly relevant resource for your needs."
+            elif total_score >= 0.70:
+                return "This resource is very relevant to your project."
+            elif total_score >= 0.50:
+                return "This content is relevant and worth considering."
+            else:
+                return "This may be useful as supplementary material."
+                
+        except Exception as e:
+            print(f"Error in relevance strength: {e}")
+            return "This content matches your project requirements."
 
     def _find_related_technologies(self, bookmark_techs: List[Dict], context_techs: List[Dict]) -> List[str]:
         """Find related technologies between bookmark and context with improved Java ecosystem support"""

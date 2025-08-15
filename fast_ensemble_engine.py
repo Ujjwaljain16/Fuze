@@ -211,73 +211,63 @@ class FastEnsembleEngine:
         """Get results from high relevance engine"""
         try:
             from high_relevance_engine import high_relevance_engine
-            from models import SavedContent, db
-            from flask import Flask
-            from dotenv import load_dotenv
-            import os
+            from models import SavedContent
             
-            # Load environment variables
-            load_dotenv()
+            # Get database session
+            session = get_db_session()
+            if not session:
+                logger.error("Could not get database session")
+                return []
             
-            # Create temporary Flask app for database context
-            temp_app = Flask(__name__)
-            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            # Get user's saved content dynamically
+            # Get high-quality content from all users (dynamic, not hardcoded)
+            all_content = session.query(SavedContent).filter(
+                SavedContent.quality_score >= 5,  # Dynamic quality threshold
+                SavedContent.extracted_text.isnot(None),
+                SavedContent.extracted_text != ''
+            ).order_by(
+                SavedContent.quality_score.desc(),
+                SavedContent.saved_at.desc()
+            ).limit(50).all()  # Further reduced limit for faster processing
             
-            # Initialize SQLAlchemy with the temporary app
-            db.init_app(temp_app)
+            # Convert to format expected by high relevance engine (while still in app context)
+            bookmarks_data = []
+            for content in all_content:
+                # Get technologies from ContentAnalysis if available
+                technologies = []
+                if content.analyses:
+                    for analysis in content.analyses:
+                        if analysis.technology_tags:
+                            technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
+                
+                bookmarks_data.append({
+                    'id': content.id,
+                    'title': content.title,
+                    'url': content.url,
+                    'extracted_text': content.extracted_text or '',
+                    'tags': content.tags or '',
+                    'notes': content.notes or '',
+                    'quality_score': content.quality_score or 5.0,
+                    'created_at': content.saved_at,
+                    'technologies': technologies
+                })
             
-            with temp_app.app_context():
-                # Get user's saved content dynamically
-                with db.session.begin():
-                    # Get high-quality content from all users (dynamic, not hardcoded)
-                    all_content = SavedContent.query.filter(
-                        SavedContent.quality_score >= 5,  # Dynamic quality threshold
-                        SavedContent.extracted_text.isnot(None),
-                        SavedContent.extracted_text != ''
-                    ).order_by(
-                        SavedContent.quality_score.desc(),
-                        SavedContent.saved_at.desc()
-                    ).limit(50).all()  # Further reduced limit for faster processing
-                
-                # Convert to format expected by high relevance engine (while still in app context)
-                bookmarks_data = []
-                for content in all_content:
-                    # Get technologies from ContentAnalysis if available
-                    technologies = []
-                    if content.analyses:
-                        for analysis in content.analyses:
-                            if analysis.technology_tags:
-                                technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
-                    
-                    bookmarks_data.append({
-                        'id': content.id,
-                        'title': content.title,
-                        'url': content.url,
-                        'extracted_text': content.extracted_text or '',
-                        'tags': content.tags or '',
-                        'notes': content.notes or '',
-                        'quality_score': content.quality_score or 5.0,
-                        'created_at': content.saved_at,
-                        'technologies': technologies
-                    })
-                
-                # Prepare user input for high relevance engine
-                user_input = {
-                    'title': request.title,
-                    'description': request.description,
-                    'technologies': request.technologies,
-                    'project_id': request.project_id
-                }
-                
-                # Get high relevance recommendations
-                results = high_relevance_engine.get_high_relevance_recommendations(
-                    bookmarks=bookmarks_data,
-                    user_input=user_input,
-                    max_recommendations=request.max_recommendations * 2  # Get more for ensemble
-                )
-                
-                return results
+            # Prepare user input for high relevance engine
+            user_input = {
+                'title': request.title,
+                'description': request.description,
+                'technologies': request.technologies,
+                'project_id': request.project_id
+            }
+            
+            # Get high relevance recommendations
+            results = high_relevance_engine.get_high_relevance_recommendations(
+                bookmarks=bookmarks_data,
+                user_input=user_input,
+                max_recommendations=request.max_recommendations * 2  # Get more for ensemble
+            )
+            
+            return results
                 
         except Exception as e:
             logger.error(f"Error getting high relevance results: {e}")

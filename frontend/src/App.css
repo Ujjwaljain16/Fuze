@@ -1,6 +1,6 @@
 html, body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  background: linear-gradient(135deg, #181926 0%, #232136 100%) !important;
+  background: #000000 !important; /* Solid black background instead of gradient */
   color: #fff;
   margin: 0;
   padding: 0;
@@ -21,19 +21,24 @@ html, body {
 .app-container {
   display: flex;
   min-height: calc(100vh - 80px);
-  margin-top: 80px;
+  margin-top: 0; /* Remove top margin - only apply when navbar is present */
   position: relative;
   width: 100%;
+}
+
+/* Only apply top margin when navbar is present */
+.App:has(.navbar) .app-container {
+  margin-top: 80px;
 }
 
 /* Main content base styles - FIXED LAYOUT */
 .main-content {
   flex: 1;
-  margin-left: 64px; /* Default collapsed sidebar width */
+  margin-left: 0; /* Remove hardcoded sidebar margin */
   transition: margin-left 0.4s cubic-bezier(0.23, 1, 0.32, 1);
   min-height: calc(100vh - 80px);
   background: transparent;
-  width: calc(100vw - 64px);
+  width: 100vw; /* Full width by default */
   overflow-x: hidden;
   overflow-y: auto;
   position: relative;
@@ -51,8 +56,8 @@ html, body {
 @media (min-width: 900px) {
   /* Default collapsed state */
   .main-content {
-    margin-left: 64px;
-    width: calc(100vw - 64px);
+    margin-left: 0; /* Remove hardcoded margin */
+    width: 100vw; /* Full width by default */
   }
   
   /* When sidebar is expanded via body class */
@@ -153,7 +158,7 @@ html, body {
 .app-container {
   display: flex;
   min-height: calc(100vh - 80px);
-  margin-top: 80px;
+  margin-top: 0; /* Remove top margin - only apply when navbar is present */
   position: relative;
   width: 100%;
 }
@@ -255,7 +260,7 @@ body.sidebar-collapsed .navbar {
 .app-container {
   display: flex;
   min-height: calc(100vh - 80px);
-  margin-top: 80px;
+  margin-top: 0; /* Remove top margin - only apply when navbar is present */
   position: relative;
   width: 100%;
   /* Ensure no gaps */
@@ -271,8 +276,8 @@ body.sidebar-collapsed .navbar {
   max-width: none;
   /* Remove any default margins that cause gaps */
   margin: 0;
-  margin-left: 64px; /* Default collapsed state */
-  width: calc(100vw - 64px);
+  margin-left: 0; /* No default margin - only apply when sidebar is active */
+  width: 100vw; /* Full width by default */
   box-sizing: border-box;
 }
 
@@ -290,4 +295,31 @@ body.sidebar-collapsed .main-content {
   width: calc(100vw - 64px) !important;
   margin-right: 0 !important;
   padding-right: 0 !important;
+}
+
+/* Landing page specific styles - full width */
+.landing-page .main-content,
+body.landing-page .main-content {
+  margin-left: 0 !important;
+  width: 100vw !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Ensure landing page content is not constrained by sidebar layout */
+.landing-page .app-container {
+  margin-left: 0 !important;
+  width: 100vw !important;
+}
+
+/* Ensure pages without sidebar get full width */
+.main-content:not([data-sidebar-active="true"]) {
+  margin-left: 0 !important;
+  width: 100vw !important;
+}
+
+/* Only apply sidebar margins when sidebar is actually present and active */
+body:not(.sidebar-expanded):not(.sidebar-collapsed) .main-content {
+  margin-left: 0 !important;
+  width: 100vw !important;
 }

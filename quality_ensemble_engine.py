@@ -50,86 +50,67 @@ class QualityEnsembleEngine:
     """Quality-focused ensemble engine for the bestest recommendations"""
     
     def __init__(self):
-        self.engine_weights = {
-            'unified': 0.2,         # Balanced weight for unified
-            'smart': 0.15,          # Good weight for smart
-            'enhanced': 0.15,       # Good weight for enhanced
-            'high_relevance': 0.25, # High weight for relevance engine (most important)
-            'phase3': 0.1,          # Phase 3 engine
-            'fast_gemini': 0.1,     # Fast Gemini engine
-            'gemini_enhanced': 0.05 # Gemini Enhanced engine
-        }
-        self.cache_duration = 1800  # 30 minutes (shorter for speed)
-        self.max_parallel_engines = 7  # Allow all engines including high_relevance
-        self.timeout_seconds = 15  # Increased to 15 seconds for high relevance engine
-        self.quality_threshold = 0.2  # Lowered threshold for faster results
-        self.min_engine_agreement = 1  # Keep at 1 for speed
-        logger.info("High Relevance Engine initialized for independent operation")
+        self.cache_duration = 1800  # 30 minutes
+        self.timeout_seconds = 10
+        logger.info("Quality Ensemble Engine initialized with FastSemanticEngine only")
     
     def get_quality_ensemble_recommendations(self, request: QualityEnsembleRequest) -> List[QualityEnsembleResult]:
-        """Get high relevance recommendations (independent engine operation)"""
+        """Get recommendations using only FastSemanticEngine (semantic search)"""
         start_time = time.time()
-        
         try:
-            # Generate cache key
             cache_key = self._generate_cache_key(request)
-            
-            # Check cache first
             cached_result = self._get_cached_result(cache_key)
             if cached_result:
-                logger.info("Cache hit for high relevance recommendations")
+                logger.info("Cache hit for FastSemanticEngine recommendations")
                 return cached_result
-            
-            # Use ONLY high relevance engine for this endpoint (independent operation)
-            engines_to_use = ['high_relevance']  # Only use high relevance engine
-            available_engines = self._get_available_engines(engines_to_use)
-            
-            if not available_engines:
-                logger.warning("High Relevance Engine not available, returning empty results")
-                return []
-            
-            logger.info(f"Using High Relevance Engine independently: {available_engines}")
-            
-            # Get recommendations from high relevance engine ONLY (independent operation)
-            # Direct call to avoid any multi-engine complexity
-            logger.info("Running High Relevance Engine directly (independent operation)")
-            high_relevance_results = self._get_high_relevance_results_quality(request)
-            engine_results = {'high_relevance': high_relevance_results}
-            
-            # Process High Relevance Engine results directly (independent operation)
-            high_relevance_results = engine_results['high_relevance']
+
+            # Use only FastSemanticEngine
+            from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer, UnifiedRecommendationRequest
+            data_layer = UnifiedDataLayer()
+            fast_engine = FastSemanticEngine(data_layer)
+            unified_request = UnifiedRecommendationRequest(
+                user_id=request.user_id,
+                title=request.title,
+                description=request.description,
+                technologies=request.technologies,
+                project_id=request.project_id,
+                max_recommendations=request.max_recommendations,
+                engine_preference='fast',
+                diversity_weight=0.3,
+                quality_threshold=5,
+                include_global_content=True
+            )
+            # Fetch candidate content if none provided
+            from unified_recommendation_orchestrator import get_unified_orchestrator
+            orchestrator = get_unified_orchestrator()
+            candidate_content = orchestrator.get_candidate_content(request.user_id, unified_request)
+            results = fast_engine.get_recommendations(candidate_content, unified_request)
             # Convert to QualityEnsembleResult format
             ensemble_results = []
-            for i, result in enumerate(high_relevance_results):
+            for result in results:
                 ensemble_result = QualityEnsembleResult(
-                    id=result.get('id'),
-                    title=result.get('title', ''),
-                    url=result.get('url', ''),
-                    score=result.get('score', 0),
-                    reason=result.get('reason', ''),
-                    ensemble_score=result.get('score', 0),  # Use original score
-                    engine_votes={'high_relevance': result.get('score', 0)},
-                    quality_metrics={'high_relevance_score': result.get('score', 0)},
-                    technologies=result.get('technologies', []),
-                    content_type=result.get('content_type', 'article'),
-                    difficulty=result.get('difficulty', 'intermediate')
+                    id=result.id,
+                    title=result.title,
+                    url=result.url,
+                    score=result.score,
+                    reason=result.reason,
+                    ensemble_score=result.score,
+                    engine_votes={'fast_semantic': result.score},
+                    quality_metrics={'fast_semantic_score': result.score},
+                    technologies=result.technologies,
+                    content_type=result.content_type,
+                    difficulty=result.difficulty
                 )
                 ensemble_results.append(ensemble_result)
-            
-            # Sort by score and limit
+            # Sort and limit
             ensemble_results.sort(key=lambda x: x.ensemble_score, reverse=True)
             ensemble_results = ensemble_results[:request.max_recommendations]
-            
-            # Cache results
             self._cache_result(cache_key, ensemble_results)
-            
             response_time = (time.time() - start_time) * 1000
-            logger.info(f"High Relevance Engine (Independent) completed in {response_time:.2f}ms")
-            
+            logger.info(f"FastSemanticEngine (Quality Ensemble) completed in {response_time:.2f}ms")
             return ensemble_results
-            
         except Exception as e:
-            logger.error(f"High Relevance Engine error: {e}")
+            logger.error(f"FastSemanticEngine error: {e}")
             return []
     
     def _generate_cache_key(self, request: QualityEnsembleRequest) -> str:
@@ -444,30 +425,24 @@ class QualityEnsembleEngine:
         """Get results from high relevance engine with quality focus"""
         try:
             from high_relevance_engine import high_relevance_engine
-            from models import SavedContent, db
-            from flask import Flask
-            from dotenv import load_dotenv
-            import os
+            from models import SavedContent
+            from database_utils import get_db_session
             
-            # Load environment variables
-            load_dotenv()
-            
-            # Create temporary Flask app for database context
-            temp_app = Flask(__name__)
-            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-            
-            # Initialize SQLAlchemy with the temporary app
-            db.init_app(temp_app)
-            
-            with temp_app.app_context():
-                # Get user's saved content dynamically (no hardcoding)
-                with db.session.begin():
+            # Get database session directly without creating Flask app
+            session = get_db_session()
+            if not session:
+                logger.error("Could not get database session")
+                return []
+                try:
+                    from database_utils import get_db_session
+                    from models import SavedContent, ContentAnalysis
+                    
+                    # Get user's saved content dynamically (no hardcoding)
                     # Get user's technologies for filtering
                     user_technologies = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
                     
                     # Build base query for high-quality content
-                    base_query = SavedContent.query.filter(
+                    base_query = session.query(SavedContent).filter(
                         SavedContent.quality_score >= 5,
                         SavedContent.extracted_text.isnot(None),
                         SavedContent.extracted_text != ''
@@ -476,7 +451,6 @@ class QualityEnsembleEngine:
                     # Try to find content with matching technologies first
                     if user_technologies:
                          # Look for content with matching technologies in analysis
-                         from models import ContentAnalysis
                          
                          # First, try to find content with PRIMARY technology matches (exact matches)
                          primary_tech_conditions = []
@@ -489,7 +463,7 @@ class QualityEnsembleEngine:
                          
                          # Get content with primary technology matches
                          primary_matched_content = base_query.filter(
-                             db.or_(*primary_tech_conditions)
+                             session.query().filter(*primary_tech_conditions)
                          ).order_by(
                              SavedContent.quality_score.desc(),
                              SavedContent.saved_at.desc()
@@ -516,7 +490,7 @@ class QualityEnsembleEngine:
                              # Limit to top 10 most relevant
                              if len(tech_matched_content) >= 10:
                                  break
-                         
+                 
                          # If we have enough tech-matched content, use it
                          if len(tech_matched_content) >= 3:
                              all_content = tech_matched_content
@@ -528,7 +502,7 @@ class QualityEnsembleEngine:
                                  SavedContent.saved_at.desc()
                              ).limit(15).all()
                              logger.info(f"Not enough tech-matched content, using {len(all_content)} general high-quality items")
-                                        else:
+                    else:
                         # No specific technologies, get general content
                         all_content = base_query.order_by(
                             SavedContent.quality_score.desc(),
@@ -536,45 +510,45 @@ class QualityEnsembleEngine:
                         ).limit(15).all()
                         logger.info(f"Using {len(all_content)} general high-quality content items")
                 
-                        # Convert to format expected by high relevance engine (while still in app context)
-                         bookmarks_data = []
-                         for content in all_content:
-                             # Get technologies from ContentAnalysis if available
-                             technologies = []
-                             if content.analyses:
-                                 for analysis in content.analyses:
-                                     if analysis.technology_tags:
-                                         technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
-                             
-                             bookmarks_data.append({
-                                 'id': content.id,
-                                 'title': content.title,
-                                 'url': content.url,
-                                 'extracted_text': content.extracted_text or '',
-                                 'tags': content.tags or '',
-                                 'notes': content.notes or '',
-                                 'quality_score': content.quality_score or 5.0,
-                                 'created_at': content.saved_at,
-                                 'technologies': technologies
-                             })
-                         
-                         # Prepare user input for high relevance engine
-                         user_input = {
-                             'title': request.title,
-                             'description': request.description,
-                             'technologies': request.technologies,
-                             'project_id': request.project_id
-                         }
-                         
-                         # Get high relevance recommendations with reduced processing
-                         results = high_relevance_engine.get_high_relevance_recommendations(
-                             bookmarks=bookmarks_data[:10],  # Only process top 10 bookmarks for speed
-                             user_input=user_input,
-                             max_recommendations=min(request.max_recommendations, 3)  # Limit to 3 for speed
-                         )
-                         
-                         logger.info(f"High Relevance Engine: {len(results)} results")
-                         return results
+                    # Convert to format expected by high relevance engine
+                    bookmarks_data = []
+                    for content in all_content:
+                        # Get technologies from ContentAnalysis if available
+                        technologies = []
+                        if content.analyses:
+                            for analysis in content.analyses:
+                                if analysis.technology_tags:
+                                    technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',')])
+                        
+                        bookmarks_data.append({
+                            'id': content.id,
+                            'title': content.title,
+                            'url': content.url,
+                            'extracted_text': content.extracted_text or '',
+                            'tags': content.tags or '',
+                            'notes': content.notes or '',
+                            'quality_score': content.quality_score or 5.0,
+                            'created_at': content.saved_at,
+                            'technologies': technologies
+                        })
+                        
+                    # Prepare user input for high relevance engine
+                    user_input = {
+                        'title': request.title,
+                        'description': request.description,
+                        'technologies': request.technologies,
+                        'project_id': request.project_id
+                    }
+                    
+                    # Get high relevance recommendations with reduced processing
+                    results = high_relevance_engine.get_high_relevance_recommendations(
+                        bookmarks=bookmarks_data[:10],  # Only process top 10 bookmarks for speed
+                        user_input=user_input,
+                        max_recommendations=min(request.max_recommendations, 3)  # Limit to 3 for speed
+                    )
+                    
+                    logger.info(f"High Relevance Engine: {len(results)} results")
+                    return results
             
         except Exception as e:
             logger.warning(f"High Relevance engine not available: {e}")

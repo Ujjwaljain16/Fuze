@@ -4,7 +4,26 @@ from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 
+# Initialize SQLAlchemy with enhanced configuration
 db = SQLAlchemy()
+
+# Configure SQLAlchemy to use our connection manager
+def configure_database():
+    """Configure database with enhanced SSL handling"""
+    try:
+        from database_connection_manager import get_database_engine
+        engine = get_database_engine()
+        
+        # Update the SQLAlchemy engine
+        db.engine = engine
+        
+        # Configure session
+        db.session.configure(bind=engine)
+        
+        return True
+    except Exception as e:
+        print(f"Failed to configure database: {e}")
+        return False
 
 class Base(db.Model):
     __abstract__ = True
@@ -33,6 +52,10 @@ class Project(Base):
     description = Column(TEXT)
     technologies = Column(TEXT)
     created_at = Column(DateTime, default=func.now())
+    
+    # Intent analysis caching fields
+    intent_analysis = Column(JSON)  # Store intent analysis results
+    intent_analysis_updated = Column(DateTime)  # When analysis was last updated
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 

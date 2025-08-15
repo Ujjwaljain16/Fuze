@@ -20,6 +20,7 @@ const Recommendations = () => {
   const [refreshing, setRefreshing] = useState(false)
   const [projects, setProjects] = useState([])
   const [tasks, setTasks] = useState([])
+  const [projectsLoading, setProjectsLoading] = useState(false)
   const [emptyMessage, setEmptyMessage] = useState('')
   const [taskAnalysis, setTaskAnalysis] = useState(null)
   const [geminiAvailable, setGeminiAvailable] = useState(false)
@@ -90,31 +91,48 @@ const Recommendations = () => {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       fetchProjects()
       checkGeminiStatus()
       fetchRecommendations()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, user])
 
-
+  // Separate useEffect for fetching recommendations when filter or engine changes
+  useEffect(() => {
+    if (isAuthenticated && user && filter && selectedEngine) {
+      fetchRecommendations()
+    }
+  }, [filter, selectedProject, selectedEngine])
 
   // Periodic token refresh to prevent expiration
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !user) return
     
     const tokenRefreshInterval = setInterval(() => {
       refreshTokenIfNeeded()
     }, 5 * 60 * 1000) // Refresh every 5 minutes
     
     return () => clearInterval(tokenRefreshInterval)
-  }, [isAuthenticated])
+  }, [isAuthenticated, user])
 
+  // Ensure projects are fetched when user becomes available
   useEffect(() => {
-    if (isAuthenticated && filter) {
-      fetchRecommendations()
+    if (isAuthenticated && user && projects.length === 0) {
+      console.log('🔍 Fetching projects - User authenticated:', !!user, 'Projects count:', projects.length)
+      fetchProjects()
     }
-  }, [filter, selectedProject, selectedEngine])
+  }, [isAuthenticated, user, projects.length])
+
+  // Debug logging for authentication state
+  useEffect(() => {
+    console.log('🔐 Auth state changed:', { 
+      isAuthenticated, 
+      hasUser: !!user, 
+      projectsCount: projects.length,
+      filterOptionsCount: filterOptions.length 
+    })
+  }, [isAuthenticated, user, projects.length, filterOptions.length])
 
   const checkGeminiStatus = async () => {
     try {
@@ -140,6 +158,7 @@ const Recommendations = () => {
 
   const fetchProjects = async () => {
     try {
+      setProjectsLoading(true)
       console.log('Fetching projects...')
       const response = await api.get('/api/projects')
       const userProjects = response.data.projects || []
@@ -174,14 +193,37 @@ const Recommendations = () => {
         label: `Task: ${task.title} (${task.projectTitle})`
       }))
       
-      setFilterOptions([
+      const newFilterOptions = [
         { value: 'all', label: 'All Recommendations' },
-        { value: 'general', label: 'General' },
-        ...projectOptions,
-        ...taskOptions
-      ])
+        { value: 'general', label: 'General' }
+      ]
+      
+      // Only add project and task options if they exist
+      if (projectOptions.length > 0) {
+        newFilterOptions.push(...projectOptions)
+      }
+      if (taskOptions.length > 0) {
+        newFilterOptions.push(...taskOptions)
+      }
+      
+      setFilterOptions(newFilterOptions)
+      
+      // If no projects exist, show a helpful message
+      if (userProjects.length === 0) {
+        console.log('No projects found for user')
+      }
+      
     } catch (error) {
       console.error('Error fetching projects:', error)
+      // Set empty arrays and basic filter options on error
+      setProjects([])
+      setTasks([])
+      setFilterOptions([
+        { value: 'all', label: 'All Recommendations' },
+        { value: 'general', label: 'General' }
+      ])
+    } finally {
+      setProjectsLoading(false)
     }
   }
 
@@ -480,64 +522,71 @@ const Recommendations = () => {
                       <span className="text-white font-medium">Filter by:</span>
                     </div>
                     <div className="filter-container" style={{ minWidth: 200, position: 'relative', zIndex: 1000 }}>
-                      <Select
-                        classNamePrefix="react-select"
-                        value={filterOptions.find(opt => opt.value === filter)}
-                        onChange={option => {
-                          console.log('Filter changed to:', option.value)
-                          setFilter(option.value)
-                          // Update selectedProject when a project is selected
-                          if (option.value.startsWith('project_')) {
-                            const projectId = option.value.replace('project_', '')
-                            const project = projects.find(p => p.id.toString() === projectId)
-                            console.log('Selected project:', project)
-                            setSelectedProject(project || null)
-                          } else {
-                            console.log('No project selected')
-                            setSelectedProject(null)
-                          }
-                        }}
-                        options={filterOptions}
-                        isSearchable={false}
-                        styles={{
-                          control: (base, state) => ({
-                            ...base,
-                            background: 'rgba(30,32,48,0.9)',
-                            borderColor: state.isFocused ? '#a855f7' : 'rgba(255,255,255,0.1)',
-                            color: '#fff',
-                            borderRadius: 12,
-                            minHeight: 44,
-                            boxShadow: state.isFocused ? '0 0 0 3px rgba(168,85,247,0.1)' : 'none',
-                            fontWeight: 500,
-                            fontSize: 14,
-                            cursor: 'pointer',
-                          }),
-                          singleValue: base => ({ ...base, color: '#fff' }),
-                          menu: base => ({ 
-                            ...base, 
-                            background: '#1f1f23', 
-                            color: '#fff', 
-                            borderRadius: 12, 
-                            zIndex: 9999,
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            right: 0,
-                            marginTop: '4px'
-                          }),
-                          option: (base, state) => ({
-                            ...base,
-                            background: state.isFocused ? 'rgba(168,85,247,0.15)' : 'transparent',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            padding: '12px 16px',
-                          }),
-                          dropdownIndicator: base => ({ ...base, color: '#a855f7' }),
-                          indicatorSeparator: base => ({ ...base, display: 'none' }),
-                          input: base => ({ ...base, color: '#fff' }),
-                        }}
-                      />
+                      {projectsLoading ? (
+                        <div className="flex items-center space-x-2 px-4 py-3 bg-gray-800/50 rounded-xl border border-gray-700">
+                          <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                          <span className="text-gray-300">Loading projects...</span>
+                        </div>
+                      ) : (
+                        <Select
+                          classNamePrefix="react-select"
+                          value={filterOptions.find(opt => opt.value === filter)}
+                          onChange={option => {
+                            console.log('Filter changed to:', option.value)
+                            setFilter(option.value)
+                            // Update selectedProject when a project is selected
+                            if (option.value.startsWith('project_')) {
+                              const projectId = option.value.replace('project_', '')
+                              const project = projects.find(p => p.id.toString() === projectId)
+                              console.log('Selected project:', project)
+                              setSelectedProject(project || null)
+                            } else {
+                              console.log('No project selected')
+                              setSelectedProject(null)
+                            }
+                          }}
+                          options={filterOptions}
+                          isSearchable={false}
+                          styles={{
+                            control: (base, state) => ({
+                              ...base,
+                              background: 'rgba(30,32,48,0.9)',
+                              borderColor: state.isFocused ? '#a855f7' : 'rgba(255,255,255,0.1)',
+                              color: '#fff',
+                              borderRadius: 12,
+                              minHeight: 44,
+                              boxShadow: state.isFocused ? '0 0 0 3px rgba(168,85,247,0.1)' : 'none',
+                              fontWeight: 500,
+                              fontSize: 14,
+                              cursor: 'pointer',
+                            }),
+                            singleValue: base => ({ ...base, color: '#fff' }),
+                            menu: base => ({ 
+                              ...base, 
+                              background: '#1f1f23', 
+                              color: '#fff', 
+                              borderRadius: 12, 
+                              zIndex: 9999,
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              position: 'absolute',
+                              top: '100%',
+                              left: 0,
+                              right: 0,
+                              marginTop: '4px'
+                            }),
+                            option: (base, state) => ({
+                              ...base,
+                              background: state.isFocused ? 'rgba(168,85,247,0.15)' : 'transparent',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              padding: '12px 16px',
+                            }),
+                            dropdownIndicator: base => ({ ...base, color: '#a855f7' }),
+                            indicatorSeparator: base => ({ ...base, display: 'none' }),
+                            input: base => ({ ...base, color: '#fff' }),
+                          }}
+                        />
+                      )}
                     </div>
                     
                     {/* Selected Project Indicator */}
@@ -547,6 +596,20 @@ const Recommendations = () => {
                         <span className="text-white font-medium">Project:</span>
                         <span className="text-purple-300 font-semibold">{selectedProject.title}</span>
                         <span className="text-gray-400 text-sm">({selectedProject.technologies})</span>
+                      </div>
+                    )}
+                    
+                    {/* No Projects Message */}
+                    {!projectsLoading && projects.length === 0 && (
+                      <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
+                        <BookOpen className="w-5 h-5 text-yellow-400" />
+                        <span className="text-white font-medium">No projects found.</span>
+                        <a 
+                          href="/projects" 
+                          className="text-yellow-300 hover:text-yellow-200 underline"
+                        >
+                          Create your first project
+                        </a>
                       </div>
                     )}
                   </div>

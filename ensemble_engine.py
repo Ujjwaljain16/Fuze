@@ -20,6 +20,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from redis_utils import redis_cache
+from gemini_utils import GeminiAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -51,58 +52,39 @@ class OptimizedEnsembleEngine:
     
     def __init__(self):
         self.engine_weights = {
-            'unified': 0.25,    # Balanced weight for unified
-            'smart': 0.2,       # Good weight for smart
-            'enhanced': 0.2,    # Good weight for enhanced
-            'phase3': 0.15,     # Phase 3 engine
-            'fast_gemini': 0.1, # Fast Gemini engine
-            'gemini_enhanced': 0.1  # Gemini Enhanced engine
+            'smart': 0.6,       # Heavier weight for smart NLP
+            'fast_gemini': 0.4  # Weight for Gemini AI
         }
-        self.cache_duration = 900  # 15 minutes (reduced for quality improvements)
-        self.max_parallel_engines = 6  # Allow all engines
-        self.timeout_seconds = 30  # Reduced timeout to prevent authentication issues
-        self.quality_threshold = 0.4  # Increased threshold for better quality
-        self.min_recommendations = 5  # Minimum recommendations before early termination
-        logger.info("Complete Ensemble Engine initialized with all engines")
+        self.cache_duration = 900  # 15 minutes
+        self.max_parallel_engines = 2  # Only two engines
+        self.timeout_seconds = 30
+        self.quality_threshold = 0.4
+        self.min_recommendations = 5
+        logger.info("AI/NLP Ensemble Engine initialized with Smart and FastGemini only")
     
     def get_ensemble_recommendations(self, request: EnsembleRequest) -> List[EnsembleResult]:
-        """Get ensemble recommendations with quality optimization"""
+        """Get ensemble recommendations with AI/NLP engines only"""
         start_time = time.time()
-        
         try:
-            # Generate cache key
             cache_key = self._generate_cache_key(request)
-            
-            # Check cache first (but with shorter TTL for quality improvements)
             cached_result = self._get_cached_result(cache_key)
             if cached_result:
                 logger.info("Cache hit for ensemble recommendations")
                 return cached_result
-            
-            # Determine engines to use - only use reliable engines
-            engines_to_use = request.engines or ['unified']  # Default to unified only for reliability
+
+            # Only use smart and fast_gemini engines
+            engines_to_use = ['smart', 'fast_gemini']
             available_engines = self._get_available_engines(engines_to_use)
-            
             if not available_engines:
-                logger.warning("No engines available, falling back to unified only")
-                available_engines = ['unified']
-            
-            logger.info(f"Using engines for quality: {available_engines}")
-            
-            # Get recommendations from engines with quality optimization
+                logger.warning("No AI/NLP engines available")
+                return []
+            logger.info(f"Using AI/NLP engines: {available_engines}")
             engine_results = self._get_engine_results_quality_optimized(available_engines, request)
-            
-            # Combine results with quality preservation
             ensemble_results = self._combine_results_quality_optimized(engine_results, request)
-            
-            # Cache results with shorter TTL for quality improvements
             self._cache_result(cache_key, ensemble_results)
-            
             response_time = (time.time() - start_time) * 1000
-            logger.info(f"Quality-optimized ensemble completed in {response_time:.2f}ms")
-            
+            logger.info(f"AI/NLP ensemble completed in {response_time:.2f}ms")
             return ensemble_results
-            
         except Exception as e:
             logger.error(f"Ensemble error: {e}")
             return []
@@ -143,233 +125,97 @@ class OptimizedEnsembleEngine:
             logger.warning(f"Error caching result: {e}")
     
     def _get_available_engines(self, requested_engines: List[str]) -> List[str]:
-        """Check which engines are available"""
+        """Return only available AI/NLP engines"""
         available = []
-        
-        for engine in requested_engines:
-            try:
-                if engine == 'unified':
-                    from unified_recommendation_orchestrator import get_unified_orchestrator
-                    get_unified_orchestrator()  # Test if available
-                    available.append(engine)
-                elif engine == 'smart':
-                    from smart_recommendation_engine import SmartRecommendationEngine
-                    available.append(engine)
-                elif engine == 'enhanced':
-                    from enhanced_recommendation_engine import get_enhanced_recommendations
-                    available.append(engine)
-                elif engine == 'phase3':
-                    from phase3_enhanced_engine import get_enhanced_recommendations_phase3
-                    available.append(engine)
-                elif engine == 'fast_gemini':
+        for eng in requested_engines:
+            if eng == 'smart':
+                try:
+                    from ai_recommendation_engine import SmartRecommendationEngine
+                    available.append('smart')
+                except Exception:
+                    pass
+            elif eng == 'fast_gemini':
+                try:
                     from fast_gemini_engine import fast_gemini_engine
-                    available.append(engine)
-                elif engine == 'gemini_enhanced':
-                    from gemini_enhanced_recommendation_engine import GeminiEnhancedRecommendationEngine
-                    available.append(engine)
-            except ImportError:
-                logger.warning(f"Engine {engine} not available")
-        
+                    available.append('fast_gemini')
+                except Exception:
+                    pass
         return available
     
     def _get_engine_results_quality_optimized(self, engines: List[str], request: EnsembleRequest) -> Dict[str, List[Dict]]:
-        """Get results from engines with quality optimization"""
+        """Get results from only smart and fast_gemini engines"""
         engine_results = {}
-        
-        # Always start with unified engine (fastest)
-        if 'unified' in engines:
+        if 'smart' in engines:
             try:
-                logger.info("Getting unified engine results (fastest)...")
-                results = self._get_unified_results_quality(request)
-                engine_results['unified'] = results
-                logger.info(f"Engine unified: {len(results)} results")
-                
-                # Only skip other engines if we have high-quality results
-                if len(results) >= request.max_recommendations * 2 and self._check_quality_sufficient(results):
-                    logger.info("Unified engine provided sufficient high-quality results")
-                    return engine_results
-                    
+                engine_results['smart'] = self._get_smart_results(request)
             except Exception as e:
-                logger.error(f"Error with unified engine: {e}")
-                engine_results['unified'] = []
-        
-        # Get results from quality engines in parallel
-        quality_engines = [eng for eng in engines if eng != 'unified']
-        if quality_engines:
-            engine_results.update(self._get_parallel_quality_engine_results(quality_engines, request))
-        
+                logger.error(f"Error with smart engine: {e}")
+                engine_results['smart'] = []
+        if 'fast_gemini' in engines:
+            try:
+                engine_results['fast_gemini'] = self._get_fast_gemini_results(request)
+            except Exception as e:
+                logger.error(f"Error with fast_gemini engine: {e}")
+                engine_results['fast_gemini'] = []
         return engine_results
     
-    def _get_unified_results_quality(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from unified engine with quality focus"""
-        try:
-            from unified_recommendation_orchestrator import get_unified_orchestrator, UnifiedRecommendationRequest
-            
-            orchestrator = get_unified_orchestrator()
-            unified_request = UnifiedRecommendationRequest(
-                user_id=request.user_id,
-                title=request.title,
-                description=request.description,
-                technologies=request.technologies,
-                project_id=request.project_id,
-                max_recommendations=request.max_recommendations * 3,  # Get more for quality
-                engine_preference='auto',  # Let it choose best engine
-                cache_duration=900,  # 15 minutes cache
-                quality_threshold=7,  # Higher threshold for quality
-                diversity_weight=0.4  # Better diversity
-            )
-            
-            results = orchestrator.get_recommendations(unified_request)
-            return [asdict(result) for result in results]
-            
-        except Exception as e:
-            logger.error(f"Error getting unified results: {e}")
-            return []
-    
-    def _get_parallel_quality_engine_results(self, engines: List[str], request: EnsembleRequest) -> Dict[str, List[Dict]]:
-        """Get results from quality engines in parallel with longer timeout"""
-        results = {}
-        failed_engines = []
-        with ThreadPoolExecutor(max_workers=self.max_parallel_engines) as executor:
-            # Submit tasks
-            future_to_engine = {
-                executor.submit(self._get_single_engine_results, engine, request): engine 
-                for engine in engines
-            }
-            try:
-                for future in as_completed(future_to_engine, timeout=self.timeout_seconds):
-                    engine_name = future_to_engine[future]
-                    try:
-                        engine_results = future.result(timeout=30)  # 30 second timeout per engine
-                        results[engine_name] = engine_results
-                        logger.info(f"Engine {engine_name}: {len(engine_results)} results")
-                    except Exception as e:
-                        logger.warning(f"Engine {engine_name} failed or timed out: {e}")
-                        results[engine_name] = []
-                        failed_engines.append(engine_name)
-            except Exception as e:
-                logger.error(f"Error during parallel engine execution: {e}")
-            # Check for unfinished futures
-            unfinished = set(future_to_engine.values()) - set(results.keys())
-            if unfinished:
-                logger.error(f"Ensemble error: {len(unfinished)} (of {len(engines)}) futures unfinished: {list(unfinished)}")
-                for engine_name in unfinished:
-                    results[engine_name] = []
-        return results
-    
     def _get_single_engine_results(self, engine_name: str, request: EnsembleRequest) -> List[Dict]:
-        """Get results from a single engine with error handling"""
+        """Get results from a single AI/NLP engine"""
         try:
             if engine_name == 'smart':
                 return self._get_smart_results(request)
-            elif engine_name == 'enhanced':
-                return self._get_enhanced_results(request)
-            elif engine_name == 'phase3':
-                return self._get_phase3_results(request)
             elif engine_name == 'fast_gemini':
                 return self._get_fast_gemini_results(request)
-            elif engine_name == 'gemini_enhanced':
-                return self._get_gemini_enhanced_results(request)
             else:
                 logger.warning(f"Unknown engine: {engine_name}")
                 return []
-                
         except Exception as e:
             logger.error(f"Error getting {engine_name} results: {e}")
             return []
     
     def _get_smart_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from smart engine (quality-focused)"""
+        """Get results from SmartRecommendationEngine (ai_recommendation_engine.py)"""
         try:
-            from smart_recommendation_engine import SmartRecommendationEngine
-            
-            engine = SmartRecommendationEngine(request.user_id)
-            project_info = {
+            from ai_recommendation_engine import SmartRecommendationEngine
+            engine = SmartRecommendationEngine()
+            project_context = {
                 'title': request.title,
                 'description': request.description,
-                'technologies': request.technologies,
-                'learning_goals': request.description
+                'technologies': request.technologies
             }
-            
             results = engine.get_smart_recommendations(
-                project_info=project_info,
-                limit=request.max_recommendations * 2  # Get more for quality
-            )
-            
-            if results:
-                return [
-                    {
-                        'id': rec.bookmark_id,
-                        'title': rec.title,
-                        'url': rec.url,
-                        'score': rec.match_score,
-                        'reason': rec.reasoning,
-                        'content_type': rec.content_type,
-                        'difficulty': rec.difficulty,
-                        'technologies': rec.technologies,
-                        'key_concepts': rec.key_concepts
-                    }
-                    for rec in results
-                ]
-            return []
-            
-        except Exception as e:
-            logger.warning(f"Smart engine not available: {e}")
-            return []
-    
-    def _get_enhanced_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from enhanced engine (quality-focused)"""
-        try:
-            from enhanced_recommendation_engine import get_enhanced_recommendations
-            
-            results = get_enhanced_recommendations(
-                user_id=request.user_id,
-                request_data={
-                    'title': request.title,
-                    'description': request.description,
-                    'technologies': request.technologies,
-                    'project_id': request.project_id
-                },
-                limit=request.max_recommendations * 2  # Get more for quality
+                bookmarks=[],  # Let engine fetch bookmarks internally if needed
+                project_context=project_context,
+                max_recommendations=request.max_recommendations * 2
             )
             return results
-            
         except Exception as e:
-            logger.warning(f"Enhanced engine not available: {e}")
-            return []
-    
-    def _get_phase3_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Phase 3 engine"""
-        try:
-            from phase3_enhanced_engine import get_enhanced_recommendations_phase3
-            
-            results = get_enhanced_recommendations_phase3(
-                user_id=request.user_id,
-                request_data={
-                    'title': request.title,
-                    'description': request.description,
-                    'technologies': request.technologies,
-                    'project_id': request.project_id
-                },
-                limit=request.max_recommendations * 2
-            )
-            return results
-            
-        except Exception as e:
-            logger.warning(f"Phase 3 engine not available: {e}")
+            logger.warning(f"SmartRecommendationEngine not available: {e}")
             return []
     
     def _get_fast_gemini_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Fast Gemini engine"""
+        """Get results from Fast Gemini engine with optimized database query"""
         try:
             from fast_gemini_engine import fast_gemini_engine
-            
-            # Get user bookmarks first
             from models import SavedContent
             from app import app
             
             with app.app_context():
-                user_bookmarks = SavedContent.query.filter_by(user_id=request.user_id).all()
+                # Optimized query with limits and specific fields to prevent timeouts
+                user_bookmarks = SavedContent.query.filter_by(
+                    user_id=request.user_id
+                ).with_entities(
+                    SavedContent.id,
+                    SavedContent.title,
+                    SavedContent.url,
+                    SavedContent.extracted_text,
+                    SavedContent.quality_score
+                ).limit(100).all()  # Limit to prevent large result sets
+                
+                if not user_bookmarks:
+                    logger.info(f"No bookmarks found for user {request.user_id}")
+                    return []
+                
                 bookmarks_data = []
                 for bookmark in user_bookmarks:
                     bookmarks_data.append({
@@ -392,50 +238,16 @@ class OptimizedEnsembleEngine:
                     bookmarks_data, user_input, request.max_recommendations * 2
                 )
                 
-                return result.get('recommendations', [])
-            
+                # Filter out bad recommendations using GeminiAnalyzer utility
+                try:
+                    filtered = GeminiAnalyzer().filter_bad_recommendations(result.get('recommendations', []))
+                    return filtered
+                except Exception as filter_error:
+                    logger.warning(f"GeminiAnalyzer filtering failed, returning unfiltered results: {filter_error}")
+                    return result.get('recommendations', [])
+                    
         except Exception as e:
-            logger.warning(f"Fast Gemini engine not available: {e}")
-            return []
-    
-    def _get_gemini_enhanced_results(self, request: EnsembleRequest) -> List[Dict]:
-        """Get results from Gemini Enhanced engine"""
-        try:
-            from gemini_enhanced_recommendation_engine import GeminiEnhancedRecommendationEngine
-            
-            # Get user bookmarks first
-            from models import SavedContent
-            from app import app
-            
-            with app.app_context():
-                user_bookmarks = SavedContent.query.filter_by(user_id=request.user_id).all()
-                bookmarks_data = []
-                for bookmark in user_bookmarks:
-                    bookmarks_data.append({
-                        'id': bookmark.id,
-                        'title': bookmark.title,
-                        'url': bookmark.url,
-                        'content': bookmark.extracted_text or bookmark.title,
-                        'quality_score': bookmark.quality_score or 7.0,
-                        'similarity_score': 0.5
-                    })
-                
-                user_input = {
-                    'title': request.title,
-                    'description': request.description,
-                    'technologies': request.technologies,
-                    'user_id': request.user_id
-                }
-                
-                engine = GeminiEnhancedRecommendationEngine()
-                result = engine.get_enhanced_recommendations(
-                    bookmarks_data, user_input, request.max_recommendations * 2
-                )
-                
-                return result.get('recommendations', [])
-            
-        except Exception as e:
-            logger.warning(f"Gemini Enhanced engine not available: {e}")
+            logger.warning(f"FastGeminiEngine not available: {e}")
             return []
     
     def _check_quality_sufficient(self, results: List[Dict]) -> bool:
@@ -572,6 +384,15 @@ class OptimizedEnsembleEngine:
         filtered_recommendations.sort(key=lambda x: x.score, reverse=True)
         
         return filtered_recommendations
+
+    def _generate_reason(self, content, request_techs, similarity, tech_overlap):
+        matched_techs = [t for t in content.get('technologies', []) if t in request_techs]
+        if tech_overlap > 0 and matched_techs:
+            return f"Recommended because it covers: {', '.join(matched_techs)}. Highly relevant to your request."
+        elif similarity > 0.7:
+            return "Semantically similar to your request."
+        else:
+            return "High-quality, relevant content."
 
 # Global instance
 _ensemble_engine = None

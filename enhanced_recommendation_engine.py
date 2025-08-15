@@ -784,38 +784,38 @@ class UnifiedIntelligentEngine:
     def _get_candidate_content(self, user_id: int, request_data: Dict[str, Any]) -> List[Tuple[SavedContent, ContentAnalysis]]:
         """Get candidate content for recommendations with improved relevance and performance"""
         try:
-            # Create a minimal app context without importing app
-            from flask import Flask
-            temp_app = Flask(__name__)
-            temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///test.db')
-            temp_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            from database_utils import get_db_session
+            from models import SavedContent, ContentAnalysis
             
-            with temp_app.app_context():
-                db.init_app(temp_app)
-                # Use more efficient query with better filtering
-                base_query = db.session.query(SavedContent, ContentAnalysis).join(
-                    ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
-                ).filter(
-                    SavedContent.quality_score >= 5,  # Lower threshold for more candidates
-                    SavedContent.title.notlike('%Test%'),
-                    SavedContent.title.notlike('%test%')
+            session = get_db_session()
+            if not session:
+                print("Could not get database session")
+                return []
+            
+            # Use more efficient query with better filtering
+            base_query = session.query(SavedContent, ContentAnalysis).join(
+                ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+            ).filter(
+                SavedContent.quality_score >= 5,  # Lower threshold for more candidates
+                SavedContent.title.notlike('%Test%'),
+                SavedContent.title.notlike('%test%')
+            )
+            
+            # If specific technologies are requested, filter by them
+            if request_data.get('technologies'):
+                tech_filter = session.query().filter(
+                    *[ContentAnalysis.technology_tags.ilike(f'%{tech}%') for tech in request_data['technologies']]
                 )
-                
-                # If specific technologies are requested, filter by them
-                if request_data.get('technologies'):
-                    tech_filter = db.or_(
-                        *[ContentAnalysis.technology_tags.ilike(f'%{tech}%') for tech in request_data['technologies']]
-                    )
-                    base_query = base_query.filter(tech_filter)
-                
-                # Limit results for performance with proper ordering
-                candidates = base_query.order_by(
-                    SavedContent.quality_score.desc(),
-                    ContentAnalysis.created_at.desc()
-                ).limit(500).all()
-                
-                return candidates
-                
+                base_query = base_query.filter(tech_filter)
+            
+            # Limit results for performance with proper ordering
+            candidates = base_query.order_by(
+                SavedContent.quality_score.desc(),
+                ContentAnalysis.created_at.desc()
+            ).limit(500).all()
+            
+            return candidates
+            
         except Exception as e:
             print(f"Error getting candidate content: {e}")
             return []

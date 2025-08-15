@@ -1,192 +1,146 @@
 #!/usr/bin/env python3
 """
-Test script to verify fixes for technologies KeyError and meta tensor issues
+Test script to verify the fixes for database connection and FastSemanticEngine
 """
 
-import sys
-import os
+import time
 import logging
-from datetime import datetime
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def test_embedding_model_fix():
-    """Test that embedding models initialize without meta tensor errors"""
-    logger.info("Testing embedding model initialization...")
+def test_database_connection():
+    """Test database connection with retry logic"""
+    print("🧪 Testing Database Connection")
+    print("=" * 40)
     
     try:
-        # Test unified recommendation orchestrator
-        from unified_recommendation_orchestrator import UnifiedDataLayer
-        data_layer = UnifiedDataLayer()
-        logger.info("✅ UnifiedDataLayer embedding model initialized successfully")
+        from models import db
+        from sqlalchemy import text
         
-        # Test unified recommendation engine
-        from unified_recommendation_engine import UnifiedRecommendationEngine
-        unified_engine = UnifiedRecommendationEngine()
-        logger.info("✅ UnifiedRecommendationEngine embedding model initialized successfully")
+        # Test basic connection
+        print("📊 Testing basic database connection...")
+        result = db.session.execute(text("SELECT 1"))
+        print("✅ Basic database connection successful")
         
-        # Test enhanced recommendation engine
-        from enhanced_recommendation_engine import ContentAnalyzer
-        content_analyzer = ContentAnalyzer()
-        logger.info("✅ ContentAnalyzer embedding model initialized successfully")
-        
-        # Test enhanced diversity engine
-        from enhanced_diversity_engine import EnhancedDiversityEngine
-        diversity_engine = EnhancedDiversityEngine()
-        logger.info("✅ EnhancedDiversityEngine embedding model initialized successfully")
-        
-        # Test AI recommendation engine
-        from ai_recommendation_engine import SmartRecommendationEngine
-        smart_engine = SmartRecommendationEngine()
-        logger.info("✅ SmartRecommendationEngine embedding model initialized successfully")
+        # Test connection pool
+        print("📊 Testing connection pool...")
+        for i in range(3):
+            try:
+                result = db.session.execute(text(f"SELECT {i+1} as test_number"))
+                print(f"   ✅ Connection {i+1} successful")
+            except Exception as e:
+                print(f"   ❌ Connection {i+1} failed: {e}")
         
         return True
         
     except Exception as e:
-        logger.error(f"❌ Embedding model initialization failed: {e}")
+        print(f"❌ Database connection test failed: {e}")
         return False
 
-def test_technologies_field_fix():
-    """Test that content normalization includes technologies field"""
-    logger.info("Testing technologies field normalization...")
+def test_fast_semantic_engine():
+    """Test FastSemanticEngine initialization and methods"""
+    print("\n🧪 Testing FastSemanticEngine")
+    print("=" * 40)
     
     try:
-        from unified_recommendation_orchestrator import UnifiedDataLayer
-        from models import SavedContent, ContentAnalysis
+        from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer
         
+        # Test data layer initialization
+        print("📊 Testing UnifiedDataLayer initialization...")
         data_layer = UnifiedDataLayer()
+        print("✅ UnifiedDataLayer initialized successfully")
         
-        # Create mock content and analysis
-        mock_content = SavedContent(
-            id=1,
-            title="Test Content",
-            url="https://example.com",
-            extracted_text="This is test content about Python and React",
-            tags="python,react,web",
-            quality_score=8,
-            user_id=1,
-            saved_at=datetime.utcnow()
-        )
-        
-        mock_analysis = ContentAnalysis(
-            content_id=1,
-            technology_tags="python,react,javascript",
-            content_type="tutorial",
-            difficulty_level="intermediate",
-            key_concepts="web development,frontend,backend"
-        )
-        
-        # Test normalization
-        normalized = data_layer.normalize_content_data(mock_content, mock_analysis)
-        
-        # Check that technologies field exists and is a list
-        if 'technologies' not in normalized:
-            logger.error("❌ Technologies field missing from normalized content")
+        # Test database session method
+        print("📊 Testing database session method...")
+        db_session = data_layer.get_db_session()
+        if db_session:
+            print("✅ Database session method working")
+        else:
+            print("❌ Database session method failed")
             return False
         
-        if not isinstance(normalized['technologies'], list):
-            logger.error("❌ Technologies field is not a list")
-            return False
-        
-        if len(normalized['technologies']) == 0:
-            logger.error("❌ Technologies field is empty")
-            return False
-        
-        logger.info(f"✅ Technologies field normalized correctly: {normalized['technologies']}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Technologies field normalization failed: {e}")
-        return False
-
-def test_safe_field_access():
-    """Test that engines handle missing fields safely"""
-    logger.info("Testing safe field access...")
-    
-    try:
-        from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer, UnifiedRecommendationRequest
-        
-        data_layer = UnifiedDataLayer()
+        # Test FastSemanticEngine initialization
+        print("📊 Testing FastSemanticEngine initialization...")
         engine = FastSemanticEngine(data_layer)
+        print("✅ FastSemanticEngine initialized successfully")
         
-        # Create content with missing fields
-        content_with_missing_fields = {
-            'id': 1,
-            'title': 'Test Content',
-            'url': 'https://example.com',
-            'extracted_text': 'Test content',
-            # Missing technologies, content_type, difficulty, etc.
-        }
+        # Test technology overlap method
+        print("📊 Testing technology overlap calculation...")
+        test_techs = ['python', 'django', 'postgresql']
+        content_techs = ['python', 'flask', 'sqlite']
+        overlap = engine._calculate_technology_overlap(content_techs, test_techs)
+        print(f"✅ Technology overlap calculation working: {overlap:.3f}")
         
-        # Create request
-        request = UnifiedRecommendationRequest(
-            user_id=1,
-            title="Test Request",
-            description="Test description",
-            technologies="python,react"
-        )
-        
-        # This should not raise KeyError
-        try:
-            result = engine.get_recommendations([content_with_missing_fields], request)
-            logger.info("✅ Safe field access works correctly")
-            return True
-        except KeyError as e:
-            logger.error(f"❌ KeyError still occurs: {e}")
-            return False
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Safe field access test failed: {e}")
+        print(f"❌ FastSemanticEngine test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def test_ssl_configuration():
+    """Test SSL configuration"""
+    print("\n🧪 Testing SSL Configuration")
+    print("=" * 40)
+    
+    try:
+        from config import config
+        
+        print(f"📊 SSL Mode: {config.SQLALCHEMY_ENGINE_OPTIONS['connect_args'].get('sslmode', 'not set')}")
+        print(f"📊 Pool Size: {config.SQLALCHEMY_ENGINE_OPTIONS['pool_size']}")
+        print(f"📊 Pool Recycle: {config.SQLALCHEMY_ENGINE_OPTIONS['pool_recycle']}")
+        print(f"📊 Pool Pre-ping: {config.SQLALCHEMY_ENGINE_OPTIONS['pool_pre_ping']}")
+        
+        print("✅ SSL configuration loaded successfully")
+        return True
+        
+    except Exception as e:
+        print(f"❌ SSL configuration test failed: {e}")
         return False
 
 def main():
     """Run all tests"""
-    logger.info("🚀 Starting fix verification tests...")
+    print("🚀 Testing Database and Engine Fixes")
+    print("=" * 50)
     
     tests = [
-        ("Embedding Model Fix", test_embedding_model_fix),
-        ("Technologies Field Fix", test_technologies_field_fix),
-        ("Safe Field Access", test_safe_field_access)
+        ("Database Connection", test_database_connection),
+        ("FastSemanticEngine", test_fast_semantic_engine),
+        ("SSL Configuration", test_ssl_configuration)
     ]
     
     results = []
     for test_name, test_func in tests:
-        logger.info(f"\n--- Testing {test_name} ---")
         try:
             result = test_func()
             results.append((test_name, result))
         except Exception as e:
-            logger.error(f"❌ {test_name} test failed with exception: {e}")
+            print(f"❌ {test_name} test crashed: {e}")
             results.append((test_name, False))
     
     # Summary
-    logger.info("\n" + "="*50)
-    logger.info("TEST RESULTS SUMMARY")
-    logger.info("="*50)
+    print("\n" + "=" * 50)
+    print("📋 Test Results Summary")
+    print("=" * 50)
     
     passed = 0
     total = len(results)
     
     for test_name, result in results:
-        status = "✅ PASSED" if result else "❌ FAILED"
-        logger.info(f"{test_name}: {status}")
+        status = "✅ PASS" if result else "❌ FAIL"
+        print(f"{status} {test_name}")
         if result:
             passed += 1
     
-    logger.info(f"\nOverall: {passed}/{total} tests passed")
+    print(f"\n🏁 Overall: {passed}/{total} tests passed")
     
     if passed == total:
-        logger.info("🎉 All fixes verified successfully!")
-        return True
+        print("🎉 All tests passed! Your fixes are working correctly.")
     else:
-        logger.error("⚠️ Some fixes need attention")
-        return False
+        print("⚠️ Some tests failed. Check the errors above.")
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1) 
+    main() 

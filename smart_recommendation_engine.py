@@ -100,24 +100,26 @@ class SmartRecommendationEngine:
                         SavedContent.saved_at.desc()
                     ).limit(500).all()  # Get more candidates for better selection
             else:
-                # Fallback: create minimal app context
-                from flask import Flask
-                temp_app = Flask(__name__)
-                temp_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://localhost/fuze')
-                db.init_app(temp_app)
-                with temp_app.app_context():
-                    return db.session.query(
-                        SavedContent, ContentAnalysis
-                    ).join(
-                        ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
-                    ).filter(
-                        SavedContent.quality_score >= 6,
-                        SavedContent.title.notlike('%Test Bookmark%'),
-                        SavedContent.title.notlike('%test bookmark%')
-                    ).order_by(
-                        SavedContent.quality_score.desc(),
-                        SavedContent.saved_at.desc()
-                    ).limit(500).all()
+                # Fallback: use centralized database session
+                from database_utils import get_db_session
+                
+                session = get_db_session()
+                if not session:
+                    self.logger.error("Could not get database session")
+                    return []
+                
+                return session.query(
+                    SavedContent, ContentAnalysis
+                ).join(
+                    ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+                ).filter(
+                    SavedContent.quality_score >= 6,
+                    SavedContent.title.notlike('%Test Bookmark%'),
+                    SavedContent.title.notlike('%test bookmark%')
+                ).order_by(
+                    SavedContent.quality_score.desc(),
+                    SavedContent.saved_at.desc()
+                ).limit(500).all()
         except Exception as e:
             self.logger.error(f"Error getting analyzed bookmarks: {e}")
             return []

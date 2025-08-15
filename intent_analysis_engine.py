@@ -2,6 +2,7 @@
 """
 Intent Analysis Engine for Enhanced Recommendations
 Uses LLM to understand user intent, project requirements, and learning needs
+With smart caching to avoid redundant analysis
 """
 
 import os
@@ -9,13 +10,25 @@ import sys
 import time
 import logging
 import json
-from typing import List, Dict, Optional, Any, Tuple
+import hashlib
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-from datetime import datetime
 import re
+from datetime import datetime, timedelta
+from functools import lru_cache
+import redis
+import asyncio
+import concurrent.futures
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from models import db, Project, User
+from gemini_utils import GeminiAnalyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,576 +41,379 @@ class UserIntent:
     learning_stage: str  # beginner, intermediate, advanced
     project_type: str  # web_app, mobile_app, api, data_science, etc.
     urgency_level: str  # low, medium, high
-    specific_needs: List[str]
-    technology_preferences: List[str]
-    content_type_preferences: List[str]  # tutorial, documentation, example, etc.
-    skill_gaps: List[str]
-    project_requirements: Dict[str, Any]
-    learning_path: Dict[str, Any]
-    confidence_score: float
-
-@dataclass
-class IntentAnalysisResult:
-    """Complete intent analysis result"""
-    user_intent: UserIntent
-    enhanced_context: Dict[str, Any]
-    recommendation_filters: Dict[str, Any]
-    priority_weights: Dict[str, float]
-    analysis_metadata: Dict[str, Any]
+    specific_technologies: List[str]
+    complexity_preference: str  # simple, moderate, complex
+    time_constraint: str  # quick_tutorial, deep_dive, reference
+    focus_areas: List[str]  # specific areas of interest
+    context_hash: str  # hash of input for caching
 
 class IntentAnalysisEngine:
-    """Advanced intent analysis using LLM and rule-based fallbacks"""
-    
     def __init__(self):
-        self.gemini_analyzer = None
-        self.available = False
-        self._init_gemini()
+        self.gemini_client = GeminiAnalyzer()
+        self.cache_duration = timedelta(hours=24)  # Cache for 24 hours
         
-        # Rule-based fallback patterns
-        self.learning_stage_patterns = {
-            'beginner': [
-                r'\b(learn|start|begin|first|new|basics|fundamentals|intro|getting started)\b',
-                r'\b(tutorial|guide|step by step|how to)\b',
-                r'\b(basic|simple|easy|beginner-friendly)\b'
-            ],
-            'intermediate': [
-                r'\b(improve|enhance|build|develop|create|implement)\b',
-                r'\b(project|application|app|website|api)\b',
-                r'\b(intermediate|moderate|some experience)\b'
-            ],
-            'advanced': [
-                r'\b(optimize|scale|production|enterprise|advanced|expert)\b',
-                r'\b(architecture|design patterns|best practices|performance)\b',
-                r'\b(senior|expert|professional|complex)\b'
-            ]
-        }
-        
-        self.project_type_patterns = {
-            'web_app': [r'\b(web|website|frontend|react|vue|angular|html|css|javascript)\b'],
-            'mobile_app': [r'\b(mobile|ios|android|react native|flutter|swift|kotlin)\b'],
-            'api': [r'\b(api|backend|server|rest|graphql|microservices)\b'],
-            'data_science': [r'\b(data|ml|ai|machine learning|analytics|python|pandas|numpy)\b'],
-            'devops': [r'\b(devops|deployment|docker|kubernetes|ci/cd|aws|azure)\b'],
-            'database': [r'\b(database|sql|nosql|mongodb|postgresql|mysql)\b']
-        }
-        
-        self.urgency_patterns = {
-            'high': [r'\b(urgent|asap|quick|fast|immediate|deadline|due)\b'],
-            'medium': [r'\b(soon|next|planning|preparing)\b'],
-            'low': [r'\b(learning|exploring|researching|someday)\b']
-        }
+    def _generate_input_hash(self, user_input: str, project_id: Optional[int] = None) -> str:
+        """Generate hash for input to enable caching"""
+        input_string = f"{user_input}_{project_id}"
+        return hashlib.md5(input_string.encode()).hexdigest()
     
-    def _init_gemini(self):
-        """Initialize Gemini analyzer with fallback"""
+    def _get_cached_analysis(self, context_hash: str, project_id: Optional[int] = None) -> Optional[Dict]:
+        """Check if we have cached analysis for this input"""
         try:
-            from gemini_utils import GeminiAnalyzer
-            self.gemini_analyzer = GeminiAnalyzer()
-            self.available = True
-            logger.info("Gemini analyzer initialized for intent analysis")
+            # Check if project has recent intent analysis
+            if project_id:
+                project = Project.query.get(project_id)
+                if project and hasattr(project, 'intent_analysis'):
+                    analysis_data = getattr(project, 'intent_analysis', None)
+                    if analysis_data:
+                        analysis = json.loads(analysis_data)
+                        if analysis.get('context_hash') == context_hash:
+                            # Check if cache is still valid
+                            updated_at = datetime.fromisoformat(analysis.get('updated_at', '2000-01-01'))
+                            if datetime.now() - updated_at < self.cache_duration:
+                                logger.info(f"Using cached intent analysis for project {project_id}")
+                                return analysis
+            
+            return None
         except Exception as e:
-            logger.warning(f"Gemini not available for intent analysis: {e}")
-            self.gemini_analyzer = None
-            self.available = False
+            logger.error(f"Error checking cached analysis: {e}")
+            return None
     
-    def analyze_user_intent(self, 
-                          title: str = "",
-                          description: str = "",
-                          technologies: str = "",
-                          user_interests: str = "",
-                          project_id: Optional[int] = None) -> IntentAnalysisResult:
-        """
-        Analyze user intent using LLM with rule-based fallback
-        """
-        start_time = time.time()
-        
+    def _save_analysis_to_db(self, analysis: Dict, project_id: Optional[int] = None):
+        """Save analysis results to database"""
         try:
-            # Combine all user input
-            full_input = f"{title} {description} {technologies} {user_interests}".strip()
+            if project_id:
+                project = Project.query.get(project_id)
+                if project:
+                    project.intent_analysis = json.dumps(analysis)
+                    project.intent_analysis_updated = datetime.now()
+                    db.session.commit()
+                    logger.info(f"Saved intent analysis to project {project_id}")
+        except Exception as e:
+            logger.error(f"Error saving analysis to DB: {e}")
+            db.session.rollback()
+    
+    def _extract_technologies(self, text: str) -> List[str]:
+        """Extract technology mentions from text using regex patterns"""
+        # Common technology patterns
+        tech_patterns = [
+            r'\b(python|javascript|js|react|vue|angular|node\.js|express|django|flask|fastapi)\b',
+            r'\b(html|css|sql|mongodb|postgresql|mysql|redis|docker|kubernetes)\b',
+            r'\b(aws|azure|gcp|firebase|heroku|netlify|vercel)\b',
+            r'\b(machine learning|ml|ai|data science|analytics|visualization)\b',
+            r'\b(mobile|ios|android|flutter|react native|swift|kotlin)\b',
+            r'\b(api|rest|graphql|microservices|serverless|lambda)\b'
+        ]
+        
+        technologies = set()
+        for pattern in tech_patterns:
+            matches = re.findall(pattern, text.lower())
+            technologies.update(matches)
+        
+        return list(technologies)
+    
+    def _analyze_with_llm(self, user_input: str, project_context: Optional[Dict] = None) -> Dict:
+        """Use LLM to analyze user intent"""
+        try:
+            # Build context for LLM
+            context = f"""
+            Analyze the following user input to understand their intent and requirements for recommendations.
             
-            if not full_input:
-                return self._get_default_intent()
+            User Input: {user_input}
             
-            # Try LLM analysis first
-            if self.available and self.gemini_analyzer:
-                try:
-                    llm_result = self._analyze_with_llm(full_input, project_id)
-                    if llm_result and llm_result.confidence_score > 0.7:
-                        logger.info(f"LLM intent analysis successful (confidence: {llm_result.confidence_score})")
-                        return llm_result
-                except Exception as e:
-                    logger.warning(f"LLM analysis failed: {e}")
+            If available, project context: {json.dumps(project_context) if project_context else 'None'}
+            
+            Please analyze and return a JSON response with the following structure:
+            {{
+                "primary_goal": "main objective (e.g., learn, build, solve, optimize)",
+                "learning_stage": "beginner/intermediate/advanced",
+                "project_type": "web_app/mobile_app/api/data_science/automation/etc",
+                "urgency_level": "low/medium/high",
+                "complexity_preference": "simple/moderate/complex",
+                "time_constraint": "quick_tutorial/deep_dive/reference",
+                "focus_areas": ["area1", "area2", "area3"],
+                "confidence_score": 0.85
+            }}
+            
+            Be specific and practical. Extract real intent from the input.
+            """
+            
+            result = self.gemini_client._make_gemini_request(context)
+            
+            if result:
+                # Extract JSON from response
+                analysis = self.gemini_client._extract_json_from_response(result)
+                if analysis:
+                    return analysis
             
             # Fallback to rule-based analysis
-            logger.info("Using rule-based intent analysis")
-            return self._analyze_with_rules(full_input, project_id)
-            
+            return self._fallback_analysis(user_input)
+                
         except Exception as e:
-            logger.error(f"Intent analysis failed: {e}")
-            return self._get_default_intent()
+            logger.error(f"LLM analysis failed: {e}")
+            return self._fallback_analysis(user_input)
     
-    def _analyze_with_llm(self, user_input: str, project_id: Optional[int] = None) -> IntentAnalysisResult:
-        """Analyze user intent using Gemini LLM"""
-        try:
-            # Create comprehensive analysis prompt
-            prompt = self._create_intent_analysis_prompt(user_input, project_id)
-            
-            # Get LLM response
-            response = self.gemini_analyzer.analyze_text(prompt)
-            
-            if not response:
-                return None
-            
-            # Parse LLM response
-            parsed_intent = self._parse_llm_intent_response(response)
-            
-            if not parsed_intent:
-                return None
-            
-            # Create enhanced context and filters
-            enhanced_context = self._create_enhanced_context(parsed_intent)
-            recommendation_filters = self._create_recommendation_filters(parsed_intent)
-            priority_weights = self._calculate_priority_weights(parsed_intent)
-            
-            return IntentAnalysisResult(
-                user_intent=parsed_intent,
-                enhanced_context=enhanced_context,
-                recommendation_filters=recommendation_filters,
-                priority_weights=priority_weights,
-                analysis_metadata={
-                    'analysis_method': 'llm',
-                    'analysis_time': time.time(),
-                    'input_length': len(user_input)
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"LLM intent analysis error: {e}")
-            return None
-    
-    def _create_intent_analysis_prompt(self, user_input: str, project_id: Optional[int] = None) -> str:
-        """Create comprehensive prompt for intent analysis"""
-        
-        # Get project context if available
-        project_context = ""
-        if project_id:
-            try:
-                from models import Project
-                project = Project.query.filter_by(id=project_id).first()
-                if project:
-                    project_context = f"""
-Project Context:
-- Title: {project.title}
-- Description: {project.description or 'N/A'}
-- Technologies: {project.technologies or 'N/A'}
-- Created: {project.created_at}
-"""
-            except Exception as e:
-                logger.warning(f"Could not load project context: {e}")
-        
-        prompt = f"""
-Analyze the user's intent and requirements from their input. Provide a detailed analysis in JSON format.
-
-User Input: "{user_input}"
-
-{project_context}
-
-Please analyze and return a JSON object with the following structure:
-
-{{
-    "primary_goal": "string - main objective (e.g., 'build a web app', 'learn React', 'debug an issue')",
-    "learning_stage": "string - beginner, intermediate, or advanced",
-    "project_type": "string - web_app, mobile_app, api, data_science, devops, database, or other",
-    "urgency_level": "string - low, medium, or high",
-    "specific_needs": ["array of specific requirements or pain points"],
-    "technology_preferences": ["array of preferred or mentioned technologies"],
-    "content_type_preferences": ["array of preferred content types - tutorial, documentation, example, guide, reference"],
-    "skill_gaps": ["array of skills the user needs to develop"],
-    "project_requirements": {{
-        "complexity": "string - simple, moderate, or complex",
-        "scope": "string - small, medium, or large",
-        "timeline": "string - short-term, medium-term, or long-term",
-        "constraints": ["array of any constraints or limitations"]
-    }},
-    "learning_path": {{
-        "prerequisites": ["array of skills needed before this"],
-        "next_steps": ["array of skills to learn after this"],
-        "resources_needed": ["array of types of resources needed"]
-    }},
-    "confidence_score": "float between 0 and 1"
-}}
-
-Focus on understanding:
-1. What is the user trying to accomplish?
-2. What is their current skill level?
-3. What specific technologies or concepts do they need help with?
-4. What type of content would be most helpful?
-5. What is the urgency and scope of their needs?
-
-Return only the JSON object, no additional text.
-"""
-        
-        return prompt
-    
-    def _parse_llm_intent_response(self, response: str) -> Optional[UserIntent]:
-        """Parse LLM response into UserIntent object"""
-        try:
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if not json_match:
-                return None
-            
-            json_str = json_match.group()
-            data = json.loads(json_str)
-            
-            # Validate and create UserIntent
-            return UserIntent(
-                primary_goal=data.get('primary_goal', 'Learn and improve skills'),
-                learning_stage=data.get('learning_stage', 'intermediate'),
-                project_type=data.get('project_type', 'web_app'),
-                urgency_level=data.get('urgency_level', 'medium'),
-                specific_needs=data.get('specific_needs', []),
-                technology_preferences=data.get('technology_preferences', []),
-                content_type_preferences=data.get('content_type_preferences', []),
-                skill_gaps=data.get('skill_gaps', []),
-                project_requirements=data.get('project_requirements', {}),
-                learning_path=data.get('learning_path', {}),
-                confidence_score=float(data.get('confidence_score', 0.5))
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to parse LLM intent response: {e}")
-            return None
-    
-    def _analyze_with_rules(self, user_input: str, project_id: Optional[int] = None) -> IntentAnalysisResult:
-        """Analyze user intent using rule-based patterns"""
-        
+    def _fallback_analysis(self, user_input: str) -> Dict:
+        """Rule-based fallback analysis when LLM fails"""
         input_lower = user_input.lower()
         
         # Determine learning stage
-        learning_stage = self._determine_learning_stage(input_lower)
+        if any(word in input_lower for word in ['beginner', 'start', 'learn', 'new', 'first']):
+            learning_stage = 'beginner'
+        elif any(word in input_lower for word in ['advanced', 'expert', 'complex', 'optimize']):
+            learning_stage = 'advanced'
+        else:
+            learning_stage = 'intermediate'
         
         # Determine project type
-        project_type = self._determine_project_type(input_lower)
-        
-        # Determine urgency
-        urgency_level = self._determine_urgency_level(input_lower)
+        if any(word in input_lower for word in ['web', 'website', 'frontend', 'ui']):
+            project_type = 'web_app'
+        elif any(word in input_lower for word in ['mobile', 'app', 'ios', 'android']):
+            project_type = 'mobile_app'
+        elif any(word in input_lower for word in ['api', 'backend', 'server']):
+            project_type = 'api'
+        elif any(word in input_lower for word in ['data', 'ml', 'ai', 'analytics']):
+            project_type = 'data_science'
+        else:
+            project_type = 'general'
         
         # Extract technologies
-        technology_preferences = self._extract_technologies(input_lower)
+        technologies = self._extract_technologies(user_input)
         
-        # Extract specific needs
-        specific_needs = self._extract_specific_needs(input_lower)
+        return {
+            "primary_goal": "learn" if 'learn' in input_lower else "build",
+            "learning_stage": learning_stage,
+            "project_type": project_type,
+            "urgency_level": "medium",
+            "complexity_preference": "moderate",
+            "time_constraint": "deep_dive",
+            "focus_areas": technologies[:3],  # Top 3 technologies
+            "confidence_score": 0.6
+        }
+    
+    def analyze_intent(self, user_input: str, project_id: Optional[int] = None, force_analysis: bool = False) -> UserIntent:
+        """
+        Analyze user intent with smart caching
         
-        # Determine content preferences
-        content_type_preferences = self._determine_content_preferences(input_lower)
-        
-        # Create UserIntent
-        user_intent = UserIntent(
-            primary_goal=self._extract_primary_goal(input_lower),
-            learning_stage=learning_stage,
-            project_type=project_type,
-            urgency_level=urgency_level,
-            specific_needs=specific_needs,
-            technology_preferences=technology_preferences,
-            content_type_preferences=content_type_preferences,
-            skill_gaps=self._identify_skill_gaps(input_lower, learning_stage),
-            project_requirements=self._analyze_project_requirements(input_lower),
-            learning_path=self._create_learning_path(learning_stage, project_type),
-            confidence_score=0.6  # Lower confidence for rule-based analysis
-        )
-        
-        # Create enhanced context and filters
-        enhanced_context = self._create_enhanced_context(user_intent)
-        recommendation_filters = self._create_recommendation_filters(user_intent)
-        priority_weights = self._calculate_priority_weights(user_intent)
-        
-        return IntentAnalysisResult(
-            user_intent=user_intent,
-            enhanced_context=enhanced_context,
-            recommendation_filters=recommendation_filters,
-            priority_weights=priority_weights,
-            analysis_metadata={
-                'analysis_method': 'rule_based',
-                'analysis_time': time.time(),
-                'input_length': len(user_input)
+        Args:
+            user_input: User's description, requirements, or query
+            project_id: Optional project ID for context
+            force_analysis: Force new analysis even if cached
+            
+        Returns:
+            UserIntent object with analyzed information
+        """
+        try:
+            # Generate hash for caching
+            context_hash = self._generate_input_hash(user_input, project_id)
+            
+            # Check cache first (unless forced)
+            if not force_analysis:
+                cached = self._get_cached_analysis(context_hash, project_id)
+                if cached:
+                    return UserIntent(
+                        primary_goal=cached['primary_goal'],
+                        learning_stage=cached['learning_stage'],
+                        project_type=cached['project_type'],
+                        urgency_level=cached['urgency_level'],
+                        specific_technologies=cached.get('specific_technologies', []),
+                        complexity_preference=cached['complexity_preference'],
+                        time_constraint=cached['time_constraint'],
+                        focus_areas=cached.get('focus_areas', []),
+                        context_hash=context_hash
+                    )
+            
+            # Get project context if available
+            project_context = None
+            if project_id:
+                project = Project.query.get(project_id)
+                if project:
+                    project_context = {
+                        'title': project.title,
+                        'description': project.description,
+                        'technologies': project.technologies
+                    }
+            
+            # Perform analysis
+            logger.info(f"Performing intent analysis for input: {user_input[:100]}...")
+            analysis_result = self._analyze_with_llm(user_input, project_context)
+            
+            # Extract technologies from input
+            technologies = self._extract_technologies(user_input)
+            
+            # Create UserIntent object
+            intent = UserIntent(
+                primary_goal=analysis_result.get('primary_goal', 'learn'),
+                learning_stage=analysis_result.get('learning_stage', 'intermediate'),
+                project_type=analysis_result.get('project_type', 'general'),
+                urgency_level=analysis_result.get('urgency_level', 'medium'),
+                specific_technologies=technologies,
+                complexity_preference=analysis_result.get('complexity_preference', 'moderate'),
+                time_constraint=analysis_result.get('time_constraint', 'deep_dive'),
+                focus_areas=analysis_result.get('focus_areas', []),
+                context_hash=context_hash
+            )
+            
+            # Save to database for caching
+            analysis_data = {
+                'primary_goal': intent.primary_goal,
+                'learning_stage': intent.learning_stage,
+                'project_type': intent.project_type,
+                'urgency_level': intent.urgency_level,
+                'specific_technologies': intent.specific_technologies,
+                'complexity_preference': intent.complexity_preference,
+                'time_constraint': intent.time_constraint,
+                'focus_areas': intent.focus_areas,
+                'context_hash': context_hash,
+                'updated_at': datetime.now().isoformat(),
+                'confidence_score': analysis_result.get('confidence_score', 0.7)
             }
-        )
-    
-    def _determine_learning_stage(self, text: str) -> str:
-        """Determine learning stage using pattern matching"""
-        scores = {'beginner': 0, 'intermediate': 0, 'advanced': 0}
-        
-        for stage, patterns in self.learning_stage_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, text, re.IGNORECASE):
-                    scores[stage] += 1
-        
-        # Return stage with highest score, default to intermediate
-        return max(scores, key=scores.get) if max(scores.values()) > 0 else 'intermediate'
-    
-    def _determine_project_type(self, text: str) -> str:
-        """Determine project type using pattern matching"""
-        scores = {ptype: 0 for ptype in self.project_type_patterns.keys()}
-        
-        for ptype, patterns in self.project_type_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, text, re.IGNORECASE):
-                    scores[ptype] += 1
-        
-        # Return type with highest score, default to web_app
-        return max(scores, key=scores.get) if max(scores.values()) > 0 else 'web_app'
-    
-    def _determine_urgency_level(self, text: str) -> str:
-        """Determine urgency level using pattern matching"""
-        scores = {'low': 0, 'medium': 0, 'high': 0}
-        
-        for level, patterns in self.urgency_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, text, re.IGNORECASE):
-                    scores[level] += 1
-        
-        # Return level with highest score, default to medium
-        return max(scores, key=scores.get) if max(scores.values()) > 0 else 'medium'
-    
-    def _extract_technologies(self, text: str) -> List[str]:
-        """Extract technology mentions from text"""
-        # Common technology patterns
-        tech_patterns = [
-            r'\b(react|vue|angular|svelte)\b',
-            r'\b(node\.js|express|fastapi|django|flask)\b',
-            r'\b(python|javascript|typescript|java|c#|go|rust)\b',
-            r'\b(mongodb|postgresql|mysql|redis|elasticsearch)\b',
-            r'\b(docker|kubernetes|aws|azure|gcp)\b',
-            r'\b(tensorflow|pytorch|scikit-learn|pandas|numpy)\b'
-        ]
-        
-        technologies = []
-        for pattern in tech_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            technologies.extend(matches)
-        
-        return list(set(technologies))
-    
-    def _extract_specific_needs(self, text: str) -> List[str]:
-        """Extract specific needs and requirements"""
-        needs = []
-        
-        # Common need patterns
-        need_patterns = [
-            r'\b(debug|fix|error|issue|problem)\b',
-            r'\b(optimize|performance|speed|efficiency)\b',
-            r'\b(security|authentication|authorization)\b',
-            r'\b(testing|unit tests|integration tests)\b',
-            r'\b(deployment|ci/cd|pipeline)\b',
-            r'\b(design|architecture|patterns)\b'
-        ]
-        
-        for pattern in need_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                needs.append(re.search(pattern, text, re.IGNORECASE).group())
-        
-        return needs
-    
-    def _determine_content_preferences(self, text: str) -> List[str]:
-        """Determine preferred content types"""
-        preferences = []
-        
-        if re.search(r'\b(tutorial|guide|step by step|how to)\b', text, re.IGNORECASE):
-            preferences.append('tutorial')
-        
-        if re.search(r'\b(documentation|reference|api docs)\b', text, re.IGNORECASE):
-            preferences.append('documentation')
-        
-        if re.search(r'\b(example|sample|demo|code)\b', text, re.IGNORECASE):
-            preferences.append('example')
-        
-        if re.search(r'\b(best practices|patterns|architecture)\b', text, re.IGNORECASE):
-            preferences.append('best_practices')
-        
-        # Default preferences if none detected
-        if not preferences:
-            preferences = ['tutorial', 'documentation']
-        
-        return preferences
-    
-    def _extract_primary_goal(self, text: str) -> str:
-        """Extract primary goal from text"""
-        if re.search(r'\b(build|create|develop|make)\b', text, re.IGNORECASE):
-            return "Build a project"
-        elif re.search(r'\b(learn|study|understand)\b', text, re.IGNORECASE):
-            return "Learn new skills"
-        elif re.search(r'\b(fix|debug|solve|resolve)\b', text, re.IGNORECASE):
-            return "Solve a problem"
-        elif re.search(r'\b(optimize|improve|enhance)\b', text, re.IGNORECASE):
-            return "Improve existing work"
-        else:
-            return "Learn and improve skills"
-    
-    def _identify_skill_gaps(self, text: str, learning_stage: str) -> List[str]:
-        """Identify potential skill gaps based on text and learning stage"""
-        gaps = []
-        
-        if learning_stage == 'beginner':
-            gaps.extend(['fundamentals', 'basic concepts', 'getting started'])
-        elif learning_stage == 'intermediate':
-            gaps.extend(['advanced concepts', 'best practices', 'real-world applications'])
-        elif learning_stage == 'advanced':
-            gaps.extend(['optimization', 'architecture', 'scaling'])
-        
-        # Add specific gaps based on text content
-        if re.search(r'\b(performance|speed)\b', text, re.IGNORECASE):
-            gaps.append('performance optimization')
-        
-        if re.search(r'\b(security)\b', text, re.IGNORECASE):
-            gaps.append('security best practices')
-        
-        return gaps
-    
-    def _analyze_project_requirements(self, text: str) -> Dict[str, Any]:
-        """Analyze project requirements"""
-        complexity = 'moderate'
-        if re.search(r'\b(simple|basic|easy)\b', text, re.IGNORECASE):
-            complexity = 'simple'
-        elif re.search(r'\b(complex|advanced|sophisticated)\b', text, re.IGNORECASE):
-            complexity = 'complex'
-        
-        scope = 'medium'
-        if re.search(r'\b(small|mini|simple)\b', text, re.IGNORECASE):
-            scope = 'small'
-        elif re.search(r'\b(large|enterprise|comprehensive)\b', text, re.IGNORECASE):
-            scope = 'large'
-        
-        return {
-            'complexity': complexity,
-            'scope': scope,
-            'timeline': 'medium-term',
-            'constraints': []
-        }
-    
-    def _create_learning_path(self, learning_stage: str, project_type: str) -> Dict[str, Any]:
-        """Create learning path based on stage and project type"""
-        return {
-            'prerequisites': [],
-            'next_steps': [],
-            'resources_needed': ['tutorials', 'documentation']
-        }
-    
-    def _create_enhanced_context(self, user_intent: UserIntent) -> Dict[str, Any]:
-        """Create enhanced context for recommendations"""
-        return {
-            'learning_stage': user_intent.learning_stage,
-            'project_type': user_intent.project_type,
-            'urgency_level': user_intent.urgency_level,
-            'technology_stack': user_intent.technology_preferences,
-            'content_preferences': user_intent.content_type_preferences,
-            'skill_gaps': user_intent.skill_gaps,
-            'project_requirements': user_intent.project_requirements,
-            'learning_path': user_intent.learning_path,
-            'confidence_score': user_intent.confidence_score
-        }
-    
-    def _create_recommendation_filters(self, user_intent: UserIntent) -> Dict[str, Any]:
-        """Create filters for recommendation engine"""
-        return {
-            'min_difficulty': self._get_min_difficulty(user_intent.learning_stage),
-            'max_difficulty': self._get_max_difficulty(user_intent.learning_stage),
-            'preferred_technologies': user_intent.technology_preferences,
-            'content_types': user_intent.content_type_preferences,
-            'exclude_content_types': self._get_excluded_content_types(user_intent),
-            'urgency_boost': user_intent.urgency_level == 'high'
-        }
-    
-    def _calculate_priority_weights(self, user_intent: UserIntent) -> Dict[str, float]:
-        """Calculate priority weights for different recommendation factors"""
-        weights = {
-            'technology_match': 0.3,
-            'content_type_match': 0.2,
-            'difficulty_match': 0.2,
-            'relevance': 0.15,
-            'quality': 0.15
-        }
-        
-        # Adjust weights based on user intent
-        if user_intent.urgency_level == 'high':
-            weights['relevance'] += 0.1
-            weights['quality'] -= 0.1
-        
-        if user_intent.learning_stage == 'beginner':
-            weights['difficulty_match'] += 0.1
-            weights['technology_match'] -= 0.1
-        
-        return weights
-    
-    def _get_min_difficulty(self, learning_stage: str) -> str:
-        """Get minimum difficulty for learning stage"""
-        if learning_stage == 'beginner':
-            return 'beginner'
-        elif learning_stage == 'intermediate':
-            return 'beginner'
-        else:
-            return 'intermediate'
-    
-    def _get_max_difficulty(self, learning_stage: str) -> str:
-        """Get maximum difficulty for learning stage"""
-        if learning_stage == 'beginner':
-            return 'intermediate'
-        elif learning_stage == 'intermediate':
-            return 'advanced'
-        else:
-            return 'advanced'
-    
-    def _get_excluded_content_types(self, user_intent: UserIntent) -> List[str]:
-        """Get content types to exclude based on user intent"""
-        excluded = []
-        
-        if user_intent.learning_stage == 'beginner':
-            excluded.extend(['advanced_patterns', 'enterprise_architecture'])
-        
-        if user_intent.urgency_level == 'high':
-            excluded.extend(['long_tutorials', 'comprehensive_guides'])
-        
-        return excluded
-    
-    def _get_default_intent(self) -> IntentAnalysisResult:
-        """Get default intent when analysis fails"""
-        default_intent = UserIntent(
-            primary_goal="Learn and improve skills",
-            learning_stage="intermediate",
-            project_type="web_app",
-            urgency_level="medium",
-            specific_needs=[],
-            technology_preferences=[],
-            content_type_preferences=["tutorial", "documentation"],
-            skill_gaps=[],
-            project_requirements={},
-            learning_path={},
-            confidence_score=0.3
-        )
-        
-        return IntentAnalysisResult(
-            user_intent=default_intent,
-            enhanced_context=self._create_enhanced_context(default_intent),
-            recommendation_filters=self._create_recommendation_filters(default_intent),
-            priority_weights=self._calculate_priority_weights(default_intent),
-            analysis_metadata={
-                'analysis_method': 'default',
-                'analysis_time': time.time(),
-                'error': 'Analysis failed, using default intent'
-            }
-        )
+            
+            self._save_analysis_to_db(analysis_data, project_id)
+            
+            logger.info(f"Intent analysis completed: {intent.primary_goal} - {intent.project_type}")
+            return intent
+            
+        except Exception as e:
+            logger.error(f"Error in intent analysis: {e}")
+            # Return default intent
+            return UserIntent(
+                primary_goal='learn',
+                learning_stage='intermediate',
+                project_type='general',
+                urgency_level='medium',
+                specific_technologies=[],
+                complexity_preference='moderate',
+                time_constraint='deep_dive',
+                focus_areas=[],
+                context_hash=''
+            )
 
 # Global instance
-_intent_analyzer = None
+intent_engine = IntentAnalysisEngine()
 
-def get_intent_analyzer() -> IntentAnalysisEngine:
-    """Get global intent analyzer instance"""
-    global _intent_analyzer
-    if _intent_analyzer is None:
-        _intent_analyzer = IntentAnalysisEngine()
-    return _intent_analyzer
-
-def analyze_user_intent(title: str = "", description: str = "", technologies: str = "", 
-                       user_interests: str = "", project_id: Optional[int] = None) -> IntentAnalysisResult:
+def analyze_user_intent(user_input: str, project_id: Optional[int] = None, force_analysis: bool = False) -> UserIntent:
     """Convenience function to analyze user intent"""
-    analyzer = get_intent_analyzer()
-    return analyzer.analyze_user_intent(title, description, technologies, user_interests, project_id) 
+    return intent_engine.analyze_intent(user_input, project_id, force_analysis)
+
+# ============================================================================
+# FALLBACK SYSTEM - Added for reliability when AI analysis fails
+# ============================================================================
+
+def get_fallback_intent(user_input: str, project_id: Optional[int] = None) -> UserIntent:
+    """Get fallback intent when AI analysis fails"""
+    try:
+        # Extract basic information from input
+        input_lower = user_input.lower()
+        
+        # Determine primary goal
+        if any(word in input_lower for word in ['build', 'create', 'make', 'develop']):
+            primary_goal = 'build'
+        elif any(word in input_lower for word in ['learn', 'study', 'understand']):
+            primary_goal = 'learn'
+        elif any(word in input_lower for word in ['solve', 'fix', 'debug']):
+            primary_goal = 'solve'
+        else:
+            primary_goal = 'learn'
+        
+        # Determine project type
+        if any(word in input_lower for word in ['web', 'react', 'html', 'css']):
+            project_type = 'web_app'
+        elif any(word in input_lower for word in ['mobile', 'app', 'ios', 'android']):
+            project_type = 'mobile_app'
+        elif any(word in input_lower for word in ['api', 'backend', 'server']):
+            project_type = 'api'
+        elif any(word in input_lower for word in ['data', 'ml', 'ai', 'python']):
+            project_type = 'data_science'
+        else:
+            project_type = 'general'
+        
+        # Extract technologies
+        tech_keywords = ['python', 'javascript', 'react', 'node', 'django', 'flask', 'mongodb', 'postgresql']
+        technologies = [tech for tech in tech_keywords if tech in input_lower]
+        
+        return UserIntent(
+            primary_goal=primary_goal,
+            learning_stage='intermediate',
+            project_type=project_type,
+            urgency_level='medium',
+            specific_technologies=technologies,
+            complexity_preference='moderate',
+            time_constraint='deep_dive',
+            focus_areas=[],
+            context_hash='fallback'
+        )
+        
+    except Exception as e:
+        # Ultimate fallback
+        return UserIntent(
+            primary_goal='learn',
+            learning_stage='intermediate',
+            project_type='general',
+            urgency_level='medium',
+            specific_technologies=[],
+            complexity_preference='moderate',
+            time_constraint='deep_dive',
+            focus_areas=[],
+            context_hash='ultimate_fallback'
+        )
+
+# ============================================================================
+# PERFORMANCE OPTIMIZATIONS - Added for better speed and caching
+# ============================================================================
+
+from functools import lru_cache
+import redis
+
+@lru_cache(maxsize=1000)
+def get_cached_intent_analysis(input_hash: str) -> Optional[Dict]:
+    """Get cached intent analysis with Redis fallback"""
+    try:
+        # Try Redis first
+        redis_client = redis.Redis(host='localhost', port=6379, db=0)
+        cached = redis_client.get(f"intent_analysis:{input_hash}")
+        if cached:
+            return json.loads(cached)
+    except:
+        pass
+    
+    # Fallback to database
+    try:
+        from models import Project
+        project = Project.query.filter_by(intent_analysis_hash=input_hash).first()
+        if project and project.intent_analysis:
+            return json.loads(project.intent_analysis)
+    except:
+        pass
+    
+    return None
+
+def analyze_multiple_intents(inputs: List[str]) -> List[UserIntent]:
+    """Analyze multiple intents in batch for better performance"""
+    results = []
+    
+    for user_input in inputs:
+        try:
+            intent = analyze_user_intent(user_input)
+            results.append(intent)
+        except Exception as e:
+            # Use fallback for failed analysis
+            fallback_intent = get_fallback_intent(user_input)
+            results.append(fallback_intent)
+    
+    return results
+
+import asyncio
+import concurrent.futures
+
+async def analyze_intent_async(user_input: str) -> UserIntent:
+    """Analyze intent asynchronously"""
+    loop = asyncio.get_event_loop()
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(analyze_user_intent, user_input)
+        try:
+            intent = await loop.run_in_executor(None, future.result)
+            return intent
+        except Exception as e:
+            return get_fallback_intent(user_input) 

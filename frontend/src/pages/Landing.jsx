@@ -149,7 +149,7 @@ export default function FuzeLanding() {
   const navigate = useNavigate();
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'black', color: 'white', overflow: 'hidden', position: 'relative' }}>
+    <div className="landing-page" style={{ minHeight: '100vh', backgroundColor: 'black', color: 'white', overflow: 'hidden', position: 'relative' }}>
       {/* Interactive Background Effects */}
       
       {/* Floating Particles */}

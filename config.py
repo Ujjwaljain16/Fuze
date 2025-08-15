@@ -1,69 +1,93 @@
 import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from datetime import timedelta
 
 class Config:
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False # Suppresses a warning; good practice to set to False
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-here'
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'your-jwt-secret-key-here'
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     
-    # Database connection pool settings to fix connection issues
+    # Database configuration
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # Enhanced database connection settings to fix SSL issues and timeouts
     SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 10,  # Number of connections to maintain
-        'pool_timeout': 20,  # Timeout for getting connection from pool
-        'pool_recycle': 3600,  # Recycle connections after 1 hour
-        'pool_pre_ping': True,  # Verify connections before use
-        'max_overflow': 20,  # Additional connections beyond pool_size
+        'pool_size': 5,           # Keep moderate pool size
+        'pool_timeout': 20,       # Reasonable timeout
+        'pool_recycle': 300,      # Recycle connections every 5 minutes
+        'pool_pre_ping': True,    # Enable pre-ping to detect dead connections
+        'max_overflow': 10,       # Allow overflow connections
+        'echo': False,            # Disable SQL echoing for production
         'connect_args': {
-            'connect_timeout': 10,  # Connection timeout
-            'application_name': 'fuze_app',  # Application name for monitoring
-            'keepalives_idle': 600,  # Send keepalive after 10 minutes of inactivity
-            'keepalives_interval': 30,  # Send keepalive every 30 seconds
-            'keepalives_count': 3,  # Number of keepalives before considering connection dead
+            'connect_timeout': 30,  # Increased connection timeout
+            'sslmode': 'require',   # Require SSL for security
+            'sslcert': None,        # No client certificate required
+            'sslkey': None,         # No client key required
+            'sslrootcert': None,    # No root certificate required
+            'keepalives': 1,        # Enable keepalives
+            'keepalives_idle': 30,  # Send keepalive after 30s idle
+            'keepalives_interval': 10,  # Send keepalive every 10s
+            'keepalives_count': 5,  # Retry keepalive 5 times
+            'application_name': 'fuze_app',  # Identify application
+            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
         }
     }
     
-    SECRET_KEY = os.environ.get('SECRET_KEY')
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+    # CORS settings
+    CORS_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173'
+    ]
+    
+    # Redis configuration
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    
+    # Gemini API
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-    
-    # Environment detection
-    ENV = os.environ.get('FLASK_ENV', 'development')
-    DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    
-    # HTTPS and Security Settings
-    HTTPS_ENABLED = os.environ.get('HTTPS_ENABLED', 'False').lower() == 'true'
-    CSRF_ENABLED = os.environ.get('CSRF_ENABLED', 'False').lower() == 'true'
-    
-    # JWT Configuration
-    JWT_ACCESS_TOKEN_EXPIRES = 60  # minutes (increased from 15 to 60)
-    JWT_REFRESH_TOKEN_EXPIRES = 14  # days
-    JWT_TOKEN_LOCATION = ['headers', 'cookies']
-    JWT_COOKIE_SECURE = HTTPS_ENABLED  # Only send cookies over HTTPS
-    JWT_COOKIE_SAMESITE = 'Strict'
-    JWT_COOKIE_CSRF_PROTECT = CSRF_ENABLED
-    JWT_CSRF_IN_COOKIES = CSRF_ENABLED
-    JWT_CSRF_CHECK_FORM = CSRF_ENABLED
-    
-    # CORS Configuration
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
-    
-    # Session Configuration
-    SESSION_COOKIE_SECURE = HTTPS_ENABLED
-    SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'Strict'
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    HTTPS_ENABLED = False
-    CSRF_ENABLED = False
-    JWT_COOKIE_SECURE = False
-    JWT_COOKIE_CSRF_PROTECT = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 3,
+        'pool_timeout': 15,
+        'pool_recycle': 300,
+        'pool_pre_ping': True,
+        'max_overflow': 5,
+        'echo': True,  # Enable SQL echoing for development
+        'connect_args': {
+            'connect_timeout': 20,  # Increased connection timeout
+            'sslmode': 'prefer',   # Prefer SSL but allow fallback in development
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5,
+            'application_name': 'fuze_dev',
+            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+        }
+    }
 
 class ProductionConfig(Config):
     DEBUG = False
-    HTTPS_ENABLED = True
-    CSRF_ENABLED = True
-    JWT_COOKIE_SECURE = True
-    JWT_COOKIE_CSRF_PROTECT = True 
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_size': 10,
+        'pool_timeout': 30,
+        'pool_recycle': 600,
+        'pool_pre_ping': True,
+        'max_overflow': 20,
+        'echo': False,
+        'connect_args': {
+            'connect_timeout': 30,  # Increased connection timeout
+            'sslmode': 'require',   # Require SSL in production
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5,
+            'application_name': 'fuze_prod',
+            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+        }
+    }
+
+# Use development config by default
+config = DevelopmentConfig
