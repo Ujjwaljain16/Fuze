@@ -7,50 +7,28 @@ Handles spelling variations, synonyms, and semantic variations automatically
 import re
 import difflib
 from typing import List, Dict, Tuple, Optional
-from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 class UniversalSemanticMatcher:
     """Universal semantic matcher that handles all variations"""
     
-    # Class-level flag to prevent multiple embedding model initializations
-    _embedding_model_initialized = False
-    _embedding_model = None
-    
     def __init__(self):
-        # Only initialize embedding model once across all instances
-        if not UniversalSemanticMatcher._embedding_model_initialized:
-            try:
-                import torch
-                UniversalSemanticMatcher._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Use the improved embedding system from embedding_utils
+        try:
+            from embedding_utils import get_embedding_model, is_embedding_available
+            self.embedding_model = get_embedding_model()
+            self.embedding_available = is_embedding_available()
+            
+            if self.embedding_available:
+                print("✅ UniversalSemanticMatcher using proper embedding model")
+            else:
+                print("⚠️ UniversalSemanticMatcher using fallback embedding model")
                 
-                # More robust meta tensor handling
-                try:
-                    # Check if we're dealing with meta tensors
-                    if hasattr(torch, 'meta') and torch.meta.is_available():
-                        # Use to_empty() for meta tensors
-                        UniversalSemanticMatcher._embedding_model = UniversalSemanticMatcher._embedding_model.to_empty(device='cpu')
-                        print("✅ UniversalSemanticMatcher embedding model initialized with to_empty() for meta tensors")
-                    else:
-                        # Fallback to CPU
-                        UniversalSemanticMatcher._embedding_model = UniversalSemanticMatcher._embedding_model.to('cpu')
-                        print("✅ UniversalSemanticMatcher embedding model initialized with to() for CPU")
-                except Exception as tensor_error:
-                    print(f"⚠️ Tensor device placement error: {tensor_error}")
-                    # Try alternative approach - don't move the model
-                    print("✅ Using embedding model without device placement")
-                    # The model will work without explicit device placement
-                
-                UniversalSemanticMatcher._embedding_model_initialized = True
-                print("✅ UniversalSemanticMatcher embedding model initialized successfully")
-            except Exception as e:
-                print(f"❌ Failed to initialize UniversalSemanticMatcher: {e}")
-                UniversalSemanticMatcher._embedding_model = None
-                UniversalSemanticMatcher._embedding_model_initialized = True  # Prevent retries
-        
-        # Use the class-level embedding model
-        self.embedding_model = UniversalSemanticMatcher._embedding_model
+        except Exception as e:
+            print(f"❌ Failed to initialize UniversalSemanticMatcher: {e}")
+            self.embedding_model = None
+            self.embedding_available = False
         
         # Spelling variations and synonyms
         self.spelling_variations = {
@@ -99,8 +77,8 @@ class UniversalSemanticMatcher:
         # Difficulty variations
         self.difficulty_variations = {
             'beginner': ['basic', 'intro', 'starter', 'novice', 'easy'],
-            'intermediate': ['medium', 'moderate', 'intermediate', 'advanced-beginner'],
-            'advanced': ['expert', 'pro', 'senior', 'hard', 'complex']
+            'intermediate': ['medium', 'moderate', 'standard', 'regular'],
+            'advanced': ['expert', 'professional', 'master', 'hard', 'complex']
         }
     
     def normalize_text(self, text: str) -> str:

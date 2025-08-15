@@ -97,8 +97,9 @@ class EnsembleRecommendationEngine:
         
         try:
             from smart_recommendation_engine import SmartRecommendationEngine
-            self.engines['smart'] = SmartRecommendationEngine()
-            logger.info("Smart engine loaded")
+            # Smart engine requires user_id, will be initialized per request
+            self.engines['smart'] = SmartRecommendationEngine
+            logger.info("Smart engine class loaded (will be instantiated per request)")
         except Exception as e:
             logger.warning(f"Smart engine not available: {e}")
         
@@ -199,15 +200,19 @@ class EnsembleRecommendationEngine:
                 return results.get('recommendations', [])
             
             elif engine_name == 'smart':
-                # Use smart engine
-                results = engine.get_smart_recommendations(
-                    user_id=request.user_id,
-                    title=request.title,
-                    description=request.description,
-                    technologies=request.technologies,
-                    max_recommendations=request.max_recommendations * 2
+                # Use smart engine - instantiate with user_id
+                smart_engine = engine(request.user_id)  # engine is the class, not instance
+                project_info = {
+                    'title': request.title,
+                    'description': request.description,
+                    'technologies': request.technologies,
+                    'learning_goals': request.user_interests
+                }
+                results = smart_engine.get_smart_recommendations(
+                    project_info=project_info,
+                    limit=request.max_recommendations * 2
                 )
-                return results.get('recommendations', [])
+                return results
             
             elif engine_name == 'enhanced':
                 # Use enhanced engine

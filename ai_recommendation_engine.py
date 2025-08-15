@@ -324,7 +324,46 @@ class SmartRecommendationEngine:
         ]
         
         # Return top recommendations
-        return quality_recommendations[:max_recommendations] 
+        return quality_recommendations[:max_recommendations]
+    
+    def get_analyzed_bookmarks(self) -> List[tuple]:
+        """Get high-quality bookmarks with analysis data from all users"""
+        try:
+            # Use Flask app context without importing app directly
+            from flask import current_app
+            if current_app:
+                with current_app.app_context():
+                    return db.session.query(
+                        SavedContent, ContentAnalysis
+                    ).join(
+                        ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+                    ).filter(
+                        SavedContent.quality_score >= 6,  # Lower threshold to get more content
+                        SavedContent.title.notlike('%Test Bookmark%'),  # Only exclude obvious test content
+                        SavedContent.title.notlike('%test bookmark%')
+                    ).order_by(
+                        SavedContent.quality_score.desc(),  # Order by quality first
+                        SavedContent.saved_at.desc()
+                    ).limit(200).all()  # Limit to prevent memory issues
+            else:
+                # Fallback for when not in Flask context
+                logger.warning("Not in Flask app context, using direct database query")
+                return db.session.query(
+                    SavedContent, ContentAnalysis
+                ).join(
+                    ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+                ).filter(
+                    SavedContent.quality_score >= 6,
+                    SavedContent.title.notlike('%Test Bookmark%'),
+                    SavedContent.title.notlike('%test bookmark%')
+                ).order_by(
+                    SavedContent.quality_score.desc(),
+                    SavedContent.saved_at.desc()
+                ).limit(200).all()
+                
+        except Exception as e:
+            logger.error(f"Error getting analyzed bookmarks: {e}")
+            return []
 
 # --- TEST UTILITY ---
 if __name__ == "__main__":

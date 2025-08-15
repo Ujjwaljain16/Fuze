@@ -10,7 +10,6 @@ import ProjectDetail from './pages/ProjectDetail';
 import Recommendations from './pages/Recommendations';
 import Bookmarks from './pages/Bookmarks';
 import SaveContent from './pages/SaveContent';
-import LinkedInAnalyzer from './pages/LinkedInAnalyzer';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -165,14 +164,7 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
-              <Route 
-                path="/linkedin-analyzer" 
-                element={
-                  <ProtectedRoute>
-                    <LinkedInAnalyzer />
-                  </ProtectedRoute>
-                } 
-              />
+
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </main>

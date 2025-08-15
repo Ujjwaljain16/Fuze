@@ -8,6 +8,7 @@ import sys
 import os
 from sqlalchemy import create_engine, text, Index
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import ProgrammingError, OperationalError
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +33,18 @@ except ImportError:
     else:
         print("⚠️ No .env file found")
 
+def check_index_exists(engine, index_name, table_name):
+    """Check if an index already exists"""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT indexname FROM pg_indexes 
+                WHERE indexname = :index_name AND tablename = :table_name
+            """), {"index_name": index_name, "table_name": table_name})
+            return result.fetchone() is not None
+    except Exception:
+        return False
+
 def add_performance_indexes():
     """Add critical database indexes for performance"""
     
@@ -55,63 +68,77 @@ def add_performance_indexes():
         
         # Create database connection
         engine = create_engine(Config.SQLALCHEMY_DATABASE_URI)
-        Session = sessionmaker(bind=engine)
-        session = Session()
         
         print("🔧 Adding performance indexes...")
         
-        # 1. Index for user queries (fixes 3.86s user query time)
-        try:
-            user_index = Index('idx_savedcontent_user_id', SavedContent.user_id)
-            user_index.create(engine)
-            print("✅ Added index on SavedContent.user_id")
-        except Exception as e:
-            print(f"⚠️ User index already exists or failed: {e}")
+        # Define indexes with correct names
+        indexes_to_create = [
+            {
+                'name': 'idx_savedcontent_user_id',
+                'table': 'saved_content',
+                'columns': ['user_id'],
+                'description': 'User ID for fast user-specific queries'
+            },
+            {
+                'name': 'idx_savedcontent_quality_score',
+                'table': 'saved_content',
+                'columns': ['quality_score'],
+                'description': 'Quality score for recommendation filtering'
+            },
+            {
+                'name': 'idx_savedcontent_embedding',
+                'table': 'saved_content',
+                'columns': ['embedding'],
+                'description': 'Embedding vector for similarity search'
+            },
+            {
+                'name': 'idx_savedcontent_user_quality',
+                'table': 'saved_content',
+                'columns': ['user_id', 'quality_score'],
+                'description': 'Composite index for user + quality queries'
+            },
+            {
+                'name': 'idx_contentanalysis_content_id',
+                'table': 'content_analysis',
+                'columns': ['content_id'],
+                'description': 'Content ID for analysis lookups'
+            },
+            {
+                'name': 'idx_savedcontent_saved_at',
+                'table': 'saved_content',
+                'columns': ['saved_at'],
+                'description': 'Timestamp for time-based queries'
+            }
+        ]
         
-        # 2. Index for quality score filtering (critical for recommendations)
-        try:
-            quality_index = Index('idx_savedcontent_quality_score', SavedContent.quality_score)
-            quality_index.create(engine)
-            print("✅ Added index on SavedContent.quality_score")
-        except Exception as e:
-            print(f"⚠️ Quality score index already exists or failed: {e}")
+        # Create each index
+        for index_info in indexes_to_create:
+            try:
+                # Check if index already exists
+                if check_index_exists(engine, index_info['name'], index_info['table']):
+                    print(f"✅ Index {index_info['name']} already exists on {index_info['table']}")
+                    continue
+                
+                # Create index using raw SQL for better control
+                columns_str = ', '.join(index_info['columns'])
+                create_sql = f"""
+                    CREATE INDEX {index_info['name']} 
+                    ON {index_info['table']} ({columns_str})
+                """
+                
+                with engine.connect() as conn:
+                    conn.execute(text(create_sql))
+                    conn.commit()
+                
+                print(f"✅ Created index {index_info['name']} on {index_info['table']} ({columns_str})")
+                
+            except Exception as e:
+                if "already exists" in str(e) or "DuplicateTable" in str(e):
+                    print(f"✅ Index {index_info['name']} already exists on {index_info['table']}")
+                else:
+                    print(f"⚠️ Failed to create index {index_info['name']}: {e}")
         
-        # 3. Index for embedding queries (fixes slow similarity search)
-        try:
-            embedding_index = Index('idx_savedcontent_embedding', SavedContent.embedding)
-            embedding_index.create(engine)
-            print("✅ Added index on SavedContent.embedding")
-        except Exception as e:
-            print(f"⚠️ Embedding index already exists or failed: {e}")
-        
-        # 4. Composite index for common query patterns
-        try:
-            composite_index = Index('idx_savedcontent_user_quality', 
-                                  SavedContent.user_id, SavedContent.quality_score)
-            composite_index.create(engine)
-            print("✅ Added composite index on (user_id, quality_score)")
-        except Exception as e:
-            print(f"⚠️ Composite index already exists or failed: {e}")
-        
-        # 5. Index for content analysis queries
-        try:
-            analysis_index = Index('idx_contentanalysis_content_id', ContentAnalysis.content_id)
-            analysis_index.create(engine)
-            print("✅ Added index on ContentAnalysis.content_id")
-        except Exception as e:
-            print(f"⚠️ Analysis index already exists or failed: {e}")
-        
-        # 6. Index for timestamp-based queries
-        try:
-            timestamp_index = Index('idx_savedcontent_saved_at', SavedContent.saved_at)
-            timestamp_index.create(engine)
-            print("✅ Added index on SavedContent.saved_at")
-        except Exception as e:
-            print(f"⚠️ Timestamp index already exists or failed: {e}")
-        
-        session.close()
         print("🎯 Database indexes added successfully!")
-        
         return True
         
     except Exception as e:
@@ -125,29 +152,28 @@ def optimize_database_settings():
         from config import Config
         
         engine = create_engine(Config.SQLALCHEMY_DATABASE_URI)
-        Session = sessionmaker(bind=engine)
-        session = Session()
         
         print("⚡ Optimizing database settings...")
         
-        # Separate runtime settings from server-level settings
+        # Runtime optimizations that can be applied immediately
         runtime_optimizations = [
-            "SET work_mem = '256MB';",
-            "SET effective_cache_size = '1GB';",
-            "SET random_page_cost = 1.1;",
-            "SET effective_io_concurrency = 200;"
+            ("SET work_mem = '256MB'", "Work memory per query"),
+            ("SET effective_cache_size = '1GB'", "Effective cache size"),
+            ("SET random_page_cost = 1.1", "SSD optimization"),
+            ("SET effective_io_concurrency = 200", "Parallel I/O operations")
         ]
         
-        # Apply runtime settings first
-        for optimization in runtime_optimizations:
-            try:
-                session.execute(text(optimization))
-                print(f"✅ Applied: {optimization}")
-            except Exception as e:
-                print(f"⚠️ Failed to apply {optimization}: {e}")
-        
-        # Commit runtime changes
-        session.commit()
+        # Apply runtime settings
+        with engine.connect() as conn:
+            for sql, description in runtime_optimizations:
+                try:
+                    conn.execute(text(sql))
+                    print(f"✅ Applied: {sql} - {description}")
+                except Exception as e:
+                    print(f"⚠️ Failed to apply {sql}: {e}")
+            
+            # Commit changes
+            conn.commit()
         
         # Handle server-level settings separately
         print("\n📝 Server-level settings (require restart):")
@@ -156,7 +182,6 @@ def optimize_database_settings():
         print("  - checkpoint_completion_target = 0.9")
         print("💡 These settings require editing postgresql.conf and restarting the server")
         
-        session.close()
         return True
         
     except Exception as e:
@@ -170,57 +195,40 @@ def analyze_table_performance():
         from config import Config
         
         engine = create_engine(Config.SQLALCHEMY_DATABASE_URI)
-        Session = sessionmaker(bind=engine)
-        session = Session()
         
         print("📊 Analyzing table performance...")
         
         # Check table sizes and row counts
         tables = ['saved_content', 'content_analysis', 'users']
         
-        for table in tables:
-            try:
-                # Get row count
-                count_result = session.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                row_count = count_result.scalar()
-                
-                # Get table size
-                size_result = session.execute(text(f"""
-                    SELECT pg_size_pretty(pg_total_relation_size('{table}'))
-                """))
-                table_size = size_result.scalar()
-                
-                print(f"📋 {table}: {row_count:,} rows, {table_size}")
-                
-            except Exception as e:
-                print(f"⚠️ Could not analyze {table}: {e}")
-        
-        # Check index usage
-        try:
-            index_result = session.execute(text("""
-                SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
-                FROM pg_stat_user_indexes 
-                WHERE schemaname = 'public'
-                ORDER BY idx_scan DESC
-                LIMIT 10
-            """))
+        with engine.connect() as conn:
+            for table in tables:
+                try:
+                    # Get row count
+                    count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                    row_count = count_result.scalar()
+                    
+                    # Get table size
+                    size_result = conn.execute(text(f"""
+                        SELECT pg_size_pretty(pg_total_relation_size('{table}'))
+                    """))
+                    table_size = size_result.scalar()
+                    
+                    print(f"📋 {table}: {row_count:,} rows, {table_size}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Could not analyze {table}: {e}")
             
-            print("\n🔍 Top 10 Index Usage:")
-            for row in index_result:
-                print(f"  {row.tablename}.{row.indexname}: {row.idx_scan} scans")
-                
-        except Exception as e:
-            print(f"⚠️ Could not analyze index usage: {e}")
-            # Try alternative query for older PostgreSQL versions
+            # Check index usage with robust error handling and transaction management
             try:
-                print("🔄 Trying alternative index analysis...")
-                alt_result = session.execute(text("""
+                # Try the standard PostgreSQL 9.5+ query first
+                index_result = conn.execute(text("""
                     SELECT 
-                        schemaname, 
-                        relname as tablename, 
-                        indexrelname as indexname,
-                        idx_scan, 
-                        idx_tup_read, 
+                        schemaname,
+                        tablename,
+                        indexname,
+                        idx_scan,
+                        idx_tup_read,
                         idx_tup_fetch
                     FROM pg_stat_user_indexes 
                     WHERE schemaname = 'public'
@@ -228,15 +236,79 @@ def analyze_table_performance():
                     LIMIT 10
                 """))
                 
-                print("\n🔍 Top 10 Index Usage (Alternative):")
-                for row in alt_result:
+                print("\n🔍 Top 10 Index Usage:")
+                for row in index_result:
                     print(f"  {row.tablename}.{row.indexname}: {row.idx_scan} scans")
                     
-            except Exception as alt_e:
-                print(f"⚠️ Alternative index analysis also failed: {alt_e}")
+            except ProgrammingError as e:
+                if "tablename" in str(e):
+                    # Try alternative query for older PostgreSQL versions
+                    try:
+                        print("🔄 Trying alternative index analysis for older PostgreSQL...")
+                        alt_result = conn.execute(text("""
+                            SELECT 
+                                schemaname,
+                                relname as tablename,
+                                indexrelname as indexname,
+                                idx_scan,
+                                idx_tup_read,
+                                idx_tup_fetch
+                            FROM pg_stat_user_indexes 
+                            WHERE schemaname = 'public'
+                            ORDER BY idx_scan DESC
+                            LIMIT 10
+                        """))
+                        
+                        print("\n🔍 Top 10 Index Usage (Alternative):")
+                        for row in alt_result:
+                            print(f"  {row.tablename}.{row.indexname}: {row.idx_scan} scans")
+                            
+                    except Exception as alt_e:
+                        print(f"⚠️ Alternative index analysis failed: {alt_e}")
+                        print("💡 Index usage statistics may not be available in this PostgreSQL version")
+                else:
+                    print(f"⚠️ Could not analyze index usage: {e}")
+                    print("💡 Index usage statistics may not be available in this PostgreSQL version")
+            except Exception as e:
+                print(f"⚠️ Could not analyze index usage: {e}")
                 print("💡 Index usage statistics may not be available in this PostgreSQL version")
-        
-        session.close()
+            
+            # Check existing indexes with fresh transaction if needed
+            try:
+                print("\n🔍 Existing Indexes:")
+                index_list = conn.execute(text("""
+                    SELECT 
+                        tablename,
+                        indexname
+                    FROM pg_indexes 
+                    WHERE schemaname = 'public'
+                    ORDER BY tablename, indexname
+                """))
+                
+                for row in index_list:
+                    print(f"  {row.tablename}.{row.indexname}")
+                    
+            except Exception as e:
+                print(f"⚠️ Could not list existing indexes: {e}")
+                # Try to reset transaction state
+                try:
+                    conn.rollback()
+                    print("🔄 Reset transaction state and retrying...")
+                    index_list = conn.execute(text("""
+                        SELECT 
+                            tablename,
+                            indexname
+                        FROM pg_indexes 
+                        WHERE schemaname = 'public'
+                        ORDER BY tablename, indexname
+                    """))
+                    
+                    print("\n🔍 Existing Indexes (Retry):")
+                    for row in index_list:
+                        print(f"  {row.tablename}.{row.indexname}")
+                        
+                except Exception as retry_e:
+                    print(f"⚠️ Retry also failed: {retry_e}")
         
     except Exception as e:
         print(f"❌ Error analyzing performance: {e}")

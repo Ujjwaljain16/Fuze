@@ -34,8 +34,7 @@ def create_app():
          methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
          # Add these optimizations:
          max_age=86400,  # Cache preflight for 24 hours
-         expose_headers=['Content-Type', 'Authorization'],
-         allow_credentials=True)
+         expose_headers=['Content-Type', 'Authorization'])
     
     # Import and register blueprints
     from blueprints.auth import auth_bp

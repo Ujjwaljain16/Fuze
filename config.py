@@ -55,7 +55,7 @@ class DevelopmentConfig(Config):
         'pool_recycle': 300,
         'pool_pre_ping': True,
         'max_overflow': 5,
-        'echo': True,  # Enable SQL echoing for development
+        'echo': False,  # Disable SQL echoing for cleaner logs
         'connect_args': {
             'connect_timeout': 20,  # Increased connection timeout
             'sslmode': 'prefer',   # Prefer SSL but allow fallback in development
