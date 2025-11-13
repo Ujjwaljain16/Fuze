@@ -14,6 +14,26 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global instance for simple usage
+_global_analyzer = None
+
+def get_gemini_response(prompt: str, temperature: float = 0.3) -> Optional[str]:
+    """
+    Simple wrapper function for getting Gemini responses
+    Used by explainability engine and other modules
+    """
+    global _global_analyzer
+    
+    try:
+        if _global_analyzer is None:
+            _global_analyzer = GeminiAnalyzer()
+        
+        response = _global_analyzer._make_gemini_request(prompt)
+        return response
+    except Exception as e:
+        logger.error(f"Error in get_gemini_response: {e}")
+        return None
+
 class GeminiAnalyzer:
     """
     Gemini AI-powered content analyzer for enhanced recommendation system
