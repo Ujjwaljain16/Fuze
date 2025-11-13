@@ -1,93 +1,49 @@
-import os
-from datetime import timedelta
+"""
+Configuration module for Fuze
+Now uses UnifiedConfig as single source of truth - NO hardcoded values!
+"""
 
+from unified_config import get_config
+
+# Get unified configuration instance
+unified_config = get_config()
+
+# Create Config class for Flask compatibility
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-here'
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'your-jwt-secret-key-here'
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
-    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
+    """Flask configuration - now powered by UnifiedConfig"""
     
-    # Database configuration
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Get all Flask-specific config from unified config
+    _flask_config = unified_config.get_flask_config()
     
-    # Enhanced database connection settings to fix SSL issues and timeouts
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 5,           # Keep moderate pool size
-        'pool_timeout': 20,       # Reasonable timeout
-        'pool_recycle': 300,      # Recycle connections every 5 minutes
-        'pool_pre_ping': True,    # Enable pre-ping to detect dead connections
-        'max_overflow': 10,       # Allow overflow connections
-        'echo': False,            # Disable SQL echoing for production
-        'connect_args': {
-            'connect_timeout': 30,  # Increased connection timeout
-            'sslmode': 'require',   # Require SSL for security
-            'sslcert': None,        # No client certificate required
-            'sslkey': None,         # No client key required
-            'sslrootcert': None,    # No root certificate required
-            'keepalives': 1,        # Enable keepalives
-            'keepalives_idle': 30,  # Send keepalive after 30s idle
-            'keepalives_interval': 10,  # Send keepalive every 10s
-            'keepalives_count': 5,  # Retry keepalive 5 times
-            'application_name': 'fuze_app',  # Identify application
-            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-        }
-    }
+    # Apply Flask config - all values come from unified_config (environment variables or defaults)
+    SECRET_KEY = _flask_config['SECRET_KEY']
+    JWT_SECRET_KEY = _flask_config['JWT_SECRET_KEY']
+    JWT_ACCESS_TOKEN_EXPIRES = _flask_config['JWT_ACCESS_TOKEN_EXPIRES']
+    JWT_REFRESH_TOKEN_EXPIRES = _flask_config['JWT_REFRESH_TOKEN_EXPIRES']
     
-    # CORS settings
-    CORS_ORIGINS = [
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'http://127.0.0.1:5173'
-    ]
+    SQLALCHEMY_DATABASE_URI = _flask_config['SQLALCHEMY_DATABASE_URI']
+    SQLALCHEMY_TRACK_MODIFICATIONS = _flask_config['SQLALCHEMY_TRACK_MODIFICATIONS']
+    SQLALCHEMY_ENGINE_OPTIONS = _flask_config['SQLALCHEMY_ENGINE_OPTIONS']
     
-    # Redis configuration
-    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    CORS_ORIGINS = _flask_config['CORS_ORIGINS']
+    
+    # Redis URL
+    REDIS_URL = unified_config.get_redis_url()
     
     # Gemini API
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    GEMINI_API_KEY = unified_config.ai.gemini_api_key
 
 class DevelopmentConfig(Config):
-    DEBUG = True
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 3,
-        'pool_timeout': 15,
-        'pool_recycle': 300,
-        'pool_pre_ping': True,
-        'max_overflow': 5,
-        'echo': False,  # Disable SQL echoing for cleaner logs
-        'connect_args': {
-            'connect_timeout': 20,  # Increased connection timeout
-            'sslmode': 'prefer',   # Prefer SSL but allow fallback in development
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5,
-            'application_name': 'fuze_dev',
-            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-        }
-    }
+    """Development configuration"""
+    DEBUG = unified_config.debug and unified_config.is_development()
 
 class ProductionConfig(Config):
+    """Production configuration"""
     DEBUG = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 10,
-        'pool_timeout': 30,
-        'pool_recycle': 600,
-        'pool_pre_ping': True,
-        'max_overflow': 20,
-        'echo': False,
-        'connect_args': {
-            'connect_timeout': 30,  # Increased connection timeout
-            'sslmode': 'require',   # Require SSL in production
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5,
-            'application_name': 'fuze_prod',
-            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-        }
-    }
+    # Production settings are already handled in unified_config
 
-# Use development config by default
-config = DevelopmentConfig
+# Select config based on environment
+config = ProductionConfig if unified_config.is_production() else DevelopmentConfig
+
+# Export unified config for direct access if needed
+__all__ = ['Config', 'DevelopmentConfig', 'ProductionConfig', 'config', 'unified_config']

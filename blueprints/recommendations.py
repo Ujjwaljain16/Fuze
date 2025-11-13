@@ -22,6 +22,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from dataclasses import asdict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -77,77 +78,16 @@ def init_models():
 
 def init_engines():
     """Initialize recommendation engines with lazy loading"""
-    global UNIFIED_ORCHESTRATOR_AVAILABLE, UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE
-    global PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE, ENHANCED_MODULES_AVAILABLE
-    global unified_engine_instance
+    global UNIFIED_ORCHESTRATOR_AVAILABLE
     
-    # Import unified orchestrator
+    # Import unified orchestrator (PRODUCTION-OPTIMIZED ENGINE)
     try:
-        from unified_recommendation_orchestrator import get_unified_orchestrator, UnifiedRecommendationRequest
+        from unified_recommendation_orchestrator import get_unified_orchestrator
         UNIFIED_ORCHESTRATOR_AVAILABLE = True
-        logger.info("Unified orchestrator initialized successfully")
+        logger.info("✅ Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
     except ImportError as e:
-        logger.warning(f"Unified orchestrator not available: {e}")
+        logger.error(f"❌ Unified orchestrator not available: {e}")
         UNIFIED_ORCHESTRATOR_AVAILABLE = False
-
-    # Import enhanced modules
-    try:
-        from advanced_tech_detection import advanced_tech_detector
-        from adaptive_scoring_engine import adaptive_scoring_engine
-        ENHANCED_MODULES_AVAILABLE = True
-        logger.info("Enhanced modules initialized successfully")
-    except ImportError as e:
-        logger.warning(f"Enhanced modules not available: {e}")
-        ENHANCED_MODULES_AVAILABLE = False
-
-    # Import standalone engines with error handling
-    try:
-        from unified_recommendation_engine import UnifiedRecommendationEngine
-        unified_engine_instance = UnifiedRecommendationEngine()
-        UNIFIED_ENGINE_AVAILABLE = True
-        logger.info("Unified recommendation engine initialized")
-    except ImportError as e:
-        logger.warning(f"Unified recommendation engine not available: {e}")
-        UNIFIED_ENGINE_AVAILABLE = False
-
-    try:
-        from enhanced_recommendation_engine import get_enhanced_recommendations, unified_engine
-        ENHANCED_ENGINE_AVAILABLE = True
-        logger.info("Enhanced recommendation engine initialized")
-    except ImportError as e:
-        logger.warning(f"Enhanced recommendation engine not available: {e}")
-        ENHANCED_ENGINE_AVAILABLE = False
-
-    try:
-        from phase3_enhanced_engine import (
-            get_enhanced_recommendations_phase3,
-            record_user_feedback_phase3,
-            get_user_learning_insights,
-            get_system_health_phase3
-        )
-        PHASE3_ENGINE_AVAILABLE = True
-        logger.info("Phase 3 enhanced engine initialized")
-    except ImportError as e:
-        logger.warning(f"Phase 3 enhanced engine not available: {e}")
-        PHASE3_ENGINE_AVAILABLE = False
-
-    # Check if SmartRecommendationEngine can be imported (but don't instantiate)
-    try:
-        from smart_recommendation_engine import SmartRecommendationEngine
-        SMART_ENGINE_AVAILABLE = True
-        logger.info("Smart recommendation engine import successful")
-    except ImportError as e:
-        logger.warning(f"Smart recommendation engine not available: {e}")
-        SMART_ENGINE_AVAILABLE = False
-
-    # Check if FastGeminiEngine can be imported
-    try:
-        from fast_gemini_engine import FastGeminiEngine
-        FAST_GEMINI_AVAILABLE = True
-        logger.info("Fast Gemini engine import successful")
-    except ImportError as e:
-        logger.warning(f"Fast Gemini engine not available: {e}")
-        FAST_GEMINI_AVAILABLE = False
 
 
 
@@ -309,7 +249,7 @@ def get_quality_ensemble_recommendations():
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
 def get_unified_orchestrator_recommendations():
-    """Get recommendations using the unified orchestrator (Primary endpoint)"""
+    """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
@@ -317,12 +257,13 @@ def get_unified_orchestrator_recommendations():
             return jsonify({'error': 'No data provided'}), 400
         
         if not UNIFIED_ORCHESTRATOR_AVAILABLE:
-            return jsonify({'error': 'Unified orchestrator not available'}), 500
+            return jsonify({'error': 'Recommendation engine not available'}), 500
         
-        # Import required classes
+        # Use production-optimized unified orchestrator
         from unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        from dataclasses import asdict
         
-        # Create unified request
+        # Create request
         unified_request = UnifiedRecommendationRequest(
             user_id=user_id,
             title=data.get('title', ''),
@@ -331,39 +272,18 @@ def get_unified_orchestrator_recommendations():
             user_interests=data.get('user_interests', ''),
             project_id=data.get('project_id'),
             max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'auto'),
+            engine_preference=data.get('engine_preference', 'context'),
             diversity_weight=data.get('diversity_weight', 0.3),
-            quality_threshold=data.get('quality_threshold', 6),
+            quality_threshold=data.get('quality_threshold', 3),
             include_global_content=data.get('include_global_content', True)
         )
         
-        # Get orchestrator (already imported above)
+        # Get orchestrator and recommendations (ML enhancement is AUTOMATIC!)
         orchestrator = get_unified_orchestrator()
-        
-        # Get base recommendations
         recommendations = orchestrator.get_recommendations(unified_request)
         
-
-        
         # Convert to dictionary format
-        result = []
-        for rec in recommendations:
-            result.append({
-                'id': rec.id,
-                'title': rec.title,
-                'url': rec.url,
-                'score': rec.score,
-                'reason': rec.reason,
-                'content_type': rec.content_type,
-                'difficulty': rec.difficulty,
-                'technologies': rec.technologies,
-                'key_concepts': rec.key_concepts,
-                'quality_score': rec.quality_score,
-                'engine_used': rec.engine_used,
-                'confidence': rec.confidence,
-                'metadata': rec.metadata,
-                'cached': rec.cached
-            })
+        result = [asdict(rec) for rec in recommendations]
         
         # Get performance metrics
         performance_metrics = orchestrator.get_performance_metrics()
@@ -371,20 +291,22 @@ def get_unified_orchestrator_recommendations():
         response = {
             'recommendations': result,
             'total_recommendations': len(result),
-            'engine_used': 'UnifiedOrchestrator',
+            'engine_used': 'UnifiedOrchestrator_v2_Optimized',
             'performance_metrics': performance_metrics,
+            'optimizations': ['batch_embeddings', 'auto_ml_enhancement', 'intent_aware', 'smart_caching'],
             'request_processed': {
                 'title': unified_request.title,
                 'technologies': unified_request.technologies,
-                'engine_preference': unified_request.engine_preference,
-                'quality_threshold': unified_request.quality_threshold
+                'engine_preference': unified_request.engine_preference
             }
         }
         
         return jsonify(response)
         
     except Exception as e:
-        logger.error(f"Error in unified orchestrator recommendations: {e}")
+        logger.error(f"Error in recommendations: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
