@@ -103,6 +103,24 @@ class Feedback(Base):
 
     __table_args__ = (UniqueConstraint('user_id', 'project_id', 'content_id', name='_user_project_content_uc'),)
 
+class UserFeedback(Base):
+    """Enhanced feedback system for learning from user interactions"""
+    __tablename__ = 'user_feedback'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    recommendation_id = Column(Integer, nullable=True)  # Optional: track recommendation session
+    feedback_type = Column(String(20), nullable=False)  # 'clicked', 'saved', 'dismissed', 'not_relevant', 'helpful', 'completed'
+    context_data = Column(JSON)  # Store query, project_id, etc.
+    timestamp = Column(DateTime, default=func.now())
+    
+    # Indexes for faster queries
+    __table_args__ = (
+        db.Index('idx_user_feedback_user', 'user_id'),
+        db.Index('idx_user_feedback_content', 'content_id'),
+        db.Index('idx_user_feedback_timestamp', 'timestamp'),
+    )
+
 class Task(Base):
     __tablename__ = 'tasks'
     id = Column(Integer, primary_key=True)
