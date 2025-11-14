@@ -3,7 +3,7 @@ services:
     name: fuze-backend
     env: python
     buildCommand: pip install --upgrade pip setuptools wheel && pip install --prefer-binary -r requirements.txt
-    startCommand: gunicorn backend.wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: ENVIRONMENT
         value: production
