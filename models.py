@@ -4,7 +4,26 @@ from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 
+# Initialize SQLAlchemy with enhanced configuration
 db = SQLAlchemy()
+
+# Configure SQLAlchemy to use our connection manager
+def configure_database():
+    """Configure database with enhanced SSL handling"""
+    try:
+        from database_connection_manager import get_database_engine
+        engine = get_database_engine()
+        
+        # Update the SQLAlchemy engine
+        db.engine = engine
+        
+        # Configure session
+        db.session.configure(bind=engine)
+        
+        return True
+    except Exception as e:
+        print(f"Failed to configure database: {e}")
+        return False
 
 class Base(db.Model):
     __abstract__ = True
@@ -33,6 +52,10 @@ class Project(Base):
     description = Column(TEXT)
     technologies = Column(TEXT)
     created_at = Column(DateTime, default=func.now())
+    
+    # Intent analysis caching fields
+    intent_analysis = Column(JSON)  # Store intent analysis results
+    intent_analysis_updated = Column(DateTime)  # When analysis was last updated
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 
@@ -79,6 +102,24 @@ class Feedback(Base):
     timestamp = Column(DateTime, default=func.now())
 
     __table_args__ = (UniqueConstraint('user_id', 'project_id', 'content_id', name='_user_project_content_uc'),)
+
+class UserFeedback(Base):
+    """Enhanced feedback system for learning from user interactions"""
+    __tablename__ = 'user_feedback'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    recommendation_id = Column(Integer, nullable=True)  # Optional: track recommendation session
+    feedback_type = Column(String(20), nullable=False)  # 'clicked', 'saved', 'dismissed', 'not_relevant', 'helpful', 'completed'
+    context_data = Column(JSON)  # Store query, project_id, etc.
+    timestamp = Column(DateTime, default=func.now())
+    
+    # Indexes for faster queries
+    __table_args__ = (
+        db.Index('idx_user_feedback_user', 'user_id'),
+        db.Index('idx_user_feedback_content', 'content_id'),
+        db.Index('idx_user_feedback_timestamp', 'timestamp'),
+    )
 
 class Task(Base):
     __tablename__ = 'tasks'

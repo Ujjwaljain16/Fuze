@@ -14,7 +14,12 @@ import {
   RefreshCw,
   Lightbulb,
   Calendar,
-  Tag
+  Tag,
+  CheckSquare,
+  Clock,
+  Zap,
+  Target,
+  AlertCircle
 } from 'lucide-react'
 
 const ProjectDetail = () => {
@@ -24,12 +29,18 @@ const ProjectDetail = () => {
   const [project, setProject] = useState(null)
   const [recommendations, setRecommendations] = useState([])
   const [projectBookmarks, setProjectBookmarks] = useState([])
+  const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [tasksLoading, setTasksLoading] = useState(false)
+  const [showAITaskModal, setShowAITaskModal] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [skillLevel, setSkillLevel] = useState('intermediate')
 
   useEffect(() => {
     if (isAuthenticated && id) {
       fetchProjectData()
+      fetchTasks()
     }
   }, [isAuthenticated, id])
 
@@ -124,6 +135,54 @@ const ProjectDetail = () => {
       // Optionally refresh recommendations after feedback
     } catch (err) {
       console.error('Error submitting feedback:', err)
+    }
+  }
+
+  const fetchTasks = async () => {
+    try {
+      setTasksLoading(true)
+      const response = await api.get(`/api/tasks/project/${id}`)
+      setTasks(response.data.tasks || [])
+    } catch (err) {
+      console.error('Error fetching tasks:', err)
+    } finally {
+      setTasksLoading(false)
+    }
+  }
+
+  const handleAIGenerateTasks = async () => {
+    try {
+      setAiGenerating(true)
+      const response = await api.post('/api/tasks/ai-breakdown', {
+        project_id: parseInt(id),
+        project_description: project.description,
+        skill_level: skillLevel
+      })
+
+      if (response.data.success) {
+        success(`🤖 Generated ${response.data.tasks.length} AI-powered tasks!`)
+        setShowAITaskModal(false)
+        fetchTasks()
+      } else {
+        error('Failed to generate tasks')
+      }
+    } catch (err) {
+      console.error('Error generating AI tasks:', err)
+      error(err.response?.data?.error || 'Failed to generate AI tasks')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
+  const handleDeleteTask = async (taskId) => {
+    if (!confirm('Delete this task?')) return
+
+    try {
+      await api.delete(`/api/tasks/${taskId}`)
+      success('Task deleted')
+      fetchTasks()
+    } catch (err) {
+      error('Failed to delete task')
     }
   }
 
@@ -246,6 +305,305 @@ const ProjectDetail = () => {
             </div>
           )}
         </div>
+
+        {/* Tasks Section */}
+        <div className="section">
+          <div className="section-header">
+            <div className="section-title">
+              <CheckSquare className="section-icon" />
+              <h2>Project Tasks</h2>
+            </div>
+            <button 
+              onClick={() => setShowAITaskModal(true)}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Zap size={16} />
+              AI Generate Tasks
+            </button>
+          </div>
+
+          {tasksLoading ? (
+            <div className="loading-state">
+              <RefreshCw className="animate-spin" size={24} />
+              <p>Loading tasks...</p>
+            </div>
+          ) : tasks.length > 0 ? (
+            <div className="tasks-grid" style={{ display: 'grid', gap: '16px' }}>
+              {tasks.map((task) => {
+                let taskDetails = {}
+                try {
+                  taskDetails = typeof task.description === 'string' 
+                    ? JSON.parse(task.description) 
+                    : task.description
+                } catch (e) {
+                  taskDetails = { description: task.description }
+                }
+
+                return (
+                  <div key={task.id} className="task-card" style={{
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    padding: '16px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                      <h4 style={{ color: '#fff', margin: 0, flex: 1 }}>{task.title}</h4>
+                      <button 
+                        onClick={() => handleDeleteTask(task.id)}
+                        style={{
+                          background: 'rgba(239,68,68,0.2)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '6px',
+                          cursor: 'pointer',
+                          color: '#f87171'
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+
+                    {taskDetails.description && (
+                      <p style={{ color: '#d1d5db', fontSize: '14px', marginBottom: '12px' }}>
+                        {taskDetails.description}
+                      </p>
+                    )}
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                      {taskDetails.estimated_time && (
+                        <span style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          background: 'rgba(59,130,246,0.2)',
+                          color: '#60a5fa',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}>
+                          <Clock size={12} />
+                          {taskDetails.estimated_time}
+                        </span>
+                      )}
+                      
+                      {taskDetails.difficulty && (
+                        <span style={{
+                          padding: '4px 8px',
+                          background: taskDetails.difficulty === 'beginner' ? 'rgba(34,197,94,0.2)' :
+                                      taskDetails.difficulty === 'intermediate' ? 'rgba(251,146,60,0.2)' :
+                                      'rgba(239,68,68,0.2)',
+                          color: taskDetails.difficulty === 'beginner' ? '#4ade80' :
+                                 taskDetails.difficulty === 'intermediate' ? '#fb923c' :
+                                 '#f87171',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}>
+                          {taskDetails.difficulty}
+                        </span>
+                      )}
+                    </div>
+
+                    {taskDetails.key_technologies && taskDetails.key_technologies.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                        {taskDetails.key_technologies.map((tech, idx) => (
+                          <span key={idx} style={{
+                            padding: '2px 8px',
+                            background: 'rgba(167,139,250,0.2)',
+                            color: '#a78bfa',
+                            borderRadius: '4px',
+                            fontSize: '11px'
+                          }}>
+                            {tech}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {taskDetails.success_criteria && (
+                      <div style={{
+                        marginTop: '12px',
+                        padding: '8px',
+                        background: 'rgba(34,197,94,0.1)',
+                        borderLeft: '3px solid #4ade80',
+                        borderRadius: '4px'
+                      }}>
+                        <p style={{ color: '#86efac', fontSize: '12px', margin: 0, display: 'flex', alignItems: 'start', gap: '6px' }}>
+                          <Target size={12} style={{ marginTop: '2px', flexShrink: 0 }} />
+                          <span>{taskDetails.success_criteria}</span>
+                        </p>
+                      </div>
+                    )}
+
+                    {taskDetails.prerequisites && taskDetails.prerequisites.length > 0 && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px',
+                        background: 'rgba(251,146,60,0.1)',
+                        borderLeft: '3px solid #fb923c',
+                        borderRadius: '4px'
+                      }}>
+                        <p style={{ color: '#fdba74', fontSize: '11px', margin: 0, fontWeight: 'bold' }}>
+                          Prerequisites:
+                        </p>
+                        <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px', color: '#fed7aa', fontSize: '11px' }}>
+                          {taskDetails.prerequisites.map((prereq, idx) => (
+                            <li key={idx}>{prereq}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <CheckSquare className="empty-icon" size={48} style={{ color: '#9ca3af' }} />
+              <h3 style={{ color: '#fff' }}>No tasks yet</h3>
+              <p style={{ color: '#d1d5db' }}>Use AI to generate a complete task breakdown for this project!</p>
+              <button 
+                onClick={() => setShowAITaskModal(true)}
+                className="btn btn-primary"
+                style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Zap size={16} />
+                Generate Tasks with AI
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* AI Task Generation Modal */}
+        {showAITaskModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+              borderRadius: '16px',
+              padding: '32px',
+              maxWidth: '500px',
+              width: '90%',
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  padding: '12px',
+                  borderRadius: '12px'
+                }}>
+                  <Sparkles size={24} style={{ color: '#fff' }} />
+                </div>
+                <div>
+                  <h2 style={{ color: '#fff', margin: 0, fontSize: '24px' }}>AI Task Generation</h2>
+                  <p style={{ color: '#9ca3af', margin: '4px 0 0 0', fontSize: '14px' }}>
+                    Generate intelligent task breakdown with Gemini AI
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', color: '#d1d5db', marginBottom: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  Your Skill Level
+                </label>
+                <select
+                  value={skillLevel}
+                  onChange={(e) => setSkillLevel(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="beginner">Beginner - I'm new to this</option>
+                  <option value="intermediate">Intermediate - I have some experience</option>
+                  <option value="advanced">Advanced - I'm experienced</option>
+                </select>
+              </div>
+
+              <div style={{
+                background: 'rgba(59,130,246,0.1)',
+                border: '1px solid rgba(59,130,246,0.3)',
+                borderRadius: '8px',
+                padding: '12px',
+                marginBottom: '24px'
+              }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'start' }}>
+                  <AlertCircle size={16} style={{ color: '#60a5fa', marginTop: '2px', flexShrink: 0 }} />
+                  <p style={{ color: '#93c5fd', fontSize: '13px', margin: 0 }}>
+                    AI will analyze your project and create 5-8 detailed tasks with time estimates, 
+                    technologies, and success criteria based on your skill level.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => setShowAITaskModal(false)}
+                  disabled={aiGenerating}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#d1d5db',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAIGenerateTasks}
+                  disabled={aiGenerating}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: aiGenerating ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: aiGenerating ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {aiGenerating ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={16} />
+                      Generate Tasks
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* AI Recommendations Section */}
         <div className="section recommendations-section">

@@ -1,55 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api, { refreshTokenIfNeeded } from '../services/api'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
-  Filter, RefreshCw, Target, CheckCircle, Brain, Zap, Star, Plus,
-  Globe, Clock, TrendingUp, BarChart3, Settings, Search, BookOpen,
-  Code, GraduationCap, Briefcase, Users, Award, Target as TargetIcon
+  RefreshCw, CheckCircle, Brain, Zap, Star, Globe, Clock, X, 
+  FolderOpen, Target as TargetIcon, Settings, Code, BookOpen, CheckSquare
 } from 'lucide-react'
 import './recommendations-styles.css'
 import './gemini-recommendations-styles.css'
-import Select from 'react-select'
+import SmartContextSelector from '../components/SmartContextSelector'
 
 const Recommendations = () => {
   const { isAuthenticated, user } = useAuth()
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('all')
   const [refreshing, setRefreshing] = useState(false)
-  const [projects, setProjects] = useState([])
-  const [tasks, setTasks] = useState([])
-  const [emptyMessage, setEmptyMessage] = useState('')
-  const [taskAnalysis, setTaskAnalysis] = useState(null)
   const [geminiAvailable, setGeminiAvailable] = useState(false)
-  const [contextAnalysis, setContextAnalysis] = useState(null)
+  const [showContextSelector, setShowContextSelector] = useState(false)
+  const [selectedContext, setSelectedContext] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
-  const [filterOptions, setFilterOptions] = useState([
-    { value: 'all', label: 'All Recommendations' },
-    { value: 'general', label: 'General' }
-  ])
+  const [selectedEngine, setSelectedEngine] = useState('unified')
+  const [error, setError] = useState(null)
   
-
-  
-  // Recommendation form
-  const [recommendationForm, setRecommendationForm] = useState({
-    project_title: '',
-    project_description: '',
-    technologies: '',
-    learning_goals: ''
-  })
-  const [showRecommendationForm, setShowRecommendationForm] = useState(false)
-  const [enhancedFeatures, setEnhancedFeatures] = useState([])
-  const [performanceMetrics, setPerformanceMetrics] = useState(null)
-  const [batchProcessingStatus, setBatchProcessingStatus] = useState(null)
-
-  const [selectedProject, setSelectedProject] = useState(null)
-  
-  // Engine selection state
-  const [selectedEngine, setSelectedEngine] = useState('unified') // Default to unified
-  
-  // Engine configurations with better names and icons
+  // Engine configurations
   const engines = [
     {
       id: 'unified',
@@ -77,163 +51,49 @@ const Recommendations = () => {
       hoverColor: 'from-emerald-400 via-teal-400 to-emerald-500',
       glowColor: 'shadow-emerald-500/50',
       icon: Star
-    },
-    {
-      id: 'gemini',
-      name: 'AI Genius',
-      description: 'Advanced AI Insights',
-      color: 'from-orange-500 via-red-500 to-orange-600',
-      hoverColor: 'from-orange-400 via-red-400 to-orange-500',
-      glowColor: 'shadow-orange-500/50',
-      icon: Sparkles
     }
   ]
 
+  // Mouse tracking for animated background
   useEffect(() => {
     const handleMouseMove = (e) => {
-      setMousePos({ x: e.clientX, y: e.clientY });
-    };
+      setMousePos({ x: e.clientX, y: e.clientY })
+    }
     
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
 
+  // Initial load - check Gemini status and fetch recommendations
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchProjects()
+    if (isAuthenticated && user) {
       checkGeminiStatus()
-      fetchPerformanceMetrics()
-      checkBatchProcessingStatus()
       fetchRecommendations()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, user])
 
-  // Periodic refresh of batch processing status
+  // Periodic token refresh
   useEffect(() => {
-    if (!isAuthenticated) return
-    
-    const interval = setInterval(() => {
-      checkBatchProcessingStatus()
-    }, 10000) // Check every 10 seconds
-    
-    return () => clearInterval(interval)
-  }, [isAuthenticated])
-
-  // Periodic token refresh to prevent expiration
-  useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !user) return
     
     const tokenRefreshInterval = setInterval(() => {
       refreshTokenIfNeeded()
     }, 5 * 60 * 1000) // Refresh every 5 minutes
     
     return () => clearInterval(tokenRefreshInterval)
-  }, [isAuthenticated])
-
-  useEffect(() => {
-    if (isAuthenticated && filter) {
-      fetchRecommendations()
-    }
-  }, [filter, selectedProject, selectedEngine])
+  }, [isAuthenticated, user])
 
   const checkGeminiStatus = async () => {
     try {
-      console.log('Checking unified orchestrator status...')
       const response = await api.get('/api/recommendations/status')
-      console.log('Status response:', response.data)
-      
-      // Check if unified orchestrator is available
       if (response.data.unified_orchestrator_available) {
-        setGeminiAvailable(response.data.gemini_integration_available || false)
+        setGeminiAvailable(response.data.fast_gemini_available || false)
       } else {
         setGeminiAvailable(false)
       }
     } catch (error) {
       console.error('Error checking unified orchestrator status:', error)
       setGeminiAvailable(false)
-    }
-  }
-
-
-
-  const fetchPerformanceMetrics = async () => {
-    try {
-      console.log('Fetching performance metrics...')
-      const response = await api.get('/api/recommendations/performance-metrics')
-      console.log('Performance metrics response:', response.data)
-      
-      if (response.data.unified_orchestrator) {
-        setPerformanceMetrics(response.data.unified_orchestrator)
-      } else if (response.data.metrics) {
-        setPerformanceMetrics(response.data.metrics)
-      }
-    } catch (error) {
-      console.error('Error fetching performance metrics:', error)
-      // Set default metrics if API fails
-      setPerformanceMetrics({
-        total_requests: 0,
-        average_response_time_ms: 0,
-        cache_hit_rate: 0,
-        engine_usage: {},
-        gemini_enhancements: 0
-      })
-    }
-  }
-
-  const checkBatchProcessingStatus = async () => {
-    try {
-      const response = await api.get('/api/recommendations/analysis/stats')
-      console.log('Batch processing status:', response.data)
-      setBatchProcessingStatus(response.data)
-    } catch (error) {
-      console.error('Error fetching batch processing status:', error)
-    }
-  }
-
-  const fetchProjects = async () => {
-    try {
-      console.log('Fetching projects...')
-      const response = await api.get('/api/projects')
-      const userProjects = response.data.projects || []
-      console.log('Projects loaded:', userProjects)
-      setProjects(userProjects)
-      
-      // Fetch tasks for each project
-      const allTasks = []
-      for (const project of userProjects) {
-        try {
-          const tasksResponse = await api.get(`/api/projects/${project.id}/tasks`)
-          const projectTasks = tasksResponse.data.tasks || []
-          allTasks.push(...projectTasks.map(task => ({
-            ...task,
-            projectTitle: project.title
-          })))
-        } catch (error) {
-          console.error(`Error fetching tasks for project ${project.id}:`, error)
-        }
-      }
-      console.log('Tasks loaded:', allTasks)
-      setTasks(allTasks)
-      
-      // Update filter options to include projects and tasks
-      const projectOptions = userProjects.map(project => ({
-        value: `project_${project.id}`,
-        label: `Project: ${project.title}`
-      }))
-      
-      const taskOptions = allTasks.map(task => ({
-        value: `task_${task.id}`,
-        label: `Task: ${task.title} (${task.projectTitle})`
-      }))
-      
-      setFilterOptions([
-        { value: 'all', label: 'All Recommendations' },
-        { value: 'general', label: 'General' },
-        ...projectOptions,
-        ...taskOptions
-      ])
-    } catch (error) {
-      console.error('Error fetching projects:', error)
     }
   }
 
@@ -244,12 +104,7 @@ const Recommendations = () => {
     setError(null)
     
     try {
-      // Proactively refresh token if needed before making request
       await refreshTokenIfNeeded()
-      
-      console.log('Fetching recommendations with engine:', selectedEngine)
-      console.log('Filter:', filter)
-      console.log('Selected project:', selectedProject)
       
       // Determine endpoint based on selected engine
       let endpoint
@@ -263,17 +118,15 @@ const Recommendations = () => {
         case 'quality':
           endpoint = '/api/recommendations/ensemble/quality'
           break
-        case 'gemini':
-          endpoint = '/api/recommendations/gemini'
-          break
         default:
           endpoint = '/api/recommendations/unified-orchestrator'
       }
       
+      // Build request payload based on selected context
       let data = {
-        title: selectedProject ? selectedProject.title : 'Learning Project',
-        description: selectedProject ? selectedProject.description : 'I want to learn and improve my skills',
-        technologies: selectedProject ? selectedProject.technologies : projects.map(p => p.technologies).filter(tech => tech && tech.trim()).join(', '),
+        title: 'General Learning',
+        description: 'I want to learn and improve my skills',
+        technologies: '',
         user_interests: 'Master relevant technologies and improve skills',
         max_recommendations: 10,
         engine_preference: 'auto',
@@ -285,64 +138,98 @@ const Recommendations = () => {
       
       // Add engine-specific payload
       if (selectedEngine === 'ensemble') {
-        data.engines = ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']
+        data.engines = ['unified']
         data.ensemble_method = 'weighted_voting'
-        console.log('Using ensemble with all engines:', data.engines)
       }
       
-      // Handle project-specific recommendations
-      if (filter.startsWith('project_')) {
-        const projectId = filter.replace('project_', '')
-        data.project_id = parseInt(projectId)
-      } else if (filter.startsWith('task_')) {
-        const taskId = filter.replace('task_', '')
-        endpoint = `/api/recommendations/task/${taskId}`
-        data = null
-      }
-      
-      console.log(`Fetching recommendations from: ${endpoint}`)
-      console.log('Request data:', data)
-      console.log('Active features:', {
-        gemini: geminiAvailable,
-        engine_preference: data.engine_preference
-      })
-      
-      const response = data ? 
-        await api.post(endpoint, data) : 
-        await api.get(endpoint)
+      const response = await api.post(endpoint, data)
       
       if (response.data.recommendations) {
         setRecommendations(response.data.recommendations)
-        setEnhancedFeatures(response.data.enhanced_features || [])
-        
-        // Extract contextual information from unified response
-        if (response.data.contextual_info) {
-          setContextualInfo(response.data.contextual_info)
-        }
-        
-        // Extract performance metrics
-        if (response.data.performance_metrics) {
-          setPerformanceMetrics(response.data.performance_metrics)
-        }
       } else {
         setRecommendations([])
-        setEnhancedFeatures([])
       }
     } catch (error) {
       console.error('Error fetching recommendations:', error)
       setRecommendations([])
-      setEnhancedFeatures([])
     } finally {
       setLoading(false)
     }
   }
 
-
-
   const handleRefresh = async () => {
     setRefreshing(true)
     await fetchRecommendations()
     setRefreshing(false)
+  }
+
+  const handleContextSelect = async (context) => {
+    setSelectedContext(context)
+    setShowContextSelector(false)
+    setLoading(true)
+    
+    try {
+      let endpoint = '/api/recommendations/unified-orchestrator'
+      let data = {}
+
+      if (context.type === 'general') {
+        data = {
+          title: 'General Learning',
+          description: 'I want to learn and improve my skills',
+          technologies: '',
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (context.type === 'surprise') {
+        data = {
+          title: 'Surprise Me',
+          description: 'Random quality learning content',
+          technologies: '',
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.5,
+          quality_threshold: 7,
+          include_global_content: true
+        }
+      } else if (context.type === 'project') {
+        data = {
+          title: context.title,
+          description: context.description || '',
+          technologies: context.technologies || '',
+          project_id: context.id,
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (context.type === 'task') {
+        data = {
+          title: context.title,
+          description: context.description || '',
+          technologies: context.projectTitle || '',
+          project_id: context.projectId,
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true
+        }
+      }
+      
+      const response = await api.post(endpoint, data)
+      setRecommendations(response.data.recommendations || [])
+    } catch (error) {
+      console.error('Error fetching recommendations:', error)
+      setRecommendations([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleFeedback = async (recommendationId, feedbackType) => {
@@ -351,8 +238,6 @@ const Recommendations = () => {
         content_id: recommendationId,
         feedback_type: feedbackType
       })
-      // Optionally refresh recommendations after feedback
-      // fetchRecommendations()
     } catch (error) {
       console.error('Error submitting feedback:', error)
     }
@@ -366,7 +251,6 @@ const Recommendations = () => {
         description: recommendation.description || '',
         category: 'recommended'
       })
-      // Remove from recommendations list
       setRecommendations(prev => prev.filter(rec => rec.id !== recommendation.id))
     } catch (error) {
       console.error('Error saving recommendation:', error)
@@ -436,199 +320,151 @@ const Recommendations = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 opacity-10">
-        <div 
-          className="absolute w-96 h-96 rounded-full"
-          style={{
-            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
-            left: mousePos.x - 192,
-            top: mousePos.y - 192,
-            transition: 'all 0.3s ease-out'
-          }}
-        />
-      </div>
-      
-      {/* Lightning Grid Background */}
-      <div className="fixed inset-0 opacity-5">
-        <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
-          {Array.from({ length: 576 }).map((_, i) => (
-            <div
-              key={i}
-              className="border border-blue-500/10 animate-pulse"
-              style={{
-                animationDelay: `${Math.random() * 5}s`,
-                animationDuration: `${4 + Math.random() * 3}s`
-              }}
-            />
-          ))}
+    <>
+      {error && <div className="error" style={{ color: 'red', marginBottom: '1em' }}>{error}</div>}
+      <div className="min-h-screen bg-black text-white relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="fixed inset-0 opacity-10">
+          <div 
+            className="absolute w-96 h-96 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              left: mousePos.x - 192,
+              top: mousePos.y - 192,
+              transition: 'all 0.3s ease-out'
+            }}
+          />
         </div>
-      </div>
+        
+        {/* Lightning Grid Background */}
+        <div className="fixed inset-0 opacity-5">
+          <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+            {Array.from({ length: 576 }).map((_, i) => (
+              <div
+                key={i}
+                className="border border-blue-500/10 animate-pulse"
+                style={{
+                  animationDelay: `${Math.random() * 5}s`,
+                  animationDuration: `${4 + Math.random() * 3}s`
+                }}
+              />
+            ))}
+          </div>
+        </div>
 
-      <div className="relative z-10">
-        {/* Main Content */}
-        <div className="w-full">
-          <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
-            {/* Header Section */}
-            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="relative">
-                    <Sparkles className="w-8 h-8 text-purple-400" />
-                    <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+        <div className="relative z-10">
+          <div className="w-full">
+            <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+              {/* Header Section */}
+              <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="relative">
+                      <Sparkles className="w-8 h-8 text-purple-400" />
+                      <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                    </div>
+                    <div>
+                      <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
+                        AI Recommendations
+                      </h1>
+                      <p className="text-gray-300 text-xl mt-2">Discover content tailored to your interests and projects</p>
+                    </div>
                   </div>
-                  <div>
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
-                      AI Recommendations
-                    </h1>
-                    <p className="text-gray-300 text-xl mt-2">Discover content tailored to your interests and projects</p>
-                  </div>
+                  <button 
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                    <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+                  </button>
                 </div>
-                <button 
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                >
-                  <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-                  <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
-                </button>
               </div>
-            </div>
 
-            {/* Engine Selection */}
-            <div className="mb-8">
-              <h3 className="text-lg font-semibold text-gray-200 mb-4">Choose Your Engine</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {engines.map((engine) => {
-                  const IconComponent = engine.icon
-                  const isSelected = selectedEngine === engine.id
-                  return (
+              {/* Smart Context Selector Button */}
+              <div className="mb-8">
+                <button
+                  onClick={() => setShowContextSelector(true)}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-purple-500/50 transition-all duration-300 transform hover:scale-[1.02] flex items-center justify-center gap-3"
+                >
+                  <TargetIcon className="w-6 h-6" />
+                  {selectedContext ? 
+                    `Change Context: ${selectedContext.title}` : 
+                    'Select Context for Recommendations'
+                  }
+                </button>
+                
+                {/* Selected Context Display */}
+                {selectedContext && (
+                  <div className="mt-4 flex items-center justify-between p-4 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl border border-purple-500/30">
+                    <div className="flex items-center gap-3">
+                      {selectedContext.type === 'project' ? (
+                        <FolderOpen className="w-5 h-5 text-purple-400" />
+                      ) : selectedContext.type === 'task' ? (
+                        <CheckSquare className="w-5 h-5 text-green-400" />
+                      ) : selectedContext.type === 'general' ? (
+                        <Globe className="w-5 h-5 text-blue-400" />
+                      ) : (
+                        <Sparkles className="w-5 h-5 text-yellow-400" />
+                      )}
+                      <div>
+                        <span className="text-white font-medium block">
+                          {selectedContext.title}
+                        </span>
+                        {selectedContext.technologies && (
+                          <span className="text-gray-400 text-sm">
+                            {selectedContext.technologies}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <button
-                      key={engine.id}
-                      onClick={() => setSelectedEngine(engine.id)}
-                      className={`relative p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                        isSelected
-                          ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
-                          : 'border-gray-600 bg-gray-800/50 hover:border-gray-500'
-                      }`}
+                      onClick={() => setSelectedContext(null)}
+                      className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
-                      <div className="flex items-center space-x-3">
-                        <IconComponent className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
-                        <div className="text-left">
-                          <div className={`font-semibold ${isSelected ? 'text-white' : 'text-gray-200'}`}>
-                            {engine.name}
-                          </div>
-                          <div className={`text-sm ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
-                            {engine.description}
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Engine Selection */}
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-200 mb-4">Choose Your Engine</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {engines.map((engine) => {
+                    const IconComponent = engine.icon
+                    const isSelected = selectedEngine === engine.id
+                    return (
+                      <button
+                        key={engine.id}
+                        onClick={() => setSelectedEngine(engine.id)}
+                        className={`relative p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
+                          isSelected
+                            ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
+                            : 'border-gray-600 bg-gray-800/50 hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <IconComponent className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
+                          <div className="text-left">
+                            <div className={`font-semibold ${isSelected ? 'text-white' : 'text-gray-200'}`}>
+                              {engine.name}
+                            </div>
+                            <div className={`text-sm ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                              {engine.description}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Batch Processing Status */}
-            {batchProcessingStatus && batchProcessingStatus.batch_processing_active && (
-              <div className="mb-6 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                  <div className="text-sm text-blue-300">
-                    <span className="font-medium">Background Analysis Active:</span> 
-                    {batchProcessingStatus.batch_message || `Processing ${batchProcessingStatus.pending_analysis || 0} items (${batchProcessingStatus.coverage_percentage || 0}% complete)`}
-                  </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
-            )}
 
-            {/* Filter Controls */}
-            <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800">
-              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between space-y-6 xl:space-y-0 xl:space-x-8">
-                {/* Filter Controls */}
-                <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-6">
-                  <div className="flex items-center space-x-3">
-                    <Filter className="w-5 h-5 text-blue-400" />
-                    <span className="text-white font-medium">Filter by:</span>
-                  </div>
-                  <div className="filter-container" style={{ minWidth: 200, position: 'relative', zIndex: 1000 }}>
-                    <Select
-                      classNamePrefix="react-select"
-                      value={filterOptions.find(opt => opt.value === filter)}
-                      onChange={option => {
-                        console.log('Filter changed to:', option.value)
-                        setFilter(option.value)
-                        // Update selectedProject when a project is selected
-                        if (option.value.startsWith('project_')) {
-                          const projectId = option.value.replace('project_', '')
-                          const project = projects.find(p => p.id.toString() === projectId)
-                          console.log('Selected project:', project)
-                          setSelectedProject(project || null)
-                        } else {
-                          console.log('No project selected')
-                          setSelectedProject(null)
-                        }
-                      }}
-                      options={filterOptions}
-                      isSearchable={false}
-                      styles={{
-                        control: (base, state) => ({
-                          ...base,
-                          background: 'rgba(30,32,48,0.9)',
-                          borderColor: state.isFocused ? '#a855f7' : 'rgba(255,255,255,0.1)',
-                          color: '#fff',
-                          borderRadius: 12,
-                          minHeight: 44,
-                          boxShadow: state.isFocused ? '0 0 0 3px rgba(168,85,247,0.1)' : 'none',
-                          fontWeight: 500,
-                          fontSize: 14,
-                          cursor: 'pointer',
-                        }),
-                        singleValue: base => ({ ...base, color: '#fff' }),
-                        menu: base => ({ 
-                          ...base, 
-                          background: '#1f1f23', 
-                          color: '#fff', 
-                          borderRadius: 12, 
-                          zIndex: 9999,
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          position: 'absolute',
-                          top: '100%',
-                          left: 0,
-                          right: 0,
-                          marginTop: '4px'
-                        }),
-                        option: (base, state) => ({
-                          ...base,
-                          background: state.isFocused ? 'rgba(168,85,247,0.15)' : 'transparent',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          padding: '12px 16px',
-                        }),
-                        dropdownIndicator: base => ({ ...base, color: '#a855f7' }),
-                        indicatorSeparator: base => ({ ...base, display: 'none' }),
-                        input: base => ({ ...base, color: '#fff' }),
-                      }}
-                    />
-                  </div>
-                  
-                  {/* Selected Project Indicator */}
-                  {selectedProject && (
-                    <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl p-3 border border-purple-500/30">
-                      <Target className="w-5 h-5 text-purple-400" />
-                      <span className="text-white font-medium">Project:</span>
-                      <span className="text-purple-300 font-semibold">{selectedProject.title}</span>
-                      <span className="text-gray-400 text-sm">({selectedProject.technologies})</span>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Engine Selection */}
-                {/* The Engine Selection block is now moved outside the filter section */}
-                
-                {/* Gemini Status */}
-                <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl p-3 border border-yellow-500/30">
+              {/* Gemini Status Badge */}
+              <div className="mb-8 flex justify-end">
+                <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl px-4 py-3 border border-yellow-500/30">
                   <Brain className="w-5 h-5 text-yellow-400" />
                   <span className="text-white font-medium">Gemini:</span>
                   <div className={`w-2 h-2 rounded-full ${geminiAvailable ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
@@ -637,255 +473,92 @@ const Recommendations = () => {
                   </span>
                 </div>
               </div>
-            </div>
 
-
-
-            {/* Enhanced Features Display */}
-            {enhancedFeatures && enhancedFeatures.length > 0 && (
-              <div className="mb-8 bg-gradient-to-br from-purple-900/20 to-pink-900/20 backdrop-blur-xl rounded-2xl p-6 border border-purple-500/30">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="relative">
-                    <Award className="w-6 h-6 text-purple-400" />
+              {/* Loading State */}
+              {loading ? (
+                <div className="text-center py-20">
+                  <div className="relative mb-6">
+                    <Sparkles className="w-12 h-12 text-purple-400 mx-auto animate-spin" />
                     <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
                   </div>
-                  <h3 className="text-xl font-semibold text-white">Smart AI Features</h3>
-                  <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
-                    <TargetIcon className="w-4 h-4 text-purple-400" />
-                    <span className="text-purple-300 text-sm font-medium">Phase 1+2</span>
-                  </div>
+                  <p className="text-xl text-gray-300">Finding the best content for you...</p>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {enhancedFeatures.map((feature, index) => (
-                    <div key={index} className="bg-gray-800/30 rounded-xl p-4 border border-gray-700/50">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                        <span className="text-gray-300 text-sm font-medium">{feature.replace(/_/g, ' ')}</span>
-                      </div>
-                    </div>
+              ) : recommendations.length > 0 ? (
+                /* Recommendations Grid */
+                <div className="grid grid-cols-1 gap-6">
+                  {recommendations.map((rec) => (
+                    <RecommendationCard 
+                      key={rec.id} 
+                      recommendation={rec} 
+                      onSave={() => handleSaveRecommendation(rec)}
+                      onFeedback={handleFeedback}
+                    />
                   ))}
                 </div>
-              </div>
-            )}
-
-
-              
-
-
-
-
-            {/* Context Analysis Display (Gemini Enhanced) */}
-            {contextAnalysis && (
-              <div className="mb-8 bg-gradient-to-br from-blue-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="relative">
-                    <Zap className="w-6 h-6 text-blue-400" />
-                    <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+              ) : (
+                /* Empty State */
+                <div className="text-center py-20 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+                  <div className="relative mb-6">
+                    <Sparkles className="w-16 h-16 text-purple-400 mx-auto" />
+                    <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
                   </div>
-                  <h3 className="text-xl font-semibold text-white">AI Context Analysis</h3>
-                  {geminiAvailable && (
-                    <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-600/20 to-purple-600/20 px-3 py-1 rounded-full">
-                      <Star className="w-4 h-4 text-blue-400" />
-                      <span className="text-blue-400 text-sm font-medium">Enhanced with Gemini AI</span>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {contextAnalysis.input_analysis && (
-                    <div className="bg-gray-800/30 rounded-xl p-4">
-                      <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                        <BarChart3 className="w-5 h-5 text-green-400" />
-                        <span>Input Analysis</span>
-                      </h4>
-                      <div className="space-y-3">
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Technologies:</span>
-                          <span className="text-blue-400">
-                            {contextAnalysis.input_analysis.technologies?.length > 0 
-                              ? contextAnalysis.input_analysis.technologies.join(', ') 
-                              : 'None detected'
-                            }
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Content Type:</span>
-                          <span className="text-blue-400">{contextAnalysis.input_analysis.content_type || 'Unknown'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Difficulty:</span>
-                          <span className="text-blue-400">{contextAnalysis.input_analysis.difficulty || 'Unknown'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Complexity Score:</span>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-20 h-2 bg-gray-700 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-gradient-to-r from-green-500 to-blue-500 transition-all duration-300"
-                                style={{ width: `${contextAnalysis.input_analysis.complexity_score || 0}%` }}
-                              />
-                            </div>
-                            <span className="text-blue-400 text-sm">{contextAnalysis.input_analysis.complexity_score || 0}%</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {contextAnalysis.gemini_insights && (
-                    <div className="bg-gray-800/30 rounded-xl p-4">
-                      <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                        <Brain className="w-5 h-5 text-purple-400" />
-                        <span>Gemini Insights</span>
-                      </h4>
-                      <div className="space-y-3">
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Project Type:</span>
-                          <span className="text-purple-400">{contextAnalysis.gemini_insights.project_type || 'Unknown'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Complexity Level:</span>
-                          <span className="text-purple-400">{contextAnalysis.gemini_insights.complexity_level || 'Unknown'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Development Stage:</span>
-                          <span className="text-purple-400">{contextAnalysis.gemini_insights.development_stage || 'Unknown'}</span>
-                        </div>
-                        {contextAnalysis.gemini_insights.learning_needs?.length > 0 && (
-                          <div>
-                            <span className="text-gray-300">Learning Needs:</span>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {contextAnalysis.gemini_insights.learning_needs.map((need, index) => (
-                                <span key={index} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
-                                  {need}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {contextAnalysis.gemini_insights.project_summary && (
-                          <div className="col-span-2">
-                            <span className="text-gray-300">Project Summary:</span>
-                            <p className="text-purple-400 text-sm mt-1">{contextAnalysis.gemini_insights.project_summary}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {contextAnalysis.processing_stats && (
-                  <div className="mt-6 bg-gray-800/30 rounded-xl p-4">
-                    <h4 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-                      <TrendingUp className="w-5 h-5 text-orange-400" />
-                      <span>Processing Stats</span>
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-orange-400">{contextAnalysis.processing_stats.total_bookmarks_analyzed || 0}</div>
-                        <div className="text-gray-400 text-sm">Bookmarks Analyzed</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-orange-400">{contextAnalysis.processing_stats.relevant_bookmarks_found || 0}</div>
-                        <div className="text-gray-400 text-sm">Relevant Found</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-orange-400">{contextAnalysis.processing_stats.gemini_enhanced ? 'Yes' : 'No'}</div>
-                        <div className="text-gray-400 text-sm">Gemini Enhanced</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-
-
-            {/* Loading State */}
-            {loading ? (
-              <div className="text-center py-20">
-                <div className="relative mb-6">
-                  <Sparkles className="w-12 h-12 text-purple-400 mx-auto animate-spin" />
-                  <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
-                </div>
-                <p className="text-xl text-gray-300">Finding the best content for you...</p>
-              </div>
-            ) : recommendations.length > 0 ? (
-              /* Recommendations Grid */
-              <div className="grid grid-cols-1 gap-6">
-                {recommendations.map((rec) => (
-                  <RecommendationCard 
-                    key={rec.id} 
-                    recommendation={rec} 
-                    isTaskRecommendation={filter.startsWith('task_')}
-                    onSave={() => handleSaveRecommendation(rec)}
-                  />
-                ))}
-              </div>
-            ) : (
-              /* Empty State */
-              <div className="text-center py-20 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
-                <div className="relative mb-6">
-                  <Sparkles className="w-16 h-16 text-purple-400 mx-auto" />
-                  <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-4">No recommendations yet</h3>
-                <p className="text-gray-400 mb-8 max-w-md mx-auto">
-                  {emptyMessage || (
-                    filter === 'all' 
-                      ? 'Start by adding some bookmarks and projects to get personalized recommendations.'
-                      : 'No recommendations found for this filter. Try refreshing or changing the filter.'
-                  )}
-                </p>
-                <div className="flex items-center justify-center space-x-4">
-                  <button 
-                    onClick={handleRefresh} 
-                    className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
-                  >
-                    <RefreshCw className="w-5 h-5" />
-                    <span>Refresh Recommendations</span>
-                  </button>
-                  {emptyMessage && emptyMessage.includes('No bookmarks found') && (
-                    <a 
-                      href="/save-content" 
+                  <h3 className="text-2xl font-bold text-white mb-4">No recommendations yet</h3>
+                  <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                    Select a context above or try refreshing to get personalized recommendations.
+                  </p>
+                  <div className="flex items-center justify-center space-x-4">
+                    <button 
+                      onClick={handleRefresh} 
+                      className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+                    >
+                      <RefreshCw className="w-5 h-5" />
+                      <span>Refresh Recommendations</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowContextSelector(true)} 
                       className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
                     >
-                      <Bookmark className="w-5 h-5" />
-                      <span>Add Your First Bookmark</span>
-                    </a>
-                  )}
+                      <TargetIcon className="w-5 h-5" />
+                      <span>Select Context</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </main>
+              )}
+            </main>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Smart Context Selector Modal */}
+      {showContextSelector && (
+        <SmartContextSelector
+          onSelect={handleContextSelect}
+          onClose={() => setShowContextSelector(false)}
+        />
+      )}
+    </>
   )
 }
 
-const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+const RecommendationCard = ({ recommendation, onSave, onFeedback }) => {
+  const [isExpanded, setIsExpanded] = useState(false)
 
-  // Check if this is a simple recommendation (new format)
+  // Check recommendation type
   const isSimpleRecommendation = recommendation.analysis && 
     (recommendation.analysis.text_similarity !== undefined || 
-     recommendation.analysis.interest_similarity !== undefined);
+     recommendation.analysis.interest_similarity !== undefined)
   
-  // Check if this is a Gemini-enhanced recommendation
   const isGeminiRecommendation = recommendation.analysis && 
     (recommendation.analysis.gemini_technologies !== undefined || 
-     recommendation.analysis.quality_indicators !== undefined);
+     recommendation.analysis.quality_indicators !== undefined)
 
-  // Check if this is a smart recommendation (new enhanced format)
   const isSmartRecommendation = recommendation.learning_path_fit !== undefined || 
     recommendation.project_applicability !== undefined || 
-    recommendation.skill_development !== undefined;
+    recommendation.skill_development !== undefined
 
-  // Check if this is an enhanced recommendation (Phase 1+2 format)
   const isEnhancedRecommendation = recommendation.algorithm_used !== undefined || 
     recommendation.confidence !== undefined ||
-    (recommendation.analysis && recommendation.analysis.algorithm_used);
+    (recommendation.analysis && recommendation.analysis.algorithm_used)
 
   return (
     <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all duration-300 hover:transform hover:scale-[1.01]">
@@ -921,16 +594,12 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
                   isEnhancedRecommendation ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 text-purple-400' :
                   isSmartRecommendation ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 text-purple-400' :
-                  isTaskRecommendation ? 'bg-green-600/20 text-green-400' :
                   isGeminiRecommendation ? 'bg-purple-600/20 text-purple-400' : 
                   'bg-blue-600/20 text-blue-400'
                 }`}>
                   {Math.round(recommendation.match_score || recommendation.score)}%
                   {isEnhancedRecommendation && <TargetIcon className="w-3 h-3 inline ml-1" />}
                   {isSmartRecommendation && <TargetIcon className="w-3 h-3 inline ml-1" />}
-                  {isTaskRecommendation && (recommendation.score || recommendation.match_score) >= 70 && (
-                    <CheckCircle className="w-3 h-3 inline ml-1" />
-                  )}
                   {isGeminiRecommendation && <Brain className="w-3 h-3 inline ml-1" />}
                 </span>
                 {isEnhancedRecommendation && (
@@ -964,8 +633,7 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
               {isEnhancedRecommendation ? 'Enhanced AI Analysis' :
                isSmartRecommendation ? 'Smart AI Analysis' :
                isGeminiRecommendation ? 'Gemini AI Analysis' : 
-               isSimpleRecommendation ? 'Similarity Analysis' : 
-               (isTaskRecommendation ? 'Precision Analysis' : 'AI Analysis')}
+               isSimpleRecommendation ? 'Similarity Analysis' : 'AI Analysis'}
             </h4>
             {isEnhancedRecommendation && (
               <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 px-3 py-1 rounded-full">
@@ -992,545 +660,154 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
               // Simple recommendation analysis
               <>
                 {recommendation.analysis.text_similarity !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Text Similarity</span>
-                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.analysis.text_similarity)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.text_similarity}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Text Similarity" 
+                    value={recommendation.analysis.text_similarity} 
+                    color="from-blue-500 to-purple-500"
+                    textColor="text-blue-400"
+                  />
                 )}
                 {recommendation.analysis.tech_overlap !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Technology Overlap</span>
-                      <span className="text-green-400 font-semibold">{Math.round(recommendation.analysis.tech_overlap)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.tech_overlap}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Technology Overlap" 
+                    value={recommendation.analysis.tech_overlap} 
+                    color="from-green-500 to-emerald-500"
+                    textColor="text-green-400"
+                  />
                 )}
                 {recommendation.analysis.interest_similarity !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Interest Similarity</span>
-                      <span className="text-orange-400 font-semibold">{Math.round(recommendation.analysis.interest_similarity)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.interest_similarity}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Interest Similarity" 
+                    value={recommendation.analysis.interest_similarity} 
+                    color="from-orange-500 to-red-500"
+                    textColor="text-orange-400"
+                  />
                 )}
                 {recommendation.analysis.diversity_score !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Diversity Score</span>
-                      <span className="text-pink-400 font-semibold">{Math.round(recommendation.analysis.diversity_score)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-pink-500 to-purple-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.diversity_score}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Diversity Score" 
+                    value={recommendation.analysis.diversity_score} 
+                    color="from-pink-500 to-purple-500"
+                    textColor="text-pink-400"
+                  />
                 )}
               </>
             ) : isSmartRecommendation ? (
               // Smart recommendation analysis
               <>
                 {recommendation.learning_path_fit !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Learning Path Fit</span>
-                      <span className="text-purple-400 font-semibold">{Math.round(recommendation.learning_path_fit * 100)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                        style={{width: `${recommendation.learning_path_fit * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Learning Path Fit" 
+                    value={recommendation.learning_path_fit * 100} 
+                    color="from-purple-500 to-pink-500"
+                    textColor="text-purple-400"
+                  />
                 )}
                 {recommendation.project_applicability !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Project Applicability</span>
-                      <span className="text-green-400 font-semibold">{Math.round(recommendation.project_applicability * 100)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                        style={{width: `${recommendation.project_applicability * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Project Applicability" 
+                    value={recommendation.project_applicability * 100} 
+                    color="from-green-500 to-emerald-500"
+                    textColor="text-green-400"
+                  />
                 )}
                 {recommendation.skill_development !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Skill Development</span>
-                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.skill_development * 100)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-                        style={{width: `${recommendation.skill_development * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Skill Development" 
+                    value={recommendation.skill_development * 100} 
+                    color="from-blue-500 to-cyan-500"
+                    textColor="text-blue-400"
+                  />
                 )}
               </>
             ) : isEnhancedRecommendation ? (
-              // Enhanced recommendation analysis (Phase 1+2)
+              // Enhanced recommendation analysis
               <>
                 {recommendation.confidence !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Confidence Score</span>
-                      <span className="text-purple-400 font-semibold">{Math.round(recommendation.confidence)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                        style={{width: `${recommendation.confidence}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Confidence Score" 
+                    value={recommendation.confidence} 
+                    color="from-purple-500 to-pink-500"
+                    textColor="text-purple-400"
+                  />
                 )}
                 {recommendation.quality_score !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Quality Score</span>
-                      <span className="text-green-400 font-semibold">{Math.round(recommendation.quality_score)}/10</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                        style={{width: `${(recommendation.quality_score / 10) * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Quality Score" 
+                    value={(recommendation.quality_score / 10) * 100} 
+                    color="from-green-500 to-emerald-500"
+                    textColor="text-green-400"
+                    displayValue={`${Math.round(recommendation.quality_score)}/10`}
+                  />
                 )}
                 {recommendation.diversity_score !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Diversity Score</span>
-                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.diversity_score * 100)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-                        style={{width: `${recommendation.diversity_score * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Diversity Score" 
+                    value={recommendation.diversity_score * 100} 
+                    color="from-blue-500 to-cyan-500"
+                    textColor="text-blue-400"
+                  />
                 )}
                 {recommendation.novelty_score !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Novelty Score</span>
-                      <span className="text-orange-400 font-semibold">{Math.round(recommendation.novelty_score * 100)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
-                        style={{width: `${recommendation.novelty_score * 100}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Novelty Score" 
+                    value={recommendation.novelty_score * 100} 
+                    color="from-orange-500 to-red-500"
+                    textColor="text-orange-400"
+                  />
                 )}
               </>
             ) : isGeminiRecommendation ? (
               // Gemini-enhanced recommendation analysis
               <>
                 {recommendation.analysis.technology_match !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Technology Match</span>
-                      <span className="text-purple-400 font-semibold">{Math.round(recommendation.analysis.technology_match)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.technology_match}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Technology Match" 
+                    value={recommendation.analysis.technology_match} 
+                    color="from-purple-500 to-pink-500"
+                    textColor="text-purple-400"
+                  />
                 )}
                 {recommendation.analysis.content_relevance !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Content Relevance</span>
-                      <span className="text-blue-400 font-semibold">{Math.round(recommendation.analysis.content_relevance)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.content_relevance}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Content Relevance" 
+                    value={recommendation.analysis.content_relevance} 
+                    color="from-blue-500 to-cyan-500"
+                    textColor="text-blue-400"
+                  />
                 )}
                 {recommendation.analysis.semantic_similarity !== undefined && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Semantic Similarity</span>
-                      <span className="text-green-400 font-semibold">{Math.round(recommendation.analysis.semantic_similarity)}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.semantic_similarity}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Semantic Similarity" 
+                    value={recommendation.analysis.semantic_similarity} 
+                    color="from-green-500 to-emerald-500"
+                    textColor="text-green-400"
+                  />
                 )}
                 {recommendation.analysis.quality_indicators && (
-                  <div className="bg-gray-800/30 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-300">Content Quality</span>
-                      <span className="text-yellow-400 font-semibold">{recommendation.analysis.quality_indicators.completeness || 0}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-300"
-                        style={{width: `${recommendation.analysis.quality_indicators.completeness || 0}%`}}
-                      />
-                    </div>
-                  </div>
+                  <MetricBar 
+                    label="Content Quality" 
+                    value={recommendation.analysis.quality_indicators.completeness || 0} 
+                    color="from-yellow-500 to-orange-500"
+                    textColor="text-yellow-400"
+                  />
                 )}
               </>
-            ) : isTaskRecommendation ? (
-              // Task recommendation analysis (old format)
-              <>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Technology Match</span>
-                    <span className="text-green-400 font-semibold">{Math.round(recommendation.analysis.tech_score)}/40</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.tech_score/40)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Task Type Alignment</span>
-                    <span className="text-blue-400 font-semibold">{Math.round(recommendation.analysis.task_type_score)}/25</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.task_type_score/25)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Requirements Match</span>
-                    <span className="text-purple-400 font-semibold">{Math.round(recommendation.analysis.requirements_score)}/20</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.requirements_score/20)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Semantic Similarity</span>
-                    <span className="text-orange-400 font-semibold">{Math.round(recommendation.analysis.semantic_score)}/15</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.semantic_score/15)*100}%`}}
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              // General recommendation analysis (old format)
-              <>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Technology Match</span>
-                    <span className="text-green-400 font-semibold">{Math.round(recommendation.analysis.tech_score)}/30</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.tech_score/30)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Content Relevance</span>
-                    <span className="text-blue-400 font-semibold">{Math.round(recommendation.analysis.content_score)}/20</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.content_score/20)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Difficulty Match</span>
-                    <span className="text-purple-400 font-semibold">{Math.round(recommendation.analysis.difficulty_score)}/15</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.difficulty_score/15)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Intent Alignment</span>
-                    <span className="text-orange-400 font-semibold">{Math.round(recommendation.analysis.intent_score)}/15</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.intent_score/15)*100}%`}}
-                    />
-                  </div>
-                </div>
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-300">Semantic Similarity</span>
-                    <span className="text-yellow-400 font-semibold">{Math.round(recommendation.analysis.semantic_score)}/20</span>
-                  </div>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-300"
-                      style={{width: `${(recommendation.analysis.semantic_score/20)*100}%`}}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
+            ) : null}
           </div>
           
-          {/* Content Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-gray-800/30 rounded-xl p-4">
+          {/* Technologies */}
+          {recommendation.analysis.technologies && (
+            <div className="bg-gray-800/30 rounded-xl p-4 mb-4">
               <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
                 <Settings className="w-4 h-4 text-blue-400" />
                 <span>Technologies</span>
               </h5>
               <div className="flex flex-wrap gap-2">
-                {recommendation.analysis.technologies && recommendation.analysis.technologies.length > 0 ? (
+                {recommendation.analysis.technologies.length > 0 ? (
                   recommendation.analysis.technologies.map((tech, index) => (
                     <span key={index} className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
                       {tech}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-gray-500 text-sm">None detected</span>
-                )}
-              </div>
-            </div>
-            
-            {!isSimpleRecommendation && (
-              <div className="bg-gray-800/30 rounded-xl p-4">
-                <h5 className="text-white font-semibold mb-3">Content Details</h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Type:</span>
-                    <span className="text-gray-300">{recommendation.analysis.content_type}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Difficulty:</span>
-                    <span className="text-gray-300">{recommendation.analysis.complexity}</span>
-                  </div>
-                  {!isTaskRecommendation && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Intent:</span>
-                      <span className="text-gray-300">{recommendation.analysis.intent}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          
-          {/* Additional Details for Different Types */}
-          {isSimpleRecommendation && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {recommendation.analysis.bookmark_technologies && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3">Bookmark Technologies</h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.analysis.bookmark_technologies.length > 0 ? (
-                      recommendation.analysis.bookmark_technologies.map((tech, index) => (
-                        <span key={index} className="px-2 py-1 bg-green-600/20 text-green-400 text-xs rounded-lg">
-                          {tech}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-500 text-sm">None detected</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {recommendation.analysis.project_technologies && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3">Project Technologies</h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.analysis.project_technologies.length > 0 ? (
-                      recommendation.analysis.project_technologies.map((tech, index) => (
-                        <span key={index} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
-                          {tech}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-500 text-sm">None detected</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          
-          {isSmartRecommendation && (
-            <div className="grid grid-cols-1 gap-4 mb-6">
-              {recommendation.technologies && recommendation.technologies.length > 0 && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
-                    <Code className="w-4 h-4 text-purple-400" />
-                    <span>Technologies</span>
-                  </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.technologies.map((tech, index) => (
-                      <span key={index} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
-                        {tech}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {recommendation.key_concepts && recommendation.key_concepts.length > 0 && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
-                    <BookOpen className="w-4 h-4 text-blue-400" />
-                    <span>Key Concepts</span>
-                  </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.key_concepts.map((concept, index) => (
-                      <span key={index} className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
-                        {concept}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="bg-gray-800/30 rounded-xl p-4">
-                <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
-                  <TargetIcon className="w-4 h-4 text-purple-400" />
-                  <span>Content Details</span>
-                </h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Type:</span>
-                    <span className="text-gray-300">{recommendation.content_type || 'Article'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Difficulty:</span>
-                    <span className="text-gray-300">{recommendation.difficulty || 'Intermediate'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {isGeminiRecommendation && (
-            <div className="grid grid-cols-1 gap-4 mb-6">
-              {recommendation.analysis.gemini_technologies && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3 flex items-center space-x-2">
-                    <Brain className="w-4 h-4 text-purple-400" />
-                    <span>Gemini Technologies</span>
-                  </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.analysis.gemini_technologies.length > 0 ? (
-                      recommendation.analysis.gemini_technologies.map((tech, index) => (
-                        <span key={index} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
-                          {tech}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-500 text-sm">None detected</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {recommendation.analysis.gemini_summary && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3">Gemini Summary</h5>
-                  <p className="text-gray-300 text-sm">{recommendation.analysis.gemini_summary}</p>
-                </div>
-              )}
-              
-              {recommendation.analysis.learning_objectives && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3">Learning Objectives</h5>
-                  <div className="flex flex-wrap gap-2">
-                    {recommendation.analysis.learning_objectives.length > 0 ? (
-                      recommendation.analysis.learning_objectives.map((objective, index) => (
-                        <span key={index} className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
-                          {objective}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-500 text-sm">None detected</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {recommendation.analysis.target_audience && (
-                <div className="bg-gray-800/30 rounded-xl p-4">
-                  <h5 className="text-white font-semibold mb-3">Target Audience</h5>
-                  <p className="text-gray-300 text-sm">{recommendation.analysis.target_audience}</p>
-                </div>
-              )}
-            </div>
-          )}
-          
-          {isTaskRecommendation && recommendation.analysis.requirements && (
-            <div className="bg-gray-800/30 rounded-xl p-4 mb-6">
-              <h5 className="text-white font-semibold mb-3">Requirements</h5>
-              <div className="flex flex-wrap gap-2">
-                {recommendation.analysis.requirements.length > 0 ? (
-                  recommendation.analysis.requirements.map((req, index) => (
-                    <span key={index} className="px-2 py-1 bg-orange-600/20 text-orange-400 text-xs rounded-lg">
-                      {req}
                     </span>
                   ))
                 ) : (
@@ -1566,14 +843,14 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
           
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => handleFeedback(recommendation.id, 'positive')}
+              onClick={() => onFeedback(recommendation.id, 'positive')}
               className="p-2 bg-gray-800/50 hover:bg-green-600/20 text-gray-400 hover:text-green-400 border border-gray-700 hover:border-green-500/50 rounded-lg transition-all duration-300"
               title="Like this recommendation"
             >
               <ThumbsUp className="w-4 h-4" />
             </button>
             <button
-              onClick={() => handleFeedback(recommendation.id, 'negative')}
+              onClick={() => onFeedback(recommendation.id, 'negative')}
               className="p-2 bg-gray-800/50 hover:bg-red-600/20 text-gray-400 hover:text-red-400 border border-gray-700 hover:border-red-500/50 rounded-lg transition-all duration-300"
               title="Dislike this recommendation"
             >
@@ -1581,18 +858,27 @@ const RecommendationCard = ({ recommendation, isTaskRecommendation, onSave }) =>
             </button>
           </div>
         </div>
-        
-        {recommendation.notes && (
-          <div className="mt-4 pt-4 border-t border-gray-800">
-            <div className="bg-gray-800/30 rounded-lg p-3">
-              <span className="text-gray-400 font-medium">Notes: </span>
-              <span className="text-gray-300">{recommendation.notes}</span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
 }
+
+// Helper component for metric bars
+const MetricBar = ({ label, value, color, textColor, displayValue }) => (
+  <div className="bg-gray-800/30 rounded-xl p-4">
+    <div className="flex justify-between items-center mb-2">
+      <span className="text-gray-300">{label}</span>
+      <span className={`${textColor} font-semibold`}>
+        {displayValue || `${Math.round(value)}%`}
+      </span>
+    </div>
+    <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+      <div 
+        className={`h-full bg-gradient-to-r ${color} transition-all duration-300`}
+        style={{width: `${value}%`}}
+      />
+    </div>
+  </div>
+)
 
 export default Recommendations

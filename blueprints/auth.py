@@ -5,10 +5,12 @@ from flask_jwt_extended import (
 )
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
+from database_utils import retry_on_connection_error, ensure_database_connection
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 @auth_bp.route('/register', methods=['POST'])
+@retry_on_connection_error(max_retries=1, delay=1.0)
 def register():
     data = request.get_json()
     username = data.get('username')
@@ -18,6 +20,9 @@ def register():
     
     if not username or not email or not password:
         return jsonify({'message': 'Username, email, and password are required'}), 400
+    
+    # Ensure database connection before queries
+    ensure_database_connection()
     
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'Username already exists'}), 409
@@ -31,6 +36,7 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
+    """Optimized login endpoint without retry decorators for better performance"""
     data = request.get_json()
     identifier = data.get('username') or data.get('email')
     password = data.get('password')
@@ -38,26 +44,69 @@ def login():
     if not identifier or not password:
         return jsonify({'message': 'Username/email and password required'}), 400
     
-    user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
-    if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({'message': 'Invalid credentials'}), 401
+    try:
+        # Direct database query without connection checks for speed
+        user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({'message': 'Invalid credentials'}), 401
+        
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
+        
+        response = jsonify({
+            'access_token': access_token,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email
+            }
+        })
+        
+        # Set refresh token in HTTP-only cookie
+        set_refresh_cookies(response, refresh_token)
+        
+        return response, 200
+        
+    except Exception as e:
+        # Only retry on actual database connection errors
+        if 'connection' in str(e).lower() or 'timeout' in str(e).lower():
+            # Fallback to retry mechanism for connection issues
+            return login_with_retry(identifier, password)
+        else:
+            return jsonify({'message': 'Login failed'}), 500
+
+def login_with_retry(identifier, password):
+    """Fallback login method with retry logic for connection issues"""
+    @retry_on_connection_error(max_retries=1, delay=1.0)
+    def _login():
+        ensure_database_connection()
+        user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return None
+        return user
     
-    access_token = create_access_token(identity=str(user.id))
-    refresh_token = create_refresh_token(identity=str(user.id))
-    
-    response = jsonify({
-        'access_token': access_token,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'email': user.email
-        }
-    })
-    
-    # Set refresh token in HTTP-only cookie
-    set_refresh_cookies(response, refresh_token)
-    
-    return response, 200
+    try:
+        user = _login()
+        if not user:
+            return jsonify({'message': 'Invalid credentials'}), 401
+        
+        access_token = create_access_token(identity=str(user.id))
+        refresh_token = create_refresh_token(identity=str(user.id))
+        
+        response = jsonify({
+            'access_token': access_token,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email
+            }
+        })
+        
+        set_refresh_cookies(response, refresh_token)
+        return response, 200
+        
+    except Exception as e:
+        return jsonify({'message': 'Login failed'}), 500
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
@@ -81,9 +130,14 @@ def get_csrf_token_endpoint():
 
 @auth_bp.route('/verify-token', methods=['POST'])
 @jwt_required()
+@retry_on_connection_error(max_retries=1, delay=1.0)
 def verify_token():
     """Verify if the current token is valid"""
     current_user_id = get_jwt_identity()
+    
+    # Ensure database connection before query
+    ensure_database_connection()
+    
     user = User.query.get(current_user_id)
     
     if not user:

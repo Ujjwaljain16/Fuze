@@ -1,52 +1,49 @@
-import os
-from dotenv import load_dotenv
+"""
+Configuration module for Fuze
+Now uses UnifiedConfig as single source of truth - NO hardcoded values!
+"""
 
-# Load environment variables from .env file
-load_dotenv()
+from unified_config import get_config
 
+# Get unified configuration instance
+unified_config = get_config()
+
+# Create Config class for Flask compatibility
 class Config:
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False # Suppresses a warning; good practice to set to False
-    SECRET_KEY = os.environ.get('SECRET_KEY')
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+    """Flask configuration - now powered by UnifiedConfig"""
     
-    # Environment detection
-    ENV = os.environ.get('FLASK_ENV', 'development')
-    DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    # Get all Flask-specific config from unified config
+    _flask_config = unified_config.get_flask_config()
     
-    # HTTPS and Security Settings
-    HTTPS_ENABLED = os.environ.get('HTTPS_ENABLED', 'False').lower() == 'true'
-    CSRF_ENABLED = os.environ.get('CSRF_ENABLED', 'False').lower() == 'true'
+    # Apply Flask config - all values come from unified_config (environment variables or defaults)
+    SECRET_KEY = _flask_config['SECRET_KEY']
+    JWT_SECRET_KEY = _flask_config['JWT_SECRET_KEY']
+    JWT_ACCESS_TOKEN_EXPIRES = _flask_config['JWT_ACCESS_TOKEN_EXPIRES']
+    JWT_REFRESH_TOKEN_EXPIRES = _flask_config['JWT_REFRESH_TOKEN_EXPIRES']
     
-    # JWT Configuration
-    JWT_ACCESS_TOKEN_EXPIRES = 60  # minutes (increased from 15 to 60)
-    JWT_REFRESH_TOKEN_EXPIRES = 14  # days
-    JWT_TOKEN_LOCATION = ['headers', 'cookies']
-    JWT_COOKIE_SECURE = HTTPS_ENABLED  # Only send cookies over HTTPS
-    JWT_COOKIE_SAMESITE = 'Strict'
-    JWT_COOKIE_CSRF_PROTECT = CSRF_ENABLED
-    JWT_CSRF_IN_COOKIES = CSRF_ENABLED
-    JWT_CSRF_CHECK_FORM = CSRF_ENABLED
+    SQLALCHEMY_DATABASE_URI = _flask_config['SQLALCHEMY_DATABASE_URI']
+    SQLALCHEMY_TRACK_MODIFICATIONS = _flask_config['SQLALCHEMY_TRACK_MODIFICATIONS']
+    SQLALCHEMY_ENGINE_OPTIONS = _flask_config['SQLALCHEMY_ENGINE_OPTIONS']
     
-    # CORS Configuration
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    CORS_ORIGINS = _flask_config['CORS_ORIGINS']
     
-    # Session Configuration
-    SESSION_COOKIE_SECURE = HTTPS_ENABLED
-    SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'Strict'
+    # Redis URL
+    REDIS_URL = unified_config.get_redis_url()
+    
+    # Gemini API
+    GEMINI_API_KEY = unified_config.ai.gemini_api_key
 
 class DevelopmentConfig(Config):
-    DEBUG = True
-    HTTPS_ENABLED = False
-    CSRF_ENABLED = False
-    JWT_COOKIE_SECURE = False
-    JWT_COOKIE_CSRF_PROTECT = False
+    """Development configuration"""
+    DEBUG = unified_config.debug and unified_config.is_development()
 
 class ProductionConfig(Config):
+    """Production configuration"""
     DEBUG = False
-    HTTPS_ENABLED = True
-    CSRF_ENABLED = True
-    JWT_COOKIE_SECURE = True
-    JWT_COOKIE_CSRF_PROTECT = True 
+    # Production settings are already handled in unified_config
+
+# Select config based on environment
+config = ProductionConfig if unified_config.is_production() else DevelopmentConfig
+
+# Export unified config for direct access if needed
+__all__ = ['Config', 'DevelopmentConfig', 'ProductionConfig', 'config', 'unified_config']

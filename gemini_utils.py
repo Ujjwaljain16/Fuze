@@ -6,9 +6,33 @@ import logging
 import time
 import re
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global instance for simple usage
+_global_analyzer = None
+
+def get_gemini_response(prompt: str, temperature: float = 0.3) -> Optional[str]:
+    """
+    Simple wrapper function for getting Gemini responses
+    Used by explainability engine and other modules
+    """
+    global _global_analyzer
+    
+    try:
+        if _global_analyzer is None:
+            _global_analyzer = GeminiAnalyzer()
+        
+        response = _global_analyzer._make_gemini_request(prompt)
+        return response
+    except Exception as e:
+        logger.error(f"Error in get_gemini_response: {e}")
+        return None
 
 class GeminiAnalyzer:
     """
@@ -87,41 +111,55 @@ class GeminiAnalyzer:
         """
         Extract JSON from Gemini response, handling various response formats
         """
+        import logging
         if not response_text:
             return None
-            
         # Try to find JSON in the response
-        # Look for JSON blocks marked with ```json or ```
         json_patterns = [
-            r'```json\s*(.*?)\s*```',
-            r'```\s*(.*?)\s*```',
-            r'\{.*\}',
+            r'```json\s*([\s\S]*?)```',
+            r'```\s*([\s\S]*?)```',
+            r'\{[\s\S]*?\}',
         ]
-        
         for pattern in json_patterns:
             matches = re.findall(pattern, response_text, re.DOTALL)
             for match in matches:
                 try:
-                    # Clean up the match
                     cleaned = match.strip()
                     if cleaned.startswith('{') and cleaned.endswith('}'):
                         return json.loads(cleaned)
-                except json.JSONDecodeError:
+                except Exception as e:
                     continue
-        
-        # If no JSON found in code blocks, try to parse the entire response
+        # Try to parse the entire response if it looks like JSON
         try:
-            # Remove any markdown formatting
             cleaned_response = re.sub(r'^```.*?\n', '', response_text, flags=re.MULTILINE)
             cleaned_response = re.sub(r'\n```$', '', cleaned_response, flags=re.MULTILINE)
             cleaned_response = cleaned_response.strip()
-            
             if cleaned_response.startswith('{') and cleaned_response.endswith('}'):
                 return json.loads(cleaned_response)
-        except json.JSONDecodeError:
+        except Exception:
             pass
-            
+        # Log the raw response for debugging
+        logging.warning(f"Could not extract JSON from Gemini response. Raw response: {response_text[:500]}")
         return None
+
+    def filter_bad_recommendations(self, recommendations: list) -> list:
+        """
+        Remove recommendations with empty/junk titles, reasons, or unreasonably high/low scores.
+        """
+        filtered = []
+        for rec in recommendations:
+            title = rec.get('title', '').strip()
+            reason = rec.get('reason', '').strip()
+            score = rec.get('score', 0)
+            # Filter out empty, junk, or nonsense
+            if not title or title.lower().startswith('1 +') or 'problem description' in title.lower():
+                continue
+            if not reason or reason.lower() in {'n/a', 'none', 'junk', 'irrelevant'}:
+                continue
+            if not (0 <= score <= 100):  # Adjust score range as needed
+                continue
+            filtered.append(rec)
+        return filtered
     
     def analyze_bookmark_content(self, title: str, description: str, content: str, url: str = "") -> Dict:
         """
@@ -322,6 +360,108 @@ class GeminiAnalyzer:
         except Exception as e:
             logger.error(f"Gemini reasoning generation failed: {e}")
             return self._get_fallback_reasoning(bookmark, user_context)
+
+    def generate_batch_recommendation_reasoning(self, batch_context: Dict) -> List[str]:
+        """
+        Generate AI-powered reasoning for multiple recommendations in batch
+        Uses ContentAnalysis data for better context and accuracy
+        """
+        try:
+            user_request = batch_context.get('user_request', {})
+            recommendations = batch_context.get('recommendations', [])
+            
+            if not recommendations:
+                return []
+            
+            # Prepare comprehensive prompt for batch processing
+            prompt = f"""
+            You are an AI assistant that explains why specific content recommendations are relevant to a user's needs.
+            
+            USER REQUEST:
+            Title: {user_request.get('title', 'N/A')}
+            Description: {user_request.get('description', 'N/A')}
+            Technologies: {user_request.get('technologies', 'N/A')}
+            Intent Analysis: {user_request.get('intent_analysis', 'N/A')}
+            
+            RECOMMENDATIONS TO ANALYZE:
+            """
+            
+            for i, rec in enumerate(recommendations):
+                content_analysis = rec.get('content_analysis', {})
+                prompt += f"""
+                {i+1}. Content: {rec.get('content_title', 'N/A')}
+                    URL: {rec.get('content_url', 'N/A')}
+                    Technologies: {rec.get('content_technologies', [])}
+                    Content Type: {rec.get('content_type', 'article')}
+                    Difficulty: {rec.get('difficulty', 'intermediate')}
+                    Quality Score: {rec.get('quality_score', 10)}
+                    Similarity Score: {rec.get('similarity', 0):.3f}
+                    Tech Overlap: {rec.get('tech_overlap', 0):.3f}
+                    """
+                
+                # Add ContentAnalysis data if available
+                if content_analysis:
+                    prompt += f"""
+                    CONTENT ANALYSIS:
+                    Key Concepts: {content_analysis.get('key_concepts', 'N/A')}
+                    Technology Tags: {content_analysis.get('technology_tags', 'N/A')}
+                    Relevance Score: {content_analysis.get('relevance_score', 'N/A')}
+                    Analysis Summary: {content_analysis.get('analysis_summary', 'N/A')}
+                    """
+            
+            prompt += f"""
+            
+            For each recommendation (1-{len(recommendations)}), generate a concise, specific reason (2-3 sentences) explaining why this content is relevant to the user's request.
+            
+            Focus on:
+            1. How the content directly addresses the user's needs based on the intent analysis
+            2. Technology alignment and overlap
+            3. Specific value or learning outcome
+            4. Content quality and difficulty match
+            
+            If content is not very relevant (low similarity/overlap), be honest about the limited relevance.
+            
+            Return a JSON array with exactly {len(recommendations)} reasons, one for each recommendation:
+            [
+                "Reason for recommendation 1",
+                "Reason for recommendation 2",
+                ...
+            ]
+            
+            Ensure the JSON is valid and contains exactly {len(recommendations)} strings.
+            """
+            
+            response = self._make_gemini_request(prompt)
+            if response:
+                # Extract JSON array from response
+                json_data = self._extract_json_from_response(response)
+                if json_data and isinstance(json_data, list) and len(json_data) == len(recommendations):
+                    logger.info(f"Successfully generated batch recommendation reasoning for {len(recommendations)} items")
+                    return [str(reason).strip() for reason in json_data]
+                else:
+                    logger.warning(f"Invalid batch reasoning response format, falling back to individual")
+                    return self._generate_individual_reasons(recommendations, user_request)
+            else:
+                logger.warning("Batch reasoning failed, falling back to individual")
+                return self._generate_individual_reasons(recommendations, user_request)
+                
+        except Exception as e:
+            logger.error(f"Error generating batch recommendation reasoning: {e}")
+            return self._generate_individual_reasons(recommendations, user_request)
+
+    def _generate_individual_reasons(self, recommendations: List[Dict], user_request: Dict) -> List[str]:
+        """
+        Fallback: Generate individual reasons when batch processing fails
+        """
+        reasons = []
+        for rec in recommendations:
+            try:
+                reason = self.generate_recommendation_reasoning(rec, user_request)
+                reasons.append(reason)
+            except Exception as e:
+                logger.error(f"Error generating individual reason: {e}")
+                reasons.append("Content recommended based on relevance scoring.")
+        return reasons
     
     def _get_fallback_reasoning(self, bookmark: Dict, user_context: Dict) -> str:
         """

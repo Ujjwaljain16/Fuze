@@ -137,7 +137,17 @@ class PerformanceDiagnostic:
             
             # Test batch embedding (if available)
             try:
+                import torch
                 model = SentenceTransformer('all-MiniLM-L6-v2')
+                
+                # Fix meta tensor issue by using to_empty() instead of to()
+                if hasattr(torch, 'meta') and torch.meta.is_available():
+                    # Use to_empty() for meta tensors
+                    model = model.to_empty(device='cpu')
+                else:
+                    # Fallback to CPU
+                    model = model.to('cpu')
+                
                 start_time = time.time()
                 batch_embeddings = model.encode(test_texts, batch_size=5)
                 batch_embedding_time = (time.time() - start_time) * 1000

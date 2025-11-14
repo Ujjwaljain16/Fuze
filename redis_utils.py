@@ -7,6 +7,10 @@ from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import numpy as np
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 class RedisCache:
     """Redis cache utility for Fuze application"""
     
@@ -208,6 +212,51 @@ class RedisCache:
             return {"connected": True, "error": str(e)}
     
     # Generic Cache Methods
+    def get_cache(self, key: str) -> Optional[Any]:
+        """Generic method to get cached data"""
+        if not self.connected:
+            return None
+        
+        try:
+            data_bytes = self.redis_client.get(key)
+            if data_bytes is None:
+                return None
+            
+            # Try to deserialize data
+            try:
+                # Try pickle first (for numpy arrays)
+                return pickle.loads(data_bytes)
+            except:
+                # Try JSON if pickle fails
+                return json.loads(data_bytes.decode())
+                
+        except Exception as e:
+            print(f"Error getting cache: {e}")
+            return None
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Alias for get_cache method"""
+        return self.get_cache(key)
+    
+    def setex(self, key: str, ttl: int, value: Any) -> bool:
+        """Set cache with expiration time"""
+        if not self.connected:
+            return False
+        
+        try:
+            # Serialize data
+            if isinstance(value, np.ndarray):
+                data_bytes = pickle.dumps(value)
+            elif isinstance(value, str):
+                data_bytes = value.encode()
+            else:
+                data_bytes = json.dumps(value, default=str).encode()
+            
+            return self.redis_client.setex(key, ttl, data_bytes)
+        except Exception as e:
+            print(f"Error setting cache with TTL: {e}")
+            return False
+    
     def set_cache(self, key: str, data: Any, ttl: int = 3600) -> bool:
         """Generic method to cache any data"""
         if not self.connected:
@@ -224,26 +273,6 @@ class RedisCache:
         except Exception as e:
             print(f"Error setting cache: {e}")
             return False
-    
-    def get_cache(self, key: str) -> Optional[Any]:
-        """Generic method to get cached data"""
-        if not self.connected:
-            return None
-        
-        try:
-            data_bytes = self.redis_client.get(key)
-            if data_bytes:
-                # Try to deserialize as JSON first, then as pickle
-                try:
-                    return json.loads(data_bytes.decode())
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    try:
-                        return pickle.loads(data_bytes)
-                    except:
-                        return data_bytes.decode()
-        except Exception as e:
-            print(f"Error getting cache: {e}")
-        return None
     
     def delete_cache(self, key: str) -> bool:
         """Delete cached data by key"""

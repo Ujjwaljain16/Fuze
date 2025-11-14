@@ -18,8 +18,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initializeAuth = async () => {
-      // Initialize CSRF token
-      await initializeCSRF()
+      // Initialize CSRF token in background (non-blocking)
+      initializeCSRF().catch(console.warn)
       
       if (token) {
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`

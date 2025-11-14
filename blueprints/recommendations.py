@@ -13,11 +13,16 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from dataclasses import asdict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint FIRST to avoid circular imports
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
+
+# Import models for new endpoints
+try:
+    from models import db, SavedContent, Project, Task, User, UserFeedback
+    MODELS_AVAILABLE = True
+except ImportError:
+    MODELS_AVAILABLE = False
+    logger.warning("⚠️ Models not available for context endpoints")
 
 # Initialize global flags for engine availability
 UNIFIED_ORCHESTRATOR_AVAILABLE = False
@@ -38,113 +51,53 @@ ENHANCED_MODULES_AVAILABLE = False
 # Global engine instances (will be initialized lazily)
 unified_engine_instance = None
 embedding_model = None
-gemini_analyzer = None
-rate_limiter = None
 
 def init_models():
     """Initialize models with error handling"""
-    global embedding_model, gemini_analyzer, rate_limiter
+    global embedding_model
     
     try:
         from sentence_transformers import SentenceTransformer
+        import torch
+        
+        # Initialize model
         embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # More robust meta tensor handling
+        try:
+            # Check if we're dealing with meta tensors
+            if hasattr(torch, 'meta') and torch.meta.is_available():
+                # Use to_empty() for meta tensors
+                embedding_model = embedding_model.to_empty(device='cpu')
+                logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
+            else:
+                # Fallback to CPU
+                embedding_model = embedding_model.to('cpu')
+                logger.info("✅ Embedding model loaded with to() for CPU")
+        except Exception as tensor_error:
+            logger.warning(f"Tensor device placement error: {tensor_error}")
+            # Try alternative approach - don't move the model
+            logger.info("Using embedding model without device placement")
+        
         logger.info("Embedding model initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing embedding model: {e}")
         embedding_model = None
-    
-    try:
-        from gemini_utils import GeminiAnalyzer
-        from rate_limit_handler import GeminiRateLimiter
-        gemini_analyzer = GeminiAnalyzer()
-        rate_limiter = GeminiRateLimiter()
-        logger.info("Gemini components initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing Gemini components: {e}")
-        gemini_analyzer = None
-        rate_limiter = None
 
 def init_engines():
     """Initialize recommendation engines with lazy loading"""
-    global UNIFIED_ORCHESTRATOR_AVAILABLE, UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE
-    global PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE, ENHANCED_MODULES_AVAILABLE
-    global unified_engine_instance
+    global UNIFIED_ORCHESTRATOR_AVAILABLE
     
-    # Import unified orchestrator
+    # Import unified orchestrator (PRODUCTION-OPTIMIZED ENGINE)
     try:
-        from unified_recommendation_orchestrator import get_unified_orchestrator, UnifiedRecommendationRequest
-        from gemini_integration_layer import get_gemini_integration
+        from unified_recommendation_orchestrator import get_unified_orchestrator
         UNIFIED_ORCHESTRATOR_AVAILABLE = True
-        logger.info("Unified orchestrator initialized successfully")
+        logger.info("✅ Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
     except ImportError as e:
-        logger.warning(f"Unified orchestrator not available: {e}")
+        logger.error(f"❌ Unified orchestrator not available: {e}")
         UNIFIED_ORCHESTRATOR_AVAILABLE = False
 
-    # Import enhanced modules
-    try:
-        from advanced_tech_detection import advanced_tech_detector
-        from adaptive_scoring_engine import adaptive_scoring_engine
-        ENHANCED_MODULES_AVAILABLE = True
-        logger.info("Enhanced modules initialized successfully")
-    except ImportError as e:
-        logger.warning(f"Enhanced modules not available: {e}")
-        ENHANCED_MODULES_AVAILABLE = False
 
-    # Import standalone engines with error handling
-    try:
-        from unified_recommendation_engine import UnifiedRecommendationEngine
-        unified_engine_instance = UnifiedRecommendationEngine()
-        UNIFIED_ENGINE_AVAILABLE = True
-        logger.info("Unified recommendation engine initialized")
-    except ImportError as e:
-        logger.warning(f"Unified recommendation engine not available: {e}")
-        UNIFIED_ENGINE_AVAILABLE = False
-
-    try:
-        from enhanced_recommendation_engine import get_enhanced_recommendations, unified_engine
-        ENHANCED_ENGINE_AVAILABLE = True
-        logger.info("Enhanced recommendation engine initialized")
-    except ImportError as e:
-        logger.warning(f"Enhanced recommendation engine not available: {e}")
-        ENHANCED_ENGINE_AVAILABLE = False
-
-    try:
-        from phase3_enhanced_engine import (
-            get_enhanced_recommendations_phase3,
-            record_user_feedback_phase3,
-            get_user_learning_insights,
-            get_system_health_phase3
-        )
-        PHASE3_ENGINE_AVAILABLE = True
-        logger.info("Phase 3 enhanced engine initialized")
-    except ImportError as e:
-        logger.warning(f"Phase 3 enhanced engine not available: {e}")
-        PHASE3_ENGINE_AVAILABLE = False
-
-    # Check if SmartRecommendationEngine can be imported (but don't instantiate)
-    try:
-        from smart_recommendation_engine import SmartRecommendationEngine
-        SMART_ENGINE_AVAILABLE = True
-        logger.info("Smart recommendation engine import successful")
-    except ImportError as e:
-        logger.warning(f"Smart recommendation engine not available: {e}")
-        SMART_ENGINE_AVAILABLE = False
-
-    # Check if FastGeminiEngine can be imported (but don't instantiate)
-    try:
-        # Try the correct class name first
-        from fast_gemini_engine import AdvancedGeminiEngine as FastGeminiEngine
-        FAST_GEMINI_AVAILABLE = True
-        logger.info("Fast Gemini engine import successful (AdvancedGeminiEngine)")
-    except ImportError:
-        try:
-            # Fallback to old name if it exists
-            from fast_gemini_engine import FastGeminiEngine
-            FAST_GEMINI_AVAILABLE = True
-            logger.info("Fast Gemini engine import successful (FastGeminiEngine)")
-        except ImportError as e:
-            logger.warning(f"Fast Gemini engine not available: {e}")
-            FAST_GEMINI_AVAILABLE = False
 
 # Lazy initialization functions
 def get_unified_engine():
@@ -170,14 +123,7 @@ def get_smart_engine(user_id):
         logger.error(f"Failed to initialize smart engine: {e}")
         return None
 
-def get_fast_gemini_engine(user_id):
-    """Get fast Gemini engine instance with lazy initialization"""
-    try:
-        from fast_gemini_engine import AdvancedGeminiEngine
-        return AdvancedGeminiEngine()
-    except Exception as e:
-        logger.error(f"Failed to initialize fast Gemini engine: {e}")
-        return None
+
 
 # Cache management functions
 def get_cached_recommendations(cache_key):
@@ -211,80 +157,35 @@ def invalidate_user_recommendations(user_id):
 # API ROUTES - Using Unified Orchestrator
 # ============================================================================
 
-@recommendations_bp.route('/gemini', methods=['POST'])
-@jwt_required()
-def get_gemini_recommendations():
-    """Get Gemini AI-powered recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Import Gemini integration
-        try:
-            from gemini_integration_layer import get_gemini_enhanced_recommendations
-        except ImportError as e:
-            logger.error(f"Gemini integration not available: {e}")
-            return jsonify({'error': 'Gemini integration not available'}), 500
-        
-        # Get Gemini recommendations
-        results = get_gemini_enhanced_recommendations(user_id, data)
-        
-        response = {
-            'recommendations': results,
-            'total_recommendations': len(results),
-            'engine_used': 'Gemini AI',
-            'performance_metrics': {
-                'ai_enhanced': True,
-                'total_recommendations': len(results)
-            },
-            'request_processed': {
-                'title': data.get('title', ''),
-                'technologies': data.get('technologies', ''),
-                'ai_enhanced': True
-            }
-        }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logger.error(f"Error in Gemini recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+
 
 @recommendations_bp.route('/ensemble', methods=['POST'])
 @jwt_required()
 def get_ensemble_recommendations():
-    """Get ensemble recommendations using optimized ensemble engine"""
+    """Get ensemble recommendations using only SmartRecommendationEngine and FastGeminiEngine (AI/NLP-powered)"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
-        # Use optimized ensemble engine
+        # Use refactored ensemble engine (AI/NLP only)
         try:
             from ensemble_engine import get_ensemble_recommendations as get_ensemble
             results = get_ensemble(user_id, data)
-            
             response = {
                 'recommendations': results,
                 'total_recommendations': len(results),
-                'engine_used': 'CompleteEnsemble',
+                'engine_used': 'AI_NLP_Ensemble',
                 'performance_metrics': {
                     'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
-                    'optimization_level': 'complete_all_engines'
+                    'engines_used': ['SmartRecommendationEngine', 'FastGeminiEngine'],
+                    'optimization_level': 'ai_nlp_only'
                 }
             }
-            
             return jsonify(response)
-            
         except ImportError:
-            # Fallback to original ensemble engine
-            logger.warning("Optimized ensemble engine not available, using fallback")
+            logger.warning("AI/NLP ensemble engine not available")
             return jsonify({'error': 'Ensemble engine not available'}), 500
-        
     except Exception as e:
         logger.error(f"Error in ensemble recommendations: {e}")
         return jsonify({'error': str(e)}), 500
@@ -292,52 +193,63 @@ def get_ensemble_recommendations():
 @recommendations_bp.route('/ensemble/quality', methods=['POST'])
 @jwt_required()
 def get_quality_ensemble_recommendations():
-    """Get the bestest ensemble recommendations with maximum quality"""
+    """Get recommendations using only FastSemanticEngine (semantic search) [DIRECT OVERRIDE]"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
-        # Use quality ensemble engine
+        # Directly use FastSemanticEngine for this endpoint only
         try:
-            from quality_ensemble_engine import get_quality_ensemble_recommendations as get_quality_ensemble
-            results = get_quality_ensemble(user_id, data)
-            
+            from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer, UnifiedRecommendationRequest
+            data_layer = UnifiedDataLayer()
+            fast_engine = FastSemanticEngine(data_layer)
+            unified_request = UnifiedRecommendationRequest(
+                user_id=user_id,
+                title=data.get('title', ''),
+                description=data.get('description', ''),
+                technologies=data.get('technologies', ''),
+                project_id=data.get('project_id'),
+                max_recommendations=data.get('max_recommendations', 5),
+                engine_preference='fast',
+                diversity_weight=data.get('diversity_weight', 0.3),
+                quality_threshold=data.get('quality_threshold', 5),
+                include_global_content=True
+            )
+            # Let FastSemanticEngine fetch content internally
+            results = fast_engine.get_recommendations([], unified_request)
+            # Format response
+            api_results = []
+            for result in results:
+                api_results.append({
+                    'id': result.id,
+                    'title': result.title,
+                    'url': result.url,
+                    'score': result.score,
+                    'reason': result.reason,
+                    'content_type': result.content_type,
+                    'difficulty': result.difficulty,
+                    'technologies': result.technologies,
+                    'key_concepts': result.key_concepts,
+                    'quality_score': result.quality_score,
+                    'engine_used': result.engine_used,
+                    'confidence': result.confidence,
+                    'metadata': result.metadata
+                })
             response = {
-                'recommendations': results,
-                'total_recommendations': len(results),
-                'engine_used': 'CompleteFastQualityEnsemble',
+                'recommendations': api_results,
+                'total_recommendations': len(api_results),
+                'engine_used': 'FastSemanticEngine',
                 'performance_metrics': {
                     'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart', 'enhanced', 'phase3', 'fast_gemini', 'gemini_enhanced']),
-                    'optimization_level': 'complete_fast_quality',
-                    'quality_threshold': 0.2,
-                    'min_engine_agreement': 1
+                    'engines_used': ['FastSemanticEngine'],
+                    'optimization_level': 'semantic_only'
                 }
             }
-            
             return jsonify(response)
-            
         except ImportError:
-            logger.warning("Quality ensemble engine not available, using optimized ensemble fallback")
-            # Fallback to optimized ensemble engine
-            from ensemble_engine import get_ensemble_recommendations as get_ensemble
-            results = get_ensemble(user_id, data)
-            
-            response = {
-                'recommendations': results,
-                'total_recommendations': len(results),
-                'engine_used': 'OptimizedEnsembleFallback',
-                'performance_metrics': {
-                    'cached': False,
-                    'engines_used': data.get('engines', ['unified', 'smart']),
-                    'optimization_level': 'quality_fallback'
-                }
-            }
-            
-            return jsonify(response)
-        
+            logger.warning("FastSemanticEngine not available")
+            return jsonify({'error': 'FastSemanticEngine not available'}), 500
     except Exception as e:
         logger.error(f"Error in quality ensemble recommendations: {e}")
         return jsonify({'error': str(e)}), 500
@@ -345,7 +257,7 @@ def get_quality_ensemble_recommendations():
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
 def get_unified_orchestrator_recommendations():
-    """Get recommendations using the unified orchestrator (Primary endpoint)"""
+    """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
@@ -353,12 +265,13 @@ def get_unified_orchestrator_recommendations():
             return jsonify({'error': 'No data provided'}), 400
         
         if not UNIFIED_ORCHESTRATOR_AVAILABLE:
-            return jsonify({'error': 'Unified orchestrator not available'}), 500
+            return jsonify({'error': 'Recommendation engine not available'}), 500
         
-        # Import required classes
+        # Use production-optimized unified orchestrator
         from unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        from dataclasses import asdict
         
-        # Create unified request
+        # Create request
         unified_request = UnifiedRecommendationRequest(
             user_id=user_id,
             title=data.get('title', ''),
@@ -367,45 +280,18 @@ def get_unified_orchestrator_recommendations():
             user_interests=data.get('user_interests', ''),
             project_id=data.get('project_id'),
             max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'auto'),
+            engine_preference=data.get('engine_preference', 'context'),
             diversity_weight=data.get('diversity_weight', 0.3),
-            quality_threshold=data.get('quality_threshold', 6),
+            quality_threshold=data.get('quality_threshold', 3),
             include_global_content=data.get('include_global_content', True)
         )
         
-        # Get orchestrator (already imported above)
+        # Get orchestrator and recommendations (ML enhancement is AUTOMATIC!)
         orchestrator = get_unified_orchestrator()
-        
-        # Get base recommendations
         recommendations = orchestrator.get_recommendations(unified_request)
         
-        # Enhance with Gemini if requested
-        if data.get('enhance_with_gemini', False):
-            try:
-                from gemini_integration_layer import enhance_recommendations_with_gemini
-                recommendations = enhance_recommendations_with_gemini(recommendations, unified_request, user_id)
-            except Exception as e:
-                logger.warning(f"Gemini enhancement failed: {e}")
-        
         # Convert to dictionary format
-        result = []
-        for rec in recommendations:
-            result.append({
-                'id': rec.id,
-                'title': rec.title,
-                'url': rec.url,
-                'score': rec.score,
-                'reason': rec.reason,
-                'content_type': rec.content_type,
-                'difficulty': rec.difficulty,
-                'technologies': rec.technologies,
-                'key_concepts': rec.key_concepts,
-                'quality_score': rec.quality_score,
-                'engine_used': rec.engine_used,
-                'confidence': rec.confidence,
-                'metadata': rec.metadata,
-                'cached': rec.cached
-            })
+        result = [asdict(rec) for rec in recommendations]
         
         # Get performance metrics
         performance_metrics = orchestrator.get_performance_metrics()
@@ -413,20 +299,22 @@ def get_unified_orchestrator_recommendations():
         response = {
             'recommendations': result,
             'total_recommendations': len(result),
-            'engine_used': 'UnifiedOrchestrator',
+            'engine_used': 'UnifiedOrchestrator_v2_Optimized',
             'performance_metrics': performance_metrics,
+            'optimizations': ['batch_embeddings', 'auto_ml_enhancement', 'intent_aware', 'smart_caching'],
             'request_processed': {
                 'title': unified_request.title,
                 'technologies': unified_request.technologies,
-                'engine_preference': unified_request.engine_preference,
-                'quality_threshold': unified_request.quality_threshold
+                'engine_preference': unified_request.engine_preference
             }
         }
         
         return jsonify(response)
         
     except Exception as e:
-        logger.error(f"Error in unified orchestrator recommendations: {e}")
+        logger.error(f"Error in recommendations: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -700,97 +588,7 @@ def get_task_recommendations(task_id):
         logger.error(f"Error in task recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/gemini-enhanced', methods=['POST'])
-@jwt_required()
-def get_gemini_enhanced_recommendations():
-    """Get Gemini-enhanced recommendations using FastGeminiEngine"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        engine = get_fast_gemini_engine(user_id)
-        if not engine:
-            return jsonify({'error': 'Fast Gemini engine not available'}), 500
-        user_input['user_id'] = user_id
-        from models import SavedContent
-        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
-        bookmarks_data = []
-        for bookmark in user_bookmarks:
-            bookmarks_data.append({
-                'id': bookmark.id,
-                'title': bookmark.title,
-                'url': bookmark.url,
-                'content': bookmark.extracted_text or bookmark.title,
-                'quality_score': bookmark.quality_score or 7.0,
-                'similarity_score': 0.5
-            })
-        if hasattr(engine, 'get_fast_gemini_recommendations'):
-            result = engine.get_fast_gemini_recommendations(bookmarks_data, user_input)
-        elif hasattr(engine, 'get_gemini_enhanced_recommendations'):
-            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
-        else:
-            return jsonify({'error': 'No suitable Gemini method available'}), 500
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error in Gemini-enhanced recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/gemini-enhanced-project/<int:project_id>', methods=['POST'])
-@jwt_required()
-def get_gemini_enhanced_project_recommendations(project_id):
-    """Get Gemini-enhanced project recommendations using FastGeminiEngine"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        engine = get_fast_gemini_engine(user_id)
-        if not engine:
-            return jsonify({'error': 'Fast Gemini engine not available'}), 500
-        if hasattr(engine, 'get_gemini_enhanced_project_recommendations'):
-            result = engine.get_gemini_enhanced_project_recommendations(user_id, project_id)
-        else:
-            from models import Project
-            project = Project.query.filter_by(id=project_id, user_id=user_id).first()
-            if not project:
-                return jsonify({'error': 'Project not found'}), 404
-            user_input.update({
-                'project_id': project_id,
-                'project_title': project.title,
-                'project_description': project.description or '',
-                'project_technologies': project.technologies or ''
-            })
-            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@recommendations_bp.route('/gemini-status', methods=['GET'])
-@jwt_required()
-def get_gemini_status():
-    """Get Gemini API status"""
-    try:
-        if not gemini_analyzer:
-            return jsonify({
-                'status': 'unavailable',
-                'message': 'Gemini analyzer not initialized'
-            })
-        
-        # Test Gemini availability
-        try:
-            test_response = gemini_analyzer.analyze_text("Test message")
-            return jsonify({
-                'status': 'available',
-                'message': 'Gemini API is working',
-                'test_response': test_response[:100] + '...' if len(str(test_response)) > 100 else test_response
-            })
-        except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': f'Gemini API error: {str(e)}'
-            })
-        
-    except Exception as e:
-        logger.error(f"Error checking Gemini status: {e}")
-        return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/smart-recommendations', methods=['POST'])
 @jwt_required()
@@ -986,16 +784,6 @@ def get_phase3_health():
 def get_engine_status():
     """Get status of all recommendation engines"""
     try:
-        # Check Gemini integration availability
-        gemini_integration_available = False
-        try:
-            from gemini_integration_layer import get_gemini_integration
-            gemini_layer = get_gemini_integration()
-            gemini_integration_available = gemini_layer is not None
-        except Exception as e:
-            logger.warning(f"Gemini integration not available: {e}")
-            gemini_integration_available = False
-        
         status = {
             'unified_orchestrator_available': UNIFIED_ORCHESTRATOR_AVAILABLE,
             'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
@@ -1004,8 +792,6 @@ def get_engine_status():
             'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
             'fast_gemini_available': FAST_GEMINI_AVAILABLE,
             'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
-            'gemini_analyzer_available': gemini_analyzer is not None,
-            'gemini_integration_available': gemini_integration_available,
             'embedding_model_available': embedding_model is not None,
             'total_engines_available': sum([
                 UNIFIED_ORCHESTRATOR_AVAILABLE,
@@ -1040,14 +826,7 @@ def get_performance_metrics():
                 logger.error(f"Error getting orchestrator metrics: {e}")
                 metrics['unified_orchestrator'] = {'error': str(e)}
         
-        # Get Gemini integration metrics
-        try:
-            from gemini_integration_layer import get_gemini_integration
-            gemini_layer = get_gemini_integration()
-            metrics['gemini_integration'] = gemini_layer.get_performance_metrics()
-        except Exception as e:
-            logger.error(f"Error getting Gemini metrics: {e}")
-            metrics['gemini_integration'] = {'error': str(e)}
+
         
         # Get Redis cache stats
         try:
@@ -1056,6 +835,25 @@ def get_performance_metrics():
         except Exception as e:
             logger.error(f"Error getting Redis metrics: {e}")
             metrics['redis_cache'] = {'error': str(e)}
+        
+        # Get Gemini metrics
+        if FAST_GEMINI_AVAILABLE:
+            try:
+                from fast_gemini_engine import FastGeminiEngine
+                engine = FastGeminiEngine()
+                metrics['gemini'] = {
+                    'available': True,
+                    'cache_stats': engine.get_cache_stats(),
+                    'components_available': {
+                        'analyzer': engine.gemini_analyzer is not None,
+                        'rate_limiter': engine.rate_limiter is not None
+                    }
+                }
+            except Exception as e:
+                logger.error(f"Error getting Gemini metrics: {e}")
+                metrics['gemini'] = {'error': str(e)}
+        else:
+            metrics['gemini'] = {'available': False}
         
         # Get database stats
         try:
@@ -1602,6 +1400,298 @@ def get_similar_content(content_id):
     except Exception as e:
         logger.error(f"Error getting similar content: {e}")
         return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# GEMINI-ENHANCED ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/gemini-enhanced', methods=['POST'])
+@jwt_required()
+def get_gemini_enhanced_recommendations():
+    """Get Gemini-enhanced recommendations using FastGeminiEngine"""
+    try:
+        user_id = get_jwt_identity()
+        user_input = request.get_json() or {}
+        
+        if not FAST_GEMINI_AVAILABLE:
+            return jsonify({'error': 'Fast Gemini Engine not available'}), 503
+        
+        try:
+            from fast_gemini_engine import FastGeminiEngine
+            engine = FastGeminiEngine()
+            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"Error in Gemini-enhanced recommendations: {e}")
+            return jsonify({'error': str(e)}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in Gemini-enhanced recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/gemini-enhanced-project/<int:project_id>', methods=['POST'])
+@jwt_required()
+def get_gemini_enhanced_project_recommendations(project_id):
+    """Get Gemini-enhanced project recommendations using FastGeminiEngine"""
+    try:
+        user_id = get_jwt_identity()
+        user_input = request.get_json() or {}
+        
+        if not FAST_GEMINI_AVAILABLE:
+            return jsonify({'error': 'Fast Gemini Engine not available'}), 503
+        
+        try:
+            from fast_gemini_engine import FastGeminiEngine
+            engine = FastGeminiEngine()
+            
+            # Add project context to user input
+            user_input['project_id'] = project_id
+            
+            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
+            return jsonify({'error': str(e)}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/ultra-fast', methods=['POST'])
+@jwt_required()
+def get_ultra_fast_recommendations():
+    """Get ultra-fast recommendations using vector similarity search"""
+    try:
+        user_id = get_jwt_identity()
+        user_input = request.get_json() or {}
+        
+        try:
+            from ultra_fast_recommendation_engine import get_ultra_fast_engine
+            engine = get_ultra_fast_engine()
+            result = engine.get_ultra_fast_recommendations(user_id, user_input)
+            return jsonify(result)
+        except ImportError:
+            return jsonify({'error': 'Ultra-fast engine not available'}), 500
+        except Exception as e:
+            logger.error(f"Error in ultra-fast recommendations: {e}")
+            return jsonify({'error': str(e)}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in ultra-fast recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/ultra-fast-project/<int:project_id>', methods=['POST'])
+@jwt_required()
+def get_ultra_fast_project_recommendations(project_id):
+    """Get ultra-fast project recommendations"""
+    try:
+        user_id = get_jwt_identity()
+        user_input = request.get_json() or {}
+        
+        try:
+            from ultra_fast_recommendation_engine import get_ultra_fast_engine
+            engine = get_ultra_fast_engine()
+            result = engine.get_project_recommendations(user_id, project_id)
+            return jsonify(result)
+        except ImportError:
+            return jsonify({'error': 'Ultra-fast engine not available'}), 500
+        except Exception as e:
+            logger.error(f"Error in ultra-fast project recommendations: {e}")
+            return jsonify({'error': str(e)}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in ultra-fast project recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/gemini-status', methods=['GET'])
+@jwt_required()
+def get_gemini_status():
+    """Check if Gemini is available and working"""
+    try:
+        status_info = {
+            'gemini_available': FAST_GEMINI_AVAILABLE,
+            'status': 'available' if FAST_GEMINI_AVAILABLE else 'unavailable',
+            'details': {
+                'fast_gemini_available': FAST_GEMINI_AVAILABLE,
+                'api_key_set': bool(os.environ.get('GEMINI_API_KEY')),
+                'test_result': None,
+                'error_message': None
+            }
+        }
+        
+        # Test Gemini with a simple call if available
+        if FAST_GEMINI_AVAILABLE:
+            try:
+                from fast_gemini_engine import FastGeminiEngine
+                engine = FastGeminiEngine()
+                
+                # Check if Gemini components are working
+                if engine.gemini_available and engine.gemini_analyzer:
+                    status_info['details']['test_result'] = 'success'
+                    status_info['details']['gemini_analyzer_available'] = True
+                    status_info['details']['rate_limiter_available'] = engine.rate_limiter is not None
+                else:
+                    status_info['details']['test_result'] = 'components_unavailable'
+                    status_info['details']['error_message'] = 'Gemini components not properly initialized'
+                    
+            except Exception as e:
+                logger.warning(f"Gemini test failed: {e}")
+                status_info['details']['test_result'] = 'error'
+                status_info['details']['error_message'] = str(e)
+        else:
+            status_info['details']['error_message'] = 'Fast Gemini Engine not available'
+        
+        return jsonify(status_info)
+        
+    except Exception as e:
+        logger.error(f"Error checking Gemini status: {e}")
+        return jsonify({
+            'gemini_available': False,
+            'status': 'error',
+            'details': {
+                'error_message': str(e)
+            }
+        }), 500
+
+# ============================================================================
+# CONTEXT SELECTOR ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/suggested-contexts', methods=['GET'])
+@jwt_required()
+def get_suggested_contexts():
+    """Get smart suggestions based on user activity"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        if not MODELS_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Models not available'}), 500
+        
+        contexts = []
+        
+        # Get user's most recent activity
+        try:
+            recent_feedback = UserFeedback.query.filter_by(user_id=user_id)\
+                .order_by(UserFeedback.timestamp.desc())\
+                .limit(3).all()
+            
+            for feedback in recent_feedback:
+                if feedback.context_data:
+                    try:
+                        context_info = json.loads(feedback.context_data) if isinstance(feedback.context_data, str) else feedback.context_data
+                        project_id = context_info.get('project_id')
+                        
+                        if project_id:
+                            project = Project.query.get(project_id)
+                            if project:
+                                time_ago = _get_time_ago(feedback.timestamp)
+                                contexts.append({
+                                    'type': 'project',
+                                    'id': project.id,
+                                    'title': project.title,
+                                    'subtitle': f'From: {project.title}',
+                                    'description': project.description or '',
+                                    'technologies': project.technologies or '',
+                                    'timeAgo': time_ago
+                                })
+                    except:
+                        continue
+        except:
+            pass
+        
+        # If no feedback, get most recent project
+        if not contexts:
+            recent_project = Project.query.filter_by(user_id=user_id)\
+                .order_by(Project.updated_at.desc())\
+                .first()
+            
+            if recent_project:
+                contexts.append({
+                    'type': 'project',
+                    'id': recent_project.id,
+                    'title': recent_project.title,
+                    'subtitle': 'Last updated project',
+                    'description': recent_project.description or '',
+                    'technologies': recent_project.technologies or '',
+                    'timeAgo': _get_time_ago(recent_project.updated_at)
+                })
+        
+        # Remove duplicates
+        seen = set()
+        unique_contexts = []
+        for ctx in contexts:
+            key = f"{ctx['type']}_{ctx['id']}"
+            if key not in seen:
+                seen.add(key)
+                unique_contexts.append(ctx)
+        
+        return jsonify({
+            'success': True,
+            'contexts': unique_contexts[:2]
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting suggested contexts: {e}")
+        return jsonify({'success': False, 'error': str(e), 'contexts': []}), 500
+
+@recommendations_bp.route('/recent-contexts', methods=['GET'])
+@jwt_required()
+def get_recent_contexts():
+    """Get recent projects and tasks"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        if not MODELS_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Models not available'}), 500
+        
+        recent_items = []
+        
+        # Get recent projects
+        try:
+            recent_projects = Project.query.filter_by(user_id=user_id)\
+                .order_by(Project.updated_at.desc())\
+                .limit(5).all()
+            
+            for project in recent_projects:
+                recent_items.append({
+                    'type': 'project',
+                    'id': project.id,
+                    'title': project.title,
+                    'description': project.description or '',
+                    'technologies': project.technologies or '',
+                    'timeAgo': _get_time_ago(project.updated_at)
+                })
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'recent': recent_items[:5]
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting recent contexts: {e}")
+        return jsonify({'success': False, 'error': str(e), 'recent': []}), 500
+
+def _get_time_ago(timestamp):
+    """Convert timestamp to readable time ago"""
+    if not timestamp:
+        return 'recently'
+    
+    now = datetime.utcnow()
+    diff = now - timestamp
+    seconds = diff.total_seconds()
+    
+    if seconds < 60:
+        return 'just now'
+    elif seconds < 3600:
+        return f'{int(seconds / 60)}m ago'
+    elif seconds < 86400:
+        return f'{int(seconds / 3600)}h ago'
+    elif seconds < 2592000:
+        return f'{int(seconds / 86400)}d ago'
+    else:
+        return f'{int(seconds / 2592000)}mo ago'
 
 # ============================================================================
 # INITIALIZATION

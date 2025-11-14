@@ -19,7 +19,17 @@ def preload_embedding_model():
         start_time = time.time()
         
         # Load the model (this will take ~6-7 seconds the first time)
+        import torch
         model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Fix meta tensor issue by using to_empty() instead of to()
+        if hasattr(torch, 'meta') and torch.meta.is_available():
+            # Use to_empty() for meta tensors
+            model = model.to_empty(device='cpu')
+        else:
+            # Fallback to CPU
+            model = model.to('cpu')
+        
         load_time = time.time() - start_time
         
         print(f"✅ Model loaded in {load_time:.2f} seconds")

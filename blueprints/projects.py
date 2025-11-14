@@ -11,15 +11,31 @@ def get_projects():
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
+    include_tasks = request.args.get('include_tasks', default='true').lower() == 'true'
     
     pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    projects_data = [{
-        "id": project.id,
-        "title": project.title,
-        "description": project.description,
-        "technologies": project.technologies,
-        "created_at": project.created_at.isoformat()
-    } for project in pagination.items]
+    projects_data = []
+    
+    for project in pagination.items:
+        project_dict = {
+            "id": project.id,
+            "title": project.title,
+            "description": project.description,
+            "technologies": project.technologies,
+            "created_at": project.created_at.isoformat()
+        }
+        
+        # Include tasks if requested
+        if include_tasks:
+            tasks = Task.query.filter_by(project_id=project.id).all()
+            project_dict["tasks"] = [{
+                "id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "created_at": task.created_at.isoformat()
+            } for task in tasks]
+        
+        projects_data.append(project_dict)
     
     return jsonify({
         "projects": projects_data,
@@ -57,6 +73,28 @@ def create_project():
     try:
         db.session.add(new_project)
         db.session.commit()
+        
+        # Generate intent analysis for the new project
+        try:
+            from intent_analysis_engine import analyze_user_intent
+            
+            # Build user input from project data
+            user_input = f"{new_project.title} {new_project.description} {new_project.technologies}"
+            
+            # Generate intent analysis
+            intent = analyze_user_intent(
+                user_input=user_input,
+                project_id=new_project.id,
+                force_analysis=True  # Force new analysis for new project
+            )
+            
+            # The intent analysis is automatically saved to the project by the engine
+            print(f"✅ Intent analysis generated for new project: {intent.primary_goal} - {intent.project_type}")
+            
+        except Exception as intent_error:
+            print(f"⚠️ Intent analysis failed for new project: {str(intent_error)}")
+            # Don't fail the project creation if intent analysis fails
+            # The analysis can be generated later when needed
         
         # Invalidate caches using comprehensive cache invalidation service
         from cache_invalidation_service import cache_invalidator
@@ -142,6 +180,27 @@ def update_project(project_id):
     
     try:
         db.session.commit()
+        
+        # Regenerate intent analysis for the updated project
+        try:
+            from intent_analysis_engine import analyze_user_intent
+            
+            # Build user input from updated project data
+            user_input = f"{project.title} {project.description} {project.technologies}"
+            
+            # Generate fresh intent analysis
+            intent = analyze_user_intent(
+                user_input=user_input,
+                project_id=project.id,
+                force_analysis=True  # Force new analysis for updated project
+            )
+            
+            # The intent analysis is automatically saved to the project by the engine
+            print(f"✅ Intent analysis updated for project: {intent.primary_goal} - {intent.project_type}")
+            
+        except Exception as intent_error:
+            print(f"⚠️ Intent analysis update failed for project: {str(intent_error)}")
+            # Don't fail the project update if intent analysis fails
         
         # Invalidate caches using comprehensive cache invalidation service
         from cache_invalidation_service import cache_invalidator

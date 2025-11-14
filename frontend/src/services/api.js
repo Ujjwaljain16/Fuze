@@ -1,7 +1,27 @@
 import axios from 'axios'
 
-// Get base URL from environment or default to 127.0.0.1 (faster than localhost)
-const baseURL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
+// Get base URL from environment or automatically detect
+const getBaseURL = () => {
+  // Check if we're in development (localhost, 127.0.0.1, or local IP)
+  const isDevelopment = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1' || 
+                       window.location.hostname.includes('10.51.11.170') ||
+                       window.location.hostname.includes('172.23.0.1')
+  
+  if (isDevelopment) {
+    // Development: Use HTTP localhost
+    return 'http://127.0.0.1:5000'
+  } else {
+    // Production: Use environment variable or fallback
+    return import.meta.env.VITE_API_URL || 'https://your-backend-domain.com'
+  }
+}
+
+const baseURL = getBaseURL()
+
+console.log('🌐 API Base URL:', baseURL)
+console.log('🏠 Current hostname:', window.location.hostname)
+console.log('🔧 Development mode:', window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
 const api = axios.create({
   baseURL,
@@ -11,7 +31,7 @@ const api = axios.create({
   withCredentials: true, // Important for cookies and CSRF
 })
 
-// CSRF token management
+// CSRF token management - optimized for performance
 let csrfToken = null
 
 // Request interceptor to add auth token and CSRF token
@@ -22,7 +42,7 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`
     }
     
-    // Add CSRF token for non-GET requests (only if CSRF is enabled)
+    // Only add CSRF token for non-GET requests and only if CSRF is actually enabled
     if (config.method !== 'get' && csrfToken && csrfToken !== 'csrf_disabled') {
       config.headers['X-CSRF-TOKEN'] = csrfToken
     }
@@ -65,10 +85,14 @@ api.interceptors.response.use(
       originalRequest._retry = true
       try {
         // Attempt to refresh the access token
+        const oldToken = localStorage.getItem('token');
         const res = await axios.post(
           `${baseURL}/api/auth/refresh`,
           {},
-          { withCredentials: true }
+          {
+            withCredentials: true,
+            headers: oldToken ? { Authorization: `Bearer ${oldToken}` } : {}
+          }
         )
         const newToken = res.data.access_token
         localStorage.setItem('token', newToken)
@@ -101,7 +125,10 @@ export const refreshTokenIfNeeded = async () => {
       const res = await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
-        { withCredentials: true }
+        {
+          withCredentials: true,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }
       )
       const newToken = res.data.access_token
       localStorage.setItem('token', newToken)
@@ -112,15 +139,28 @@ export const refreshTokenIfNeeded = async () => {
   }
 }
 
-// Initialize CSRF token on app startup
+// Initialize CSRF token on app startup - optimized for performance
 export const initializeCSRF = async () => {
   try {
+    // Use a timeout to prevent blocking the UI
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 2000) // 2 second timeout
+    
     const response = await axios.get(`${baseURL}/api/auth/csrf-token`, {
-      withCredentials: true
+      withCredentials: true,
+      signal: controller.signal
     })
+    
+    clearTimeout(timeoutId)
     csrfToken = response.data.csrf_token
+    console.log('🔐 CSRF token initialized:', csrfToken)
   } catch (error) {
-    console.warn('Failed to get CSRF token:', error)
+    if (error.name === 'AbortError') {
+      console.warn('⚠️ CSRF token request timed out, continuing without CSRF')
+    } else {
+      console.warn('⚠️ CSRF token initialization failed, continuing without CSRF:', error.message)
+    }
+    csrfToken = 'csrf_disabled'
   }
 }
 
