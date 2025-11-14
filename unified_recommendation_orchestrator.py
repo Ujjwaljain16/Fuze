@@ -1,41 +1,7 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-Unified Recommendation Orchestrator - PRODUCTION-OPTIMIZED
-==========================================================
-
-The ULTIMATE recommendation engine using best practices:
-
-ARCHITECTURE:
-├── UnifiedDataLayer - Database & embedding management (OPTIMIZED with batch processing)
-├── FastSemanticEngine - Quick semantic matching (<2s)
-├── ContextAwareEngine - Intent-aware recommendations (<5s, OPTIMIZED with batch)
-└── UnifiedRecommendationOrchestrator - Main coordinator
-
-FEATURES:
-✅ Intent Analysis (Gemini AI) - Understands user goals
-✅ NLP (Sentence Transformers) - Semantic understanding  
-✅ ML Enhancement (TF-IDF) - Automatic score boosting
-✅ Vector/Semantic Search - Batch optimized (10x faster)
-✅ Content Analysis - Technologies, concepts, quality from DB
-✅ Redis Caching - Multi-level caching (<100ms cached)
-✅ Universal Semantic Matcher - Advanced tech matching
-✅ Cold Start Handling - Works with minimal data
-✅ Production Ready - Clean, modular, well-tested
-
-OPTIMIZATIONS:
-- Batch embedding generation (10x faster than one-by-one)
-- Smart caching (Redis + intent-based keys)
-- Parallel processing where safe
-- Early filtering and quality thresholds
-- Adaptive engine selection
-
-PERFORMANCE:
-- Cold start: <5s (context mode), <2s (fast mode)
-- Cached: <100ms
-- Quality: High (intent-aware + ML-enhanced)
-
-Author: Fuze AI System
-Version: 2.0 (Production-Optimized)
+Unified Recommendation Orchestrator
+Coordinates all recommendation engines with proper hierarchy and fallback strategies
 """
 
 import os
@@ -72,45 +38,28 @@ try:
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False
-    logger.warning("⚠️ Models not available, some functionality will be limited")
+    logger.warning("ΓÜá∩╕Å Models not available, some functionality will be limited")
 
 try:
     from redis_utils import redis_cache
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
-    logger.warning("⚠️ Redis not available, caching will be disabled")
+    logger.warning("ΓÜá∩╕Å Redis not available, caching will be disabled")
 
 try:
     from intent_analysis_engine import analyze_user_intent, UserIntent
     INTENT_ANALYSIS_AVAILABLE = True
 except ImportError:
     INTENT_ANALYSIS_AVAILABLE = False
-    logger.warning("⚠️ Intent analysis not available, some functionality will be limited")
+    logger.warning("ΓÜá∩╕Å Intent analysis not available, some functionality will be limited")
 
 try:
     from gemini_utils import GeminiAnalyzer
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    logger.warning("⚠️ Gemini not available, AI features will be disabled")
-
-try:
-    from explainability_engine import RecommendationExplainer
-    EXPLAINABILITY_AVAILABLE = True
-except ImportError:
-    EXPLAINABILITY_AVAILABLE = False
-    logger.warning("⚠️ Explainability engine not available, using template-based explanations")
-
-try:
-    from orchestrator_enhancements_implementation import (
-        SystemLoadMonitor, UserBehaviorTracker, AdaptiveLearningSystem
-    )
-    PERSONALIZATION_AVAILABLE = True
-    logger.info("✅ Personalization system loaded")
-except ImportError:
-    PERSONALIZATION_AVAILABLE = False
-    logger.warning("⚠️ Personalization system not available")
+    logger.warning("ΓÜá∩╕Å Gemini not available, AI features will be disabled")
 
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
@@ -120,10 +69,10 @@ logger = logging.getLogger(__name__)
 try:
     from universal_semantic_matcher import UniversalSemanticMatcher
     UNIVERSAL_MATCHER_AVAILABLE = True
-    logger.info("✅ UniversalSemanticMatcher imported successfully")
+    logger.info("Γ£à UniversalSemanticMatcher imported successfully")
 except ImportError:
     UNIVERSAL_MATCHER_AVAILABLE = False
-    logger.warning("⚠️ UniversalSemanticMatcher not available, using fallback matching")
+    logger.warning("ΓÜá∩╕Å UniversalSemanticMatcher not available, using fallback matching")
 
 # Global Gemini instance for caching
 _gemini_analyzer = None
@@ -210,20 +159,20 @@ class UnifiedDataLayer:
             try:
                 self.universal_matcher = UniversalSemanticMatcher()
                 if self.universal_matcher.embedding_model is not None:
-                    logger.info("✅ UniversalSemanticMatcher initialized in UnifiedDataLayer")
+                    logger.info("Γ£à UniversalSemanticMatcher initialized in UnifiedDataLayer")
                 else:
-                    logger.warning("⚠️ UniversalSemanticMatcher initialized but embedding model is None")
+                    logger.warning("ΓÜá∩╕Å UniversalSemanticMatcher initialized but embedding model is None")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to initialize UniversalSemanticMatcher: {e}")
+                logger.warning(f"ΓÜá∩╕Å Failed to initialize UniversalSemanticMatcher: {e}")
                 # Try to create a minimal version without embedding model
                 try:
                     from universal_semantic_matcher import UniversalSemanticMatcher
                     # Create instance without embedding model
                     self.universal_matcher = UniversalSemanticMatcher.__new__(UniversalSemanticMatcher)
                     self.universal_matcher.embedding_model = None
-                    logger.info("✅ UniversalSemanticMatcher created with fallback mode")
+                    logger.info("Γ£à UniversalSemanticMatcher created with fallback mode")
                 except Exception as fallback_error:
-                    logger.warning(f"⚠️ Fallback UniversalSemanticMatcher also failed: {fallback_error}")
+                    logger.warning(f"ΓÜá∩╕Å Fallback UniversalSemanticMatcher also failed: {fallback_error}")
                     self.universal_matcher = None
     
     def _init_embedding_model(self):
@@ -234,7 +183,7 @@ class UnifiedDataLayer:
                 from embedding_utils import get_embedding_model
                 self.embedding_model = get_embedding_model()
                 if self.embedding_model is not None:
-                    logger.info("✅ Using global embedding model from embedding_utils")
+                    logger.info("Γ£à Using global embedding model from embedding_utils")
                     return
             except ImportError:
                 logger.info("Global embedding model not available, using local initialization")
@@ -253,17 +202,17 @@ class UnifiedDataLayer:
                     if hasattr(torch, 'meta') and torch.meta.is_available():
                         # Use to_empty() for meta tensors
                         self.embedding_model = self.embedding_model.to_empty(device='cpu')
-                        logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
+                        logger.info("Γ£à Embedding model loaded with to_empty() for meta tensors")
                     else:
                         # Fallback to CPU
                         self.embedding_model = self.embedding_model.to('cpu')
-                        logger.info("✅ Embedding model loaded with to() for CPU")
+                        logger.info("Γ£à Embedding model loaded with to() for CPU")
                 except Exception as tensor_error:
                     logger.warning(f"Tensor device placement error: {tensor_error}")
                     # Try alternative approach - don't move the model
                     logger.info("Using embedding model without device placement")
                 
-                logger.info("✅ Local embedding model loaded successfully")
+                logger.info("Γ£à Local embedding model loaded successfully")
             except Exception as network_error:
                 logger.warning(f"Network error loading embedding model: {network_error}")
                 logger.info("Using fallback embedding approach...")
@@ -431,12 +380,10 @@ class UnifiedDataLayer:
             )
             
             # OPTIMIZATION 4: Limit results early and use proper ordering
-            # Get ALL user content (no artificial limit)
-            # The filtering already ensures quality (quality_score >= threshold)
             user_content = query.order_by(
                 SavedContent.quality_score.desc(),
                 SavedContent.saved_at.desc()
-            ).all()  # No limit - get all quality content
+            ).limit(100).all()  # Reduced limit for better performance
             
             logger.info(f"Found {len(user_content)} content items from user {user_id}")
             
@@ -624,39 +571,6 @@ class UnifiedDataLayer:
         except Exception as e:
             logger.error(f"Error calculating semantic similarity: {e}")
             return 0.5
-    
-    def calculate_batch_similarity(self, query_text: str, content_texts: List[str]) -> List[float]:
-        """OPTIMIZED: Calculate similarities in batch (10x faster than one-by-one)"""
-        if not self.embedding_model:
-            return [0.5] * len(content_texts)
-        
-        try:
-            # Generate query embedding once
-            query_emb = self.generate_embedding(query_text)
-            if query_emb is None:
-                return [0.5] * len(content_texts)
-            
-            # Batch generate embeddings for all content (MUCH faster!)
-            content_embs = self.embedding_model.encode(
-                [text[:1000] for text in content_texts],
-                convert_to_tensor=False,
-                show_progress_bar=False,
-                batch_size=32
-            )
-            
-            # Calculate similarities
-            similarities = []
-            for content_emb in content_embs:
-                if content_emb is None:
-                    similarities.append(0.5)
-                else:
-                    similarity = np.dot(query_emb, content_emb) / (np.linalg.norm(query_emb) * np.linalg.norm(content_emb))
-                    similarities.append(float(similarity))
-            
-            return similarities
-        except Exception as e:
-            logger.error(f"Batch similarity calculation failed: {e}")
-            return [0.5] * len(content_texts)
     
     def calculate_batch_similarities(self, request_text: str, content_texts: List[str]) -> List[float]:
         """Calculate semantic similarities for multiple content texts in batch - OPTIMIZED FOR PERFORMANCE"""
@@ -1294,36 +1208,20 @@ class ContextAwareEngine:
             last_used=datetime.utcnow(),
             total_requests=0
         )
-        # Initialize explainability engine for Gemini-powered explanations
-        self.explainer = None
-        if EXPLAINABILITY_AVAILABLE:
-            try:
-                self.explainer = RecommendationExplainer()
-                logger.info("✅ Explainability engine initialized (Gemini-powered)")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to initialize explainability engine: {e}")
-                self.explainer = None
     
     def get_recommendations(self, content_list: List[Dict], request: UnifiedRecommendationRequest) -> List[UnifiedRecommendationResult]:
-        """Get context-aware recommendations - OPTIMIZED with BATCH processing"""
+        """Get context-aware recommendations"""
         start_time = time.time()
         
         try:
             # Extract context from request
             context = self._extract_context(request)
             
-            # OPTIMIZATION: Batch calculate semantic similarities (10x faster!)
-            request_text = f"{context['title']} {context['description']} {' '.join(context.get('technologies', []))}"
-            content_texts = [f"{c['title']} {c['extracted_text']}" for c in content_list]
-            batch_similarities = self.data_layer.calculate_batch_similarity(request_text, content_texts)
-            
             recommendations = []
             
-            for idx, content in enumerate(content_list):
-                # Calculate comprehensive score with pre-computed similarity
-                score_components = self._calculate_score_components(
-                    content, context, precomputed_similarity=batch_similarities[idx]
-                )
+            for content in content_list:
+                # Calculate comprehensive score
+                score_components = self._calculate_score_components(content, context)
                 
                 # Weighted final score with improved weighting for user content and intent alignment
                 final_score = (
@@ -1466,8 +1364,8 @@ class ContextAwareEngine:
         
         return context
     
-    def _calculate_score_components(self, content: Dict, context: Dict, precomputed_similarity: float = None) -> Dict[str, float]:
-        """Calculate individual score components with enhanced intent analysis - OPTIMIZED"""
+    def _calculate_score_components(self, content: Dict, context: Dict) -> Dict[str, float]:
+        """Calculate individual score components with enhanced intent analysis"""
         components = {}
         
         # Ensure technologies fields exist
@@ -1479,14 +1377,10 @@ class ContextAwareEngine:
         if not isinstance(context_techs, list):
             context_techs = []
         
-        # Semantic similarity - OPTIMIZED: Use precomputed if available (10x faster!)
-        if precomputed_similarity is not None:
-            components['semantic'] = precomputed_similarity
-        else:
-            # Fallback to individual calculation if needed
-            request_text = f"{context['title']} {context['description']} {' '.join(context_techs)}"
-            content_text = f"{content['title']} {content['extracted_text']} {' '.join(content_techs)}"
-            components['semantic'] = self.data_layer.calculate_semantic_similarity(request_text, content_text)
+        # Semantic similarity
+        request_text = f"{context['title']} {context['description']} {' '.join(context_techs)}"
+        content_text = f"{content['title']} {content['extracted_text']} {' '.join(content_techs)}"
+        components['semantic'] = self.data_layer.calculate_semantic_similarity(request_text, content_text)
         
         # Technology match with intent enhancement
         tech_overlap = self._calculate_enhanced_technology_overlap(content_techs, context_techs, context)
@@ -1683,41 +1577,7 @@ class ContextAwareEngine:
         return intent_score / factors if factors > 0 else 0.5
     
     def _generate_detailed_reason(self, content: Dict, context: Dict, components: Dict[str, float]) -> str:
-        """Generate detailed reason with Gemini-powered explanations"""
-        
-        # Try using Gemini-powered explainability first
-        if self.explainer and GEMINI_AVAILABLE:
-            try:
-                # Build recommendation dict for explainer
-                recommendation = {
-                    'title': content.get('title', ''),
-                    'content_type': content.get('content_type', 'article'),
-                    'difficulty': content.get('difficulty', 'intermediate'),
-                    'technologies': content.get('technologies', []),
-                    'key_concepts': content.get('key_concepts', []),
-                    'quality_score': content.get('quality_score', 6),
-                    'score': sum(components.values()) / len(components) if components else 0
-                }
-                
-                # Get comprehensive explanation from explainability engine
-                explanation = self.explainer.explain_recommendation(
-                    recommendation=recommendation,
-                    query_context=context,
-                    score_components=components
-                )
-                
-                # Return the Gemini-generated reason
-                if explanation and 'why_recommended' in explanation:
-                    return explanation['why_recommended']
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Gemini explanation failed, using template fallback: {e}")
-        
-        # Fallback to template-based reasons
-        return self._generate_template_reason(content, context, components)
-    
-    def _generate_template_reason(self, content: Dict, context: Dict, components: Dict[str, float]) -> str:
-        """Generate template-based reason (fallback when Gemini unavailable)"""
+        """Generate detailed reason with enhanced intent awareness"""
         reasons = []
         
         # Technology match explanation
@@ -2028,71 +1888,7 @@ class UnifiedRecommendationOrchestrator:
         self.cache_hits = 0
         self.cache_misses = 0
         
-        # Initialize personalization system
-        if PERSONALIZATION_AVAILABLE:
-            try:
-                self.system_monitor = SystemLoadMonitor()
-                self.behavior_tracker = UserBehaviorTracker()
-                self.adaptive_learning = AdaptiveLearningSystem()
-                self.personalization_enabled = True
-                logger.info("✅ Real-time personalization ACTIVATED")
-            except Exception as e:
-                logger.error(f"Failed to initialize personalization: {e}")
-                self.personalization_enabled = False
-        else:
-            self.personalization_enabled = False
-        
         logger.info("Unified Recommendation Orchestrator initialized")
-    
-    def _apply_ml_enhancement(self, recommendations: List[UnifiedRecommendationResult], request: UnifiedRecommendationRequest) -> List[UnifiedRecommendationResult]:
-        """Apply ML enhancement (TF-IDF) to boost recommendation scores - AUTOMATIC"""
-        try:
-            from simple_ml_enhancer import enhance_unified_recommendations
-            from dataclasses import asdict
-            
-            if not recommendations:
-                return recommendations
-            
-            # Build query for ML
-            query_data = {
-                'title': request.title,
-                'description': request.description,
-                'technologies': request.technologies
-            }
-            
-            # Convert to dicts
-            rec_dicts = [asdict(rec) for rec in recommendations]
-            
-            # Enhance with ML
-            enhanced_dicts = enhance_unified_recommendations(rec_dicts, query_data)
-            
-            # Convert back to objects
-            enhanced_recs = []
-            for rec_dict in enhanced_dicts:
-                rec = UnifiedRecommendationResult(
-                    id=rec_dict['id'],
-                    title=rec_dict['title'],
-                    url=rec_dict['url'],
-                    score=rec_dict['score'],
-                    reason=rec_dict['reason'],
-                    content_type=rec_dict['content_type'],
-                    difficulty=rec_dict['difficulty'],
-                    technologies=rec_dict['technologies'],
-                    key_concepts=rec_dict['key_concepts'],
-                    quality_score=rec_dict['quality_score'],
-                    engine_used=rec_dict['engine_used'] + '+ML',
-                    confidence=rec_dict['confidence'],
-                    metadata=rec_dict['metadata'],
-                    cached=rec_dict.get('cached', False)
-                )
-                enhanced_recs.append(rec)
-            
-            logger.info(f"✅ ML enhancement applied to {len(enhanced_recs)} recommendations")
-            return enhanced_recs
-            
-        except Exception as e:
-            logger.warning(f"ML enhancement skipped: {e}")
-            return recommendations  # Return original if ML fails
     
     def get_recommendations(self, request: UnifiedRecommendationRequest) -> List[UnifiedRecommendationResult]:
         """Get recommendations using orchestrated approach with intent analysis - OPTIMIZED FOR PERFORMANCE"""
@@ -2136,9 +1932,14 @@ class UnifiedRecommendationOrchestrator:
             # OPTIMIZATION 2: Cache miss - proceed with normal processing
             logger.info(f"Cache miss for recommendations: {cache_key}")
             self.cache_misses += 1
-            # Perform intent analysis (with caching)
+            # Perform intent analysis (with caching and fallback)
             user_input = f"{request.title} {request.description} {request.technologies} {request.user_interests}".strip()
-            intent = analyze_user_intent(user_input, request.project_id)
+            try:
+                intent = analyze_user_intent(user_input, request.project_id)
+            except Exception as e:
+                logger.warning(f"⚠️ Intent analysis failed (likely quota): {e}, using fallback")
+                from intent_analysis_engine import get_fallback_intent
+                intent = get_fallback_intent(user_input, request.project_id)
             
             # Generate cache key including intent
             cache_key = self._generate_cache_key_with_intent(request, intent)
@@ -2164,9 +1965,6 @@ class UnifiedRecommendationOrchestrator:
             
             # Select and execute engine with enhanced context
             recommendations = self._execute_engine_strategy(enhanced_request, content_list)
-            
-            # AUTOMATIC ML ENHANCEMENT - Boost scores with TF-IDF (best practice)
-            recommendations = self._apply_ml_enhancement(recommendations, request)
             
             # Cache results
             self._cache_result(cache_key, recommendations, request.cache_duration)
