@@ -11,9 +11,12 @@ from urllib.parse import urlparse, urljoin, urlunparse
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from redis_utils import redis_cache
+import logging
 
 # Import embedding function
 from embedding_utils import get_embedding
+
+logger = logging.getLogger(__name__)
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
@@ -196,13 +199,13 @@ def bulk_import_bookmarks():
     # Try to get cached user bookmarks first
     cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
     if cached_bookmarks:
-        print(f"📦 Using cached bookmarks for user {user_id}")
+        logger.debug(f"Using cached bookmarks for user {user_id}")
         existing_urls = set(bm['url'] for bm in cached_bookmarks)
         normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
         url_to_bm = {bm['url']: bm for bm in cached_bookmarks}
     else:
         # Fallback to database query
-        print(f"🔄 Loading bookmarks from database for user {user_id}")
+        logger.debug(f"Loading bookmarks from database for user {user_id}")
         existing_bms = SavedContent.query.filter_by(user_id=user_id).all()
         existing_urls = set(bm.url for bm in existing_bms)
         normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
@@ -447,7 +450,7 @@ def extract_url_content():
             title = soup.find('title')
             page_title = title.get_text().strip() if title else 'Untitled'
         except Exception as e:
-            print(f"Error getting title: {e}")
+            logger.warning(f"Error getting title: {e}")
             page_title = 'Untitled'
         
         return jsonify({
@@ -463,7 +466,7 @@ def extract_url_content():
         }), 200
         
     except Exception as e:
-        print(f"Error in extract_url_content: {e}")
+        logger.error(f"Error in extract_url_content: {e}")
         return jsonify({
             'title': 'Untitled',
             'description': '',

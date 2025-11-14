@@ -3,16 +3,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent
 import numpy as np
 import os
-import os
 from embedding_utils import get_embedding
+import logging
+
+logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")
-
-# Debug prints
-print(f"🔍 Debug - SUPABASE_URL: {SUPABASE_URL}")
-print(f"🔍 Debug - SUPABASE_KEY: {SUPABASE_KEY[:10] if SUPABASE_KEY else 'None'}...")
 
 # Only create Supabase client if credentials are provided
 supabase_client = None
@@ -20,12 +18,12 @@ if SUPABASE_URL and SUPABASE_KEY:
     try:
         from supabase import create_client
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("✅ Supabase connected successfully")
+        logger.info("Supabase connected successfully")
     except Exception as e:
-        print(f"⚠️ Supabase connection failed: {e}")
+        logger.warning(f"Supabase connection failed: {e}")
         supabase_client = None
 else:
-    print("⚠️ Supabase credentials not provided - Supabase features disabled")
+    logger.warning("Supabase credentials not provided - Supabase features disabled")
 
 # Check if we're using PostgreSQL (for pgvector support)
 def is_postgresql():
@@ -142,7 +140,7 @@ def supabase_semantic_search():
         else:
             query_embedding_list = list(query_embedding)
         
-        print(f"🔍 Debug - Query embedding dimensions: {len(query_embedding_list)}")
+        logger.debug(f"Query embedding dimensions: {len(query_embedding_list)}")
         
         # Get all bookmarks for the user with embeddings
         response = supabase_client.table(SUPABASE_TABLE).select(
@@ -150,7 +148,7 @@ def supabase_semantic_search():
         ).eq('user_id', user_id).not_.is_("embedding", "null").execute()
         
         bookmarks = response.data
-        print(f"📊 Found {len(bookmarks)} bookmarks with embeddings")
+        logger.debug(f"Found {len(bookmarks)} bookmarks with embeddings")
         
         if not bookmarks:
             return jsonify({
@@ -207,7 +205,7 @@ def supabase_semantic_search():
                 })
                 
             except Exception as e:
-                print(f"⚠️ Error processing bookmark {bookmark.get('id')}: {str(e)}")
+                logger.warning(f"Error processing bookmark {bookmark.get('id')}: {str(e)}")
                 continue
         
         # Sort by similarity (highest first)
@@ -231,7 +229,7 @@ def supabase_semantic_search():
                 'search_type': item['search_type']
             })
         
-        print(f"✅ Vector search completed with {len(results)} results")
+        logger.info(f"Vector search completed with {len(results)} results")
         return jsonify({
             'query': query,
             'results': results,
@@ -241,7 +239,7 @@ def supabase_semantic_search():
         }), 200
         
     except Exception as e:
-        print(f"❌ Supabase semantic search failed: {str(e)}")
+        logger.error(f"Supabase semantic search failed: {str(e)}")
         # Fallback to local semantic search
         return fallback_semantic_search(user_id, query, limit)
 
@@ -316,7 +314,7 @@ def fallback_semantic_search(user_id, query, limit):
         }), 200
         
     except Exception as e:
-        print(f"Fallback semantic search error: {str(e)}")
+        logger.error(f"Fallback semantic search error: {str(e)}")
         return jsonify({
             'query': query,
             'results': [],

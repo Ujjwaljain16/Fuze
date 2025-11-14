@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Project, User, Task
+import logging
+
+logger = logging.getLogger(__name__)
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/api/projects')
 
@@ -89,10 +92,10 @@ def create_project():
             )
             
             # The intent analysis is automatically saved to the project by the engine
-            print(f"✅ Intent analysis generated for new project: {intent.primary_goal} - {intent.project_type}")
+            logger.info(f"Intent analysis generated for new project: {intent.primary_goal} - {intent.project_type}")
             
         except Exception as intent_error:
-            print(f"⚠️ Intent analysis failed for new project: {str(intent_error)}")
+            logger.warning(f"Intent analysis failed for new project: {str(intent_error)}")
             # Don't fail the project creation if intent analysis fails
             # The analysis can be generated later when needed
         
@@ -196,10 +199,10 @@ def update_project(project_id):
             )
             
             # The intent analysis is automatically saved to the project by the engine
-            print(f"✅ Intent analysis updated for project: {intent.primary_goal} - {intent.project_type}")
+            logger.info(f"Intent analysis updated for project: {intent.primary_goal} - {intent.project_type}")
             
         except Exception as intent_error:
-            print(f"⚠️ Intent analysis update failed for project: {str(intent_error)}")
+            logger.warning(f"Intent analysis update failed for project: {str(intent_error)}")
             # Don't fail the project update if intent analysis fails
         
         # Invalidate caches using comprehensive cache invalidation service

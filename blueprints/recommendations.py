@@ -20,7 +20,7 @@ load_dotenv()
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from dataclasses import asdict
 
@@ -179,11 +179,32 @@ def invalidate_user_recommendations(user_id):
 @jwt_required()
 def get_unified_orchestrator_recommendations():
     """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
+    # Apply rate limiting if available
+    from flask import current_app
+    if hasattr(current_app, 'limiter') and current_app.limiter:
+        # Rate limit: 10 requests per minute per user
+        @current_app.limiter.limit("10 per minute", key_func=lambda: get_jwt_identity())
+        def _rate_limited():
+            pass
+        _rate_limited()
+    
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
+        
+        # Input validation
+        title = data.get('title', '')
+        description = data.get('description', '')
+        technologies = data.get('technologies', '')
+        
+        if title and len(title) > 500:
+            return jsonify({'error': 'Title exceeds maximum length of 500 characters'}), 400
+        if description and len(description) > 5000:
+            return jsonify({'error': 'Description exceeds maximum length of 5000 characters'}), 400
+        if technologies and len(technologies) > 1000:
+            return jsonify({'error': 'Technologies exceeds maximum length of 1000 characters'}), 400
         
         if not UNIFIED_ORCHESTRATOR_AVAILABLE:
             return jsonify({'error': 'Recommendation engine not available'}), 500

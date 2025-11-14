@@ -20,7 +20,7 @@ import numpy as np
 from redis_utils import redis_cache
 import logging
 
-# Configure production logging
+# Configure production logging first
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -30,6 +30,14 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Import rate limiting middleware
+try:
+    from middleware.rate_limiting import init_rate_limiter
+    RATE_LIMITING_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"[WARNING] Rate limiting middleware not available: {e}")
+    RATE_LIMITING_AVAILABLE = False
 
 # Import database connection manager for SSL handling
 try:
@@ -118,31 +126,46 @@ def create_app():
         app.config.from_object('config.DevelopmentConfig')
     
     # JWT configuration is already set in config.py
-    # Optimized CORS configuration to reduce preflight request delays
+    # Production-optimized CORS configuration
     if app.config.get('DEBUG'):
+        # Development: Allow localhost origins
         CORS(app, 
              origins=app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']), 
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-             # Performance optimizations:
-             max_age=86400)  # Cache preflight for 24 hours
+             max_age=86400)
     else:
-        # In production, allow both HTTP and HTTPS origins for development flexibility
-        default_origins = [
-            'http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173',
-            'https://localhost:3000', 'https://localhost:5173', 'https://127.0.0.1:5173',
-            'https://10.51.11.170:5173', 'https://172.23.0.1:5173'
-        ]
-        cors_origins = app.config.get('CORS_ORIGINS', default_origins)
+        # Production: Only allow explicitly configured origins
+        cors_origins_env = os.environ.get('CORS_ORIGINS', '')
+        if cors_origins_env:
+            # Parse comma-separated list from environment
+            cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+        else:
+            # Fallback: Only allow specific production domains (remove localhost for security)
+            cors_origins = []
+            logger.warning("[WARNING] CORS_ORIGINS not set in production - no origins allowed")
         
         CORS(app, 
              origins=cors_origins, 
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-             # Performance optimizations:
-             max_age=86400)  # Cache preflight for 24 hours
+             max_age=86400)
+    
+    # Initialize rate limiting
+    limiter = None
+    if RATE_LIMITING_AVAILABLE:
+        limiter = init_rate_limiter(app)
+        if limiter:
+            logger.info("[OK] Rate limiting initialized")
+        else:
+            logger.warning("[WARNING] Rate limiting initialization failed")
+    else:
+        logger.warning("[WARNING] Rate limiting not available")
+    
+    # Make limiter available to blueprints
+    app.limiter = limiter
     
     # Initialize database with enhanced SSL handling
     try:
@@ -632,11 +655,11 @@ def create_app():
                 ]
             }), 503
         
-        # Log other errors
-        logger.error(f"Unhandled exception: {e}")
+        # Log other errors (don't expose details to client)
+        logger.error(f"Unhandled exception: {e}", exc_info=True)
         return jsonify({
             'error': 'Internal server error',
-            'message': 'An unexpected error occurred',
+            'message': 'An unexpected error occurred. Please try again later.',
             'status': 'error'
         }), 500
     
@@ -645,20 +668,21 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    print("Starting Fuze Production Server...")
-    print("Performance Optimized Mode with SSL Connection Management")
-    print("Debug: DISABLED")
-    print("Environment: PRODUCTION")
-    print("=" * 50)
+    logger.info("Starting Fuze Production Server...")
+    logger.info("Performance Optimized Mode with SSL Connection Management")
+    logger.info("Debug: DISABLED")
+    logger.info("Environment: PRODUCTION")
+    logger.info("=" * 50)
     
     # Display system status
-    print("System Status:")
-    print(f"   Database: {'[OK] Available' if database_available else '[ERROR] Unavailable'}")
-    print(f"   Connection Manager: {'[OK] Available' if connection_manager_available else '[ERROR] Unavailable'}")
-    print(f"   Intent Analysis: {'[OK] Available' if intent_analysis_available else '[ERROR] Unavailable'}")
-    print(f"   Recommendations: {'[OK] Available' if recommendations_available else '[ERROR] Unavailable'}")
-    print(f"   LinkedIn: {'[OK] Available' if linkedin_available else '[ERROR] Unavailable'}")
-    print("=" * 50)
+    logger.info("System Status:")
+    logger.info(f"   Database: {'[OK] Available' if database_available else '[ERROR] Unavailable'}")
+    logger.info(f"   Connection Manager: {'[OK] Available' if connection_manager_available else '[ERROR] Unavailable'}")
+    logger.info(f"   Intent Analysis: {'[OK] Available' if intent_analysis_available else '[ERROR] Unavailable'}")
+    logger.info(f"   Recommendations: {'[OK] Available' if recommendations_available else '[ERROR] Unavailable'}")
+    logger.info(f"   LinkedIn: {'[OK] Available' if linkedin_available else '[ERROR] Unavailable'}")
+    logger.info(f"   Rate Limiting: {'[OK] Available' if RATE_LIMITING_AVAILABLE else '[WARNING] Unavailable'}")
+    logger.info("=" * 50)
     
     # Check HTTPS configuration
     https_enabled = os.environ.get('HTTPS_ENABLED', 'False').lower() == 'true'
@@ -668,9 +692,9 @@ if __name__ == "__main__":
     if https_enabled and ssl_cert_path and ssl_key_path:
         # Check if SSL certificate files exist
         if os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
-            print(f"HTTPS Enabled: Using SSL certificates")
-            print(f"Certificate: {ssl_cert_path}")
-            print(f"Private Key: {ssl_key_path}")
+            logger.info(f"HTTPS Enabled: Using SSL certificates")
+            logger.info(f"Certificate: {ssl_cert_path}")
+            logger.info(f"Private Key: {ssl_key_path}")
             
             # Start Flask server with HTTPS
             app.run(
@@ -681,10 +705,10 @@ if __name__ == "__main__":
                 ssl_context=(ssl_cert_path, ssl_key_path)
             )
         else:
-            print("⚠️  HTTPS enabled but SSL certificate files not found!")
-            print(f"Certificate path: {ssl_cert_path}")
-            print(f"Private key path: {ssl_key_path}")
-            print("Falling back to HTTP mode for development...")
+            logger.warning("HTTPS enabled but SSL certificate files not found!")
+            logger.warning(f"Certificate path: {ssl_cert_path}")
+            logger.warning(f"Private key path: {ssl_key_path}")
+            logger.warning("Falling back to HTTP mode for development...")
             
             # Fallback to HTTP for development
             app.run(
@@ -694,7 +718,7 @@ if __name__ == "__main__":
                 threaded=True
             )
     else:
-        print("HTTP Mode: Starting without SSL (Development Mode)")
+        logger.info("HTTP Mode: Starting without SSL (Development Mode)")
         
         # Start Flask server without HTTPS
         app.run(
