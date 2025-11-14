@@ -159,100 +159,21 @@ def invalidate_user_recommendations(user_id):
 
 
 
-@recommendations_bp.route('/ensemble', methods=['POST'])
-@jwt_required()
-def get_ensemble_recommendations():
-    """Get ensemble recommendations using only SmartRecommendationEngine and FastGeminiEngine (AI/NLP-powered)"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        # Use refactored ensemble engine (AI/NLP only)
-        try:
-            from ensemble_engine import get_ensemble_recommendations as get_ensemble
-            results = get_ensemble(user_id, data)
-            response = {
-                'recommendations': results,
-                'total_recommendations': len(results),
-                'engine_used': 'AI_NLP_Ensemble',
-                'performance_metrics': {
-                    'cached': False,
-                    'engines_used': ['SmartRecommendationEngine', 'FastGeminiEngine'],
-                    'optimization_level': 'ai_nlp_only'
-                }
-            }
-            return jsonify(response)
-        except ImportError:
-            logger.warning("AI/NLP ensemble engine not available")
-            return jsonify({'error': 'Ensemble engine not available'}), 500
-    except Exception as e:
-        logger.error(f"Error in ensemble recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+# ============================================================================
+# DEPRECATED ENDPOINTS - Removed from frontend, kept for backward compatibility
+# ============================================================================
 
-@recommendations_bp.route('/ensemble/quality', methods=['POST'])
-@jwt_required()
-def get_quality_ensemble_recommendations():
-    """Get recommendations using only FastSemanticEngine (semantic search) [DIRECT OVERRIDE]"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        # Directly use FastSemanticEngine for this endpoint only
-        try:
-            from unified_recommendation_orchestrator import FastSemanticEngine, UnifiedDataLayer, UnifiedRecommendationRequest
-            data_layer = UnifiedDataLayer()
-            fast_engine = FastSemanticEngine(data_layer)
-            unified_request = UnifiedRecommendationRequest(
-                user_id=user_id,
-                title=data.get('title', ''),
-                description=data.get('description', ''),
-                technologies=data.get('technologies', ''),
-                project_id=data.get('project_id'),
-                max_recommendations=data.get('max_recommendations', 5),
-                engine_preference='fast',
-                diversity_weight=data.get('diversity_weight', 0.3),
-                quality_threshold=data.get('quality_threshold', 5),
-                include_global_content=True
-            )
-            # Let FastSemanticEngine fetch content internally
-            results = fast_engine.get_recommendations([], unified_request)
-            # Format response
-            api_results = []
-            for result in results:
-                api_results.append({
-                    'id': result.id,
-                    'title': result.title,
-                    'url': result.url,
-                    'score': result.score,
-                    'reason': result.reason,
-                    'content_type': result.content_type,
-                    'difficulty': result.difficulty,
-                    'technologies': result.technologies,
-                    'key_concepts': result.key_concepts,
-                    'quality_score': result.quality_score,
-                    'engine_used': result.engine_used,
-                    'confidence': result.confidence,
-                    'metadata': result.metadata
-                })
-            response = {
-                'recommendations': api_results,
-                'total_recommendations': len(api_results),
-                'engine_used': 'FastSemanticEngine',
-                'performance_metrics': {
-                    'cached': False,
-                    'engines_used': ['FastSemanticEngine'],
-                    'optimization_level': 'semantic_only'
-                }
-            }
-            return jsonify(response)
-        except ImportError:
-            logger.warning("FastSemanticEngine not available")
-            return jsonify({'error': 'FastSemanticEngine not available'}), 500
-    except Exception as e:
-        logger.error(f"Error in quality ensemble recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+# @recommendations_bp.route('/ensemble', methods=['POST'])
+# @jwt_required()
+# def get_ensemble_recommendations():
+#     """DEPRECATED: Get ensemble recommendations - Use /unified-orchestrator instead"""
+#     return jsonify({'error': 'This endpoint is deprecated. Use /unified-orchestrator instead.'}), 410
+
+# @recommendations_bp.route('/ensemble/quality', methods=['POST'])
+# @jwt_required()
+# def get_quality_ensemble_recommendations():
+#     """DEPRECATED: Get quality ensemble recommendations - Use /unified-orchestrator instead"""
+#     return jsonify({'error': 'This endpoint is deprecated. Use /unified-orchestrator instead.'}), 410
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
@@ -281,7 +202,6 @@ def get_unified_orchestrator_recommendations():
             project_id=data.get('project_id'),
             max_recommendations=data.get('max_recommendations', 10),
             engine_preference=data.get('engine_preference', 'context'),
-            diversity_weight=data.get('diversity_weight', 0.3),
             quality_threshold=data.get('quality_threshold', 3),
             include_global_content=data.get('include_global_content', True)
         )
@@ -1115,7 +1035,7 @@ def batch_analyze_content():
 @recommendations_bp.route('/feedback', methods=['POST'])
 @jwt_required()
 def record_recommendation_feedback():
-    """Record feedback for recommendations"""
+    """Record feedback for recommendations - Uses UserFeedback model for ML learning"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
@@ -1130,15 +1050,43 @@ def record_recommendation_feedback():
             return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
         
         # Import models here to avoid circular imports
-        from models import db, Feedback
+        from models import db, UserFeedback, SavedContent
         
-        # Create feedback record
-        feedback = Feedback(
+        # Map feedback types to UserFeedback format
+        feedback_type_map = {
+            'positive': 'helpful',
+            'negative': 'not_relevant',
+            'neutral': 'clicked'
+        }
+        mapped_feedback_type = feedback_type_map.get(feedback_type, feedback_type)
+        
+        # Try to find the content_id from recommendation_id
+        # Recommendation ID might be the content ID or a separate identifier
+        content_id = recommendation_id  # Default assumption
+        
+        # If recommendation_id is not a content_id, we might need to look it up
+        # For now, we'll use it as content_id and let the database handle it
+        try:
+            # Check if content exists
+            content = SavedContent.query.filter_by(id=recommendation_id).first()
+            if not content:
+                # If not found, try to create a reference or use a default
+                logger.warning(f"Content with id {recommendation_id} not found, using recommendation_id as content_id")
+                content_id = recommendation_id
+            else:
+                content_id = content.id
+        except Exception as e:
+            logger.warning(f"Error looking up content: {e}, using recommendation_id as content_id")
+            content_id = recommendation_id
+        
+        # Create feedback record using UserFeedback model (supports recommendation_id)
+        feedback = UserFeedback(
             user_id=user_id,
+            content_id=content_id,
             recommendation_id=recommendation_id,
-            feedback_type=feedback_type,
-            feedback_data=json.dumps(feedback_data),
-            created_at=datetime.utcnow()
+            feedback_type=mapped_feedback_type,
+            context_data=feedback_data,
+            timestamp=datetime.utcnow()
         )
         
         db.session.add(feedback)
@@ -1152,10 +1100,12 @@ def record_recommendation_feedback():
             except Exception as e:
                 logger.warning(f"Failed to record Phase 3 feedback: {e}")
         
-        return jsonify({'message': 'Feedback recorded successfully'})
+        logger.info(f"Feedback recorded: user_id={user_id}, recommendation_id={recommendation_id}, type={mapped_feedback_type}")
+        return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback.id})
         
     except Exception as e:
         logger.error(f"Error recording feedback: {e}")
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/user-preferences', methods=['GET'])
@@ -1283,8 +1233,7 @@ def discover_recommendations():
             from phase3_enhanced_engine import get_enhanced_recommendations_phase3
             result = get_enhanced_recommendations_phase3(user_id, {
                 **data,
-                'discovery_mode': True,
-                'diversity_weight': 0.7
+                'discovery_mode': True
             })
         elif ENHANCED_ENGINE_AVAILABLE:
             from enhanced_recommendation_engine import get_enhanced_recommendations
@@ -1313,8 +1262,7 @@ def discover_recommendations():
                 recommendations = engine.get_recommendations(
                     bookmarks=bookmarks_data,
                     context=context,
-                    max_recommendations=15,
-                    diversity_weight=0.7
+                    max_recommendations=15
                 )
                 
                 result = {
@@ -1602,7 +1550,7 @@ def get_suggested_contexts():
         # If no feedback, get most recent project
         if not contexts:
             recent_project = Project.query.filter_by(user_id=user_id)\
-                .order_by(Project.updated_at.desc())\
+                .order_by(Project.created_at.desc())\
                 .first()
             
             if recent_project:
@@ -1613,7 +1561,7 @@ def get_suggested_contexts():
                     'subtitle': 'Last updated project',
                     'description': recent_project.description or '',
                     'technologies': recent_project.technologies or '',
-                    'timeAgo': _get_time_ago(recent_project.updated_at)
+                    'timeAgo': _get_time_ago(recent_project.created_at)
                 })
         
         # Remove duplicates
@@ -1649,7 +1597,7 @@ def get_recent_contexts():
         # Get recent projects
         try:
             recent_projects = Project.query.filter_by(user_id=user_id)\
-                .order_by(Project.updated_at.desc())\
+                .order_by(Project.created_at.desc())\
                 .limit(5).all()
             
             for project in recent_projects:
@@ -1659,7 +1607,7 @@ def get_recent_contexts():
                     'title': project.title,
                     'description': project.description or '',
                     'technologies': project.technologies or '',
-                    'timeAgo': _get_time_ago(project.updated_at)
+                    'timeAgo': _get_time_ago(project.created_at)
                 })
         except:
             pass

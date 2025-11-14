@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import api from '../services/api'
 import { 
   Search, FolderOpen, CheckSquare, Clock, Sparkles, 
@@ -19,6 +20,14 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
     fetchContextData()
     // Auto-focus search input
     setTimeout(() => searchInputRef.current?.focus(), 100)
+    
+    // Lock body scroll when modal is open
+    document.body.style.overflow = 'hidden'
+    
+    return () => {
+      // Unlock body scroll when modal closes
+      document.body.style.overflow = 'unset'
+    }
   }, [])
 
   const fetchContextData = async () => {
@@ -89,22 +98,59 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
   const filteredProjects = filterItems(allProjects)
   const filteredRecent = filterItems(recentItems)
 
-  return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0, 0, 0, 0.7)' }}
-      onClick={onClose}
-    >
+  const modalContent = (
+    <>
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { 
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          to { 
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          animation: fadeIn 0.2s ease-out;
+        }
+        .modal-content {
+          animation: slideUp 0.3s ease-out;
+        }
+      `}</style>
       <div 
-        className="relative w-full max-w-2xl max-h-[80vh] overflow-hidden"
-        style={{
-          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-          borderRadius: '20px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+        className="modal-overlay"
+        style={{ 
+          background: 'rgba(0, 0, 0, 0.85)'
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={onClose}
       >
+        <div 
+          className="modal-content relative w-full max-w-3xl max-h-[85vh] overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+            borderRadius: '24px',
+            border: '1px solid rgba(139, 92, 246, 0.3)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.1)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Header */}
         <div style={{ padding: '24px 24px 16px 24px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
@@ -560,7 +606,13 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
         </div>
       </div>
     </div>
+    </>
   )
+
+  // Use React Portal to render modal at document body level
+  return typeof window !== 'undefined' && document.body
+    ? createPortal(modalContent, document.body)
+    : modalContent
 }
 
 export default SmartContextSelector

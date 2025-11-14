@@ -23,7 +23,7 @@ const Recommendations = () => {
   const [selectedEngine, setSelectedEngine] = useState('unified')
   const [error, setError] = useState(null)
   
-  // Engine configurations
+  // Engine configurations - only unified engine
   const engines = [
     {
       id: 'unified',
@@ -33,24 +33,6 @@ const Recommendations = () => {
       hoverColor: 'from-blue-400 via-cyan-400 to-blue-500',
       glowColor: 'shadow-blue-500/50',
       icon: Zap
-    },
-    {
-      id: 'ensemble',
-      name: 'Smart Fusion',
-      description: 'Balanced Intelligence',
-      color: 'from-purple-500 via-pink-500 to-purple-600',
-      hoverColor: 'from-purple-400 via-pink-400 to-purple-500',
-      glowColor: 'shadow-purple-500/50',
-      icon: Brain
-    },
-    {
-      id: 'quality',
-      name: 'Bestest Match',
-      description: 'Fast Quality',
-      color: 'from-emerald-500 via-teal-500 to-emerald-600',
-      hoverColor: 'from-emerald-400 via-teal-400 to-emerald-500',
-      glowColor: 'shadow-emerald-500/50',
-      icon: Star
     }
   ]
 
@@ -64,11 +46,11 @@ const Recommendations = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [])
 
-  // Initial load - check Gemini status and fetch recommendations
+  // Initial load - only check Gemini status, don't fetch recommendations
   useEffect(() => {
     if (isAuthenticated && user) {
       checkGeminiStatus()
-      fetchRecommendations()
+      setLoading(false) // Set loading to false since we're not fetching
     }
   }, [isAuthenticated, user])
 
@@ -86,11 +68,8 @@ const Recommendations = () => {
   const checkGeminiStatus = async () => {
     try {
       const response = await api.get('/api/recommendations/status')
-      if (response.data.unified_orchestrator_available) {
-        setGeminiAvailable(response.data.fast_gemini_available || false)
-      } else {
-        setGeminiAvailable(false)
-      }
+      // Make Gemini available if unified orchestrator is available
+      setGeminiAvailable(response.data.unified_orchestrator_available || false)
     } catch (error) {
       console.error('Error checking unified orchestrator status:', error)
       setGeminiAvailable(false)
@@ -98,7 +77,7 @@ const Recommendations = () => {
   }
 
   const fetchRecommendations = async () => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !selectedContext) return
     
     setLoading(true)
     setError(null)
@@ -106,40 +85,62 @@ const Recommendations = () => {
     try {
       await refreshTokenIfNeeded()
       
-      // Determine endpoint based on selected engine
-      let endpoint
-      switch (selectedEngine) {
-        case 'unified':
-          endpoint = '/api/recommendations/unified-orchestrator'
-          break
-        case 'ensemble':
-          endpoint = '/api/recommendations/ensemble'
-          break
-        case 'quality':
-          endpoint = '/api/recommendations/ensemble/quality'
-          break
-        default:
-          endpoint = '/api/recommendations/unified-orchestrator'
-      }
+      // Always use unified orchestrator endpoint
+      const endpoint = '/api/recommendations/unified-orchestrator'
       
       // Build request payload based on selected context
-      let data = {
-        title: 'General Learning',
-        description: 'I want to learn and improve my skills',
-        technologies: '',
-        user_interests: 'Master relevant technologies and improve skills',
-        max_recommendations: 10,
-        engine_preference: 'auto',
-        diversity_weight: 0.3,
-        quality_threshold: 6,
-        include_global_content: true,
-        enhance_with_gemini: geminiAvailable
-      }
+      let data = {}
       
-      // Add engine-specific payload
-      if (selectedEngine === 'ensemble') {
-        data.engines = ['unified']
-        data.ensemble_method = 'weighted_voting'
+      if (selectedContext.type === 'general') {
+        data = {
+          title: 'General Learning',
+          description: 'I want to learn and improve my skills',
+          technologies: '',
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (selectedContext.type === 'surprise') {
+        data = {
+          title: 'Surprise Me',
+          description: 'Random quality learning content',
+          technologies: '',
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.5,
+          quality_threshold: 7,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (selectedContext.type === 'project') {
+        data = {
+          title: selectedContext.title,
+          description: selectedContext.description || '',
+          technologies: selectedContext.technologies || '',
+          project_id: selectedContext.id,
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (selectedContext.type === 'task') {
+        data = {
+          title: selectedContext.title,
+          description: selectedContext.description || '',
+          technologies: selectedContext.projectTitle || '',
+          project_id: selectedContext.projectId,
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
       }
       
       const response = await api.post(endpoint, data)
@@ -158,6 +159,10 @@ const Recommendations = () => {
   }
 
   const handleRefresh = async () => {
+    if (!selectedContext) {
+      setError('Please select a context first')
+      return
+    }
     setRefreshing(true)
     await fetchRecommendations()
     setRefreshing(false)
@@ -166,96 +171,32 @@ const Recommendations = () => {
   const handleContextSelect = async (context) => {
     setSelectedContext(context)
     setShowContextSelector(false)
-    setLoading(true)
-    
-    try {
-      let endpoint = '/api/recommendations/unified-orchestrator'
-      let data = {}
-
-      if (context.type === 'general') {
-        data = {
-          title: 'General Learning',
-          description: 'I want to learn and improve my skills',
-          technologies: '',
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true,
-          enhance_with_gemini: geminiAvailable
-        }
-      } else if (context.type === 'surprise') {
-        data = {
-          title: 'Surprise Me',
-          description: 'Random quality learning content',
-          technologies: '',
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.5,
-          quality_threshold: 7,
-          include_global_content: true
-        }
-      } else if (context.type === 'project') {
-        data = {
-          title: context.title,
-          description: context.description || '',
-          technologies: context.technologies || '',
-          project_id: context.id,
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true,
-          enhance_with_gemini: geminiAvailable
-        }
-      } else if (context.type === 'task') {
-        data = {
-          title: context.title,
-          description: context.description || '',
-          technologies: context.projectTitle || '',
-          project_id: context.projectId,
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true
-        }
-      }
-      
-      const response = await api.post(endpoint, data)
-      setRecommendations(response.data.recommendations || [])
-    } catch (error) {
-      console.error('Error fetching recommendations:', error)
-      setRecommendations([])
-    } finally {
-      setLoading(false)
-    }
+    // Fetch recommendations will be triggered by the context change
+    await fetchRecommendations()
   }
 
   const handleFeedback = async (recommendationId, feedbackType) => {
     try {
+      // Map feedback type to backend expected format
+      const feedbackTypeMap = {
+        'positive': 'positive',
+        'negative': 'negative'
+      }
+      
       await api.post('/api/recommendations/feedback', {
-        content_id: recommendationId,
-        feedback_type: feedbackType
+        recommendation_id: recommendationId,
+        feedback_type: feedbackTypeMap[feedbackType] || feedbackType,
+        feedback_data: {
+          timestamp: new Date().toISOString(),
+          source: 'recommendations_page'
+        }
       })
     } catch (error) {
       console.error('Error submitting feedback:', error)
     }
   }
 
-  const handleSaveRecommendation = async (recommendation) => {
-    try {
-      await api.post('/api/bookmarks', {
-        url: recommendation.url,
-        title: recommendation.title,
-        description: recommendation.description || '',
-        category: 'recommended'
-      })
-      setRecommendations(prev => prev.filter(rec => rec.id !== recommendation.id))
-    } catch (error) {
-      console.error('Error saving recommendation:', error)
-    }
-  }
+  // Removed handleSaveRecommendation - recommendations are already from saved bookmarks
 
   if (!isAuthenticated) {
     return (
@@ -428,39 +369,7 @@ const Recommendations = () => {
                 )}
               </div>
 
-              {/* Engine Selection */}
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-gray-200 mb-4">Choose Your Engine</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {engines.map((engine) => {
-                    const IconComponent = engine.icon
-                    const isSelected = selectedEngine === engine.id
-                    return (
-                      <button
-                        key={engine.id}
-                        onClick={() => setSelectedEngine(engine.id)}
-                        className={`relative p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-105 ${
-                          isSelected
-                            ? `border-transparent bg-gradient-to-r ${engine.color} shadow-lg ${engine.glowColor}`
-                            : 'border-gray-600 bg-gray-800/50 hover:border-gray-500'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <IconComponent className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
-                          <div className="text-left">
-                            <div className={`font-semibold ${isSelected ? 'text-white' : 'text-gray-200'}`}>
-                              {engine.name}
-                            </div>
-                            <div className={`text-sm ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
-                              {engine.description}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              {/* Engine Selection - Hidden since only one engine */}
 
               {/* Gemini Status Badge */}
               <div className="mb-8 flex justify-end">
@@ -483,6 +392,25 @@ const Recommendations = () => {
                   </div>
                   <p className="text-xl text-gray-300">Finding the best content for you...</p>
                 </div>
+              ) : !selectedContext ? (
+                /* No Context Selected State */
+                <div className="text-center py-20 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+                  <div className="relative mb-6">
+                    <TargetIcon className="w-16 h-16 text-purple-400 mx-auto" />
+                    <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-white mb-4">Select a Context</h3>
+                  <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                    Choose a context above to get personalized recommendations tailored to your needs.
+                  </p>
+                  <button 
+                    onClick={() => setShowContextSelector(true)} 
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 mx-auto"
+                  >
+                    <TargetIcon className="w-5 h-5" />
+                    <span>Select Context</span>
+                  </button>
+                </div>
               ) : recommendations.length > 0 ? (
                 /* Recommendations Grid */
                 <div className="grid grid-cols-1 gap-6">
@@ -490,7 +418,6 @@ const Recommendations = () => {
                     <RecommendationCard 
                       key={rec.id} 
                       recommendation={rec} 
-                      onSave={() => handleSaveRecommendation(rec)}
                       onFeedback={handleFeedback}
                     />
                   ))}
@@ -502,9 +429,9 @@ const Recommendations = () => {
                     <Sparkles className="w-16 h-16 text-purple-400 mx-auto" />
                     <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
                   </div>
-                  <h3 className="text-2xl font-bold text-white mb-4">No recommendations yet</h3>
+                  <h3 className="text-2xl font-bold text-white mb-4">No recommendations found</h3>
                   <p className="text-gray-400 mb-8 max-w-md mx-auto">
-                    Select a context above or try refreshing to get personalized recommendations.
+                    We couldn't find recommendations for this context. Try refreshing or selecting a different context.
                   </p>
                   <div className="flex items-center justify-center space-x-4">
                     <button 
@@ -519,7 +446,7 @@ const Recommendations = () => {
                       className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
                     >
                       <TargetIcon className="w-5 h-5" />
-                      <span>Select Context</span>
+                      <span>Change Context</span>
                     </button>
                   </div>
                 </div>
@@ -540,7 +467,7 @@ const Recommendations = () => {
   )
 }
 
-const RecommendationCard = ({ recommendation, onSave, onFeedback }) => {
+const RecommendationCard = ({ recommendation, onFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
   // Check recommendation type
@@ -560,12 +487,18 @@ const RecommendationCard = ({ recommendation, onSave, onFeedback }) => {
     recommendation.confidence !== undefined ||
     (recommendation.analysis && recommendation.analysis.algorithm_used)
 
+  // Check if there's any analysis data to show
+  const hasAnalysis = recommendation.analysis && (
+    isSimpleRecommendation || 
+    isGeminiRecommendation || 
+    isSmartRecommendation || 
+    isEnhancedRecommendation ||
+    recommendation.analysis.technologies
+  )
+
   return (
     <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all duration-300 hover:transform hover:scale-[1.01]">
-      <div 
-        className="p-6 cursor-pointer" 
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
+      <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
             <div className="flex items-center space-x-3 mb-2">
@@ -619,9 +552,15 @@ const RecommendationCard = ({ recommendation, onSave, onFeedback }) => {
                 )}
               </div>
             )}
-            <button className="p-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors duration-300">
-              {isExpanded ? '▼' : '▶'}
-            </button>
+            {hasAnalysis && (
+              <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors duration-300"
+                title={isExpanded ? 'Collapse analysis' : 'Expand analysis'}
+              >
+                {isExpanded ? '▼' : '▶'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -822,24 +761,15 @@ const RecommendationCard = ({ recommendation, onSave, onFeedback }) => {
       {/* Action Buttons */}
       <div className="border-t border-gray-800 p-6 bg-gray-900/20">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <a 
-              href={recommendation.url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg transition-all duration-300 transform hover:scale-105"
-            >
-              <ExternalLink className="w-4 h-4" />
-              <span>Visit Link</span>
-            </a>
-            <button 
-              onClick={onSave}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-800/50 hover:bg-purple-600/20 text-gray-300 hover:text-purple-400 border border-gray-700 hover:border-purple-500/50 rounded-lg transition-all duration-300"
-            >
-              <Bookmark className="w-4 h-4" />
-              <span>Save</span>
-            </button>
-          </div>
+          <a 
+            href={recommendation.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg transition-all duration-300 transform hover:scale-105"
+          >
+            <ExternalLink className="w-4 h-4" />
+            <span>Visit Link</span>
+          </a>
           
           <div className="flex items-center space-x-2">
             <button

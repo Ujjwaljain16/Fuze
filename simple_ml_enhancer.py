@@ -29,6 +29,29 @@ try:
 except ImportError:
     logger.info("ℹ️ ML features not available - using standard scoring")
 
+def calculate_tfidf_similarity(query_text: str, content_text: str) -> float:
+    """
+    Calculate TF-IDF similarity between query and content
+    
+    Args:
+        query_text: User query text
+        content_text: Content text to compare
+    
+    Returns:
+        Similarity score (0.0-1.0)
+    """
+    if not ML_AVAILABLE:
+        return 0.0
+    
+    try:
+        vectorizer = TfidfVectorizer(stop_words='english', max_features=500)
+        tfidf_matrix = vectorizer.fit_transform([query_text, content_text])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        return float(similarity)
+    except Exception as e:
+        logger.debug(f"TF-IDF similarity calculation failed: {e}")
+        return 0.0
+
 class SimpleMLEnhancer:
     """
     Simple ML enhancement that works with your existing system
