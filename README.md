@@ -41,13 +41,13 @@ A powerful, intelligent bookmark management system with semantic search, content
 
 ```
 fuze/
-├── app.py                          # Main Flask application
+├── backend/
+│   ├── run_production.py           # Main Flask application (dev & production)
+│   ├── wsgi.py                     # WSGI entry point for Gunicorn
 ├── models.py                       # Database models and relationships
 ├── config.py                       # Configuration settings
 ├── requirements.txt                # Python dependencies
 ├── init_db.py                      # Database initialization script
-├── view_schema.py                  # Database schema viewer
-├── test_extension_integration.py   # Chrome extension integration tests
 ├── .gitignore                      # Git ignore rules
 ├── README.md                       # This file
 ├── blueprints/                     # Flask blueprints (modular routes)
@@ -130,17 +130,12 @@ fuze/
 
 ## 🧪 Testing
 
-### Backend API Testing
-```bash
-python test_extension_integration.py
-```
+A comprehensive test suite will be developed in the `tests/` directory. For now, you can test the API endpoints using:
 
-This will test:
-- Health endpoint connectivity
-- User authentication (register/login)
-- Bookmark creation and management
-- Bulk import functionality
-- Chrome extension integration
+- Health check: `GET /api/health`
+- Authentication endpoints: `POST /api/auth/register`, `POST /api/auth/login`
+- Bookmark endpoints: `POST /api/bookmarks`, `GET /api/bookmarks`
+- Chrome extension integration via the extension popup interface
 
 ## 📚 API Documentation
 
@@ -206,7 +201,8 @@ This project is licensed under the MIT License.
 ## 🆘 Support
 
 For issues and questions:
-1. Check the troubleshooting sections in documentation
-2. Review the test scripts for examples
+1. Check the troubleshooting sections in documentation (`SETUP_INSTRUCTIONS.md`, `SECURITY_SETUP.md`)
+2. Review the API documentation above
 3. Check browser console for extension errors
-4. Verify backend server status and logs 
+4. Verify backend server status and logs (`production.log`)
+5. Check `REPOSITORY_STRUCTURE.md` for project organization details 

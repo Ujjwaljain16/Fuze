@@ -74,8 +74,9 @@ export default function FuzeAuth() {
       }
       const result = await register(formData.username, formData.email, formData.password, formData.name);
       if (result.success) {
-        setSuccess('Registration successful! Please sign in.');
-        setTimeout(() => setIsLogin(true), 1200);
+        setSuccess('Registration successful! Redirecting to dashboard...');
+        // Navigate to dashboard - onboarding modal will show automatically
+        setTimeout(() => navigate('/dashboard'), 1500);
       } else {
         setError(result.error || 'Registration failed.');
       }

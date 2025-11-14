@@ -6,6 +6,7 @@ import {
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
   BarChart3, Globe, MoreHorizontal, Tag
 } from 'lucide-react'
+import OnboardingBanner from '../components/OnboardingBanner'
 
 const Dashboard = () => {
   const { isAuthenticated, user } = useAuth()
@@ -272,6 +273,9 @@ const Dashboard = () => {
         <div className="w-full">
           {/* Dashboard Content */}
           <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+            {/* Onboarding Banner */}
+            <OnboardingBanner />
+            
             {/* Welcome Section */}
             <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
               <div className="flex items-center space-x-4 mb-4">

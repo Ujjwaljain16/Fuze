@@ -1,21 +1,40 @@
-# Environment variables
+# ==============================================================================
+# FUZE PROJECT - .gitignore
+# ==============================================================================
+
+# ==============================================================================
+# ENVIRONMENT VARIABLES & SECRETS
+# ==============================================================================
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
+*.env
+!.env.example
 
-# Virtual environment
+# ==============================================================================
+# PYTHON
+# ==============================================================================
+
+# Virtual environments
 venv/
 env/
 ENV/
+.venv/
+env.bak/
+venv.bak/
+.conda/
 
 # Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.Python
 
 # Distribution / packaging
-.Python
 build/
 develop-eggs/
 dist/
@@ -28,9 +47,12 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # PyInstaller
 *.manifest
@@ -39,6 +61,8 @@ wheels/
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+.tox/
+.nox/
 
 # Unit test / coverage reports
 htmlcov/
@@ -51,27 +75,23 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.coverage.*
+test-results/
+.pytest_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb_checkpoints
 
 # pyenv
 .python-version
 
-# celery beat schedule file
+# Celery
 celerybeat-schedule
+celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
 # Spyder project settings
 .spyderproject
@@ -88,14 +108,101 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
-# IDE files
+# Pyre type checker
+.pyre/
+
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+*.db
+*.sqlite
+*.sqlite3
+instance/
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ==============================================================================
+# LOGS
+# ==============================================================================
+*.log
+logs/
+*.log.*
+production.log
+bookmark_analysis.log
+fix_content_database.log
+fix_missing_content.log
+fresh_analysis.log
+*.log.gz
+*.log.1
+*.log.2
+
+# ==============================================================================
+# SSL CERTIFICATES & SECURITY
+# ==============================================================================
+certs/
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*.jks
+ssl/
+certificates/
+
+# ==============================================================================
+# FRONTEND (React/Vite)
+# ==============================================================================
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/.svelte-kit/
+frontend/build/
+frontend/.next/
+frontend/out/
+frontend/.nuxt/
+frontend/.cache/
+
+# Frontend logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/lerna-debug.log*
+
+# Frontend environment
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/.env.production
+frontend/.env.development
+
+# ==============================================================================
+# IDE & EDITORS
+# ==============================================================================
 .vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+*.ipr
+*.iws
 
-# OS generated files
+# ==============================================================================
+# OS GENERATED FILES
+# ==============================================================================
 .DS_Store
 .DS_Store?
 ._*
@@ -103,15 +210,179 @@ dmypy.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
 
-# Logs
-*.log
-logs/
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# Database
-*.db
-*.sqlite3
+# Linux
+*~
+.directory
+.Trash-*
 
-# Temporary files
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# ==============================================================================
+# TEMPORARY FILES
+# ==============================================================================
 *.tmp
 *.temp
+*.bak
+*.backup
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.save
+
+# ==============================================================================
+# PROJECT SPECIFIC
+# ==============================================================================
+
+# Result files
+*_results.json
+*_result.json
+*_scraping_results_*.json
+*_content_*.txt
+*_performance_*.json
+deprecated/results/
+deprecated/temp/
+
+# Backup files
+*.backup
+*.backup_*
+*.old
+*_old.py
+*_backup.py
+
+# Test output
+test_output/
+test_results/
+*.test.json
+
+# Migration backups
+migrations/versions/*.pyc
+migrations/versions/__pycache__/
+
+# ==============================================================================
+# DEPLOYMENT & BUILD
+# ==============================================================================
+*.war
+*.ear
+*.jar
+*.class
+*.pyc
+*.pyo
+*.pyd
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# ==============================================================================
+# CACHE & TEMP DIRECTORIES
+# ==============================================================================
+.cache/
+.temp/
+tmp/
+temp/
+*.cache
+.cache/
+
+# Redis dumps
+dump.rdb
+*.rdb
+
+# ==============================================================================
+# ML/AI MODEL FILES (if large)
+# ==============================================================================
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.model
+models/*.pt
+models/*.pth
+models/*.onnx
+*.weights
+
+# Embedding cache
+embeddings_cache/
+*.embeddings
+
+# ==============================================================================
+# DOCUMENTATION BUILDS
+# ==============================================================================
+docs/_build/
+docs/.doctrees/
+site/
+
+# ==============================================================================
+# MISC
+# ==============================================================================
+*.pid
+*.seed
+*.pid.lock
+.npm
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.parcel-cache
+
+# Next.js
+.next/
+out/
+
+# Nuxt.js
+.nuxt/
+dist/
+
+# Gatsby
+.cache/
+public/
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
