@@ -304,3 +304,4 @@ class RecommendationConfig:
 if __name__ == "__main__":
     RecommendationConfig.print_config()
 
+

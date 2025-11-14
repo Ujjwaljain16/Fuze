@@ -30,3 +30,4 @@ COMMENT ON TABLE user_feedback IS 'Enhanced user feedback tracking for personali
 COMMENT ON COLUMN user_feedback.feedback_type IS 'Type of interaction: clicked, saved, dismissed, not_relevant, helpful, completed';
 COMMENT ON COLUMN user_feedback.context_data IS 'JSON data containing query context, project_id, etc.';
 
+
