@@ -159,8 +159,8 @@ class MultiUserAPIManager:
             
             # Try loading from database
             user = db.session.query(User).filter_by(id=user_id).first()
-            if user and user.metadata:
-                api_key_info = user.metadata.get('api_key', {})
+            if user and user.user_metadata:
+                api_key_info = user.user_metadata.get('api_key', {})
                 if api_key_info and api_key_info.get('encrypted'):
                     decrypted = self.decrypt_api_key(api_key_info['encrypted'])
                     if decrypted:
@@ -294,7 +294,7 @@ class MultiUserAPIManager:
             user = db.session.query(User).filter_by(id=user_api_key.user_id).first()
             if user:
                 # Store API key info in user metadata (JSON field)
-                metadata = user.metadata or {}
+                metadata = user.user_metadata or {}
                 metadata['api_key'] = {
                     'encrypted': encrypted_key,  # Store encrypted key
                     'hash': user_api_key.api_key_hash,  # Hash for verification
@@ -303,7 +303,7 @@ class MultiUserAPIManager:
                     'created_at': user_api_key.created_at.isoformat(),
                     'last_used': user_api_key.last_used.isoformat() if user_api_key.last_used else None
                 }
-                user.metadata = metadata
+                user.user_metadata = metadata
                 db.session.commit()
                 
         except Exception as e:
@@ -315,7 +315,7 @@ class MultiUserAPIManager:
         try:
             users = db.session.query(User).all()
             for user in users:
-                metadata = getattr(user, 'metadata', {}) or {}
+                metadata = getattr(user, 'user_metadata', {}) or {}
                 if 'api_key' in metadata:
                     api_key_data = metadata['api_key']
                     user_api_key = UserAPIKey(

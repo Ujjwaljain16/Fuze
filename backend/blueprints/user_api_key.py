@@ -63,7 +63,7 @@ def get_api_key_info():
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        metadata = getattr(user, 'metadata', {}) or {}
+        metadata = getattr(user, 'user_metadata', {}) or {}
         api_key_info = metadata.get('api_key', {})
         
         if not api_key_info:
@@ -96,11 +96,11 @@ def remove_api_key():
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        metadata = user.metadata or {}
+        metadata = user.user_metadata or {}
         
         if 'api_key' in metadata:
             del metadata['api_key']
-            user.metadata = metadata
+            user.user_metadata = metadata
             db.session.commit()
             
             # Also remove from memory cache
@@ -160,7 +160,7 @@ def test_api_key():
             # Check if user has their own key
             user = db.session.query(User).filter_by(id=user_id).first()
             if user:
-                metadata = user.metadata or {}
+                metadata = user.user_metadata or {}
                 api_key_info = metadata.get('api_key', {})
                 if not api_key_info:
                     return jsonify({

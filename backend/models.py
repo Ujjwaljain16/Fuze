@@ -39,7 +39,7 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
-    metadata = Column(JSON)  # Store user-specific data like API keys (encrypted)
+    user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted) - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=func.now())
 
     saved_content = relationship('SavedContent', backref='user', lazy=True, cascade='all, delete-orphan')
