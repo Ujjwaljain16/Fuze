@@ -2,7 +2,7 @@ services:
   - type: web
     name: fuze-backend
     env: python
-    buildCommand: python --version && pip install --upgrade pip setuptools wheel && pip install --prefer-binary -r requirements.txt
+    buildCommand: pip install --upgrade pip setuptools wheel && pip install --prefer-binary -r requirements.txt
     startCommand: gunicorn backend.wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     envVars:
       - key: ENVIRONMENT
@@ -12,6 +12,3 @@ services:
       - key: PORT
         value: 5000
     plan: free
-
-
-
