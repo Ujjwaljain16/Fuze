@@ -13,7 +13,11 @@ _embedding_model = None
 _embedding_model_initialized = False
 
 def get_embedding_model():
-    """Get or create the embedding model singleton with robust initialization"""
+    """Get or create the embedding model singleton with robust initialization
+    
+    Model is lazy-loaded to prevent OOM at startup.
+    Set EAGER_LOAD_EMBEDDING_MODEL=true to load at import time (not recommended for free tier).
+    """
     global _embedding_model, _embedding_model_initialized
     
     if not _embedding_model_initialized:
@@ -37,12 +41,12 @@ def _initialize_embedding_model_robust():
         pass
     
     # Model options in order of preference (size vs quality)
-    # Prioritize smaller models for memory-constrained environments
+    # Keep original model priority - lazy loading prevents OOM at startup
     model_options = [
-        'paraphrase-MiniLM-L3-v2', # Good quality, ~60MB (smallest, best for memory)
-        'all-MiniLM-L3-v2',        # Decent quality, ~60MB
-        'all-MiniLM-L6-v2',        # Best quality, ~90MB
-        'paraphrase-MiniLM-L6-v2'  # Good quality, ~90MB
+        'all-MiniLM-L6-v2',        # Best quality, ~90MB (original model)
+        'paraphrase-MiniLM-L6-v2',  # Good quality, ~90MB
+        'paraphrase-MiniLM-L3-v2',  # Good quality, ~60MB (fallback)
+        'all-MiniLM-L3-v2',         # Decent quality, ~60MB (fallback)
     ]
     
     for model_name in model_options:
