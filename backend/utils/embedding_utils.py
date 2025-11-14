@@ -25,12 +25,24 @@ def get_embedding_model():
 def _initialize_embedding_model_robust():
     """Robust embedding model initialization with multiple fallbacks"""
     
+    # Optimize memory usage for torch
+    try:
+        import torch
+        import os
+        # Set environment variables to reduce memory usage
+        os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'max_split_size_mb:128')
+        # Disable CUDA if available to save memory (we're using CPU anyway)
+        os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+    except ImportError:
+        pass
+    
     # Model options in order of preference (size vs quality)
+    # Prioritize smaller models for memory-constrained environments
     model_options = [
-        'all-MiniLM-L6-v2',      # Best quality, ~90MB
-        'paraphrase-MiniLM-L3-v2', # Good quality, ~60MB  
-        'all-MiniLM-L3-v2',      # Decent quality, ~60MB
-        'paraphrase-MiniLM-L6-v2' # Good quality, ~90MB
+        'paraphrase-MiniLM-L3-v2', # Good quality, ~60MB (smallest, best for memory)
+        'all-MiniLM-L3-v2',        # Decent quality, ~60MB
+        'all-MiniLM-L6-v2',        # Best quality, ~90MB
+        'paraphrase-MiniLM-L6-v2'  # Good quality, ~90MB
     ]
     
     for model_name in model_options:
@@ -156,8 +168,8 @@ def _create_robust_fallback_embedding():
     
     return FallbackEmbeddingModel()
 
-# Initialize the global embedding model
-embedding_model = get_embedding_model()
+# Don't initialize the model at import time - load lazily when needed
+# This prevents memory issues at startup
 
 def get_embedding(text):
     """Get embedding for text with Redis caching"""
@@ -169,8 +181,9 @@ def get_embedding(text):
     if cached_embedding is not None:
         return cached_embedding
     
-    # Generate embedding if not cached
+    # Generate embedding if not cached - lazy load model here
     try:
+        embedding_model = get_embedding_model()  # Load model only when needed
         embedding = embedding_model.encode([text])[0]
         
         # Cache the embedding for future use
@@ -247,19 +260,27 @@ def get_project_embedding(project):
 
 def is_embedding_available():
     """Check if proper embedding model is available (not fallback)"""
-    return embedding_model is not None and not hasattr(embedding_model, '_generate_fallback_embedding')
+    try:
+        model = get_embedding_model()
+        return model is not None and not hasattr(model, '_generate_fallback_embedding')
+    except:
+        return False
 
 def get_embedding_model_info():
     """Get information about the current embedding model"""
-    if embedding_model is None:
-        return "No embedding model available"
-    
-    if hasattr(embedding_model, '_generate_fallback_embedding'):
-        return "Fallback embedding model (limited functionality)"
-    
-    # Try to get model name
     try:
-        model_name = getattr(embedding_model, 'model_name', 'Unknown')
-        return f"Proper embedding model: {model_name}"
+        model = get_embedding_model()
+        if model is None:
+            return "No embedding model available"
+        
+        if hasattr(model, '_generate_fallback_embedding'):
+            return "Fallback embedding model (limited functionality)"
+        
+        # Try to get model name
+        try:
+            model_name = getattr(model, 'model_name', 'Unknown')
+            return f"Proper embedding model: {model_name}"
+        except:
+            return "Proper embedding model (unknown name)"
     except:
-        return "Proper embedding model (unknown name)" 
+        return "No embedding model available" 
