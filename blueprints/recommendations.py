@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 # Create blueprint FIRST to avoid circular imports
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
 
+# Import models for new endpoints
+try:
+    from models import db, SavedContent, Project, Task, User, UserFeedback
+    MODELS_AVAILABLE = True
+except ImportError:
+    MODELS_AVAILABLE = False
+    logger.warning("⚠️ Models not available for context endpoints")
+
 # Initialize global flags for engine availability
 UNIFIED_ORCHESTRATOR_AVAILABLE = False
 UNIFIED_ENGINE_AVAILABLE = False
@@ -1544,6 +1552,146 @@ def get_gemini_status():
                 'error_message': str(e)
             }
         }), 500
+
+# ============================================================================
+# CONTEXT SELECTOR ENDPOINTS
+# ============================================================================
+
+@recommendations_bp.route('/suggested-contexts', methods=['GET'])
+@jwt_required()
+def get_suggested_contexts():
+    """Get smart suggestions based on user activity"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        if not MODELS_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Models not available'}), 500
+        
+        contexts = []
+        
+        # Get user's most recent activity
+        try:
+            recent_feedback = UserFeedback.query.filter_by(user_id=user_id)\
+                .order_by(UserFeedback.timestamp.desc())\
+                .limit(3).all()
+            
+            for feedback in recent_feedback:
+                if feedback.context_data:
+                    try:
+                        context_info = json.loads(feedback.context_data) if isinstance(feedback.context_data, str) else feedback.context_data
+                        project_id = context_info.get('project_id')
+                        
+                        if project_id:
+                            project = Project.query.get(project_id)
+                            if project:
+                                time_ago = _get_time_ago(feedback.timestamp)
+                                contexts.append({
+                                    'type': 'project',
+                                    'id': project.id,
+                                    'title': project.title,
+                                    'subtitle': f'From: {project.title}',
+                                    'description': project.description or '',
+                                    'technologies': project.technologies or '',
+                                    'timeAgo': time_ago
+                                })
+                    except:
+                        continue
+        except:
+            pass
+        
+        # If no feedback, get most recent project
+        if not contexts:
+            recent_project = Project.query.filter_by(user_id=user_id)\
+                .order_by(Project.updated_at.desc())\
+                .first()
+            
+            if recent_project:
+                contexts.append({
+                    'type': 'project',
+                    'id': recent_project.id,
+                    'title': recent_project.title,
+                    'subtitle': 'Last updated project',
+                    'description': recent_project.description or '',
+                    'technologies': recent_project.technologies or '',
+                    'timeAgo': _get_time_ago(recent_project.updated_at)
+                })
+        
+        # Remove duplicates
+        seen = set()
+        unique_contexts = []
+        for ctx in contexts:
+            key = f"{ctx['type']}_{ctx['id']}"
+            if key not in seen:
+                seen.add(key)
+                unique_contexts.append(ctx)
+        
+        return jsonify({
+            'success': True,
+            'contexts': unique_contexts[:2]
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting suggested contexts: {e}")
+        return jsonify({'success': False, 'error': str(e), 'contexts': []}), 500
+
+@recommendations_bp.route('/recent-contexts', methods=['GET'])
+@jwt_required()
+def get_recent_contexts():
+    """Get recent projects and tasks"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        if not MODELS_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Models not available'}), 500
+        
+        recent_items = []
+        
+        # Get recent projects
+        try:
+            recent_projects = Project.query.filter_by(user_id=user_id)\
+                .order_by(Project.updated_at.desc())\
+                .limit(5).all()
+            
+            for project in recent_projects:
+                recent_items.append({
+                    'type': 'project',
+                    'id': project.id,
+                    'title': project.title,
+                    'description': project.description or '',
+                    'technologies': project.technologies or '',
+                    'timeAgo': _get_time_ago(project.updated_at)
+                })
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'recent': recent_items[:5]
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting recent contexts: {e}")
+        return jsonify({'success': False, 'error': str(e), 'recent': []}), 500
+
+def _get_time_ago(timestamp):
+    """Convert timestamp to readable time ago"""
+    if not timestamp:
+        return 'recently'
+    
+    now = datetime.utcnow()
+    diff = now - timestamp
+    seconds = diff.total_seconds()
+    
+    if seconds < 60:
+        return 'just now'
+    elif seconds < 3600:
+        return f'{int(seconds / 60)}m ago'
+    elif seconds < 86400:
+        return f'{int(seconds / 3600)}h ago'
+    elif seconds < 2592000:
+        return f'{int(seconds / 86400)}d ago'
+    else:
+        return f'{int(seconds / 2592000)}mo ago'
 
 # ============================================================================
 # INITIALIZATION

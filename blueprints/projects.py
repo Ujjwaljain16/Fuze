@@ -11,15 +11,31 @@ def get_projects():
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
+    include_tasks = request.args.get('include_tasks', default='true').lower() == 'true'
     
     pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    projects_data = [{
-        "id": project.id,
-        "title": project.title,
-        "description": project.description,
-        "technologies": project.technologies,
-        "created_at": project.created_at.isoformat()
-    } for project in pagination.items]
+    projects_data = []
+    
+    for project in pagination.items:
+        project_dict = {
+            "id": project.id,
+            "title": project.title,
+            "description": project.description,
+            "technologies": project.technologies,
+            "created_at": project.created_at.isoformat()
+        }
+        
+        # Include tasks if requested
+        if include_tasks:
+            tasks = Task.query.filter_by(project_id=project.id).all()
+            project_dict["tasks"] = [{
+                "id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "created_at": task.created_at.isoformat()
+            } for task in tasks]
+        
+        projects_data.append(project_dict)
     
     return jsonify({
         "projects": projects_data,
