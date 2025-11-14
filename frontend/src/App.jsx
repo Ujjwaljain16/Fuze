@@ -10,6 +10,8 @@ import ProjectDetail from './pages/ProjectDetail';
 import Recommendations from './pages/Recommendations';
 import Bookmarks from './pages/Bookmarks';
 import SaveContent from './pages/SaveContent';
+import LinkedIn from './pages/LinkedIn';
+import Analytics from './pages/Analytics';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -161,6 +163,22 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <SaveContent />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/linkedin" 
+                element={
+                  <ProtectedRoute>
+                    <LinkedIn />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/analytics" 
+                element={
+                  <ProtectedRoute>
+                    <Analytics />
                   </ProtectedRoute>
                 } 
               />

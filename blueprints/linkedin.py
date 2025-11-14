@@ -424,6 +424,113 @@ def get_linkedin_history():
             'error': 'Internal server error retrieving LinkedIn history'
         }), 500
 
+@linkedin_bp.route('/api/linkedin/save-to-bookmarks', methods=['POST'])
+@jwt_required()
+def save_to_bookmarks():
+    """Save LinkedIn extraction to user's bookmarks"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        extraction_id = data.get('extraction_id')
+        
+        if not extraction_id:
+            return jsonify({
+                'success': False,
+                'error': 'extraction_id is required'
+            }), 400
+        
+        # Get the extraction record
+        extraction = ContentAnalysis.query.filter_by(
+            id=extraction_id,
+            user_id=user_id,
+            content_type='linkedin_post'
+        ).first()
+        
+        if not extraction:
+            return jsonify({
+                'success': False,
+                'error': 'Extraction not found'
+            }), 404
+        
+        # Check if already saved
+        existing_bookmark = SavedContent.query.filter_by(
+            user_id=user_id,
+            url=extraction.url
+        ).first()
+        
+        if existing_bookmark:
+            return jsonify({
+                'success': False,
+                'error': 'Already saved to bookmarks'
+            }), 400
+        
+        # Create bookmark
+        new_bookmark = SavedContent(
+            user_id=user_id,
+            url=extraction.url,
+            title=extraction.title,
+            extracted_text=extraction.content,
+            tags='linkedin',
+            category='linkedin',
+            quality_score=extraction.quality_score or 0
+        )
+        
+        db.session.add(new_bookmark)
+        db.session.commit()
+        
+        logger.info(f"Saved LinkedIn extraction {extraction_id} to bookmarks for user {user_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Saved to bookmarks successfully',
+            'bookmark_id': new_bookmark.id
+        })
+    
+    except Exception as e:
+        logger.error(f"Error saving to bookmarks: {e}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': 'Failed to save to bookmarks'
+        }), 500
+
+@linkedin_bp.route('/api/linkedin/extract/<int:extraction_id>', methods=['DELETE'])
+@jwt_required()
+def delete_extraction(extraction_id):
+    """Delete a LinkedIn extraction"""
+    try:
+        user_id = get_jwt_identity()
+        
+        extraction = ContentAnalysis.query.filter_by(
+            id=extraction_id,
+            user_id=user_id,
+            content_type='linkedin_post'
+        ).first()
+        
+        if not extraction:
+            return jsonify({
+                'success': False,
+                'error': 'Extraction not found'
+            }), 404
+        
+        db.session.delete(extraction)
+        db.session.commit()
+        
+        logger.info(f"Deleted LinkedIn extraction {extraction_id} for user {user_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Extraction deleted successfully'
+        })
+    
+    except Exception as e:
+        logger.error(f"Error deleting extraction: {e}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': 'Failed to delete extraction'
+        }), 500
+
 @linkedin_bp.route('/api/linkedin/status', methods=['GET'])
 def get_linkedin_status():
     """Get LinkedIn service status"""

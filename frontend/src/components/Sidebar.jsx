@@ -13,7 +13,9 @@ import {
   Menu,
   Zap,
   PanelLeftOpen,
-  PanelLeftClose
+  PanelLeftClose,
+  Linkedin,
+  BarChart3
 } from 'lucide-react'
 import './sidebar-styles.css'
 
@@ -27,6 +29,8 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
     { name: 'Projects', href: '/projects', icon: FolderOpen },
     { name: 'Save Content', href: '/save-content', icon: Plus },
     { name: 'Recommendations', href: '/recommendations', icon: Sparkles },
+    { name: 'LinkedIn', href: '/linkedin', icon: Linkedin },
+    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'Settings', href: '/profile', icon: Settings },
   ]
 
