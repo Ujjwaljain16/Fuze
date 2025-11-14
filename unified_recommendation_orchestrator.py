@@ -102,6 +102,16 @@ except ImportError:
     EXPLAINABILITY_AVAILABLE = False
     logger.warning("⚠️ Explainability engine not available, using template-based explanations")
 
+try:
+    from orchestrator_enhancements_implementation import (
+        SystemLoadMonitor, UserBehaviorTracker, AdaptiveLearningSystem
+    )
+    PERSONALIZATION_AVAILABLE = True
+    logger.info("✅ Personalization system loaded")
+except ImportError:
+    PERSONALIZATION_AVAILABLE = False
+    logger.warning("⚠️ Personalization system not available")
+
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -2017,6 +2027,20 @@ class UnifiedRecommendationOrchestrator:
         self.performance_history = []
         self.cache_hits = 0
         self.cache_misses = 0
+        
+        # Initialize personalization system
+        if PERSONALIZATION_AVAILABLE:
+            try:
+                self.system_monitor = SystemLoadMonitor()
+                self.behavior_tracker = UserBehaviorTracker()
+                self.adaptive_learning = AdaptiveLearningSystem()
+                self.personalization_enabled = True
+                logger.info("✅ Real-time personalization ACTIVATED")
+            except Exception as e:
+                logger.error(f"Failed to initialize personalization: {e}")
+                self.personalization_enabled = False
+        else:
+            self.personalization_enabled = False
         
         logger.info("Unified Recommendation Orchestrator initialized")
     

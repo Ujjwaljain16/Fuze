@@ -606,3 +606,4 @@ def get_skill_analyzer() -> SkillGapAnalyzer:
         _skill_analyzer = SkillGapAnalyzer()
     return _skill_analyzer
 
+
