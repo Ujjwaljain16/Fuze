@@ -116,26 +116,42 @@ class IntentAnalysisEngine:
         """Use LLM to analyze user intent"""
         try:
             # Build context for LLM
+            project_info = ""
+            if project_context:
+                project_info = f"""
+            PROJECT CONTEXT (CRITICAL - User wants to learn and develop THIS project):
+            - Title: {project_context.get('title', 'N/A')}
+            - Description: {project_context.get('description', 'N/A')}
+            - Technologies: {project_context.get('technologies', 'N/A')}
+            
+            The user's intent is to LEARN and DEVELOP this specific project. Use this project context to understand:
+            - What they need to learn (technologies, concepts, skills)
+            - What they're building (project type, complexity)
+            - What recommendations would help them build this project
+            """
+            
             context = f"""
             Analyze the following user input to understand their intent and requirements for recommendations.
             
             User Input: {user_input}
+            {project_info}
             
-            If available, project context: {json.dumps(project_context) if project_context else 'None'}
+            IMPORTANT: If project context is provided, the user's PRIMARY INTENT is to learn and develop that specific project.
+            The recommendations should help them understand, build, and complete that project.
             
             Please analyze and return a JSON response with the following structure:
             {{
-                "primary_goal": "main objective (e.g., learn, build, solve, optimize)",
+                "primary_goal": "main objective (e.g., learn, build, solve, optimize) - usually 'learn' or 'build' for projects",
                 "learning_stage": "beginner/intermediate/advanced",
                 "project_type": "web_app/mobile_app/api/data_science/automation/etc",
                 "urgency_level": "low/medium/high",
                 "complexity_preference": "simple/moderate/complex",
                 "time_constraint": "quick_tutorial/deep_dive/reference",
-                "focus_areas": ["area1", "area2", "area3"],
+                "focus_areas": ["area1", "area2", "area3"] - extract from project description,
                 "confidence_score": 0.85
             }}
             
-            Be specific and practical. Extract real intent from the input.
+            Be specific and practical. Extract real intent from the input and project context.
             """
             
             result = self.gemini_client._make_gemini_request(context)

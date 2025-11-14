@@ -212,7 +212,6 @@ def get_quality_ensemble_recommendations():
                 project_id=data.get('project_id'),
                 max_recommendations=data.get('max_recommendations', 5),
                 engine_preference='fast',
-                diversity_weight=data.get('diversity_weight', 0.3),
                 quality_threshold=data.get('quality_threshold', 5),
                 include_global_content=True
             )
@@ -281,7 +280,6 @@ def get_unified_orchestrator_recommendations():
             project_id=data.get('project_id'),
             max_recommendations=data.get('max_recommendations', 10),
             engine_preference=data.get('engine_preference', 'context'),
-            diversity_weight=data.get('diversity_weight', 0.3),
             quality_threshold=data.get('quality_threshold', 3),
             include_global_content=data.get('include_global_content', True)
         )
@@ -1283,8 +1281,7 @@ def discover_recommendations():
             from phase3_enhanced_engine import get_enhanced_recommendations_phase3
             result = get_enhanced_recommendations_phase3(user_id, {
                 **data,
-                'discovery_mode': True,
-                'diversity_weight': 0.7
+                'discovery_mode': True
             })
         elif ENHANCED_ENGINE_AVAILABLE:
             from enhanced_recommendation_engine import get_enhanced_recommendations
@@ -1313,8 +1310,7 @@ def discover_recommendations():
                 recommendations = engine.get_recommendations(
                     bookmarks=bookmarks_data,
                     context=context,
-                    max_recommendations=15,
-                    diversity_weight=0.7
+                    max_recommendations=15
                 )
                 
                 result = {
@@ -1602,7 +1598,7 @@ def get_suggested_contexts():
         # If no feedback, get most recent project
         if not contexts:
             recent_project = Project.query.filter_by(user_id=user_id)\
-                .order_by(Project.updated_at.desc())\
+                .order_by(Project.created_at.desc())\
                 .first()
             
             if recent_project:
@@ -1613,7 +1609,7 @@ def get_suggested_contexts():
                     'subtitle': 'Last updated project',
                     'description': recent_project.description or '',
                     'technologies': recent_project.technologies or '',
-                    'timeAgo': _get_time_ago(recent_project.updated_at)
+                    'timeAgo': _get_time_ago(recent_project.created_at)
                 })
         
         # Remove duplicates
@@ -1649,7 +1645,7 @@ def get_recent_contexts():
         # Get recent projects
         try:
             recent_projects = Project.query.filter_by(user_id=user_id)\
-                .order_by(Project.updated_at.desc())\
+                .order_by(Project.created_at.desc())\
                 .limit(5).all()
             
             for project in recent_projects:
@@ -1659,7 +1655,7 @@ def get_recent_contexts():
                     'title': project.title,
                     'description': project.description or '',
                     'technologies': project.technologies or '',
-                    'timeAgo': _get_time_ago(project.updated_at)
+                    'timeAgo': _get_time_ago(project.created_at)
                 })
         except:
             pass
