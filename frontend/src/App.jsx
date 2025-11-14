@@ -15,13 +15,15 @@ import Analytics from './pages/Analytics';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
+import OnboardingModal from './components/OnboardingModal';
 import './App.css';
 
 function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, isAuthenticated } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // Start collapsed by default
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Debug: Log initial state
   console.log('App initial state:', { collapsed, isMobile, sidebarOpen });
@@ -37,6 +39,15 @@ function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Check if onboarding should be shown
+  useEffect(() => {
+    if (isAuthenticated && !loading) {
+      const shouldShow = localStorage.getItem('show_onboarding') === 'true' && 
+                        localStorage.getItem('onboarding_completed') !== 'true';
+      setShowOnboarding(shouldShow);
+    }
+  }, [isAuthenticated, loading]);
 
   // Add sidebar state class to body - CRITICAL for layout
   useEffect(() => {
@@ -86,9 +97,18 @@ function App() {
     );
   }
 
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    localStorage.removeItem('show_onboarding');
+  };
+
   return (
     <Router>
       <div className="App">
+        {/* Onboarding Modal */}
+        {showOnboarding && (
+          <OnboardingModal onComplete={handleOnboardingComplete} />
+        )}
         {user && <Navbar />}
         <div className="app-container">
           {user && (

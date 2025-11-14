@@ -8,6 +8,7 @@ import ProfileStats from '../components/ProfileStats'
 import ProfileForm from '../components/ProfileForm'
 import PasswordForm from '../components/PasswordForm'
 import AccountActions from '../components/AccountActions'
+import ApiKeyManager from '../components/ApiKeyManager'
 
 const Profile = () => {
   const { isAuthenticated, user, logout } = useAuth()
@@ -243,6 +244,11 @@ const Profile = () => {
               showPassword={showPassword}
               setShowPassword={setShowPassword}
             />
+          </div>
+
+          {/* API Key Management */}
+          <div className="mb-8">
+            <ApiKeyManager />
           </div>
 
           {/* Account Actions */}
