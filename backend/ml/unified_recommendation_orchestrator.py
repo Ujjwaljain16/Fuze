@@ -163,8 +163,8 @@ class UnifiedDataLayer:
     """Standardized data layer for all engines"""
     
     def __init__(self):
-        self.embedding_model = None
-        self._init_embedding_model()
+        self._embedding_model = None  # Private - use property to access
+        self._embedding_model_initialized = False
         
         # Initialize universal semantic matcher if available
         self.universal_matcher = None
@@ -188,15 +188,23 @@ class UnifiedDataLayer:
                     logger.warning(f"ΓÜá∩╕Å Fallback UniversalSemanticMatcher also failed: {fallback_error}")
                     self.universal_matcher = None
     
+    @property
+    def embedding_model(self):
+        """Lazy-load embedding model - only loads when accessed"""
+        if not self._embedding_model_initialized:
+            self._init_embedding_model()
+            self._embedding_model_initialized = True
+        return self._embedding_model
+    
     def _init_embedding_model(self):
-        """Initialize embedding model with fallback for network issues"""
+        """Initialize embedding model with fallback for network issues - LAZY LOADED"""
         try:
             # Try to use the global embedding model first
             try:
                 from utils.embedding_utils import get_embedding_model
-                self.embedding_model = get_embedding_model()
-                if self.embedding_model is not None:
-                    logger.info("✅ Using global embedding model from embedding_utils")
+                self._embedding_model = get_embedding_model()
+                if self._embedding_model is not None:
+                    logger.info("✅ Using global embedding model from embedding_utils (lazy-loaded)")
                     return
             except ImportError:
                 logger.info("Global embedding model not available, using local initialization")
@@ -207,18 +215,18 @@ class UnifiedDataLayer:
             
             # Try to load the model with network fallback
             try:
-                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
                 
                 # More robust meta tensor handling
                 try:
                     # Check if we're dealing with meta tensors
                     if hasattr(torch, 'meta') and torch.meta.is_available():
                         # Use to_empty() for meta tensors
-                        self.embedding_model = self.embedding_model.to_empty(device='cpu')
-                        logger.info("Γ£à Embedding model loaded with to_empty() for meta tensors")
+                        self._embedding_model = self._embedding_model.to_empty(device='cpu')
+                        logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
                     else:
                         # Fallback to CPU
-                        self.embedding_model = self.embedding_model.to('cpu')
+                        self._embedding_model = self._embedding_model.to('cpu')
                         logger.info("Γ£à Embedding model loaded with to() for CPU")
                 except Exception as tensor_error:
                     logger.warning(f"Tensor device placement error: {tensor_error}")
@@ -230,12 +238,12 @@ class UnifiedDataLayer:
                 logger.warning(f"Network error loading embedding model: {network_error}")
                 logger.info("Using fallback embedding approach...")
                 # Create a simple fallback embedding function
-                self.embedding_model = None
+                self._embedding_model = None
                 self._use_fallback_embeddings = True
                 
         except Exception as e:
             logger.error(f"Error initializing embedding model: {e}")
-            self.embedding_model = None
+            self._embedding_model = None
             self._use_fallback_embeddings = True
     
     def get_db_session(self):

@@ -50,39 +50,22 @@ ENHANCED_MODULES_AVAILABLE = False
 
 # Global engine instances (will be initialized lazily)
 unified_engine_instance = None
-embedding_model = None
+
+def get_embedding_model():
+    """Get embedding model lazily - uses embedding_utils singleton"""
+    try:
+        from utils.embedding_utils import get_embedding_model as _get_embedding_model
+        return _get_embedding_model()
+    except Exception as e:
+        logger.error(f"Error getting embedding model: {e}")
+        return None
 
 def init_models():
-    """Initialize models with error handling"""
-    global embedding_model
-    
-    try:
-        from sentence_transformers import SentenceTransformer
-        import torch
-        
-        # Initialize model
-        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        # More robust meta tensor handling
-        try:
-            # Check if we're dealing with meta tensors
-            if hasattr(torch, 'meta') and torch.meta.is_available():
-                # Use to_empty() for meta tensors
-                embedding_model = embedding_model.to_empty(device='cpu')
-                logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
-            else:
-                # Fallback to CPU
-                embedding_model = embedding_model.to('cpu')
-                logger.info("✅ Embedding model loaded with to() for CPU")
-        except Exception as tensor_error:
-            logger.warning(f"Tensor device placement error: {tensor_error}")
-            # Try alternative approach - don't move the model
-            logger.info("Using embedding model without device placement")
-        
-        logger.info("Embedding model initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing embedding model: {e}")
-        embedding_model = None
+    """Initialize models with error handling - LAZY: only loads when needed"""
+    # Model is now lazy-loaded via embedding_utils
+    # This function is kept for compatibility but does nothing at startup
+    logger.info("Embedding model will be loaded lazily when needed")
+    return True
 
 def init_engines():
     """Initialize recommendation engines with lazy loading"""
@@ -609,7 +592,7 @@ def get_enhanced_engine_status():
             'fast_gemini_available': FAST_GEMINI_AVAILABLE,
             'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
             'gemini_analyzer_available': gemini_analyzer is not None,
-            'embedding_model_available': embedding_model is not None
+            'embedding_model_available': get_embedding_model() is not None
         }
         
         return jsonify(status)
@@ -733,7 +716,7 @@ def get_engine_status():
             'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
             'fast_gemini_available': FAST_GEMINI_AVAILABLE,
             'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
-            'embedding_model_available': embedding_model is not None,
+            'embedding_model_available': get_embedding_model() is not None,
             'total_engines_available': sum([
                 UNIFIED_ORCHESTRATOR_AVAILABLE,
                 UNIFIED_ENGINE_AVAILABLE,
@@ -1670,7 +1653,8 @@ def init_recommendations_blueprint():
     """Initialize the recommendations blueprint"""
     logger.info("Initializing complete recommendations blueprint...")
     
-    # Initialize models first
+    # Models are now lazy-loaded - no initialization at startup
+    # init_models() is kept for compatibility but does nothing
     init_models()
     
     # Initialize engines with error handling
