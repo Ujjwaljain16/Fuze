@@ -247,50 +247,31 @@ def create_app():
     
     # Test database connection before proceeding with enhanced SSL handling
     global database_available
+    # Quick database connection test - non-blocking for fast startup
+    # Full retries will happen on first request if needed
     try:
         with app.app_context():
             if connection_manager_available:
-                # Use connection manager for testing with multiple attempts
-                max_connection_attempts = 3
-                connection_successful = False
-                
-                for attempt in range(max_connection_attempts):
-                    try:
-                        if test_database_connection():
-                            database_available = True
-                            connection_successful = True
-                            logger.info(f"[OK] Database connection test successful (connection manager) on attempt {attempt + 1}")
-                            break
-                        else:
-                            logger.warning(f"[WARNING] Database connection test failed on attempt {attempt + 1}")
-                            if attempt < max_connection_attempts - 1:
-                                logger.info(f"[INFO] Retrying database connection in 5 seconds...")
-                                time.sleep(5)
-                                
-                                # Try to refresh connections
-                                if refresh_database_connections():
-                                    logger.info("[OK] Database connections refreshed, retrying...")
-                                else:
-                                    logger.warning("[WARNING] Failed to refresh database connections")
-                    except Exception as e:
-                        logger.warning(f"[WARNING] Database connection attempt {attempt + 1} failed: {e}")
-                        if attempt < max_connection_attempts - 1:
-                            logger.info(f"[INFO] Retrying database connection in 5 seconds...")
-                            time.sleep(5)
-                
-                if not connection_successful:
-                    # Final attempt to refresh connections
-                    if refresh_database_connections():
+                # Quick test - no retries to avoid blocking startup
+                try:
+                    if test_database_connection():
                         database_available = True
-                        logger.info("[OK] Database connections refreshed successfully on final attempt")
+                        logger.info("[OK] Database connection test successful (quick check)")
                     else:
                         database_available = False
-                        logger.warning("[WARNING] Database connection test failed after all attempts")
+                        logger.warning("[WARNING] Database connection test failed - will retry on first request")
+                except Exception as e:
+                    database_available = False
+                    logger.warning(f"[WARNING] Database connection test failed: {e} - will retry on first request")
             else:
-                # Fallback to standard testing
-                db.session.execute(text('SELECT 1'))
-                database_available = True
-                logger.info("[OK] Database connection test successful (standard)")
+                # Fallback to standard testing - quick check only
+                try:
+                    db.session.execute(text('SELECT 1'))
+                    database_available = True
+                    logger.info("[OK] Database connection test successful (standard)")
+                except Exception as e:
+                    database_available = False
+                    logger.warning(f"[WARNING] Database connection test failed: {e}")
     except Exception as e:
         logger.warning(f"[WARNING] Database connection test failed: {e}")
         logger.warning("[WARNING] Server will start but database-dependent features may not work")
