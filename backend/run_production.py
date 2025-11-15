@@ -296,6 +296,12 @@ def create_app():
         logger.warning("[WARNING] Server will start but database-dependent features may not work")
         database_available = False
     
+    # Simple root endpoint - responds immediately for port binding (no DB checks)
+    @app.route('/')
+    def root():
+        """Simple root endpoint for health checks - responds immediately"""
+        return {'status': 'ok', 'message': 'Fuze API is running'}, 200
+    
     # Register blueprints with error handling
     try:
         app.register_blueprint(auth_bp)
@@ -377,21 +383,7 @@ def create_app():
             response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         return response
     
-    # Basic route
-    @app.route('/')
-    def index():
-        return {
-            'message': 'Fuze API running', 
-            'version': '1.0.0',
-            'environment': app.config.get('ENV', 'development'),
-            'https_enabled': app.config.get('HTTPS_ENABLED', False),
-            'csrf_enabled': app.config.get('CSRF_ENABLED', False),
-            'database_available': database_available,
-            'recommendations_available': recommendations_available,
-            'intent_analysis_available': intent_analysis_available,
-            'linkedin_available': linkedin_available,
-            'connection_manager_available': connection_manager_available
-        }
+    # Root endpoint already defined above - this is a duplicate, removed
     
     
     # Health check endpoint for Chrome extension

@@ -14,21 +14,10 @@ class UniversalSemanticMatcher:
     """Universal semantic matcher that handles all variations"""
     
     def __init__(self):
-        # Use the improved embedding system from embedding_utils
-        try:
-            from utils.embedding_utils import get_embedding_model, is_embedding_available
-            self.embedding_model = get_embedding_model()
-            self.embedding_available = is_embedding_available()
-            
-            if self.embedding_available:
-                print("✅ UniversalSemanticMatcher using proper embedding model")
-            else:
-                print("⚠️ UniversalSemanticMatcher using fallback embedding model")
-                
-        except Exception as e:
-            print(f"❌ Failed to initialize UniversalSemanticMatcher: {e}")
-            self.embedding_model = None
-            self.embedding_available = False
+        # Embedding model is now lazy-loaded to prevent OOM at startup
+        self._embedding_model = None
+        self._embedding_model_initialized = False
+        self._embedding_available = None  # Will be determined when model loads
         
         # Spelling variations and synonyms
         self.spelling_variations = {
@@ -115,10 +104,37 @@ class UniversalSemanticMatcher:
         
         return text
     
+    @property
+    def embedding_model(self):
+        """Lazy-load embedding model - only loads when accessed"""
+        if not self._embedding_model_initialized:
+            try:
+                from utils.embedding_utils import get_embedding_model, is_embedding_available
+                self._embedding_model = get_embedding_model()
+                self._embedding_available = is_embedding_available()
+                
+                if self._embedding_available:
+                    print("✅ UniversalSemanticMatcher using proper embedding model (lazy-loaded)")
+                else:
+                    print("⚠️ UniversalSemanticMatcher using fallback embedding model")
+            except Exception as e:
+                print(f"❌ Failed to initialize UniversalSemanticMatcher: {e}")
+                self._embedding_model = None
+                self._embedding_available = False
+            self._embedding_model_initialized = True
+        return self._embedding_model
+    
+    @property
+    def embedding_available(self):
+        """Check if embedding model is available"""
+        if self._embedding_available is None:
+            # Trigger lazy loading
+            _ = self.embedding_model
+        return self._embedding_available or False
+    
     def calculate_semantic_similarity(self, text1: str, text2: str) -> float:
         """Calculate semantic similarity with normalization"""
         try:
-            # Check if embedding model is available
             if not self.embedding_model:
                 print("⚠️ Embedding model not available, using fallback similarity")
                 return self._fallback_similarity(text1, text2)
