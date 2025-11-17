@@ -36,8 +36,14 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """Optimized login endpoint without retry decorators for better performance"""
+    """Optimized login endpoint with proper error handling and logging"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     data = request.get_json()
+    if not data:
+        return jsonify({'message': 'Request body is required'}), 400
+    
     identifier = data.get('username') or data.get('email')
     password = data.get('password')
     
@@ -45,7 +51,10 @@ def login():
         return jsonify({'message': 'Username/email and password required'}), 400
     
     try:
-        # Direct database query without connection checks for speed
+        # Ensure database connection before querying
+        ensure_database_connection()
+        
+        # Direct database query
         user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
         if not user or not check_password_hash(user.password_hash, password):
             return jsonify({'message': 'Invalid credentials'}), 401
@@ -68,16 +77,29 @@ def login():
         return response, 200
         
     except Exception as e:
+        # Log the actual error for debugging
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        
         # Only retry on actual database connection errors
-        if 'connection' in str(e).lower() or 'timeout' in str(e).lower():
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
             # Fallback to retry mechanism for connection issues
-            return login_with_retry(identifier, password)
+            try:
+                return login_with_retry(identifier, password)
+            except Exception as retry_error:
+                logger.error(f"Login retry failed: {str(retry_error)}", exc_info=True)
+                return jsonify({'message': 'Database connection failed. Please try again.'}), 503
         else:
-            return jsonify({'message': 'Login failed'}), 500
+            # For other errors, return generic message but log the actual error
+            logger.error(f"Login failed with non-connection error: {str(e)}", exc_info=True)
+            return jsonify({'message': 'Login failed. Please try again.'}), 500
 
 def login_with_retry(identifier, password):
     """Fallback login method with retry logic for connection issues"""
-    @retry_on_connection_error(max_retries=1, delay=1.0)
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    @retry_on_connection_error(max_retries=2, delay=1.0)
     def _login():
         ensure_database_connection()
         user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
@@ -106,7 +128,8 @@ def login_with_retry(identifier, password):
         return response, 200
         
     except Exception as e:
-        return jsonify({'message': 'Login failed'}), 500
+        logger.error(f"Login retry failed: {str(e)}", exc_info=True)
+        return jsonify({'message': 'Login failed. Please try again.'}), 500
 
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)

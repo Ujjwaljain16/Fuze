@@ -20,11 +20,11 @@ load_dotenv()
 from flask import Flask, request, jsonify, render_template
 from flask_jwt_extended import JWTManager
 from datetime import timedelta, datetime
-from .models import db
+from models import db
 from sqlalchemy import text
 from flask_cors import CORS
 import numpy as np
-from .utils.redis_utils import redis_cache
+from utils.redis_utils import redis_cache
 import logging
 
 # Configure production logging first
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Import rate limiting middleware
 try:
-    from .middleware.rate_limiting import init_rate_limiter
+    from middleware.rate_limiting import init_rate_limiter
     RATE_LIMITING_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"[WARNING] Rate limiting middleware not available: {e}")
@@ -48,7 +48,7 @@ except ImportError as e:
 
 # Import database connection manager for SSL handling
 try:
-    from .utils.database_connection_manager import (
+    from utils.database_connection_manager import (
         get_database_engine, 
         test_database_connection, 
         refresh_database_connections,
@@ -62,19 +62,19 @@ except ImportError as e:
 
 # Import blueprints with error handling
 try:
-    from .blueprints.auth import auth_bp
-    from .blueprints.projects import projects_bp
-    from .blueprints.tasks import tasks_bp
-    from .blueprints.bookmarks import bookmarks_bp
-    from .blueprints.feedback import feedback_bp
-    from .blueprints.profile import profile_bp
-    from .blueprints.search import search_bp
-    from .blueprints.user_api_key import init_app as init_user_api_key
-    from .services.multi_user_api_manager import init_api_manager
+    from blueprints.auth import auth_bp
+    from blueprints.projects import projects_bp
+    from blueprints.tasks import tasks_bp
+    from blueprints.bookmarks import bookmarks_bp
+    from blueprints.feedback import feedback_bp
+    from blueprints.profile import profile_bp
+    from blueprints.search import search_bp
+    from blueprints.user_api_key import init_app as init_user_api_key
+    from services.multi_user_api_manager import init_api_manager
     
     # Import recommendations blueprint with error handling
     try:
-        from .blueprints.recommendations import recommendations_bp
+        from blueprints.recommendations import recommendations_bp
         recommendations_available = True
         logger.info("[OK] Recommendations blueprint imported successfully")
     except ImportError as e:
@@ -83,7 +83,7 @@ try:
     
     # Import LinkedIn blueprint with error handling
     try:
-        from .blueprints.linkedin import linkedin_bp
+        from blueprints.linkedin import linkedin_bp
         linkedin_available = True
         logger.info("[OK] LinkedIn blueprint imported successfully")
     except ImportError as e:
@@ -99,8 +99,8 @@ except ImportError as e:
 
 # Import intent analysis components for production optimization
 try:
-    from .ml.intent_analysis_engine import IntentAnalysisEngine
-    from .utils.gemini_utils import GeminiAnalyzer
+    from ml.intent_analysis_engine import IntentAnalysisEngine
+    from utils.gemini_utils import GeminiAnalyzer
     intent_analysis_available = True
     logger.info("[OK] Intent Analysis components imported successfully")
 except ImportError as e:
@@ -186,21 +186,15 @@ def create_app():
         db.init_app(app)
         
         if connection_manager_available:
-            # Use the connection manager to get a working engine
+            # Use the connection manager to configure the database
             try:
-                engine = get_database_engine()
-                # Configure the app to use our managed engine instead of trying to override db.engine
-                app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-                    'pool_pre_ping': True,
-                    'pool_recycle': 300,
-                    'pool_size': 5,
-                    'max_overflow': 10,
-                    'pool_timeout': 20
-                }
-                
-                logger.info("[OK] Database initialized with connection manager")
+                from models import configure_database
+                if configure_database():
+                    logger.info("[OK] Database initialized with connection manager engine")
+                else:
+                    logger.warning("[WARNING] Database configuration returned False, using standard engine")
             except Exception as e:
-                logger.warning(f"[WARNING] Connection manager failed, using standard engine: {e}")
+                logger.warning(f"[WARNING] Connection manager configuration failed: {e}")
                 # Try to configure standard database options as fallback
                 try:
                     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -473,7 +467,7 @@ def create_app():
                         }), 500
             else:
                 # Fallback to standard health check
-                from database_utils import check_database_connection
+                from utils.database_utils import check_database_connection
                 if check_database_connection():
                     return jsonify({
                         'status': 'healthy',
@@ -565,7 +559,7 @@ def create_app():
             
             # Test LinkedIn scraper initialization
             try:
-                from easy_linkedin_scraper import EasyLinkedInScraper
+                from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
                 test_scraper = EasyLinkedInScraper()
                 return jsonify({
                     'status': 'healthy',

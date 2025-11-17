@@ -21,22 +21,20 @@ class RedisCache:
         if redis_url:
             # Use REDIS_URL (supports TLS with rediss://)
             try:
-                # Parse URL to check if TLS is required
-                use_ssl = redis_url.startswith('rediss://')
-                
                 # Create connection from URL
+                # Note: redis-py 5.0+ handles SSL automatically via rediss:// scheme
+                # No need to pass ssl parameters explicitly
                 self.redis_client = redis.from_url(
                     redis_url,
                     decode_responses=False,  # Keep binary for embeddings
                     socket_connect_timeout=10,
-                    socket_timeout=10,
-                    ssl=use_ssl,
-                    ssl_cert_reqs=None if use_ssl else None
+                    socket_timeout=10
                 )
                 # Test connection
                 self.redis_client.ping()
                 self.connected = True
-                print("✅ Redis connected successfully via REDIS_URL")
+                ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
+                print(f"✅ Redis connected successfully via REDIS_URL ({ssl_status})")
             except Exception as e:
                 print(f"⚠️ Redis connection via REDIS_URL failed: {e}")
                 self.connected = False

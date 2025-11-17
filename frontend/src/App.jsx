@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -10,8 +10,6 @@ import ProjectDetail from './pages/ProjectDetail';
 import Recommendations from './pages/Recommendations';
 import Bookmarks from './pages/Bookmarks';
 import SaveContent from './pages/SaveContent';
-import LinkedIn from './pages/LinkedIn';
-import Analytics from './pages/Analytics';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -19,12 +17,16 @@ import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
 import './App.css';
 
-function App() {
+function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // Start collapsed by default
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  
+  // Don't show sidebar on landing page or login page
+  const showSidebar = user && location.pathname !== '/' && location.pathname !== '/login';
 
   // Debug: Log initial state
   console.log('App initial state:', { collapsed, isMobile, sidebarOpen });
@@ -99,110 +101,100 @@ function App() {
   };
 
   return (
-    <Router>
-      <div className="App">
-        {/* Onboarding Modal */}
-        {showOnboarding && (
-          <OnboardingModal onComplete={handleOnboardingComplete} />
+    <div className="App">
+      {/* Onboarding Modal */}
+      {showOnboarding && (
+        <OnboardingModal onComplete={handleOnboardingComplete} />
+      )}
+      <div className="app-container">
+        {showSidebar && (
+          <Sidebar
+            isOpen={isMobile ? sidebarOpen : true}
+            onClose={() => setSidebarOpen(false)}
+            collapsed={!isMobile && collapsed}
+            setCollapsed={setCollapsed}
+            isMobile={isMobile}
+          />
         )}
-        <div className="app-container">
-          {user && (
-            <Sidebar
-              isOpen={isMobile ? sidebarOpen : true}
-              onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && collapsed}
-              setCollapsed={setCollapsed}
-              isMobile={isMobile}
+        <main className="main-content">
+          <Routes>
+            <Route 
+              path="/" 
+              element={<Landing />} 
             />
-          )}
-          <main className="main-content">
-            <Routes>
-              <Route 
-                path="/" 
-                element={user ? <Navigate to="/dashboard" /> : <Landing />} 
-              />
-              <Route 
-                path="/login" 
-                element={user ? <Navigate to="/dashboard" /> : <Login />} 
-              />
-              <Route 
-                path="/dashboard" 
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/profile" 
-                element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/projects" 
-                element={
-                  <ProtectedRoute>
-                    <Projects />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/projects/:id" 
-                element={
-                  <ProtectedRoute>
-                    <ProjectDetail />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/recommendations" 
-                element={
-                  <ProtectedRoute>
-                    <Recommendations />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/bookmarks" 
-                element={
-                  <ProtectedRoute>
-                    <Bookmarks />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/save-content" 
-                element={
-                  <ProtectedRoute>
-                    <SaveContent />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/linkedin" 
-                element={
-                  <ProtectedRoute>
-                    <LinkedIn />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/analytics" 
-                element={
-                  <ProtectedRoute>
-                    <Analytics />
-                  </ProtectedRoute>
-                } 
-              />
+            <Route 
+              path="/login" 
+              element={user ? <Navigate to="/dashboard" /> : <Login />} 
+            />
+            <Route 
+              path="/dashboard" 
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/profile" 
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/projects" 
+              element={
+                <ProtectedRoute>
+                  <Projects />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/projects/:id" 
+              element={
+                <ProtectedRoute>
+                  <ProjectDetail />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/recommendations" 
+              element={
+                <ProtectedRoute>
+                  <Recommendations />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/bookmarks" 
+              element={
+                <ProtectedRoute>
+                  <Bookmarks />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/save-content" 
+              element={
+                <ProtectedRoute>
+                  <SaveContent />
+                </ProtectedRoute>
+              } 
+            />
 
-              <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </main>
-        </div>
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </main>
       </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   );
 }

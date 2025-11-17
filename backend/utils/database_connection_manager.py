@@ -63,21 +63,9 @@ class DatabaseConnectionManager:
             return None
     
     def _resolve_hostname_with_fallback(self, hostname: str) -> Optional[str]:
-        """Resolve hostname with IPv4 fallback if IPv6 fails"""
-        # For Supabase, always try IPv4 first to avoid SQLAlchemy parsing issues
-        if 'supabase.co' in hostname:
-            try:
-                # Force IPv4 resolution for Supabase
-                addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
-                if addresses:
-                    ipv4_address = addresses[0][4][0]
-                    logger.info(f"✅ Resolved {hostname} to IPv4 (forced): {ipv4_address}")
-                    return ipv4_address
-            except Exception as e:
-                logger.warning(f"⚠️ Forced IPv4 resolution failed for {hostname}: {e}")
-        
+        """Resolve hostname to IPv4 only (never use IPv6 as it causes connection issues)"""
         try:
-            # First try IPv4 only (more reliable and avoids SQLAlchemy IPv6 parsing issues)
+            # Force IPv4 resolution only - never use IPv6
             addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
             if addresses:
                 ipv4_address = addresses[0][4][0]
@@ -86,17 +74,8 @@ class DatabaseConnectionManager:
         except Exception as e:
             logger.warning(f"⚠️ IPv4 resolution failed for {hostname}: {e}")
         
-        # Only try IPv6 if IPv4 fails, as IPv6 can cause SQLAlchemy parsing issues
-        try:
-            addresses = socket.getaddrinfo(hostname, None, socket.AF_INET6, socket.SOCK_STREAM)
-            if addresses:
-                ipv6_address = addresses[0][4][0]
-                logger.warning(f"⚠️ Using IPv6 address {ipv6_address} - this may cause connection issues")
-                return ipv6_address
-        except Exception as e:
-            logger.warning(f"⚠️ IPv6 resolution failed for {hostname}: {e}")
-        
-        logger.error(f"❌ Could not resolve {hostname} to any IP address")
+        # Don't try IPv6 - it causes "Network is unreachable" errors on Render
+        logger.warning(f"⚠️ IPv4 resolution failed, will use hostname directly instead of IPv6")
         return None
     
     def _validate_database_url(self, url: str) -> bool:
@@ -181,41 +160,35 @@ class DatabaseConnectionManager:
                         hostname = host_port_part
                         port_part = ""
                     
-                    # Resolve hostname to IP
-                    ip_address = self._resolve_hostname_with_fallback(hostname)
+                    # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
+                    ip_address = None
+                    try:
+                        # Force IPv4 resolution only
+                        ipv4_address = socket.gethostbyname(hostname)
+                        if ipv4_address:
+                            ip_address = ipv4_address
+                            logger.info(f"✅ Resolved {hostname} to IPv4: {ipv4_address}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ IPv4 resolution failed for {hostname}: {e}")
+                        # Don't try IPv6 - it causes connection issues on Render
+                        logger.info(f"ℹ️ Using hostname directly instead of IP resolution")
+                    
                     if ip_address:
-                        # Format the new host:port part properly
-                        if ':' in ip_address and ip_address.count(':') > 1:
-                            # IPv6 address - wrap in brackets
-                            new_host_port = f"[{ip_address}]{port_part}"
-                        else:
-                            # IPv4 address
-                            new_host_port = f"{ip_address}{port_part}"
+                        # Only use IPv4 addresses (never IPv6)
+                        new_host_port = f"{ip_address}{port_part}"
                         
                         # Reconstruct the URL
                         new_url = database_url[:at_index + 1] + new_host_port + remaining_url
-                        logger.info(f"✅ Updated DATABASE_URL to use IP address: {ip_address}")
-                        return new_url
-                    else:
-                        # If resolution fails, try to force IPv4 by using a different approach
-                        logger.warning(f"⚠️ Could not resolve {hostname}, trying alternative resolution...")
-                        try:
-                            # Try to get just IPv4 address
-                            ipv4_address = socket.gethostbyname(hostname)
-                            if ipv4_address:
-                                new_host_port = f"{ipv4_address}{port_part}"
-                                new_url = database_url[:at_index + 1] + new_host_port + remaining_url
-                                
-                                # Validate the new URL
-                                if self._validate_database_url(new_url):
-                                    logger.info(f"✅ Updated DATABASE_URL to use IPv4 address: {ipv4_address}")
-                                    return new_url
-                                else:
-                                    logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
-                        except Exception as fallback_error:
-                            logger.warning(f"⚠️ Alternative resolution also failed: {fallback_error}")
                         
-                        logger.warning(f"⚠️ Could not resolve {hostname}, using original URL")
+                        # Validate the new URL
+                        if self._validate_database_url(new_url):
+                            logger.info(f"✅ Updated DATABASE_URL to use IPv4 address: {ip_address}")
+                            return new_url
+                        else:
+                            logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
+                    
+                    # If IPv4 resolution fails, use hostname directly (Supabase handles this better)
+                    logger.info(f"ℹ️ Using hostname directly: {hostname} (IP resolution skipped)")
                         
             except Exception as e:
                 logger.warning(f"⚠️ Error processing DATABASE_URL: {e}")
@@ -226,24 +199,24 @@ class DatabaseConnectionManager:
         """Create database engine with specified SSL mode"""
         database_url = self._get_database_url()
         
-        # Check if the URL contains IPv6 addresses that might cause parsing issues
+        # Check if the URL contains IPv6 addresses (shouldn't happen with our new logic, but safety check)
         if '[' in database_url and ']' in database_url:
-            logger.warning("⚠️ IPv6 address detected in database URL - this may cause connection issues")
-            # Try to convert to IPv4 if possible
+            logger.error("❌ IPv6 address detected in database URL - this will cause connection failures")
+            logger.error("   IPv6 connections are not supported. Please use hostname or IPv4 address.")
+            # Extract hostname from original URL and use that instead
             try:
-                # Extract the IPv6 address and try to get IPv4 equivalent
-                start_bracket = database_url.find('[')
-                end_bracket = database_url.find(']')
-                if start_bracket != -1 and end_bracket != -1:
-                    ipv6_part = database_url[start_bracket+1:end_bracket]
-                    # Try to get IPv4 equivalent
-                    try:
-                        ipv4_address = socket.gethostbyname(ipv6_part)
-                        # Replace IPv6 with IPv4
-                        database_url = database_url.replace(f'[{ipv6_part}]', ipv4_address)
-                        logger.info(f"✅ Converted IPv6 to IPv4: {ipv6_part} -> {ipv4_address}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Could not convert IPv6 to IPv4: {e}")
+                # Try to extract the original hostname from the URL
+                if '@' in database_url:
+                    at_index = database_url.find('@')
+                    # Find the hostname part (before any brackets or slashes)
+                    host_part = database_url[at_index + 1:]
+                    if '/' in host_part:
+                        host_part = host_part.split('/')[0]
+                    # Extract hostname (before brackets)
+                    if '[' in host_part:
+                        # This is IPv6, we need to get the original hostname
+                        # Unfortunately we can't recover it, so we'll let it fail and log the error
+                        logger.error("   Cannot recover hostname from IPv6 URL. Connection will likely fail.")
             except Exception as e:
                 logger.warning(f"⚠️ Error processing IPv6 address: {e}")
         
