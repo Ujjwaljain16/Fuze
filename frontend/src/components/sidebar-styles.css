@@ -88,6 +88,16 @@
   padding: 24px 12px;
 }
 
+/* Expanded state - add padding to prevent overlap with toggle button */
+.sidebar.sidebar-expanded .sidebar-brand {
+  padding-left: 70px; /* Space for toggle button */
+}
+
+/* Ensure brand text doesn't overlap with toggle button when expanded */
+.sidebar.sidebar-expanded .brand-text-container {
+  margin-left: 0;
+}
+
 /* Brand glow effect */
 .sidebar-brand::after {
   content: '';
@@ -438,13 +448,15 @@
 }
 
 .sidebar.sidebar-collapsed .sidebar-brand > div {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: none; /* Hide brand text when collapsed */
 }
 
-.sidebar.sidebar-collapsed .sidebar-brand > div > div:last-child {
-  display: none;
+/* Ensure toggle button icon is always visible */
+.sidebar-toggle-btn img,
+.sidebar-toggle-btn .fuze-icon-toggle {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 /* User section in footer */
@@ -506,8 +518,6 @@
 
 .sidebar-toggle-btn {
   position: absolute;
-  top: 20px;
-  left: 16px;
   z-index: 1003;
   background: rgba(20, 20, 20, 0.6);
   border: 1px solid rgba(77, 208, 225, 0.2);
@@ -524,27 +534,65 @@
   box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
 }
 
+/* Collapsed state - center the toggle button in the brand area */
+.sidebar.sidebar-collapsed .sidebar-toggle-btn {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+}
+
+/* Expanded state - position to not overlap with text */
+.sidebar.sidebar-expanded .sidebar-toggle-btn {
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 /* Remove hover effects - only click animation */
 .sidebar-toggle-btn:hover {
-  /* No hover transform */
+  background: rgba(20, 20, 20, 0.8);
+  border-color: rgba(77, 208, 225, 0.4);
 }
 
-.sidebar-toggle-btn.animating {
-  animation: iconPulse 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+/* Collapsed state animation - preserve centering */
+.sidebar.sidebar-collapsed .sidebar-toggle-btn.animating {
+  animation: iconPulseCollapsed 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-@keyframes iconPulse {
+/* Expanded state animation */
+.sidebar.sidebar-expanded .sidebar-toggle-btn.animating {
+  animation: iconPulseExpanded 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes iconPulseCollapsed {
   0% { 
-    transform: scale(1) rotate(0deg);
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
     box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
   }
   50% { 
-    transform: scale(1.15) rotate(180deg);
+    transform: translate(-50%, -50%) scale(1.15) rotate(180deg);
     box-shadow: 0 8px 24px rgba(77, 208, 225, 0.5);
     border-color: rgba(77, 208, 225, 0.6);
   }
   100% { 
-    transform: scale(1) rotate(360deg);
+    transform: translate(-50%, -50%) scale(1) rotate(360deg);
+    box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
+  }
+}
+
+@keyframes iconPulseExpanded {
+  0% { 
+    transform: translateY(-50%) scale(1) rotate(0deg);
+    box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
+  }
+  50% { 
+    transform: translateY(-50%) scale(1.15) rotate(180deg);
+    box-shadow: 0 8px 24px rgba(77, 208, 225, 0.5);
+    border-color: rgba(77, 208, 225, 0.6);
+  }
+  100% { 
+    transform: translateY(-50%) scale(1) rotate(360deg);
     box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
   }
 }

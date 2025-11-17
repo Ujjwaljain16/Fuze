@@ -68,27 +68,27 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
       )}
       
       <div className={sidebarClasses}>
-        {/* Sidebar Toggle Button with Fuze Icon (Desktop only) */}
-        {!isMobile && (
-          <button
-            className={`sidebar-toggle-btn ${isAnimating ? 'animating' : ''}`}
-            onClick={handleToggle}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <img 
-              src="/favicon.svg" 
-              alt="Fuze" 
-              className="fuze-icon-toggle"
-              style={{
-                width: '24px',
-                height: '24px',
-                transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)'
-              }}
-            />
-          </button>
-        )}
         {/* Logo and Brand */}
         <div className="sidebar-brand">
+          {/* Sidebar Toggle Button with Fuze Icon (Desktop only) */}
+          {!isMobile && (
+            <button
+              className={`sidebar-toggle-btn ${isAnimating ? 'animating' : ''}`}
+              onClick={handleToggle}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <img 
+                src="/favicon.svg" 
+                alt="Fuze" 
+                className="fuze-icon-toggle"
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)'
+                }}
+              />
+            </button>
+          )}
           {(!collapsed || isMobile) && (
             <div className="brand-text-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
               <span className="text-xl font-bold brand-text" style={{ lineHeight: '1.2' }}>
