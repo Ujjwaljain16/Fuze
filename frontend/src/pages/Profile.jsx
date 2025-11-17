@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
+import { Link } from 'react-router-dom'
 import api from '../services/api'
-import { Zap } from 'lucide-react'
+import { Zap, LogOut } from 'lucide-react'
 import ProfileHeader from '../components/ProfileHeader'
 import ProfileStats from '../components/ProfileStats'
 import ProfileForm from '../components/ProfileForm'
@@ -217,8 +218,63 @@ const Profile = () => {
       </div>
 
       <div className="relative z-10">
+        {/* Logo - Top Left (Home Link) - Same as Landing Page */}
+        <Link
+          to="/"
+          className="logo-container"
+          style={{ 
+            position: 'fixed',
+            top: '1.5rem',
+            left: '6rem',
+            zIndex: 1000,
+            cursor: 'pointer'
+          }}
+        >
+          <img 
+            src="/logo1.svg" 
+            alt="FUZE Logo"
+            style={{
+              backgroundColor: 'transparent',
+              mixBlendMode: 'normal'
+            }}
+          />
+        </Link>
+
+        {/* Logout Button - Top Right */}
+        <button
+          onClick={() => {
+            logout()
+            window.location.href = '/login'
+          }}
+          className="fixed top-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+          style={{
+            background: 'rgba(20, 20, 20, 0.6)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            backdropFilter: 'blur(10px)',
+            color: '#9ca3af'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
+            e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
+            e.currentTarget.style.color = '#ef4444'
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
+            e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+            e.currentTarget.style.color = '#9ca3af'
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        >
+          <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+          <span className="text-base font-medium">Logout</span>
+        </button>
+
         {/* Main Content */}
-        <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+        <div className="w-full pt-32">
+          <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
           {/* Profile Header */}
           <ProfileHeader user={user} />
 
@@ -255,6 +311,56 @@ const Profile = () => {
           <AccountActions onLogout={handleLogout} />
         </main>
       </div>
+      </div>
+
+      <style jsx>{`
+        .logo-container {
+          width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: none;
+          box-shadow: none;
+          transition: transform 0.3s ease;
+          padding: 0;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          position: relative;
+        }
+        
+        .logo-container:hover {
+          transform: scale(1.05) !important;
+        }
+        
+        .logo-container img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          mix-blend-mode: normal;
+        }
+        
+        @media (max-width: 768px) {
+          .logo-container {
+            width: 90px;
+            height: 90px;
+            padding: 0;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .logo-container {
+            width: 70px;
+            height: 70px;
+            padding: 0;
+          }
+        }
+      `}</style>
     </div>
   )
 }

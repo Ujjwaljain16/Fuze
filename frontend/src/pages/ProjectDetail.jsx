@@ -19,13 +19,15 @@ import {
   Clock,
   Zap,
   Target,
-  AlertCircle
+  AlertCircle,
+  LogOut
 } from 'lucide-react'
 
 const ProjectDetail = () => {
   const { id } = useParams()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const { success, error } = useToast()
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [project, setProject] = useState(null)
   const [recommendations, setRecommendations] = useState([])
   const [projectBookmarks, setProjectBookmarks] = useState([])
@@ -223,44 +225,136 @@ const ProjectDetail = () => {
   }
 
   return (
-    <div className="container">
-      {/* Project Header */}
-      <div className="project-header">
-        <div className="project-info">
-          <div className="project-title-section">
-            <FolderOpen className="project-icon" />
-            <div>
-              <h1 className="project-title">{project.title}</h1>
-              {project.description && (
-                <p className="project-description">{project.description}</p>
-              )}
-            </div>
-          </div>
-          
-          {project.technologies && (
-            <div className="project-technologies">
-              {project.technologies.split(',').map((tech, index) => (
-                <span key={index} className="tech-tag">
-                  {tech.trim()}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="project-actions">
-          <button className="btn btn-secondary">
-            <Edit size={16} />
-            Edit Project
-          </button>
-          <button className="btn btn-primary">
-            <Plus size={16} />
-            Add Content
-          </button>
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 opacity-10">
+        <div 
+          className="absolute w-96 h-96 rounded-full"
+          style={{
+            background: 'radial-gradient(circle, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+            left: mousePos.x - 192,
+            top: mousePos.y - 192,
+            transition: 'all 0.3s ease-out'
+          }}
+        />
+      </div>
+      
+      {/* Lightning Grid Background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="grid grid-cols-24 grid-rows-24 h-full w-full">
+          {Array.from({ length: 576 }).map((_, i) => (
+            <div
+              key={i}
+              className="border border-green-500/10 animate-pulse"
+              style={{
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${4 + Math.random() * 3}s`
+              }}
+            />
+          ))}
         </div>
       </div>
 
-      <div className="project-content">
+      <div className="relative z-10">
+        {/* Logo - Top Left (Home Link) - Same as Landing Page */}
+        <Link
+          to="/"
+          className="logo-container"
+          style={{ 
+            position: 'fixed',
+            top: '1.5rem',
+            left: '6rem',
+            zIndex: 1000,
+            cursor: 'pointer'
+          }}
+        >
+          <img 
+            src="/logo1.svg" 
+            alt="FUZE Logo"
+            style={{
+              backgroundColor: 'transparent',
+              mixBlendMode: 'normal'
+            }}
+          />
+        </Link>
+
+        {/* Logout Button - Top Right */}
+        <button
+          onClick={() => {
+            logout()
+            window.location.href = '/login'
+          }}
+          className="fixed top-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+          style={{
+            background: 'rgba(20, 20, 20, 0.6)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            backdropFilter: 'blur(10px)',
+            color: '#9ca3af'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
+            e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
+            e.currentTarget.style.color = '#ef4444'
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
+            e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+            e.currentTarget.style.color = '#9ca3af'
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        >
+          <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+          <span className="text-base font-medium">Logout</span>
+        </button>
+
+        {/* Main Content */}
+        <div className="w-full pt-32">
+          <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+            {/* Project Header */}
+            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-4 mb-4">
+                    <div className="relative">
+                      <FolderOpen className="w-8 h-8 text-green-400" />
+                      <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
+                    </div>
+                    <div>
+                      <h1 className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">{project.title}</h1>
+                      {project.description && (
+                        <p className="text-gray-300 text-xl mt-2">{project.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {project.technologies && (
+                    <div className="flex flex-wrap gap-2">
+                      {project.technologies.split(',').map((tech, index) => (
+                        <span key={index} className="px-2 py-1 bg-green-600/20 text-green-400 text-xs rounded-lg">
+                          {tech.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-4">
+                  <button className="px-4 py-2 border border-gray-700 rounded-xl hover:border-gray-500/50 hover:bg-gray-500/10 transition-all duration-300 flex items-center space-x-2">
+                    <Edit size={16} />
+                    <span>Edit Project</span>
+                  </button>
+                  <button className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2">
+                    <Plus size={16} />
+                    <span>Add Content</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-8">
         {/* Project Bookmarks Section */}
         <div className="section">
           <div className="section-header">
@@ -712,8 +806,60 @@ const ProjectDetail = () => {
               </button>
             </div>
           )}
+            </div>
+            </div>
+          </main>
         </div>
       </div>
+
+      <style jsx>{`
+        .logo-container {
+          width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: none;
+          box-shadow: none;
+          transition: transform 0.3s ease;
+          padding: 0;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          position: relative;
+        }
+        
+        .logo-container:hover {
+          transform: scale(1.05) !important;
+        }
+        
+        .logo-container img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          mix-blend-mode: normal;
+        }
+        
+        @media (max-width: 768px) {
+          .logo-container {
+            width: 90px;
+            height: 90px;
+            padding: 0;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .logo-container {
+            width: 70px;
+            height: 70px;
+            padding: 0;
+          }
+        }
+      `}</style>
     </div>
   )
 }

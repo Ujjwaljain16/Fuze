@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { Link } from 'react-router-dom'
 import api from '../services/api'
 import { 
   FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
   Settings, Grid3X3, List, Star, Clock, TrendingUp, 
-  BarChart3, Globe, MoreHorizontal, Tag, Sparkles
+  BarChart3, Globe, MoreHorizontal, Tag, Sparkles, LogOut
 } from 'lucide-react'
 
 const Projects = () => {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -224,9 +225,63 @@ const Projects = () => {
       </div>
 
       <div className="relative z-10">
+        {/* Logo - Top Left (Home Link) - Same as Landing Page */}
+        <Link
+          to="/"
+          className="logo-container"
+          style={{ 
+            position: 'fixed',
+            top: '1.5rem',
+            left: '6rem',
+            zIndex: 1000,
+            cursor: 'pointer'
+          }}
+        >
+          <img 
+            src="/logo1.svg" 
+            alt="FUZE Logo"
+            style={{
+              backgroundColor: 'transparent',
+              mixBlendMode: 'normal'
+            }}
+          />
+        </Link>
+
+        {/* Logout Button - Top Right */}
+        <button
+          onClick={() => {
+            logout()
+            window.location.href = '/login'
+          }}
+          className="fixed top-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+          style={{
+            background: 'rgba(20, 20, 20, 0.6)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            backdropFilter: 'blur(10px)',
+            color: '#9ca3af'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
+            e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
+            e.currentTarget.style.color = '#ef4444'
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
+            e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+            e.currentTarget.style.color = '#9ca3af'
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        >
+          <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+          <span className="text-base font-medium">Logout</span>
+        </button>
+
         {/* Main Content */}
-        <div className="w-full">
-          <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+        <div className="w-full pt-32">
+          <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
             {/* Header Section */}
             <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
               <div className="flex items-center justify-between">

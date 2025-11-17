@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
+import { Link } from 'react-router-dom'
 import api, { refreshTokenIfNeeded } from '../services/api'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
   RefreshCw, CheckCircle, Brain, Zap, Star, Globe, Clock, X, 
-  FolderOpen, Target as TargetIcon, Settings, Code, BookOpen, CheckSquare
+  FolderOpen, Target as TargetIcon, Settings, Code, BookOpen, CheckSquare, LogOut
 } from 'lucide-react'
 import './recommendations-styles.css'
 import './gemini-recommendations-styles.css'
 import SmartContextSelector from '../components/SmartContextSelector'
+import Loader from '../components/Loader'
 
 const Recommendations = () => {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, logout } = useAuth()
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -294,8 +296,62 @@ const Recommendations = () => {
         </div>
 
         <div className="relative z-10">
-          <div className="w-full">
-            <main className="ml-12 md:ml-16 lg:ml-20 p-4 md:p-6 lg:p-8">
+          {/* Logo - Top Left (Home Link) - Same as Landing Page */}
+          <Link
+            to="/"
+            className="logo-container"
+            style={{ 
+              position: 'fixed',
+              top: '1.5rem',
+              left: '6rem',
+              zIndex: 1000,
+              cursor: 'pointer'
+            }}
+          >
+            <img 
+              src="/logo1.svg" 
+              alt="FUZE Logo"
+              style={{
+                backgroundColor: 'transparent',
+                mixBlendMode: 'normal'
+              }}
+            />
+          </Link>
+
+          {/* Logout Button - Top Right */}
+          <button
+            onClick={() => {
+              logout()
+              window.location.href = '/login'
+            }}
+            className="fixed top-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+            style={{
+              background: 'rgba(20, 20, 20, 0.6)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              backdropFilter: 'blur(10px)',
+              color: '#9ca3af'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
+              e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
+              e.currentTarget.style.color = '#ef4444'
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
+              e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+              e.currentTarget.style.color = '#9ca3af'
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
+          >
+            <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+            <span className="text-base font-medium">Logout</span>
+          </button>
+
+          <div className="w-full pt-32">
+            <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
               {/* Header Section */}
               <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
                 <div className="flex items-center justify-between">
@@ -463,6 +519,55 @@ const Recommendations = () => {
           onClose={() => setShowContextSelector(false)}
         />
       )}
+
+      <style jsx>{`
+        .logo-container {
+          width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: none;
+          box-shadow: none;
+          transition: transform 0.3s ease;
+          padding: 0;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          position: relative;
+        }
+        
+        .logo-container:hover {
+          transform: scale(1.05) !important;
+        }
+        
+        .logo-container img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          mix-blend-mode: normal;
+        }
+        
+        @media (max-width: 768px) {
+          .logo-container {
+            width: 90px;
+            height: 90px;
+            padding: 0;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .logo-container {
+            width: 70px;
+            height: 70px;
+            padding: 0;
+          }
+        }
+      `}</style>
     </>
   )
 }
