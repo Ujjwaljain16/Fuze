@@ -7,7 +7,7 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!.*\\..*$).*)",
+      "source": "/((?!_next|api|.*\\..*$).*)",
       "destination": "/index.html"
     }
   ],
