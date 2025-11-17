@@ -348,14 +348,38 @@ def create_app():
             logger.error(f"[ERROR] Error initializing Intent Analysis System: {e}")
             intent_analysis_available = False
     
-    # Security headers middleware
+    # Security headers middleware - Production-grade
     @app.after_request
     def add_security_headers(response):
+        # Prevent MIME type sniffing
         response.headers['X-Content-Type-Options'] = 'nosniff'
+        # Prevent clickjacking
         response.headers['X-Frame-Options'] = 'DENY'
+        # XSS protection (legacy but still useful)
         response.headers['X-XSS-Protection'] = '1; mode=block'
-        if app.config.get('HTTPS_ENABLED'):
-            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        # Referrer policy
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        # Permissions policy
+        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+        
+        # HTTPS-only headers in production
+        if not app.config.get('DEBUG') and app.config.get('HTTPS_ENABLED'):
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+        
+        # Content Security Policy (adjust based on your needs)
+        if not app.config.get('DEBUG'):
+            # Restrictive CSP for production
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Adjust as needed
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "img-src 'self' data: https:; "
+                "connect-src 'self' https:; "
+                "frame-ancestors 'none';"
+            )
+            response.headers['Content-Security-Policy'] = csp
+        
         return response
     
     # Root endpoint already defined above - this is a duplicate, removed

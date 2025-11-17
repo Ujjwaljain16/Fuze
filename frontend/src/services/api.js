@@ -2,26 +2,31 @@ import axios from 'axios'
 
 // Get base URL from environment or automatically detect
 const getBaseURL = () => {
-  // Check if we're in development (localhost, 127.0.0.1, or local IP)
+  // Check if we're in development (localhost or 127.0.0.1)
   const isDevelopment = window.location.hostname === 'localhost' || 
-                       window.location.hostname === '127.0.0.1' || 
-                       window.location.hostname.includes('10.51.11.170') ||
-                       window.location.hostname.includes('172.23.0.1')
+                       window.location.hostname === '127.0.0.1'
   
   if (isDevelopment) {
     // Development: Use HTTP localhost
-    return 'http://127.0.0.1:5000'
+    return import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
   } else {
-    // Production: Use environment variable or fallback
-    return import.meta.env.VITE_API_URL || 'https://your-backend-domain.com'
+    // Production: Use environment variable (required)
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) {
+      console.error('⚠️ VITE_API_URL environment variable is not set in production!')
+      throw new Error('API URL not configured. Please set VITE_API_URL environment variable.')
+    }
+    return apiUrl
   }
 }
 
 const baseURL = getBaseURL()
 
-console.log('🌐 API Base URL:', baseURL)
-console.log('🏠 Current hostname:', window.location.hostname)
-console.log('🔧 Development mode:', window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+// Only log in development
+if (import.meta.env.DEV) {
+  console.log('🌐 API Base URL:', baseURL)
+  console.log('🏠 Current hostname:', window.location.hostname)
+}
 
 const api = axios.create({
   baseURL,
@@ -121,7 +126,9 @@ export const refreshTokenIfNeeded = async () => {
     
     // If token expires in less than 5 minutes, refresh it
     if (timeUntilExpiration < 5 * 60 * 1000) {
-      console.log('Token expires soon, refreshing proactively...')
+      if (import.meta.env.DEV) {
+        console.log('Token expires soon, refreshing proactively...')
+      }
       const res = await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
@@ -132,7 +139,9 @@ export const refreshTokenIfNeeded = async () => {
       )
       const newToken = res.data.access_token
       localStorage.setItem('token', newToken)
-      console.log('Token refreshed successfully')
+      if (import.meta.env.DEV) {
+        console.log('Token refreshed successfully')
+      }
     }
   } catch (error) {
     console.warn('Failed to refresh token proactively:', error)
@@ -153,7 +162,9 @@ export const initializeCSRF = async () => {
     
     clearTimeout(timeoutId)
     csrfToken = response.data.csrf_token
-    console.log('🔐 CSRF token initialized:', csrfToken)
+    if (import.meta.env.DEV) {
+      console.log('🔐 CSRF token initialized')
+    }
   } catch (error) {
     if (error.name === 'AbortError') {
       console.warn('⚠️ CSRF token request timed out, continuing without CSRF')

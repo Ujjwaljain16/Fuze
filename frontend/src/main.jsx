@@ -4,6 +4,7 @@ import App from './App.jsx'
 import './index.css'
 import { AuthProvider } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 // PWA Service Worker Registration
 if ('serviceWorker' in navigator) {
@@ -18,14 +19,18 @@ if ('serviceWorker' in navigator) {
         }
       })
       .then((registration) => {
-        console.log('🚀 Service Worker registered successfully:', registration.scope);
+        if (import.meta.env.DEV) {
+          console.log('🚀 Service Worker registered successfully:', registration.scope);
+        }
         
         // Check for updates
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('🔄 New version available!');
+              if (import.meta.env.DEV) {
+                console.log('🔄 New version available!');
+              }
               // You can show a notification to the user here
             }
           });
@@ -45,21 +50,27 @@ let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('📱 PWA install prompt ready');
+  if (import.meta.env.DEV) {
+    console.log('📱 PWA install prompt ready');
+  }
 });
 
 // Handle PWA installation
 window.addEventListener('appinstalled', () => {
-  console.log('✅ PWA installed successfully');
+  if (import.meta.env.DEV) {
+    console.log('✅ PWA installed successfully');
+  }
   deferredPrompt = null;
 });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AuthProvider>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 )
