@@ -22,6 +22,7 @@ import {
   Linkedin,
   Mail
 } from 'lucide-react';
+import logo1 from '/logo1.svg';
 
 export default function FuzeLanding() {
   const navigate = useNavigate();
@@ -457,7 +458,7 @@ export default function FuzeLanding() {
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
             <img 
-              src="/logo1.svg" 
+              src={logo1}
               alt="FUZE Logo"
               style={{
                 backgroundColor: 'transparent',

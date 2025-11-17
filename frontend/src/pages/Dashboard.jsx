@@ -8,6 +8,7 @@ import {
   BarChart3, Globe, MoreHorizontal, Tag, LogOut
 } from 'lucide-react'
 import OnboardingBanner from '../components/OnboardingBanner'
+import logo1 from '/logo1.svg'
 
 const Dashboard = () => {
   const { isAuthenticated, user, logout } = useAuth()
@@ -291,7 +292,7 @@ const Dashboard = () => {
                 }}
               >
                 <img 
-                  src="/logo1.svg" 
+                  src={logo1}
                   alt="FUZE Logo"
                   style={{
                     backgroundColor: 'transparent',

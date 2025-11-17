@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import logo1 from '/logo1.svg'
 import { 
   Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles, 
   Grid3X3, List, Star, Clock, Globe, MoreHorizontal, Zap, ArrowLeft, ArrowRight, X, LogOut
@@ -261,7 +262,7 @@ const Bookmarks = () => {
                 }}
               >
                 <img 
-                  src="/logo1.svg" 
+                  src={logo1} 
                   alt="FUZE Logo"
                   style={{
                     backgroundColor: 'transparent',

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
 import api, { refreshTokenIfNeeded } from '../services/api'
+import logo1 from '/logo1.svg'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
   RefreshCw, CheckCircle, Brain, Zap, Star, Globe, Clock, X, 
@@ -309,7 +310,7 @@ const Recommendations = () => {
                   }}
                 >
                   <img 
-                    src="/logo1.svg" 
+                    src={logo1} 
                     alt="FUZE Logo"
                     style={{
                       backgroundColor: 'transparent',

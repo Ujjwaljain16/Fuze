@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
 import api from '../services/api'
+import logo1 from '/logo1.svg'
 import { 
   Bookmark, ExternalLink, Loader2, Plus, Tag, AlertTriangle, Eye, 
   Zap, Sparkles, Globe, Clock, Star, CheckCircle, XCircle, LogOut
@@ -286,7 +287,7 @@ const SaveContent = () => {
                 }}
               >
                 <img 
-                  src="/logo1.svg" 
+                  src={logo1} 
                   alt="FUZE Logo"
                   style={{
                     backgroundColor: 'transparent',

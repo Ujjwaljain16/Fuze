@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
+import logo1 from '/logo1.svg'
 import { 
   FolderOpen, 
   Sparkles, 
@@ -270,7 +271,7 @@ const ProjectDetail = () => {
                 }}
               >
                 <img 
-                  src="/logo1.svg" 
+                  src={logo1} 
                   alt="FUZE Logo"
                   style={{
                     backgroundColor: 'transparent',
