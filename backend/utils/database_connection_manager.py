@@ -24,6 +24,39 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# IPv4 resolution helper - ensures we always get IPv4 addresses
+def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[str]:
+    """
+    Resolve hostname to IPv4 address with multiple retry strategies.
+    Returns None if IPv4 resolution fails (will force using hostname, which may fail).
+    """
+    for attempt in range(max_retries):
+        try:
+            # Method 1: Use getaddrinfo with AF_INET to force IPv4 only
+            addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+            if addresses:
+                ipv4_address = addresses[0][4][0]
+                logger.info(f"✅ Resolved {hostname} to IPv4 (method 1): {ipv4_address}")
+                return ipv4_address
+        except socket.gaierror as e:
+            logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 1) failed: {e}")
+        
+        try:
+            # Method 2: Use gethostbyname (legacy, but sometimes works when getaddrinfo fails)
+            ipv4_address = socket.gethostbyname(hostname)
+            if ipv4_address:
+                logger.info(f"✅ Resolved {hostname} to IPv4 (method 2): {ipv4_address}")
+                return ipv4_address
+        except socket.gaierror as e:
+            logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 2) failed: {e}")
+        
+        # Wait before retry
+        if attempt < max_retries - 1:
+            time.sleep(1)
+    
+    logger.warning(f"⚠️ Failed to resolve {hostname} to IPv4 after {max_retries} attempts")
+    return None
+
 class DatabaseConnectionManager:
     """Manages database connections with SSL error handling and automatic recovery"""
     
@@ -161,20 +194,11 @@ class DatabaseConnectionManager:
                         port_part = ""
                     
                     # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
-                    ip_address = None
-                    try:
-                        # Force IPv4 resolution only
-                        ipv4_address = socket.gethostbyname(hostname)
-                        if ipv4_address:
-                            ip_address = ipv4_address
-                            logger.info(f"✅ Resolved {hostname} to IPv4: {ipv4_address}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ IPv4 resolution failed for {hostname}: {e}")
-                        # Don't try IPv6 - it causes connection issues on Render
-                        logger.info(f"ℹ️ Using hostname directly instead of IP resolution")
+                    # This is critical for Render.com which has IPv6 connectivity issues
+                    ip_address = resolve_hostname_to_ipv4(hostname)
                     
                     if ip_address:
-                        # Only use IPv4 addresses (never IPv6)
+                        # Only use IPv4 addresses (never IPv6) - this prevents "Network is unreachable" errors
                         new_host_port = f"{ip_address}{port_part}"
                         
                         # Reconstruct the URL
@@ -186,9 +210,14 @@ class DatabaseConnectionManager:
                             return new_url
                         else:
                             logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
+                    else:
+                        # IPv4 resolution failed - this is a problem on Render.com
+                        # Log a warning but still try with hostname (may fail)
+                        logger.warning(f"⚠️ IPv4 resolution failed for {hostname} - connection may fail on Render.com")
+                        logger.warning(f"   This is likely due to network configuration issues")
                     
-                    # If IPv4 resolution fails, use hostname directly (Supabase handles this better)
-                    logger.info(f"ℹ️ Using hostname directly: {hostname} (IP resolution skipped)")
+                    # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
+                    logger.info(f"ℹ️ Using hostname directly: {hostname} (IPv4 resolution failed)")
                         
             except Exception as e:
                 logger.warning(f"⚠️ Error processing DATABASE_URL: {e}")
@@ -236,6 +265,7 @@ class DatabaseConnectionManager:
             database_url = f"{database_url}{separator}sslmode={ssl_mode}"
         
         # Enhanced connection configuration with longer timeouts for Supabase
+        # Note: IPv4 enforcement is done at URL resolution level (hostname -> IPv4 IP)
         connect_args = {
             'connect_timeout': 30,  # Increased from 10 to 30 seconds for Supabase
             'keepalives': 1,

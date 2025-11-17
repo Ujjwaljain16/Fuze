@@ -8,6 +8,7 @@ Enhanced with Intent Analysis System optimizations and SSL connection management
 import os
 import sys
 import time
+import re
 from dotenv import load_dotenv
 
 # Add backend directory to path
@@ -149,21 +150,67 @@ def create_app():
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
              max_age=86400)
     else:
-        # Production: Only allow explicitly configured origins
+        # Production: Allow explicitly configured origins + Vercel patterns
         cors_origins_env = os.environ.get('CORS_ORIGINS', '')
+        cors_origins = []
+        
         if cors_origins_env:
             # Parse comma-separated list from environment
             cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+        
+        # Add common Vercel patterns if not already included
+        # This allows both main deployments and preview deployments
+        vercel_patterns = [
+            'https://itsfuze.vercel.app',
+            'https://*.vercel.app',  # Allow all Vercel preview deployments
+        ]
+        
+        # Add Vercel patterns if CORS_ORIGINS is not explicitly set or if it's empty
+        # This provides a sensible default while still allowing override
+        if not cors_origins_env or len(cors_origins) == 0:
+            logger.warning("[WARNING] CORS_ORIGINS not set - using default Vercel patterns")
+            # For Vercel wildcard, we need to use a regex pattern
+            # flask-cors supports regex patterns
+            cors_origins = vercel_patterns
         else:
-            # Fallback: Only allow specific production domains (remove localhost for security)
-            cors_origins = []
-            logger.warning("[WARNING] CORS_ORIGINS not set in production - no origins allowed")
+            # Merge user-provided origins with Vercel patterns (avoid duplicates)
+            for pattern in vercel_patterns:
+                if pattern not in cors_origins:
+                    cors_origins.append(pattern)
+        
+        logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
+        logger.debug(f"[DEBUG] CORS origins: {cors_origins}")
+        
+        # Create a function to validate origins (supports wildcards for Vercel previews)
+        def validate_origin(origin):
+            """Validate if an origin is allowed"""
+            if not origin:
+                return False
+            
+            # Check against exact matches first
+            if origin in cors_origins:
+                return True
+            
+            # Check against wildcard patterns
+            for pattern in cors_origins:
+                if '*' in pattern:
+                    # Convert wildcard to regex
+                    # https://*.vercel.app -> https://.*\.vercel\.app
+                    # Escape special regex characters, but keep .* for wildcard
+                    regex_pattern = re.escape(pattern)
+                    # Replace escaped \* with .* for wildcard matching
+                    regex_pattern = regex_pattern.replace(r'\*', '.*')
+                    if re.match(regex_pattern + '$', origin):
+                        logger.debug(f"[DEBUG] Origin {origin} matched pattern {pattern}")
+                        return True
+            
+            return False
         
         CORS(app, 
-             origins=cors_origins, 
+             origins=validate_origin,  # Use function for dynamic validation
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
-             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
              max_age=86400)
     
     # Initialize rate limiting
