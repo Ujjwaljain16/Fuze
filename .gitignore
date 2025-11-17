@@ -164,6 +164,7 @@ frontend/.next/
 frontend/out/
 frontend/.nuxt/
 frontend/.cache/
+frontend/.vercel/
 
 # Frontend logs
 frontend/npm-debug.log*
