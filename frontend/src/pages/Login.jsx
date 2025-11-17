@@ -58,7 +58,8 @@ export default function FuzeAuth() {
       const result = await login(identifier, formData.password);
       if (result.success) {
         setSuccess('Login successful! Redirecting...');
-        setTimeout(() => navigate('/app/dashboard'), 1000);
+        // Wait a bit for auth state to update, then navigate
+        setTimeout(() => navigate('/dashboard'), 500);
       } else {
         setError(result.error || 'Login failed.');
       }
