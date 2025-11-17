@@ -5,7 +5,7 @@ from flask_jwt_extended import (
 )
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
-from utils.database_utils import retry_on_connection_error, ensure_database_connection
+from utils.database_utils import retry_on_connection_error
 import re
 import logging
 
@@ -104,10 +104,7 @@ def register():
         if not is_valid:
             return jsonify({'message': error_msg}), 400
         
-        # Ensure database connection before queries
-        ensure_database_connection()
-        
-        # Check for existing user
+        # Check for existing user (SQLAlchemy connection pool handles connection management)
         if User.query.filter_by(username=username).first():
             return jsonify({'message': 'Username already exists'}), 409
         if User.query.filter_by(email=email).first():
@@ -159,11 +156,18 @@ def login():
         if not identifier:
             return jsonify({'message': 'Invalid input format'}), 400
         
-        # Ensure database connection before querying
-        ensure_database_connection()
-        
-        # Direct database query
-        user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
+        # Direct database query (SQLAlchemy connection pool handles connection management)
+        # Removed ensure_database_connection() call - it was causing worker timeouts
+        # The connection pool with pool_pre_ping=True already handles connection health checks
+        try:
+            user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
+        except Exception as db_error:
+            # Handle database connection errors immediately
+            error_str = str(db_error).lower()
+            if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
+                logger.error(f"Database connection error during login: {db_error}")
+                return jsonify({'message': 'Database connection failed. Please try again.'}), 503
+            raise  # Re-raise if it's not a connection error
         if not user or not check_password_hash(user.password_hash, password):
             # Log failed login attempt (but don't reveal which field was wrong)
             logger.warning(f"Failed login attempt for identifier: {identifier[:3]}***")
@@ -212,7 +216,7 @@ def login_with_retry(identifier, password):
     
     @retry_on_connection_error(max_retries=2, delay=1.0)
     def _login():
-        ensure_database_connection()
+        # SQLAlchemy connection pool handles connection management
         user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
         if not user or not check_password_hash(user.password_hash, password):
             return None
@@ -269,9 +273,7 @@ def verify_token():
     """Verify if the current token is valid"""
     current_user_id = get_jwt_identity()
     
-    # Ensure database connection before query
-    ensure_database_connection()
-    
+    # SQLAlchemy connection pool handles connection management
     user = User.query.get(current_user_id)
     
     if not user:

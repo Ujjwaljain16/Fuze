@@ -453,13 +453,8 @@ def create_app():
         
         return response
     
-    # Handle OPTIONS requests for CORS preflight
-    @app.before_request
-    def handle_preflight():
-        if request.method == 'OPTIONS':
-            response = jsonify({'status': 'ok'})
-            response.status_code = 200
-            return response
+    # Note: flask-cors automatically handles OPTIONS preflight requests
+    # No need for manual OPTIONS handler - it can cause conflicts
     
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
@@ -697,11 +692,14 @@ def create_app():
     @app.errorhandler(405)
     def method_not_allowed(error):
         """Handle 405 Method Not Allowed errors with proper CORS headers"""
-        return jsonify({
+        response = jsonify({
             'message': 'Method not allowed',
             'error': 'method_not_allowed',
             'allowed_methods': error.valid_methods if hasattr(error, 'valid_methods') else []
-        }), 405
+        })
+        response.status_code = 405
+        # CORS headers will be added by after_request handler
+        return response
     
     @app.errorhandler(500)
     def internal_server_error(error):
