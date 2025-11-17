@@ -11,9 +11,6 @@ import {
   User,
   X,
   Menu,
-  Zap,
-  PanelLeftOpen,
-  PanelLeftClose,
   Linkedin,
   BarChart3
 } from 'lucide-react'
@@ -55,6 +52,14 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
   // Debug logging
   console.log('Sidebar state:', { isMobile, isOpen, collapsed, sidebarClasses });
 
+  const [isAnimating, setIsAnimating] = useState(false)
+
+  const handleToggle = () => {
+    setIsAnimating(true)
+    setCollapsed(!collapsed)
+    setTimeout(() => setIsAnimating(false), 400)
+  }
+
   return (
     <>
       {/* Mobile backdrop */}
@@ -63,54 +68,37 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
       )}
       
       <div className={sidebarClasses}>
-        {/* Sidebar Toggle Button (Desktop only) */}
+        {/* Sidebar Toggle Button with Fuze Icon (Desktop only) */}
         {!isMobile && (
           <button
-            className="sidebar-toggle-btn"
-            onClick={() => setCollapsed(!collapsed)}
+            className={`sidebar-toggle-btn ${isAnimating ? 'animating' : ''}`}
+            onClick={handleToggle}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            style={{
-              position: 'absolute',
-              top: 20,
-              left: collapsed ? 16 : 22,
-              zIndex: 1003,
-              background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(147,51,234,0.2))',
-              border: '1px solid rgba(59,130,246,0.4)',
-              cursor: 'pointer',
-              padding: 10,
-              borderRadius: 10,
-              transition: 'all 0.3s ease',
-              color: '#60a5fa',
-              boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
-              minWidth: '36px',
-              minHeight: '36px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transform: 'translateY(0)',
-            }}
           >
-            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            <img 
+              src="/favicon.svg" 
+              alt="Fuze" 
+              className="fuze-icon-toggle"
+              style={{
+                width: '24px',
+                height: '24px',
+                transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)'
+              }}
+            />
           </button>
         )}
         {/* Logo and Brand */}
-        <div className="sidebar-brand" style={{ paddingLeft: !isMobile && collapsed ? 0 : 40 }}>
-          <div className="flex items-center space-x-3">
-            <div className="relative">
-              <Zap className="w-10 h-10 text-blue-400" />
-              <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
-            </div>
-            {(!collapsed || isMobile) && (
-              <div>
-                <span className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                  Fuze
-                </span>
-                <div className="text-xs text-blue-300 font-medium tracking-wider uppercase opacity-80">
-                  Strike Through the Chaos
-                </div>
+        <div className="sidebar-brand">
+          {(!collapsed || isMobile) && (
+            <div className="brand-text-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+              <span className="text-xl font-bold brand-text" style={{ lineHeight: '1.2' }}>
+                Fuze
+              </span>
+              <div className="text-xs font-medium tracking-wider uppercase opacity-80 brand-tagline" style={{ lineHeight: '1.2' }}>
+                Intelligence Connected
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
