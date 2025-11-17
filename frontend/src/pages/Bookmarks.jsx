@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { 
   Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles, 
@@ -18,6 +18,7 @@ const categoryOptions = [
 
 const Bookmarks = () => {
   const { isAuthenticated, user } = useAuth()
+  const navigate = useNavigate()
   const [bookmarks, setBookmarks] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -328,7 +329,7 @@ const Bookmarks = () => {
               </div>
               <div className="flex items-center space-x-4">
                 <button 
-                  onClick={() => window.location.href = '/app/save-content'}
+                  onClick={() => navigate('/save-content')}
                   className="px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2 group relative overflow-hidden whitespace-nowrap"
                   style={{
                     background: 'rgba(20, 20, 20, 0.6)',
@@ -701,7 +702,7 @@ const Bookmarks = () => {
               </p>
               {!searchTerm && filter === 'all' && (
                 <button 
-                  onClick={() => window.location.href = '/app/save-content'}
+                  onClick={() => navigate('/save-content')}
                   className="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-4 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-3 mx-auto"
                 >
                   <Plus className="w-6 h-6" />

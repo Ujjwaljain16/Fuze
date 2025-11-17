@@ -106,11 +106,11 @@ const Dashboard = () => {
   }
 
   const handleCreateProject = () => {
-    window.location.href = '/app/projects'
+    navigate('/projects')
   }
 
   const handleSaveContent = () => {
-    window.location.href = '/app/save-content'
+    navigate('/save-content')
   }
 
   const handleInstallExtension = () => {
@@ -453,10 +453,10 @@ const Dashboard = () => {
                         <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
                         <h2 className="text-lg md:text-xl font-semibold text-white">Intelligent Recommendations</h2>
                       </div>
-                      <a href="/app/recommendations" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
+                      <Link to="/recommendations" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
                         <span>View All</span>
                         <ExternalLink className="w-4 h-4" />
-                      </a>
+                      </Link>
                     </div>
                     <p className="text-sm md:text-base text-gray-400 mb-6">Content suggestions powered by AI, tailored to your interests</p>
             
@@ -517,10 +517,10 @@ const Dashboard = () => {
                       <FolderOpen className="w-5 h-5 md:w-6 md:h-6 text-green-400" />
                       <h2 className="text-lg md:text-xl font-semibold text-white">Recent Projects</h2>
                     </div>
-                    <a href="/app/projects" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
+                    <Link to="/projects" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
                       <span>View All</span>
                       <ExternalLink className="w-4 h-4" />
-                    </a>
+                    </Link>
                   </div>
           
                   {recentProjects.length > 0 ? (
@@ -547,12 +547,12 @@ const Dashboard = () => {
                                 <span>Updated {new Date(project.created_at || project.updated_at).toLocaleDateString()}</span>
                               </div>
                             </div>
-                            <a 
-                              href={`/app/projects/${project.id}`}
+                            <Link 
+                              to={`/projects/${project.id}`}
                               className="p-2 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg transition-colors duration-300 flex-shrink-0"
                             >
                               <ExternalLink className="w-5 h-5" />
-                            </a>
+                            </Link>
                           </div>
                         </div>
                       ))}
@@ -582,10 +582,10 @@ const Dashboard = () => {
                       <Bookmark className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
                       <h2 className="text-lg md:text-xl font-semibold text-white">Recent Bookmarks</h2>
                     </div>
-                    <a href="/app/bookmarks" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
+                    <Link to="/bookmarks" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
                       <span>View All</span>
                       <ExternalLink className="w-4 h-4" />
-                    </a>
+                    </Link>
                   </div>
           
                   {recentBookmarks.length > 0 ? (
