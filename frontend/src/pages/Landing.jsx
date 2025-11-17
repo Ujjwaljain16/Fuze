@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'; 
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { 
   Zap, 
   BookmarkPlus, 
@@ -24,10 +25,20 @@ import {
 
 export default function FuzeLanding() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [isVisible, setIsVisible] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [particles, setParticles] = useState([]);
   const [showLogo, setShowLogo] = useState(true);
+
+  // Handle "Start for Free" button click - redirect to dashboard if logged in
+  const handleStartForFree = () => {
+    if (isAuthenticated) {
+      navigate('/dashboard');
+    } else {
+      navigate('/login?mode=signup');
+    }
+  };
 
   useEffect(() => {
     setIsVisible(true);
@@ -392,7 +403,7 @@ export default function FuzeLanding() {
               Features
             </button>
             <button 
-              onClick={() => navigate('/login?mode=signup')}
+              onClick={handleStartForFree}
               style={{
                 background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
                 color: '#fff',
@@ -414,7 +425,7 @@ export default function FuzeLanding() {
                 e.target.style.boxShadow = '0 4px 15px rgba(77, 208, 225, 0.3)';
               }}
             >
-              Start for Free
+              {isAuthenticated ? 'Go to Dashboard' : 'Start for Free'}
             </button>
         </div>
       </nav>
@@ -507,7 +518,7 @@ export default function FuzeLanding() {
 
               <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 <button 
-                  onClick={() => navigate('/login?mode=signup')}
+                  onClick={handleStartForFree}
                   style={{
                   background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
                   color: '#fff',
@@ -531,7 +542,7 @@ export default function FuzeLanding() {
                   e.currentTarget.style.transform = 'translateY(0)';
                   e.currentTarget.style.boxShadow = '0 8px 24px rgba(77, 208, 225, 0.4)';
                 }}>
-                  Start for Free
+                  {isAuthenticated ? 'Go to Dashboard' : 'Start for Free'}
                   <ArrowRight size={20} />
                 </button>
                 
@@ -771,7 +782,7 @@ export default function FuzeLanding() {
           </p>
 
           <button 
-            onClick={() => navigate('/login?mode=signup')}
+            onClick={handleStartForFree}
             style={{
             background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
             color: '#fff',
@@ -796,7 +807,7 @@ export default function FuzeLanding() {
             e.currentTarget.style.boxShadow = '0 12px 40px rgba(77, 208, 225, 0.4)';
           }}>
             <Zap size={24} />
-            Get Started with Fuze
+            {isAuthenticated ? 'Go to Dashboard' : 'Get Started with Fuze'}
             <ArrowRight size={24} />
           </button>
           
