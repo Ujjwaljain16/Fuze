@@ -158,7 +158,8 @@ class DatabaseConnectionManager:
             raise ValueError("DATABASE_URL environment variable not set")
         
         # Check if this is a Supabase URL that needs hostname resolution
-        if 'supabase.co' in database_url and 'db.' in database_url:
+        # Handle both direct db.*.supabase.co and pooler.*.pooler.supabase.co URLs
+        if 'supabase.co' in database_url and ('db.' in database_url or 'pooler.' in database_url):
             try:
                 # Use a more robust approach - don't try to parse complex URLs
                 # Instead, just replace the hostname part safely
@@ -176,6 +177,11 @@ class DatabaseConnectionManager:
                         remaining_url = database_url[slash_index:]
                     
                     # Extract just the hostname (before the port)
+                    # Handle potential query parameters in the URL
+                    if '?' in host_port_part:
+                        # Remove query parameters for hostname extraction
+                        host_port_part = host_port_part.split('?')[0]
+                    
                     if ':' in host_port_part:
                         # Check if this might be IPv6
                         colon_count = host_port_part.count(':')
@@ -185,13 +191,19 @@ class DatabaseConnectionManager:
                             hostname = host_port_part[:last_colon_index]
                             port_part = host_port_part[last_colon_index:]
                         else:
-                            # Regular IPv4 with port
-                            hostname = host_port_part.split(':')[0]
-                            port_part = ':' + host_port_part.split(':')[1]
+                            # Regular IPv4 with port - split on first colon only
+                            parts = host_port_part.split(':', 1)
+                            hostname = parts[0]
+                            port_part = ':' + parts[1] if len(parts) > 1 else ""
                     else:
                         # No port specified
                         hostname = host_port_part
                         port_part = ""
+                    
+                    # Validate hostname doesn't contain invalid characters
+                    if '@' in hostname or hostname.strip() == '':
+                        logger.warning(f"⚠️ Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
+                        return database_url
                     
                     # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
                     # This is critical for Render.com which has IPv6 connectivity issues

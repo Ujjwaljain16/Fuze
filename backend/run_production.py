@@ -226,32 +226,27 @@ def create_app():
         db.init_app(app)
         
         if connection_manager_available:
-            # Use the connection manager to configure the database
+            # Defer database configuration to avoid blocking startup
+            # The connection manager will configure the database lazily on first request
+            # This ensures the app starts quickly even if database is slow/unavailable
+            logger.info("[OK] Database connection manager available - will configure on first request")
+            # Set up fallback configuration for now
             try:
-                from models import configure_database
-                if configure_database():
-                    logger.info("[OK] Database initialized with connection manager engine")
-                else:
-                    logger.warning("[WARNING] Database configuration returned False, using standard engine")
-            except Exception as e:
-                logger.warning(f"[WARNING] Connection manager configuration failed: {e}")
-                # Try to configure standard database options as fallback
-                try:
-                    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-                        'pool_pre_ping': True,
-                        'pool_recycle': 300,
-                        'pool_size': 3,
-                        'max_overflow': 5,
-                        'pool_timeout': 30,
-                        'connect_args': {
-                            'connect_timeout': 30,
-                            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-                        }
+                app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+                    'pool_pre_ping': True,
+                    'pool_recycle': 300,
+                    'pool_size': 3,
+                    'max_overflow': 5,
+                    'pool_timeout': 30,
+                    'connect_args': {
+                        'connect_timeout': 10,  # Shorter timeout for faster startup
+                        'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
                     }
-                    logger.info("[OK] Database extension initialized with fallback configuration")
-                except Exception as fallback_error:
-                    logger.warning(f"[WARNING] Fallback configuration failed: {fallback_error}")
-                    logger.info("[OK] Database extension initialized (basic mode)")
+                }
+                logger.info("[OK] Database extension initialized (lazy configuration mode)")
+            except Exception as fallback_error:
+                logger.warning(f"[WARNING] Fallback configuration failed: {fallback_error}")
+                logger.info("[OK] Database extension initialized (basic mode)")
         else:
             logger.info("[OK] Database extension initialized (standard mode)")
     except Exception as e:
@@ -279,37 +274,11 @@ def create_app():
             'error': 'authorization_required'
         }), 401
     
-    # Test database connection before proceeding with enhanced SSL handling
+    # Skip database connection test during startup to avoid blocking
+    # Database will be tested and connected on first request
     global database_available
-    # Quick database connection test - non-blocking for fast startup
-    # Full retries will happen on first request if needed
-    try:
-        with app.app_context():
-            if connection_manager_available:
-                # Quick test - no retries to avoid blocking startup
-                try:
-                    if test_database_connection():
-                        database_available = True
-                        logger.info("[OK] Database connection test successful (quick check)")
-                    else:
-                        database_available = False
-                        logger.warning("[WARNING] Database connection test failed - will retry on first request")
-                except Exception as e:
-                    database_available = False
-                    logger.warning(f"[WARNING] Database connection test failed: {e} - will retry on first request")
-            else:
-                # Fallback to standard testing - quick check only
-                try:
-                    db.session.execute(text('SELECT 1'))
-                    database_available = True
-                    logger.info("[OK] Database connection test successful (standard)")
-                except Exception as e:
-                    database_available = False
-                    logger.warning(f"[WARNING] Database connection test failed: {e}")
-    except Exception as e:
-        logger.warning(f"[WARNING] Database connection test failed: {e}")
-        logger.warning("[WARNING] Server will start but database-dependent features may not work")
-        database_available = False
+    database_available = False  # Will be set to True on first successful connection
+    logger.info("[OK] Database connection will be tested on first request (non-blocking startup)")
     
     # Simple root endpoint - responds immediately for port binding (no DB checks)
     @app.route('/')

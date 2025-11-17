@@ -22,7 +22,6 @@ def init_rate_limiter(app):
             logger.warning("Rate limiter using memory storage (not recommended for production)")
         
         # Use more lenient limits for development, stricter for production
-        import os
         is_development = os.environ.get('FLASK_ENV', 'development') == 'development'
         
         if is_development:
