@@ -28,8 +28,8 @@ def init_rate_limiter(app):
             # Development: Higher limits to avoid hitting rate limits during testing
             default_limits = ["1000 per day", "200 per hour", "50 per minute"]
         else:
-            # Production: Standard limits
-            default_limits = ["200 per day", "50 per hour"]
+            # Production: Increased limits for better user experience
+            default_limits = ["1000 per day", "200 per hour", "50 per minute"]
         
         limiter = Limiter(
             app=app,

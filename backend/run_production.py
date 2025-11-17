@@ -70,8 +70,17 @@ try:
     from blueprints.feedback import feedback_bp
     from blueprints.profile import profile_bp
     from blueprints.search import search_bp
-    from blueprints.user_api_key import init_app as init_user_api_key
     from services.multi_user_api_manager import init_api_manager
+    
+    # Import user API key blueprint with error handling
+    try:
+        from blueprints.user_api_key import init_app as init_user_api_key
+        user_api_key_available = True
+        logger.info("[OK] User API key blueprint imported successfully")
+    except ImportError as e:
+        logger.warning(f"[WARNING] User API key blueprint not available: {e}")
+        user_api_key_available = False
+        init_user_api_key = None
     
     # Import recommendations blueprint with error handling
     try:
@@ -158,6 +167,18 @@ def create_app():
             # Parse comma-separated list from environment
             cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
         
+        # Normalize origins (remove trailing slashes and duplicates)
+        cors_origins_normalized = []
+        seen = set()
+        for origin in cors_origins:
+            # Remove trailing slash
+            origin_clean = origin.rstrip('/')
+            # Skip if already seen
+            if origin_clean not in seen:
+                cors_origins_normalized.append(origin_clean)
+                seen.add(origin_clean)
+        cors_origins = cors_origins_normalized
+        
         # Add common Vercel patterns if not already included
         # This allows both main deployments and preview deployments
         vercel_patterns = [
@@ -169,14 +190,14 @@ def create_app():
         # This provides a sensible default while still allowing override
         if not cors_origins_env or len(cors_origins) == 0:
             logger.warning("[WARNING] CORS_ORIGINS not set - using default Vercel patterns")
-            # For Vercel wildcard, we need to use a regex pattern
-            # flask-cors supports regex patterns
             cors_origins = vercel_patterns
         else:
             # Merge user-provided origins with Vercel patterns (avoid duplicates)
             for pattern in vercel_patterns:
-                if pattern not in cors_origins:
-                    cors_origins.append(pattern)
+                pattern_clean = pattern.rstrip('/')
+                if pattern_clean not in seen:
+                    cors_origins.append(pattern_clean)
+                    seen.add(pattern_clean)
         
         logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
         logger.info(f"[DEBUG] CORS origins: {cors_origins}")
@@ -294,8 +315,16 @@ def create_app():
         else:
             logger.warning("[WARNING] LinkedIn blueprint not registered")
             
-        # Register user API key blueprint
-        init_user_api_key(app)
+        # Register user API key blueprint if available
+        if user_api_key_available and init_user_api_key:
+            try:
+                init_user_api_key(app)
+                logger.info("[OK] User API key blueprint registered")
+            except Exception as e:
+                logger.warning(f"[WARNING] Error registering user API key blueprint: {e}")
+        else:
+            logger.warning("[WARNING] User API key blueprint not registered")
+            
         logger.info("[OK] All blueprints registered successfully")
     except Exception as e:
         logger.error(f"[ERROR] Error registering blueprints: {e}")
