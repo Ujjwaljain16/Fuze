@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome, Home } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import AuthToggle from '../components/AuthToggle';
 
 export default function FuzeAuth() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [searchParams] = useSearchParams();
+  const initialMode = searchParams.get('mode') === 'signup' ? false : true;
+  const [isLogin, setIsLogin] = useState(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -44,7 +46,6 @@ export default function FuzeAuth() {
     setError('');
     setSuccess('');
     if (isLogin) {
-      // Login: send email or username and password
       if (!formData.email && !formData.username) {
         setError('Please enter your email or username.');
         return;
@@ -53,7 +54,6 @@ export default function FuzeAuth() {
         setError('Please enter your password.');
         return;
       }
-      // Prefer email, fallback to username
       const identifier = formData.email || formData.username;
       const result = await login(identifier, formData.password);
       if (result.success) {
@@ -63,7 +63,6 @@ export default function FuzeAuth() {
         setError(result.error || 'Login failed.');
       }
     } else {
-      // Register: send username, email, password, name
       if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword || !formData.name) {
         setError('Please fill in all fields.');
         return;
@@ -75,7 +74,6 @@ export default function FuzeAuth() {
       const result = await register(formData.username, formData.email, formData.password, formData.name);
       if (result.success) {
         setSuccess('Registration successful! Redirecting to dashboard...');
-        // Navigate to dashboard - onboarding modal will show automatically
         setTimeout(() => navigate('/dashboard'), 1500);
       } else {
         setError(result.error || 'Registration failed.');
@@ -83,60 +81,202 @@ export default function FuzeAuth() {
     }
   };
 
+  useEffect(() => {
+    // Ensure body and html have black background for login page
+    const originalBodyBg = document.body.style.backgroundColor;
+    const originalHtmlBg = document.documentElement.style.backgroundColor;
+    const originalRootBg = document.getElementById('root')?.style.backgroundColor;
+    
+    document.body.style.backgroundColor = '#000000';
+    document.documentElement.style.backgroundColor = '#000000';
+    if (document.getElementById('root')) {
+      document.getElementById('root').style.backgroundColor = '#000000';
+    }
+    
+    return () => {
+      // Reset on unmount
+      document.body.style.backgroundColor = originalBodyBg;
+      document.documentElement.style.backgroundColor = originalHtmlBg;
+      if (document.getElementById('root')) {
+        document.getElementById('root').style.backgroundColor = originalRootBg || '';
+      }
+    };
+  }, []);
+
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 opacity-20">
+    <>
+      <style>{`
+        /* Override main-content background for login page */
+        .main-content:has(> div[data-login-page="true"]) {
+          background-color: #000000 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        
+        /* Ensure app-container doesn't interfere */
+        .app-container:has(> .main-content > div[data-login-page="true"]) {
+          background-color: #000000 !important;
+          margin: 0 !important;
+        }
+      `}</style>
+      <div 
+        data-login-page="true"
+        className="text-white flex justify-center relative"
+        style={{
+          backgroundColor: '#000000',
+          minHeight: '100vh',
+          width: '100vw',
+          maxWidth: '100vw',
+          margin: 0,
+          padding: '2rem 1rem',
+          paddingLeft: 0,
+          boxSizing: 'border-box',
+          position: 'relative',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          alignItems: 'flex-start',
+          paddingTop: '8rem',
+          paddingBottom: '4rem'
+        }}
+      >
+        {/* Full Screen Black Background */}
         <div 
-          className="absolute w-96 h-96 rounded-full"
+          className="fixed inset-0 pointer-events-none"
           style={{
-            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, transparent 70%)',
-            left: mousePos.x - 192,
-            top: mousePos.y - 192,
-            transition: 'all 0.3s ease-out'
+            backgroundColor: '#000000',
+            zIndex: -1
+          }}
+        />
+
+      {/* Subtle animated glow following cursor */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div 
+          className="absolute w-[600px] h-[600px] rounded-full blur-[100px] opacity-20"
+          style={{
+            background: 'radial-gradient(circle, rgba(77, 208, 225, 0.4) 0%, transparent 70%)',
+            left: mousePos.x - 300,
+            top: mousePos.y - 300,
+            transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         />
       </div>
-      {/* Lightning Grid Background */}
-      <div className="fixed inset-0 opacity-5">
-        <div className="grid grid-cols-20 grid-rows-20 h-full w-full">
-          {Array.from({ length: 400 }).map((_, i) => (
-            <div
-              key={i}
-              className="border border-blue-500/20 animate-pulse"
-              style={{
-                animationDelay: `${Math.random() * 5}s`,
-                animationDuration: `${3 + Math.random() * 3}s`
-              }}
-            />
-          ))}
-        </div>
-      </div>
-      {/* Auth Container */}
-      <div className={`w-full max-w-md relative z-10 transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center space-x-3 mb-4">
-            <div className="relative">
-              <Zap className="w-10 h-10 text-blue-400" />
-              <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
-            </div>
-            <div>
-              <span className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                Fuze
-              </span>
-              <div className="text-xs text-blue-300 font-medium tracking-wider uppercase opacity-80">
-                Strike Through the Chaos
+
+      {/* Minimal grid overlay */}
+      <div className="fixed inset-0 opacity-[0.015]" style={{
+        backgroundImage: 'linear-gradient(rgba(77, 208, 225, 0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(77, 208, 225, 0.5) 1px, transparent 1px)',
+        backgroundSize: '50px 50px'
+      }} />
+
+      {/* Header - Text and Home Button */}
+      <div 
+        className="fixed top-0 left-0 right-0 z-50"
+        style={{
+          padding: '2rem',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          pointerEvents: 'none',
+          background: 'rgba(0, 0, 0, 0.8)',
+          backdropFilter: 'blur(10px)'
+        }}
+      >
+        {/* Text - Top Center - Two Lines */}
+        <div 
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '2rem',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'auto',
+            textAlign: 'center',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <div style={{ lineHeight: '1.3' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.125rem' }}>
+              <Zap 
+                size={24}
+                style={{ 
+                  color: '#4DD0E1',
+                  flexShrink: 0
+                }} 
+              />
+              <div 
+                style={{
+                  fontSize: '1.875rem',
+                  fontWeight: '800',
+                  fontFamily: "'Inter', system-ui, sans-serif",
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  letterSpacing: '-0.03em',
+                  textTransform: 'uppercase'
+                }}
+              >
+                FUZE
               </div>
             </div>
+            <div 
+              style={{
+                fontSize: '0.7rem',
+                fontWeight: '500',
+                fontFamily: "'Inter', system-ui, sans-serif",
+                color: '#6b7280',
+                letterSpacing: '0.12em',
+                textTransform: 'none'
+              }}
+            >
+              Intelligence Connected
+            </div>
           </div>
         </div>
+
+        {/* Back to Home Button - Top Right */}
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.625rem 1.25rem',
+            background: 'rgba(20, 20, 20, 0.6)',
+            border: '1px solid rgba(77, 208, 225, 0.2)',
+            borderRadius: '9999px',
+            color: '#9ca3af',
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            cursor: 'pointer',
+            pointerEvents: 'auto',
+            transition: 'all 0.3s ease',
+            backdropFilter: 'blur(10px)',
+            marginLeft: 'auto'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.color = '#4DD0E1';
+            e.target.style.borderColor = 'rgba(77, 208, 225, 0.5)';
+            e.target.style.background = 'rgba(20, 20, 20, 0.8)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.color = '#9ca3af';
+            e.target.style.borderColor = 'rgba(77, 208, 225, 0.2)';
+            e.target.style.background = 'rgba(20, 20, 20, 0.6)';
+          }}
+        >
+          <Home size={18} />
+          <span>Home</span>
+        </button>
+      </div>
+
+      {/* Auth Container */}
+      <div className={`w-full max-w-md relative z-10 transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+
         {/* Auth Card */}
-        <div className="bg-gradient-to-br from-gray-900/80 to-black/80 backdrop-blur-xl border border-gray-800 rounded-3xl p-8 relative overflow-hidden">
-          {/* Animated Border */}
-          <div className="absolute inset-0 rounded-3xl">
-            <div className="absolute inset-0 rounded-3xl border border-transparent bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
-          </div>
+        <div className="backdrop-blur-2xl border rounded-3xl p-8 relative" style={{ 
+          background: 'rgba(20, 20, 20, 0.4)',
+          borderColor: 'rgba(77, 208, 225, 0.2)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(77, 208, 225, 0.3)'
+        }}>
           <div className="relative z-10">
             {/* Toggle Buttons */}
             <AuthToggle 
@@ -147,11 +287,27 @@ export default function FuzeAuth() {
                 setSuccess(''); 
               }} 
             />
+
             {/* Error/Success Messages */}
-            {error && <div className="mb-4 text-red-400 text-center font-medium">{error}</div>}
-            {success && <div className="mb-4 text-green-400 text-center font-medium">{success}</div>}
+            {error && (
+              <div className="mb-6 p-3 rounded-xl text-red-400 text-center font-medium text-sm" style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)'
+              }}>
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="mb-6 p-3 rounded-xl text-green-400 text-center font-medium text-sm" style={{
+                background: 'rgba(34, 197, 94, 0.1)',
+                border: '1px solid rgba(34, 197, 94, 0.2)'
+              }}>
+                {success}
+              </div>
+            )}
+
             {/* Form Fields */}
-            <form className="space-y-6" onSubmit={handleSubmit}>
+            <form className="space-y-5" onSubmit={handleSubmit}>
               {!isLogin && (
                 <>
                   <Input
@@ -172,6 +328,7 @@ export default function FuzeAuth() {
                   />
                 </>
               )}
+
               <Input
                 label={`Email ${isLogin ? 'or Username' : 'Address'}`}
                 icon={Mail}
@@ -181,27 +338,41 @@ export default function FuzeAuth() {
                 onChange={handleInputChange}
                 placeholder={isLogin ? 'Enter your email or username' : 'Enter your email'}
               />
+
               <div className="group">
                 <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-blue-400 transition-colors duration-300" />
+                  <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors duration-300 group-focus-within:text-cyan-400" />
                   <input
                     type={showPassword ? "text" : "password"}
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full pl-12 pr-12 py-4 bg-gray-800/50 border border-gray-700 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300 text-white placeholder-gray-400"
+                    className="w-full pl-12 pr-12 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500"
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.4)',
+                      border: '1px solid rgba(77, 208, 225, 0.2)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = 'rgba(77, 208, 225, 0.5)';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(77, 208, 225, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(77, 208, 225, 0.2)';
+                      e.target.style.boxShadow = 'none';
+                    }}
                     placeholder="Enter your password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-blue-400 transition-colors duration-300"
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-cyan-400 transition-colors duration-300"
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
               </div>
+
               {!isLogin && (
                 <Input
                   label="Confirm Password"
@@ -213,22 +384,24 @@ export default function FuzeAuth() {
                   placeholder="Confirm your password"
                 />
               )}
+
               {isLogin && (
                 <div className="flex items-center justify-between text-sm">
-                  <label className="flex items-center">
-                    <input type="checkbox" className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2" />
-                    <span className="ml-2 text-gray-300">Remember me</span>
+                  <label className="flex items-center cursor-pointer group">
+                    <input type="checkbox" className="w-4 h-4 rounded border-gray-600 bg-black focus:ring-2 focus:ring-cyan-400 focus:ring-offset-0 text-cyan-400" />
+                    <span className="ml-2 text-gray-400 group-hover:text-gray-300 transition-colors">Remember me</span>
                   </label>
-                  <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors duration-300">
+                  <a href="#" className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-medium">
                     Forgot password?
                   </a>
                 </div>
               )}
+
               <Button
                 type="submit"
                 variant="fuze"
                 size="lg"
-                className="group w-full"
+                className="group w-full mt-6"
               >
                 <span className="flex items-center justify-center">
                   {isLogin ? 'Sign In to Fuze' : 'Create Your Account'}
@@ -236,26 +409,29 @@ export default function FuzeAuth() {
                 </span>
               </Button>
             </form>
+
             {/* Divider */}
             <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-700"></div>
+                <div className="w-full border-t border-gray-800"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-gray-900 text-gray-400">Or continue with</span>
+                <span className="px-4 bg-black bg-opacity-60 text-gray-500">Or continue with</span>
               </div>
             </div>
+
             {/* Social Login */}
             <div className="grid grid-cols-2 gap-4">
-              <Button variant="outline" className="flex items-center justify-center">
+              <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
                 <Github className="w-5 h-5 mr-2" />
-                GitHub
-              </Button>
-              <Button variant="outline" className="flex items-center justify-center">
+                <span className="text-gray-300">GitHub</span>
+              </button>
+              <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
                 <Chrome className="w-5 h-5 mr-2" />
-                Google
-              </Button>
+                <span className="text-gray-300">Google</span>
+              </button>
             </div>
+
             {/* Footer Text */}
             <div className="mt-8 text-center text-sm text-gray-400">
               {isLogin ? (
@@ -264,7 +440,7 @@ export default function FuzeAuth() {
                   <button
                     type="button"
                     onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
-                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300 font-semibold"
+                    className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-semibold"
                   >
                     Sign up for free
                   </button>
@@ -275,7 +451,7 @@ export default function FuzeAuth() {
                   <button
                     type="button"
                     onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
-                    className="text-blue-400 hover:text-blue-300 transition-colors duration-300 font-semibold"
+                    className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-semibold"
                   >
                     Sign in
                   </button>
@@ -284,21 +460,17 @@ export default function FuzeAuth() {
             </div>
           </div>
         </div>
+
         {/* Security Notice */}
-        <div className="mt-6 text-center text-xs text-gray-500">
+        <div className="mt-8 text-center text-xs text-gray-600">
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <Lock className="w-3 h-3" />
           <p>Protected by enterprise-grade security</p>
-          <p className="mt-1">Your data is encrypted and secure</p>
+          </div>
+          <p>Your data is encrypted and secure</p>
         </div>
       </div>
-      <style>{`
-        @keyframes lightning {
-          0%, 100% { opacity: 0.1; }
-          50% { opacity: 0.3; }
-        }
-        .animate-lightning {
-          animation: lightning 3s ease-in-out infinite;
-        }
-      `}</style>
     </div>
+    </>
   );
 }
