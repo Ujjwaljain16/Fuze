@@ -157,6 +157,7 @@ def create_app():
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+             expose_headers=['Content-Type', 'X-CSRF-TOKEN'],
              max_age=86400)
     else:
         # Production: Allow explicitly configured origins + Vercel patterns
@@ -208,6 +209,7 @@ def create_app():
              origins=cors_origins,  # flask-cors handles wildcards like "https://*.vercel.app" automatically
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
+             expose_headers=['Content-Type', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
              max_age=86400)
     
@@ -404,8 +406,60 @@ def create_app():
         
         return response
     
-    # Root endpoint already defined above - this is a duplicate, removed
+    # CRITICAL FIX: Add CORS headers to error responses
+    @app.after_request
+    def add_cors_to_all_responses(response):
+        """Ensure CORS headers are added to ALL responses, including errors"""
+        origin = request.headers.get('Origin')
+        
+        if origin:
+            # Check if origin matches allowed patterns
+            allowed = False
+            cors_origins = []
+            
+            if app.config.get('DEBUG'):
+                cors_origins = app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173'])
+            else:
+                cors_origins_env = os.environ.get('CORS_ORIGINS', '')
+                if cors_origins_env:
+                    cors_origins = [o.strip().rstrip('/') for o in cors_origins_env.split(',') if o.strip()]
+                
+                # Add default Vercel patterns if empty
+                if not cors_origins:
+                    cors_origins = ['https://itsfuze.vercel.app', 'https://*.vercel.app']
+            
+            # Check if origin matches any allowed origin (including wildcards)
+            for allowed_origin in cors_origins:
+                if allowed_origin == '*':
+                    allowed = True
+                    break
+                elif '*' in allowed_origin:
+                    # Convert wildcard pattern to regex
+                    pattern = allowed_origin.replace('.', r'\.').replace('*', '.*')
+                    if re.match(f'^{pattern}$', origin):
+                        allowed = True
+                        break
+                elif origin == allowed_origin or origin == allowed_origin.rstrip('/'):
+                    allowed = True
+                    break
+            
+            if allowed:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-TOKEN'
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Type, X-CSRF-TOKEN'
+                response.headers['Access-Control-Max-Age'] = '86400'
+        
+        return response
     
+    # Handle OPTIONS requests for CORS preflight
+    @app.before_request
+    def handle_preflight():
+        if request.method == 'OPTIONS':
+            response = jsonify({'status': 'ok'})
+            response.status_code = 200
+            return response
     
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
@@ -630,16 +684,29 @@ def create_app():
     # Error handlers
     @app.errorhandler(400)
     def bad_request(error):
-        return {'message': 'Bad request'}, 400
+        return jsonify({'message': 'Bad request', 'error': str(error)}), 400
+    
     @app.errorhandler(401)
     def unauthorized(error):
-        return {'message': 'Unauthorized'}, 401
+        return jsonify({'message': 'Unauthorized', 'error': str(error)}), 401
+    
     @app.errorhandler(404)
     def not_found(error):
-        return {'message': 'Not found'}, 404
+        return jsonify({'message': 'Not found', 'error': str(error)}), 404
+    
+    @app.errorhandler(405)
+    def method_not_allowed(error):
+        """Handle 405 Method Not Allowed errors with proper CORS headers"""
+        return jsonify({
+            'message': 'Method not allowed',
+            'error': 'method_not_allowed',
+            'allowed_methods': error.valid_methods if hasattr(error, 'valid_methods') else []
+        }), 405
+    
     @app.errorhandler(500)
     def internal_server_error(error):
-        return {'message': 'Internal server error'}, 500
+        logger.error(f"Internal server error: {error}", exc_info=True)
+        return jsonify({'message': 'Internal server error', 'error': str(error)}), 500
     
     # Database connection error handler with SSL error handling
     @app.errorhandler(Exception)
