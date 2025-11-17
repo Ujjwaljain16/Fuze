@@ -9,6 +9,7 @@ import time
 import logging
 import threading
 import socket
+from urllib.parse import urlparse, urlunparse
 from contextlib import contextmanager
 from typing import Optional, Dict, Any
 from sqlalchemy import create_engine, text, event
@@ -161,78 +162,129 @@ class DatabaseConnectionManager:
         # Handle both direct db.*.supabase.co and pooler.*.pooler.supabase.co URLs
         if 'supabase.co' in database_url and ('db.' in database_url or 'pooler.' in database_url):
             try:
-                # Use a more robust approach - don't try to parse complex URLs
-                # Instead, just replace the hostname part safely
-                if '@' in database_url:
-                    # Find the @ symbol and the next / to isolate the host:port part
-                    at_index = database_url.find('@')
-                    slash_index = database_url.find('/', at_index)
-                    
-                    if slash_index == -1:
-                        # No slash found, URL ends with host:port
-                        host_port_part = database_url[at_index + 1:]
-                        remaining_url = ""
+                # Use urllib.parse for robust URL parsing
+                parsed = urlparse(database_url)
+                
+                # Extract hostname and port from netloc
+                # netloc format: user:password@host:port
+                netloc = parsed.netloc
+                if not netloc:
+                    logger.warning("⚠️ Could not extract netloc from DATABASE_URL, skipping IPv4 resolution")
+                    return database_url
+                
+                # Split credentials and host:port
+                # Note: password may contain @, so we need to find the LAST @ which separates credentials from host
+                # Format: username:password@host:port (password can contain @)
+                if '@' in netloc:
+                    # Find the last @ which should separate credentials from host
+                    # But we need to be careful - if there are multiple @, the last one is the separator
+                    # Count @ symbols to determine if password contains @
+                    at_count = netloc.count('@')
+                    if at_count == 1:
+                        # Simple case: user:pass@host:port
+                        creds_part, host_port_part = netloc.split('@', 1)
                     else:
-                        host_port_part = database_url[at_index + 1:slash_index]
-                        remaining_url = database_url[slash_index:]
-                    
-                    # Extract just the hostname (before the port)
-                    # Handle potential query parameters in the URL
-                    if '?' in host_port_part:
-                        # Remove query parameters for hostname extraction
-                        host_port_part = host_port_part.split('?')[0]
-                    
-                    if ':' in host_port_part:
-                        # Check if this might be IPv6
-                        colon_count = host_port_part.count(':')
-                        if colon_count > 1:
-                            # Likely IPv6 - find the last colon for port
-                            last_colon_index = host_port_part.rfind(':')
-                            hostname = host_port_part[:last_colon_index]
-                            port_part = host_port_part[last_colon_index:]
+                        # Password contains @ - find the last @ which is the separator
+                        # Format: user:pass@with@symbols@host:port
+                        # We need to find where hostname starts (after last @)
+                        # Hostname should start with a letter or number, not a digit followed by @
+                        # Actually, the safest is to find the last @ and check if what follows looks like a hostname
+                        last_at_index = netloc.rfind('@')
+                        potential_host = netloc[last_at_index + 1:]
+                        
+                        # Check if potential_host looks like a hostname (starts with letter, contains dots)
+                        if '.' in potential_host and potential_host.split(':')[0].replace('.', '').replace('-', '').isalnum():
+                            # This looks like a hostname, so last @ is the separator
+                            creds_part = netloc[:last_at_index]
+                            host_port_part = potential_host
                         else:
-                            # Regular IPv4 with port - split on first colon only
-                            parts = host_port_part.split(':', 1)
+                            # Doesn't look like hostname, try second-to-last @
+                            if at_count >= 2:
+                                # Try finding @ before the last one
+                                second_last_at = netloc.rfind('@', 0, last_at_index)
+                                potential_host2 = netloc[second_last_at + 1:]
+                                if '.' in potential_host2.split(':')[0]:
+                                    creds_part = netloc[:second_last_at]
+                                    host_port_part = potential_host2
+                                else:
+                                    # Fallback: use last @ anyway
+                                    creds_part = netloc[:last_at_index]
+                                    host_port_part = potential_host
+                            else:
+                                # Fallback: use last @
+                                creds_part = netloc[:last_at_index]
+                                host_port_part = potential_host
+                else:
+                    # No credentials: host:port
+                    creds_part = ""
+                    host_port_part = netloc
+                
+                # Extract hostname and port from host_port_part
+                if ':' in host_port_part:
+                    # Handle IPv6 addresses (they have colons)
+                    if host_port_part.startswith('['):
+                        # IPv6 address in brackets: [::1]:5432
+                        bracket_end = host_port_part.find(']')
+                        if bracket_end != -1:
+                            hostname = host_port_part[1:bracket_end]
+                            port_part = host_port_part[bracket_end + 1:]  # Includes the ':'
+                        else:
+                            logger.warning("⚠️ Malformed IPv6 address in URL, skipping IPv4 resolution")
+                            return database_url
+                    else:
+                        # Regular hostname:port format - split from right
+                        parts = host_port_part.rsplit(':', 1)
+                        if len(parts) == 2:
                             hostname = parts[0]
-                            port_part = ':' + parts[1] if len(parts) > 1 else ""
-                    else:
-                        # No port specified
-                        hostname = host_port_part
-                        port_part = ""
-                    
-                    # Validate hostname doesn't contain invalid characters
-                    if '@' in hostname or hostname.strip() == '':
-                        logger.warning(f"⚠️ Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
-                        return database_url
-                    
-                    # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
-                    # This is critical for Render.com which has IPv6 connectivity issues
-                    ip_address = resolve_hostname_to_ipv4(hostname)
-                    
-                    if ip_address:
-                        # Only use IPv4 addresses (never IPv6) - this prevents "Network is unreachable" errors
-                        new_host_port = f"{ip_address}{port_part}"
-                        
-                        # Reconstruct the URL
-                        new_url = database_url[:at_index + 1] + new_host_port + remaining_url
-                        
-                        # Validate the new URL
-                        if self._validate_database_url(new_url):
-                            logger.info(f"✅ Updated DATABASE_URL to use IPv4 address: {ip_address}")
-                            return new_url
+                            port_part = ':' + parts[1]
                         else:
-                            logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
+                            hostname = host_port_part
+                            port_part = ""
+                else:
+                    hostname = host_port_part
+                    port_part = ""
+                
+                # Validate hostname - should not contain @, :, or be empty
+                if '@' in hostname or ':' in hostname or hostname.strip() == '':
+                    logger.warning(f"⚠️ Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
+                    logger.debug(f"   Original netloc: {netloc}, host_port_part: {host_port_part}")
+                    return database_url
+                
+                # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
+                # This is critical for Render.com which has IPv6 connectivity issues
+                ip_address = resolve_hostname_to_ipv4(hostname)
+                
+                if ip_address:
+                    # Only use IPv4 addresses (never IPv6) - this prevents "Network is unreachable" errors
+                    # Reconstruct netloc with credentials if they existed
+                    if creds_part:
+                        new_netloc = f"{creds_part}@{ip_address}{port_part}"
                     else:
-                        # IPv4 resolution failed - this is a problem on Render.com
-                        # Log a warning but still try with hostname (may fail)
-                        logger.warning(f"⚠️ IPv4 resolution failed for {hostname} - connection may fail on Render.com")
-                        logger.warning(f"   This is likely due to network configuration issues")
+                        new_netloc = f"{ip_address}{port_part}"
                     
-                    # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
-                    logger.info(f"ℹ️ Using hostname directly: {hostname} (IPv4 resolution failed)")
+                    # Reconstruct the URL using urlunparse
+                    new_parsed = parsed._replace(netloc=new_netloc)
+                    new_url = urlunparse(new_parsed)
+                    
+                    # Validate the new URL
+                    if self._validate_database_url(new_url):
+                        logger.info(f"✅ Updated DATABASE_URL to use IPv4 address: {ip_address}")
+                        return new_url
+                    else:
+                        logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
+                else:
+                    # IPv4 resolution failed - log warning but continue with hostname
+                    logger.warning(f"⚠️ IPv4 resolution failed for {hostname} - connection may fail on Render.com")
+                    logger.warning(f"   This is likely due to network configuration issues")
+                
+                # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
+                logger.info(f"ℹ️ Using hostname directly: {hostname} (IPv4 resolution failed)")
                         
             except Exception as e:
                 logger.warning(f"⚠️ Error processing DATABASE_URL: {e}")
+                logger.debug(f"   Exception details: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.debug(f"   Traceback: {traceback.format_exc()}")
         
         return database_url
     
