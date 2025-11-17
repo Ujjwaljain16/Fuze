@@ -1,6 +1,5 @@
 import React from 'react';
 import { Lock, Eye, EyeOff, Shield } from 'lucide-react';
-import Button from './Button';
 
 const PasswordForm = ({ 
   formData, 
@@ -84,15 +83,36 @@ const PasswordForm = ({
         </div>
 
         <div className="flex justify-end">
-          <Button
+          <button
             type="submit"
-            variant="secondary"
             disabled={loading}
-            className="flex items-center space-x-2"
+            className="px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2 group relative overflow-hidden whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            style={{
+              background: 'rgba(20, 20, 20, 0.6)',
+              border: '1px solid rgba(168, 85, 247, 0.2)',
+              backdropFilter: 'blur(10px)',
+              color: '#9ca3af'
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.5)'
+                e.currentTarget.style.background = 'rgba(20, 20, 20, 0.8)'
+                e.currentTarget.style.color = '#a855f7'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(168, 85, 247, 0.3)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.2)'
+              e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+              e.currentTarget.style.color = '#9ca3af'
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
           >
             <Shield className="w-5 h-5" />
             <span>{loading ? 'Changing...' : 'Change Password'}</span>
-          </Button>
+          </button>
         </div>
       </form>
     </div>
