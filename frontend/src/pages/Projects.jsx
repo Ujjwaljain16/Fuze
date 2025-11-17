@@ -225,77 +225,88 @@ const Projects = () => {
       </div>
 
       <div className="relative z-10">
-        {/* Logo - Top Left (Home Link) - Same as Landing Page */}
-        <Link
-          to="/"
-          className="logo-container"
-          style={{ 
-            position: 'fixed',
-            top: '1.5rem',
-            left: '6rem',
-            zIndex: 1000,
-            cursor: 'pointer'
-          }}
-        >
-          <img 
-            src="/logo1.svg" 
-            alt="FUZE Logo"
-            style={{
-              backgroundColor: 'transparent',
-              mixBlendMode: 'normal'
-            }}
-          />
-        </Link>
-
-        {/* Logout Button - Top Right */}
-        <button
-          onClick={() => {
-            logout()
-            window.location.href = '/login'
-          }}
-          className="fixed top-6 right-6 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
-          style={{
-            background: 'rgba(20, 20, 20, 0.6)',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
-            backdropFilter: 'blur(10px)',
-            color: '#9ca3af'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
-            e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
-            e.currentTarget.style.color = '#ef4444'
-            e.currentTarget.style.transform = 'translateY(-2px)'
-            e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
-            e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
-            e.currentTarget.style.color = '#9ca3af'
-            e.currentTarget.style.transform = 'translateY(0)'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
-        >
-          <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
-          <span className="text-base font-medium">Logout</span>
-        </button>
-
         {/* Main Content */}
-        <div className="w-full pt-32">
+        <div className="w-full">
           <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+            {/* Header with Logo and Logout */}
+            <div className="flex items-center justify-between mb-8 pt-6">
+              {/* Logo - Top Left (Home Link) */}
+              <Link
+                to="/"
+                className="logo-container"
+                style={{ 
+                  cursor: 'pointer'
+                }}
+              >
+                <img 
+                  src="/logo1.svg" 
+                  alt="FUZE Logo"
+                  style={{
+                    backgroundColor: 'transparent',
+                    mixBlendMode: 'normal'
+                  }}
+                />
+              </Link>
+
+              {/* Logout Button - Top Right */}
+              <button
+                onClick={() => {
+                  logout()
+                  window.location.href = '/login'
+                }}
+                className="flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+                style={{
+                  background: 'rgba(20, 20, 20, 0.6)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  backdropFilter: 'blur(10px)',
+                  color: '#9ca3af'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)'
+                  e.currentTarget.style.background = 'rgba(30, 20, 20, 0.8)'
+                  e.currentTarget.style.color = '#ef4444'
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(239, 68, 68, 0.3)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
+                  e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+                  e.currentTarget.style.color = '#9ca3af'
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              >
+                <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+                <span className="text-base font-medium">Logout</span>
+              </button>
+            </div>
             {/* Header Section */}
-            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center space-x-4 mb-4">
-                    <div className="relative">
+            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl overflow-visible">
+              <div className="flex items-center justify-between min-w-0 flex-wrap gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-4 mb-4 min-w-0">
+                    <div className="relative flex-shrink-0">
                       <FolderOpen className="w-8 h-8 text-green-400" />
                       <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
                     </div>
-                    <h1 className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-                      My Projects
-                    </h1>
+                    <div className="flex-1 min-w-0">
+                      <h1 className="text-4xl font-bold break-words" style={{ 
+                        wordBreak: 'break-word', 
+                        overflowWrap: 'anywhere',
+                        background: 'linear-gradient(to right, #4ade80, #10b981)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                        color: '#4ade80',
+                        width: '100%',
+                        maxWidth: '100%',
+                        display: 'block'
+                      }}>
+                        My Projects
+                      </h1>
+                      <p className="text-gray-300 text-xl mt-2 break-words" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', color: '#d1d5db', width: '100%' }}>Organize and manage your development projects and ideas.</p>
+                    </div>
                   </div>
-                  <p className="text-gray-300 text-xl">Organize and manage your development projects and ideas.</p>
                 </div>
                 
                 <div className="flex items-center space-x-4">
@@ -651,6 +662,53 @@ const Projects = () => {
 
       {/* Custom Styles */}
       <style jsx>{`
+        .logo-container {
+          width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: transparent;
+          border: none;
+          box-shadow: none;
+          transition: transform 0.3s ease;
+          padding: 0;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          position: relative;
+        }
+        
+        .logo-container:hover {
+          transform: scale(1.05) !important;
+        }
+        
+        .logo-container img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          clip-path: circle(50% at 50% 50%);
+          -webkit-clip-path: circle(50% at 50% 50%);
+          mix-blend-mode: normal;
+        }
+        
+        @media (max-width: 768px) {
+          .logo-container {
+            width: 90px;
+            height: 90px;
+            padding: 0;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .logo-container {
+            width: 70px;
+            height: 70px;
+            padding: 0;
+          }
+        }
+        
         .line-clamp-1 {
           display: -webkit-box;
           -webkit-line-clamp: 1;
