@@ -1,6 +1,6 @@
 html, body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  background: #000000 !important; /* Solid black background instead of gradient */
+  background: #0F0F1E !important; /* Match Landing page background */
   color: #fff;
   margin: 0;
   padding: 0;
@@ -95,6 +95,12 @@ html, body {
     backdrop-filter: blur(8px);
     z-index: 999;
   }
+}
+
+/* Top bar styling for logo and logout */
+.fuze-logo-btn,
+.logout-btn {
+  /* Positioned within flex container, no absolute positioning needed */
 }
 
 /* Dashboard specific styles */
@@ -322,4 +328,21 @@ body.landing-page .main-content {
 body:not(.sidebar-expanded):not(.sidebar-collapsed) .main-content {
   margin-left: 0 !important;
   width: 100vw !important;
+}
+
+/* Login page specific - full black background */
+.main-content:has(div[data-login-page="true"]),
+.app-container:has(.main-content > div[data-login-page="true"]),
+.App:has(div[data-login-page="true"]) {
+  background-color: #000000 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body:has(div[data-login-page="true"]) {
+  background-color: #000000 !important;
+}
+
+html:has(div[data-login-page="true"]) {
+  background-color: #000000 !important;
 }
