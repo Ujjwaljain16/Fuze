@@ -181,33 +181,26 @@ def create_app():
         logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
         logger.debug(f"[DEBUG] CORS origins: {cors_origins}")
         
-        # Create a function to validate origins (supports wildcards for Vercel previews)
-        def validate_origin(origin):
-            """Validate if an origin is allowed"""
-            if not origin:
-                return False
-            
-            # Check against exact matches first
-            if origin in cors_origins:
-                return True
-            
-            # Check against wildcard patterns
-            for pattern in cors_origins:
-                if '*' in pattern:
-                    # Convert wildcard to regex
-                    # https://*.vercel.app -> https://.*\.vercel\.app
-                    # Escape special regex characters, but keep .* for wildcard
-                    regex_pattern = re.escape(pattern)
-                    # Replace escaped \* with .* for wildcard matching
-                    regex_pattern = regex_pattern.replace(r'\*', '.*')
-                    if re.match(regex_pattern + '$', origin):
-                        logger.debug(f"[DEBUG] Origin {origin} matched pattern {pattern}")
-                        return True
-            
-            return False
+        # Convert wildcard patterns to regex patterns that flask-cors understands
+        # flask-cors supports regex patterns as compiled regex objects
+        cors_origins_processed = []
+        for origin in cors_origins:
+            if '*' in origin:
+                # Convert wildcard to regex pattern
+                # https://*.vercel.app -> https://.*\.vercel\.app
+                regex_pattern = re.escape(origin)
+                # Replace escaped \* with .* for wildcard matching
+                regex_pattern = regex_pattern.replace(r'\*', '.*')
+                # Compile regex pattern for flask-cors
+                compiled_pattern = re.compile(regex_pattern + '$')
+                cors_origins_processed.append(compiled_pattern)
+                logger.debug(f"[DEBUG] Converted wildcard pattern {origin} to regex: {regex_pattern}")
+            else:
+                # Keep exact matches as strings
+                cors_origins_processed.append(origin)
         
         CORS(app, 
-             origins=validate_origin,  # Use function for dynamic validation
+             origins=cors_origins_processed,  # Mix of strings and regex patterns
              supports_credentials=True,
              allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
              methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
