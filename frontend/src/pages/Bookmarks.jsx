@@ -329,9 +329,28 @@ const Bookmarks = () => {
               <div className="flex items-center space-x-4">
                 <button 
                   onClick={() => window.location.href = '/app/save-content'}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 hover:from-blue-500 hover:to-purple-500 flex items-center space-x-2 group relative overflow-hidden"
+                  className="px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2 group relative overflow-hidden whitespace-nowrap"
+                  style={{
+                    background: 'rgba(20, 20, 20, 0.6)',
+                    border: '1px solid rgba(77, 208, 225, 0.2)',
+                    backdropFilter: 'blur(10px)',
+                    color: '#9ca3af'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(77, 208, 225, 0.5)'
+                    e.currentTarget.style.background = 'rgba(20, 20, 20, 0.8)'
+                    e.currentTarget.style.color = '#4DD0E1'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(77, 208, 225, 0.3)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(77, 208, 225, 0.2)'
+                    e.currentTarget.style.background = 'rgba(20, 20, 20, 0.6)'
+                    e.currentTarget.style.color = '#9ca3af'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
                   <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
                   <span>Add Bookmark</span>
                 </button>
