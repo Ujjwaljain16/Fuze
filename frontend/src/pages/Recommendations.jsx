@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
 import api, { refreshTokenIfNeeded } from '../services/api'
-import logo1 from '/logo1.svg'
+import logo1 from '../assets/logo1.svg'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
   RefreshCw, CheckCircle, Brain, Zap, Star, Globe, Clock, X, 

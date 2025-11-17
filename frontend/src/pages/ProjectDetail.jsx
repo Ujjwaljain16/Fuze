@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
-import logo1 from '/logo1.svg'
+import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, 
   Sparkles, 

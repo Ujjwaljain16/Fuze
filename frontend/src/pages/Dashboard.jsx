@@ -8,7 +8,7 @@ import {
   BarChart3, Globe, MoreHorizontal, Tag, LogOut
 } from 'lucide-react'
 import OnboardingBanner from '../components/OnboardingBanner'
-import logo1 from '/logo1.svg'
+import logo1 from '../assets/logo1.svg'
 
 const Dashboard = () => {
   const { isAuthenticated, user, logout } = useAuth()

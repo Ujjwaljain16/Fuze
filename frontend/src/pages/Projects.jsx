@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Link } from 'react-router-dom'
 import api from '../services/api'
-import logo1 from '/logo1.svg'
+import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
   Settings, Grid3X3, List, Star, Clock, TrendingUp, 

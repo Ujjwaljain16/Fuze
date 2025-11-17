@@ -22,7 +22,7 @@ import {
   Linkedin,
   Mail
 } from 'lucide-react';
-import logo1 from '/logo1.svg';
+import logo1 from '../assets/logo1.svg';
 
 export default function FuzeLanding() {
   const navigate = useNavigate();
