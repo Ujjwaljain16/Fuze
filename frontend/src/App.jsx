@@ -16,6 +16,7 @@ import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingModal from './components/OnboardingModal';
+import Loader from './components/Loader';
 import './App.css';
 
 function App() {
@@ -89,12 +90,7 @@ function App() {
   }, []); // Empty dependency array - runs only on mount
 
   if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner"></div>
-        <p>Loading Fuze...</p>
-      </div>
-    );
+    return <Loader fullScreen={true} message="Loading Fuze..." size="large" variant="full" />;
   }
 
   const handleOnboardingComplete = () => {
@@ -109,7 +105,6 @@ function App() {
         {showOnboarding && (
           <OnboardingModal onComplete={handleOnboardingComplete} />
         )}
-        {user && <Navbar />}
         <div className="app-container">
           {user && (
             <Sidebar
