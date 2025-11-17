@@ -7,7 +7,7 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!_next|api|.*\\..*$).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],
@@ -23,6 +23,13 @@
     {
       "source": "/:path*.(svg|png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|css|js)",
       "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/logo1.svg",
+      "headers": [
+        { "key": "Content-Type", "value": "image/svg+xml" },
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
