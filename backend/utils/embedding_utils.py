@@ -8,31 +8,40 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-# Singleton pattern for embedding model
+# Singleton pattern for embedding model with thread safety
 _embedding_model = None
 _embedding_model_initialized = False
+import threading
+_embedding_lock = threading.Lock()
 
 def get_embedding_model():
     """Get or create the embedding model singleton with robust initialization
-    
+
     Model is lazy-loaded to prevent OOM at startup.
     Set EAGER_LOAD_EMBEDDING_MODEL=true to load at import time (not recommended for free tier).
     """
     global _embedding_model, _embedding_model_initialized
-    
+
     if not _embedding_model_initialized:
-        _embedding_model = _initialize_embedding_model_robust()
-        _embedding_model_initialized = True
-    
+        with _embedding_lock:
+            # Double-check pattern
+            if not _embedding_model_initialized:
+                _embedding_model = _initialize_embedding_model_robust()
+                _embedding_model_initialized = True
+
     return _embedding_model
 
 def _initialize_embedding_model_robust():
     """Robust embedding model initialization with multiple fallbacks"""
-    
+
+    # Check if embeddings are disabled
+    if os.environ.get('DISABLE_EMBEDDINGS', '').lower() in ('true', '1', 'yes'):
+        logger.info("🔧 Embeddings disabled by environment variable, using fallback")
+        return _create_robust_fallback_embedding()
+
     # Optimize memory usage for torch
     try:
         import torch
-        import os
         # Set environment variables to reduce memory usage
         os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'max_split_size_mb:128')
         # Disable CUDA if available to save memory (we're using CPU anyway)
@@ -43,10 +52,9 @@ def _initialize_embedding_model_robust():
     # Model options in order of preference (size vs quality)
     # Keep original model priority - lazy loading prevents OOM at startup
     model_options = [
-        'all-MiniLM-L6-v2',        # Best quality, ~90MB (original model)
+        'all-MiniLM-L6-v2',        # Best quality, ~90MB (original model) - KNOWN TO WORK
         'paraphrase-MiniLM-L6-v2',  # Good quality, ~90MB
         'paraphrase-MiniLM-L3-v2',  # Good quality, ~60MB (fallback)
-        'all-MiniLM-L3-v2',         # Decent quality, ~60MB (fallback)
     ]
     
     for model_name in model_options:
@@ -56,30 +64,40 @@ def _initialize_embedding_model_robust():
             # Clear any corrupted cache for this model
             _clear_model_cache_if_needed(model_name)
             
-            # Initialize the model
-            model = SentenceTransformer(model_name)
-            
-            # Handle device placement
+            # Initialize the model with error handling for meta tensors
             try:
-                import torch
-                if hasattr(torch, 'meta') and torch.meta.is_available():
-                    model = model.to_empty(device='cpu')
-                    logger.info(f"✅ Model {model_name} loaded with to_empty() for meta tensors")
+                model = SentenceTransformer(model_name)
+            except Exception as init_error:
+                if "meta tensor" in str(init_error):
+                    logger.warning(f"Meta tensor error during model initialization, trying to clear cache and retry: {init_error}")
+                    # Force clear cache and retry once
+                    _force_clear_model_cache(model_name)
+                    try:
+                        model = SentenceTransformer(model_name)
+                    except Exception as retry_error:
+                        logger.warning(f"Failed to load model {model_name} even after cache clear: {retry_error}")
+                        continue
                 else:
-                    model = model.to('cpu')
-                    logger.info(f"✅ Model {model_name} loaded with to() for CPU")
-            except Exception as tensor_error:
-                logger.warning(f"Tensor device placement error: {tensor_error}")
-                logger.info(f"Using model {model_name} without device placement")
-            
+                    raise init_error
+
+            # Don't manually handle device placement - SentenceTransformer handles this internally
+            logger.info(f"✅ Model {model_name} loaded successfully")
+
             # Test the model with a simple encoding
             test_text = "test"
-            test_embedding = model.encode([test_text])
-            if test_embedding is not None and len(test_embedding) > 0:
-                logger.info(f"🎉 Successfully loaded and tested embedding model: {model_name}")
-                return model
-            else:
-                logger.warning(f"Model {model_name} loaded but failed test encoding")
+            try:
+                test_embedding = model.encode([test_text])
+                if test_embedding is not None and len(test_embedding) > 0:
+                    logger.info(f"🎉 Successfully loaded and tested embedding model: {model_name}")
+                    return model
+                else:
+                    logger.warning(f"Model {model_name} loaded but failed test encoding")
+            except Exception as encode_error:
+                if "meta tensor" in str(encode_error):
+                    logger.warning(f"Meta tensor error during encoding test for {model_name}, skipping this model")
+                else:
+                    logger.warning(f"Encoding test failed for {model_name}: {encode_error}")
+                continue
                 
         except Exception as e:
             logger.warning(f"Failed to load model {model_name}: {e}")
@@ -87,7 +105,8 @@ def _initialize_embedding_model_robust():
     
     # If all models fail, create a robust fallback
     logger.error("❌ All embedding models failed to load. Creating robust fallback.")
-    return _create_robust_fallback_embedding()
+    with _embedding_lock:
+        return _create_robust_fallback_embedding()
 
 def _clear_model_cache_if_needed(model_name):
     """Clear corrupted model cache if needed"""
@@ -95,7 +114,7 @@ def _clear_model_cache_if_needed(model_name):
         import torch
         cache_dir = torch.hub.get_dir()
         model_cache_path = os.path.join(cache_dir, 'sentence_transformers', model_name)
-        
+
         if os.path.exists(model_cache_path):
             # Check if cache is corrupted by trying to load
             try:
@@ -108,6 +127,30 @@ def _clear_model_cache_if_needed(model_name):
     except Exception as e:
         logger.warning(f"Could not check model cache: {e}")
 
+def _force_clear_model_cache(model_name):
+    """Force clear model cache to fix meta tensor issues"""
+    try:
+        import torch
+        cache_dir = torch.hub.get_dir()
+        model_cache_path = os.path.join(cache_dir, 'sentence_transformers', model_name)
+
+        if os.path.exists(model_cache_path):
+            logger.warning(f"🗑️ Force clearing cache for {model_name} to fix meta tensor issue")
+            shutil.rmtree(model_cache_path, ignore_errors=True)
+            # Also try to clear any related HuggingFace cache
+            try:
+                hf_cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+                if os.path.exists(hf_cache_dir):
+                    for item in os.listdir(hf_cache_dir):
+                        if model_name in item or "sentence-transformers" in item:
+                            item_path = os.path.join(hf_cache_dir, item)
+                            if os.path.isdir(item_path):
+                                shutil.rmtree(item_path, ignore_errors=True)
+            except Exception:
+                pass  # Ignore HF cache clearing errors
+    except Exception as e:
+        logger.warning(f"Could not force clear model cache: {e}")
+
 def _create_robust_fallback_embedding():
     """Create a robust fallback embedding system"""
     logger.info("🔧 Creating robust fallback embedding system")
@@ -115,6 +158,7 @@ def _create_robust_fallback_embedding():
     class FallbackEmbeddingModel:
         def __init__(self):
             self.dimension = 384
+            self._generate_fallback_embedding = True  # Mark this as a fallback model
             logger.info("✅ Fallback embedding model initialized")
         
         def encode(self, texts, **kwargs):
@@ -261,6 +305,83 @@ def get_project_embedding(project):
     except Exception as e:
         logger.error(f"Error getting project embedding: {e}")
         return np.zeros(384)
+
+def get_subtask_embedding(subtask):
+    """Get embedding for subtask combining title and description"""
+    try:
+        if not subtask:
+            return np.zeros(384)
+
+        # Combine subtask fields for better representation
+        title = subtask.title or ""
+        description = subtask.description or ""
+
+        # Create comprehensive subtask representation
+        combined_text = f"{title} {description}".strip()
+
+        if not combined_text:
+            return np.zeros(384)
+
+        return get_embedding(combined_text)
+
+    except Exception as e:
+        logger.error(f"Error getting subtask embedding: {e}")
+        return np.zeros(384)
+
+def get_task_embedding(task):
+    """Get embedding for task combining title and description"""
+    try:
+        import numpy as np
+        if not task:
+            return np.zeros(384)
+
+        # Combine task fields for better representation
+        title = task.title or ""
+        description = task.description or ""
+
+        # Create comprehensive task representation
+        combined_text = f"{title} {description}".strip()
+
+        if not combined_text:
+            return np.zeros(384)
+
+        return get_embedding(combined_text)
+
+    except Exception as e:
+        logger.error(f"Error getting task embedding: {e}")
+        try:
+            import numpy as np
+            return np.zeros(384)
+        except:
+            return [0.0] * 384
+
+def get_project_embedding(project):
+    """Get embedding for project combining title, description, and technologies"""
+    try:
+        import numpy as np
+        if not project:
+            return np.zeros(384)
+
+        # Combine project fields for better representation
+        title = project.title or ""
+        description = project.description or ""
+        technologies = project.technologies or ""
+
+        # Create comprehensive project representation
+        combined_text = f"{title} {description} {technologies}".strip()
+
+        if not combined_text:
+            return np.zeros(384)
+
+        return get_embedding(combined_text)
+
+    except Exception as e:
+        logger.error(f"Error getting project embedding: {e}")
+        try:
+            import numpy as np
+            return np.zeros(384)
+        except:
+            return [0.0] * 384
 
 def is_embedding_available():
     """Check if proper embedding model is available (not fallback)"""

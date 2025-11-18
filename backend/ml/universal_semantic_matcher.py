@@ -18,6 +18,7 @@ class UniversalSemanticMatcher:
         self._embedding_model = None
         self._embedding_model_initialized = False
         self._embedding_available = None  # Will be determined when model loads
+        self._fallback_logged = False  # Track if we've already logged the fallback message
         
         # Spelling variations and synonyms
         self.spelling_variations = {
@@ -112,7 +113,7 @@ class UniversalSemanticMatcher:
                 from utils.embedding_utils import get_embedding_model, is_embedding_available
                 self._embedding_model = get_embedding_model()
                 self._embedding_available = is_embedding_available()
-                
+
                 if self._embedding_available:
                     print("✅ UniversalSemanticMatcher using proper embedding model (lazy-loaded)")
                 else:
@@ -123,7 +124,14 @@ class UniversalSemanticMatcher:
                 self._embedding_available = False
             self._embedding_model_initialized = True
         return self._embedding_model
-    
+
+    @embedding_model.setter
+    def embedding_model(self, value):
+        """Allow manual setting of embedding model (for fallback scenarios)"""
+        self._embedding_model = value
+        self._embedding_model_initialized = True
+        self._embedding_available = value is not None
+
     @property
     def embedding_available(self):
         """Check if embedding model is available"""
@@ -136,7 +144,9 @@ class UniversalSemanticMatcher:
         """Calculate semantic similarity with normalization"""
         try:
             if not self.embedding_model:
-                print("⚠️ Embedding model not available, using fallback similarity")
+                if not self._fallback_logged:
+                    print("⚠️ Embedding model not available, using fallback similarity")
+                    self._fallback_logged = True
                 return self._fallback_similarity(text1, text2)
             
             # Normalize both texts
