@@ -165,8 +165,8 @@ def get_unified_orchestrator_recommendations():
     # Apply rate limiting if available
     from flask import current_app
     if hasattr(current_app, 'limiter') and current_app.limiter:
-        # Rate limit: 10 requests per minute per user
-        @current_app.limiter.limit("10 per minute", key_func=lambda: get_jwt_identity())
+        # Rate limit: 20 requests per minute per user (increased for better UX)
+        @current_app.limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
         def _rate_limited():
             pass
         _rate_limited()

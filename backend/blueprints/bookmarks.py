@@ -165,8 +165,25 @@ def save_bookmark():
         # Invalidate caches using comprehensive cache invalidation service
         from cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_save(new_bm.id, user_id)
+
+        # Trigger background analysis for this new content (non-blocking)
+        try:
+            import threading
+            def analyze_async():
+                try:
+                    from services.background_analysis_service import analyze_content
+                    analyze_content(new_bm.id, user_id)
+                except Exception as e:
+                    logger.error(f"Error triggering background analysis for bookmark {new_bm.id}: {e}")
+
+            analysis_thread = threading.Thread(target=analyze_async, daemon=True)
+            analysis_thread.start()
+        except Exception as analysis_error:
+            logger.warning(f"Could not trigger background analysis: {analysis_error}")
+            # Don't fail the bookmark save if analysis fails
+
         return jsonify({
-            'message': 'Bookmark saved', 
+            'message': 'Bookmark saved',
             'bookmark': {'id': new_bm.id, 'url': new_bm.url},
             'content_extracted': len(extracted_text) > 0,
             'wasDuplicate': False,
@@ -183,18 +200,32 @@ def save_bookmark():
 @bookmarks_bp.route('/import', methods=['POST'])
 @jwt_required()
 def bulk_import_bookmarks():
-    """Bulk import bookmarks from Chrome extension (optimized with Redis)"""
+    """Bulk import bookmarks from Chrome extension (optimized with Redis and progress tracking)"""
     user_id = int(get_jwt_identity())
     data = request.get_json()
-    
+
     if not isinstance(data, list):
         return jsonify({'message': 'Expected array of bookmarks'}), 400
-    
+
+    total_count = len(data)
     added_count = 0
+    skipped_count = 0
     updated_count = 0
     errors = []
     new_bookmarks = []
     max_workers = 8  # Tune as needed
+
+    # Store import progress in Redis for real-time updates
+    import_key = f"import_progress:{user_id}"
+    redis_cache.set(import_key, {
+        'total': total_count,
+        'processed': 0,
+        'added': 0,
+        'skipped': 0,
+        'updated': 0,
+        'errors': 0,
+        'status': 'processing'
+    }, expire=3600)  # Expire in 1 hour
 
     # Try to get cached user bookmarks first
     cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
@@ -225,18 +256,20 @@ def bulk_import_bookmarks():
             if len(url) > 2048:
                 url = url[:2048]
             if not url:
-                return ('skip', None, None)
+                return ('skip', url, 'Empty URL')
+
             norm_url = normalize_url(url)
             # Fast duplicate check using cached data
             if url in existing_urls or norm_url in normalized_urls:
-                # Update title if needed (this would need DB update)
-                return ('skip', None, None)
+                return ('skip', url, 'Duplicate bookmark')
+
             # Scrape and embed
             scraped = extract_article_content(url)
             extracted_text = scraped.get('content', '')
             quality_score = scraped.get('quality_score', 10)
             if quality_score < 5:
-                return ('skip', None, None)
+                return ('skip', url, 'Low quality content')
+
             content_for_embedding = f"{title} {extracted_text}"
             embedding = get_embedding(content_for_embedding)
             new_bm = SavedContent(
@@ -253,20 +286,36 @@ def bulk_import_bookmarks():
             return ('error', bookmark_data.get('url', ''), str(e))
 
     # Use ThreadPoolExecutor for parallel scraping/embedding
+    processed_count = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_bookmark, bm) for bm in data]
         for future in as_completed(futures):
             result = future.result()
+            processed_count += 1
+
             if result[0] == 'add':
                 _, url, new_bm = result
                 new_bookmarks.append(new_bm)
                 added_count += 1
             elif result[0] == 'update':
                 updated_count += 1
+            elif result[0] == 'skip':
+                skipped_count += 1
             elif result[0] == 'error':
                 _, url, err = result
                 errors.append(f"Error processing {url}: {err}")
-            # 'skip' means duplicate or low quality, do nothing
+
+            # Update progress in Redis every 10 bookmarks or at the end
+            if processed_count % 10 == 0 or processed_count == total_count:
+                redis_cache.set(import_key, {
+                    'total': total_count,
+                    'processed': processed_count,
+                    'added': added_count,
+                    'skipped': skipped_count,
+                    'updated': updated_count,
+                    'errors': len(errors),
+                    'status': 'processing' if processed_count < total_count else 'completed'
+                }, expire=3600)
 
     try:
         for bm in new_bookmarks:
@@ -279,12 +328,43 @@ def bulk_import_bookmarks():
             # Also invalidate recommendations since new bookmarks affect recommendations
             from blueprints.recommendations import invalidate_user_recommendations
             invalidate_user_recommendations(user_id)
+
+            # Trigger background analysis for newly imported content
+            try:
+                import threading
+                def analyze_bulk_async():
+                    try:
+                        from services.background_analysis_service import batch_analyze_content
+                        content_ids = [bm.id for bm in new_bookmarks]
+                        result = batch_analyze_content(content_ids, user_id)
+                        logger.info(f"Bulk analysis completed: {result}")
+                    except Exception as e:
+                        logger.error(f"Error triggering bulk background analysis: {e}")
+
+                analysis_thread = threading.Thread(target=analyze_bulk_async, daemon=True)
+                analysis_thread.start()
+            except Exception as analysis_error:
+                logger.warning(f"Could not trigger bulk background analysis: {analysis_error}")
         
+        # Mark import as completed in Redis
+        redis_cache.set(import_key, {
+            'total': total_count,
+            'processed': total_count,
+            'added': added_count,
+            'skipped': skipped_count,
+            'updated': updated_count,
+            'errors': len(errors),
+            'status': 'completed'
+        }, expire=3600)
+
         return jsonify({
             'message': 'Bulk import completed (optimized with Redis)',
+            'total': total_count,
             'added': added_count,
+            'skipped': skipped_count,
             'updated': updated_count,
-            'errors': errors,
+            'errors': len(errors),
+            'error_details': errors[:10] if errors else [],  # Limit error details to first 10
             'cache_used': cached_bookmarks is not None
         }), 200
     except Exception as e:
@@ -421,6 +501,58 @@ def check_duplicate():
             'duplicateType': None,
             'existingBookmark': None
         }), 200
+
+@bookmarks_bp.route('/import/progress', methods=['GET'])
+@jwt_required()
+def get_import_progress():
+    """Get current import progress for the user"""
+    user_id = int(get_jwt_identity())
+    import_key = f"import_progress:{user_id}"
+
+    progress = redis_cache.get(import_key)
+    if not progress:
+        return jsonify({
+            'status': 'no_import',
+            'message': 'No import in progress'
+        }), 200
+
+    return jsonify(progress), 200
+
+@bookmarks_bp.route('/analysis/progress', methods=['GET'])
+@jwt_required()
+def get_analysis_progress():
+    """Get current background analysis progress for the user"""
+    user_id = int(get_jwt_identity())
+    analysis_key = f"analysis_progress:{user_id}"
+
+    progress = redis_cache.get(analysis_key)
+    if not progress:
+        # Check if user has any unanalyzed content
+        try:
+            from models import SavedContent, ContentAnalysis
+            from sqlalchemy import select
+
+            analyzed_content_ids = select(ContentAnalysis.content_id).subquery()
+            unanalyzed_count = db.session.query(SavedContent).filter(
+                SavedContent.user_id == user_id,
+                ~SavedContent.id.in_(analyzed_content_ids),
+                SavedContent.extracted_text.isnot(None),
+                SavedContent.extracted_text != ''
+            ).count()
+
+            return jsonify({
+                'status': 'idle',
+                'message': 'No analysis in progress',
+                'pending_items': unanalyzed_count
+            }), 200
+        except Exception as e:
+            logger.error(f"Error checking analysis status: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Unable to check analysis status'
+            }), 500
+
+    return jsonify(progress), 200
 
 @bookmarks_bp.route('/extract-url', methods=['POST'])
 @jwt_required()

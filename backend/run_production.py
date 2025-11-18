@@ -70,8 +70,21 @@ try:
     from blueprints.feedback import feedback_bp
     from blueprints.profile import profile_bp
     from blueprints.search import search_bp
-    from services.multi_user_api_manager import init_api_manager
-    
+    # Import API manager with error handling
+    api_manager_available = False
+    try:
+        from services.multi_user_api_manager import init_api_manager
+        api_manager_available = True
+        logger.info("[OK] API manager imported successfully")
+    except ImportError as e:
+        logger.warning(f"[WARNING] API manager not available: {e}")
+        api_manager_available = False
+    except Exception as e:
+        logger.error(f"[ERROR] API manager import failed: {e}")
+        import traceback
+        logger.error(f"API manager traceback: {traceback.format_exc()}")
+        api_manager_available = False
+
     # Import user API key blueprint with error handling
     user_api_key_available = False
     init_user_api_key = None
@@ -83,6 +96,27 @@ try:
         logger.warning(f"[WARNING] User API key blueprint not available: {e}")
         user_api_key_available = False
         init_user_api_key = None
+    except Exception as e:
+        logger.error(f"[ERROR] User API key blueprint import failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        user_api_key_available = False
+        init_user_api_key = None
+
+    # Import API manager with error handling
+    api_manager_available = False
+    try:
+        from services.multi_user_api_manager import init_api_manager
+        api_manager_available = True
+        logger.info("[OK] API manager imported successfully")
+    except ImportError as e:
+        logger.warning(f"[WARNING] API manager not available: {e}")
+        api_manager_available = False
+    except Exception as e:
+        logger.error(f"[ERROR] API manager import failed: {e}")
+        import traceback
+        logger.error(f"API manager traceback: {traceback.format_exc()}")
+        api_manager_available = False
     
     # Import recommendations blueprint with error handling
     try:
@@ -320,12 +354,17 @@ def create_app():
             logger.warning("[WARNING] LinkedIn blueprint not registered")
             
         # Register user API key blueprint if available
+        logger.info(f"[DEBUG] About to register user API key blueprint")
+        logger.info(f"[DEBUG] user_api_key_available: {user_api_key_available}, init_user_api_key: {init_user_api_key}")
         if user_api_key_available and init_user_api_key:
             try:
+                logger.info("[DEBUG] Calling init_user_api_key function")
                 init_user_api_key(app)
                 logger.info("[OK] User API key blueprint registered")
             except Exception as e:
                 logger.warning(f"[WARNING] Error registering user API key blueprint: {e}")
+                import traceback
+                logger.error(f"Blueprint registration traceback: {traceback.format_exc()}")
         else:
             logger.warning("[WARNING] User API key blueprint not registered")
             
@@ -336,13 +375,24 @@ def create_app():
     # Initialize API manager with error handling
     with app.app_context():
         try:
-            if database_available:
+            if api_manager_available:
+                # Try to initialize API manager even if database test failed
+                # The API manager will handle database connection errors gracefully
                 init_api_manager()
                 logger.info("[OK] API manager initialized")
             else:
-                logger.warning("[WARNING] Skipping API manager initialization - database unavailable")
+                logger.warning("[WARNING] Skipping API manager initialization - API manager not available")
         except Exception as e:
             logger.error(f"[ERROR] Error initializing API manager: {e}")
+
+    # Initialize Background Analysis Service
+    try:
+        from services.background_analysis_service import start_background_service
+        start_background_service()
+        logger.info("[OK] Background analysis service started")
+    except Exception as e:
+        logger.error(f"[ERROR] Error starting background analysis service: {e}")
+        logger.warning("[WARNING] Background content analysis will not be available")
     
     # Initialize Intent Analysis System for production with error handling
     with app.app_context():

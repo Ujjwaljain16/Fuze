@@ -33,6 +33,7 @@ class BackgroundAnalysisService:
         self.running = False
         self.analysis_thread = None
         self.failed_analyses = set()  # Track failed content IDs to avoid infinite retries
+        self.current_user = None  # Track which user we're analyzing for
         
     def start_background_analysis(self):
         """Start the background analysis thread"""
@@ -68,23 +69,51 @@ class BackgroundAnalysisService:
         try:
             # Find content without analysis
             unanalyzed_content = self._get_unanalyzed_content()
-            
+
             if not unanalyzed_content:
                 return
-                
+
             logger.info(f"Found {len(unanalyzed_content)} items to analyze")
-            
+
+            # Update progress tracking
+            total_items = len(unanalyzed_content)
+            processed = 0
+
             for content in unanalyzed_content:
                 try:
+                    # Update progress for this user's content
+                    if hasattr(content, 'user_id'):
+                        progress_key = f"analysis_progress:{content.user_id}"
+                        self.redis_cache.set(progress_key, {
+                            'status': 'analyzing',
+                            'total': total_items,
+                            'processed': processed,
+                            'current_item': content.title[:50] if hasattr(content, 'title') else 'Unknown',
+                            'last_updated': datetime.now().isoformat()
+                        }, expire=3600)
+
                     # Analyze the content (SQLAlchemy handles transactions automatically)
                     self._analyze_single_content(content)
+
+                    processed += 1
                     time.sleep(2)  # Rate limiting between analyses
+
                 except Exception as e:
                     logger.error(f"Error analyzing content {content.id}: {e}")
                     db.session.rollback()  # Rollback on error
                     # Add to failed analyses to prevent infinite retries
                     self.failed_analyses.add(content.id)
-                    
+
+            # Mark analysis as completed for this batch
+            if unanalyzed_content and hasattr(unanalyzed_content[0], 'user_id'):
+                progress_key = f"analysis_progress:{unanalyzed_content[0].user_id}"
+                self.redis_cache.set(progress_key, {
+                    'status': 'completed',
+                    'total': total_items,
+                    'processed': processed,
+                    'completed_at': datetime.now().isoformat()
+                }, expire=3600)
+
         except Exception as e:
             logger.error(f"Error processing unanalyzed content: {e}")
             db.session.rollback()  # Rollback on error
@@ -141,6 +170,11 @@ class BackgroundAnalysisService:
                 content=content.extracted_text,
                 url=content.url
             )
+
+            # Generate basic summary for instant display
+            if analysis_result:
+                basic_summary = self._generate_basic_summary(gemini_analyzer, content, analysis_result)
+                analysis_result['basic_summary'] = basic_summary
             
             if not analysis_result:
                 logger.warning(f"No analysis result for content {content.id}")
@@ -199,12 +233,44 @@ class BackgroundAnalysisService:
                 logger.warning(f"Error invalidating recommendation caches: {e}")
             
             logger.info(f"✅ Analysis completed and stored for content {content.id}")
-            
+
         except Exception as e:
             logger.error(f"Error analyzing content {content.id}: {e}")
             db.session.rollback()
             # Add to failed analyses to prevent infinite retries
             self.failed_analyses.add(content.id)
+
+    def _generate_basic_summary(self, gemini_analyzer: GeminiAnalyzer, content: SavedContent, analysis_result: Dict) -> str:
+        """Generate a basic summary for instant display during recommendations"""
+        try:
+            # Create a concise summary prompt
+            summary_prompt = f"""
+            Create a brief 2-3 sentence summary of this content for quick reference:
+
+            Title: {content.title}
+            Content: {content.extracted_text[:1000]}...  # First 1000 chars for context
+
+            Key topics: {', '.join(analysis_result.get('technologies', []))}
+            Content type: {analysis_result.get('content_type', 'article')}
+
+            Summary should be:
+            - 2-3 sentences maximum
+            - Highlight the main value/proposition
+            - Include key technologies mentioned
+            - Suitable for quick scanning in recommendation lists
+            """
+
+            summary = gemini_analyzer.analyze_text(summary_prompt)
+            if summary and len(summary.strip()) > 10:
+                return summary.strip()
+            else:
+                # Fallback summary
+                return f"Content about {', '.join(analysis_result.get('technologies', ['various topics'])[:3])}"
+
+        except Exception as e:
+            logger.error(f"Error generating basic summary for content {content.id}: {e}")
+            # Return a simple fallback
+            return f"Content about {content.title[:50]}..."
     
     def get_cached_analysis(self, content_id: int) -> Optional[Dict]:
         """Get cached analysis for a content item"""
@@ -277,6 +343,30 @@ def start_background_service():
 def stop_background_service():
     """Stop the background analysis service"""
     background_service.stop_background_analysis()
+
+def start_background_analysis_for_user(user_id: int) -> Dict:
+    """Start background analysis for a specific user"""
+    try:
+        # Check if service is already running
+        if background_service.running:
+            return {
+                'status': 'already_running',
+                'message': 'Background analysis service is already running'
+            }
+
+        # Start the service
+        background_service.start_background_analysis()
+
+        return {
+            'status': 'started',
+            'message': 'Background analysis service started successfully'
+        }
+    except Exception as e:
+        logger.error(f"Error starting background analysis for user {user_id}: {e}")
+        return {
+            'status': 'error',
+            'message': f'Failed to start background analysis: {str(e)}'
+        }
 
 def analyze_content(content_id: int, user_id: int = None) -> Optional[Dict]:
     """Helper function to analyze content immediately"""
