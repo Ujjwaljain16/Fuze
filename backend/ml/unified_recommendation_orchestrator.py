@@ -80,12 +80,21 @@ _gemini_analyzers: Dict[int, GeminiAnalyzer] = {}
 _gemini_last_used: Dict[int, float] = {}
 _gemini_cache_timeout = 300  # 5 minutes
 
+def clear_gemini_analyzer_cache():
+    """Clear all cached GeminiAnalyzer instances"""
+    global _gemini_analyzers, _gemini_last_used
+    cleared_count = len(_gemini_analyzers)
+    _gemini_analyzers.clear()
+    _gemini_last_used.clear()
+    logger.info(f"Cleared {cleared_count} cached GeminiAnalyzer instances")
+    return cleared_count
+
 def get_cached_gemini_analyzer(user_id: int = None):
     """Get or create a cached GeminiAnalyzer instance for a specific user"""
     global _gemini_analyzers, _gemini_last_used
-    
+
     current_time = time.time()
-    
+
     # Get user's API key if provided
     api_key = None
     if user_id:
@@ -123,6 +132,8 @@ class UnifiedRecommendationRequest:
     technologies: str = ""
     user_interests: str = ""
     project_id: Optional[int] = None
+    task_id: Optional[int] = None      # Current task context for better recommendations
+    subtask_id: Optional[int] = None   # Current subtask context for better recommendations
     max_recommendations: int = 10
     engine_preference: Optional[str] = "context"  # Default to 'context' for better quality
     diversity_weight: float = 0.3
@@ -170,8 +181,10 @@ class UnifiedDataLayer:
         self.universal_matcher = None
         if UNIVERSAL_MATCHER_AVAILABLE:
             try:
+                # Import and instantiate UniversalSemanticMatcher
+                from universal_semantic_matcher import UniversalSemanticMatcher
                 self.universal_matcher = UniversalSemanticMatcher()
-                if self.universal_matcher.embedding_model is not None:
+                if self.universal_matcher and hasattr(self.universal_matcher, 'embedding_model') and self.universal_matcher.embedding_model is not None:
                     logger.info("Γ£à UniversalSemanticMatcher initialized in UnifiedDataLayer")
                 else:
                     logger.warning("ΓÜá∩╕Å UniversalSemanticMatcher initialized but embedding model is None")
@@ -182,8 +195,11 @@ class UnifiedDataLayer:
                     from universal_semantic_matcher import UniversalSemanticMatcher
                     # Create instance without embedding model
                     self.universal_matcher = UniversalSemanticMatcher.__new__(UniversalSemanticMatcher)
-                    self.universal_matcher.embedding_model = None
-                    logger.info("Γ£à UniversalSemanticMatcher created with fallback mode")
+                    if self.universal_matcher:
+                        self.universal_matcher.embedding_model = None
+                        logger.info("Γ£à UniversalSemanticMatcher created with fallback mode")
+                    else:
+                        self.universal_matcher = None
                 except Exception as fallback_error:
                     logger.warning(f"ΓÜá∩╕Å Fallback UniversalSemanticMatcher also failed: {fallback_error}")
                     self.universal_matcher = None
@@ -216,23 +232,10 @@ class UnifiedDataLayer:
             # Try to load the model with network fallback
             try:
                 self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-                
-                # More robust meta tensor handling
-                try:
-                    # Check if we're dealing with meta tensors
-                    if hasattr(torch, 'meta') and torch.meta.is_available():
-                        # Use to_empty() for meta tensors
-                        self._embedding_model = self._embedding_model.to_empty(device='cpu')
-                        logger.info("✅ Embedding model loaded with to_empty() for meta tensors")
-                    else:
-                        # Fallback to CPU
-                        self._embedding_model = self._embedding_model.to('cpu')
-                        logger.info("Γ£à Embedding model loaded with to() for CPU")
-                except Exception as tensor_error:
-                    logger.warning(f"Tensor device placement error: {tensor_error}")
-                    # Try alternative approach - don't move the model
-                    logger.info("Using embedding model without device placement")
-                
+
+                # Don't manually handle device placement - SentenceTransformer handles this internally
+                logger.info("✅ Embedding model loaded - SentenceTransformer handles device placement automatically")
+
                 logger.info("Γ£à Local embedding model loaded successfully")
             except Exception as network_error:
                 logger.warning(f"Network error loading embedding model: {network_error}")
@@ -275,23 +278,24 @@ class UnifiedDataLayer:
         try:
             # Extract technologies from multiple sources
             technologies = []
-            
-            # From tags
-            if content.tags:
-                technologies.extend([tech.strip() for tech in content.tags.split(',') if tech.strip()])
-            
-            # From analysis
+
+            # From analysis (PRIMARY SOURCE - ContentAnalysis has the technologies)
             if analysis:
+                # From ContentAnalysis.technology_tags (comma-separated)
                 if analysis.technology_tags:
                     technologies.extend([tech.strip() for tech in analysis.technology_tags.split(',') if tech.strip()])
-                
-                # From analysis_data JSON
+
+                # From ContentAnalysis.analysis_data JSON (highest priority)
                 if analysis.analysis_data:
                     analysis_techs = analysis.analysis_data.get('technologies', [])
                     if isinstance(analysis_techs, list):
                         technologies.extend(analysis_techs)
                     elif isinstance(analysis_techs, str):
                         technologies.extend([tech.strip() for tech in analysis_techs.split(',') if tech.strip()])
+
+            # From SavedContent.tags (fallback if no analysis)
+            if content.tags:
+                technologies.extend([tech.strip() for tech in content.tags.split(',') if tech.strip()])
             
             # Remove duplicates and normalize
             technologies = list(set([tech.lower().strip() for tech in technologies if tech.strip()]))
@@ -823,17 +827,48 @@ class FastSemanticEngine:
             # OPTIMIZATION 1: Simplified request text creation
             request_text = f"{request.title} {request.description} {request.technologies}"
             
-            # OPTIMIZATION 2: Simplified project context (skip if not critical)
+            # ENHANCED: Use project embeddings for semantic context
+            project_embedding = None
+            task_embedding = None
+            subtask_embedding = None
+
             if request.project_id:
+                try:
+                    from models import Project, Task, Subtask
+                    # Get project with embedding
+                    project = Project.query.filter_by(id=request.project_id, user_id=request.user_id).first()
+                    if project and project.embedding is not None:
+                        project_embedding = project.embedding
+                        logger.debug(f"Using project embedding for semantic context: {project.title}")
+
+                    # Get current task if specified
+                    if hasattr(request, 'task_id') and request.task_id:
+                        task = Task.query.filter_by(id=request.task_id, project_id=request.project_id).first()
+                        if task and task.embedding is not None:
+                            task_embedding = task.embedding
+                            logger.debug(f"Using task embedding for semantic context: {task.title}")
+
+                    # Get current subtask if specified
+                    if hasattr(request, 'subtask_id') and request.subtask_id:
+                        subtask = Subtask.query.filter_by(id=request.subtask_id, task_id=request.task_id).first()
+                        if subtask and subtask.embedding is not None:
+                            subtask_embedding = subtask.embedding
+                            logger.debug(f"Using subtask embedding for semantic context: {subtask.title}")
+
+                except Exception as e:
+                    logger.debug(f"Could not load project/task context embeddings: {e}")
+
+            # Traditional text-based project context (fallback)
+            if request.project_id and not project_embedding:
                 try:
                     from models import Project
                     project = Project.query.filter_by(id=request.project_id, user_id=request.user_id).first()
                     if project:
                         project_context = f"{project.title} {project.technologies or ''}"
                         request_text += f" {project_context}"
-                        logger.debug(f"Enhanced request with project context: {project.title}")
+                        logger.debug(f"Enhanced request with text-based project context: {project.title}")
                 except Exception as e:
-                    logger.debug(f"Could not load project context: {e}")
+                    logger.debug(f"Could not load text-based project context: {e}")
             
             # OPTIMIZATION 3: Streamlined content text preparation
             content_texts = []
@@ -1303,30 +1338,138 @@ class ContextAwareEngine:
                 logger.info(f"✅ ML (TF-IDF) scores calculated for {len(ml_scores)} items")
             except Exception as e:
                 logger.debug(f"ML scoring skipped: {e}")
-            
+
+            # ENHANCED: Load project/task/subtask embeddings for context-aware similarity
+            project_embedding = None
+            task_embedding = None
+            subtask_embedding = None
+
+            if hasattr(request, 'project_id') and request.project_id:
+                try:
+                    from models import Project, Task, Subtask
+                    # Get project with embedding
+                    project = Project.query.filter_by(id=request.project_id, user_id=request.user_id).first()
+                    if project and project.embedding is not None:
+                        project_embedding = project.embedding
+                        logger.debug(f"Using project embedding for semantic context: {project.title}")
+
+                    # Get current task if specified
+                    if hasattr(request, 'task_id') and request.task_id:
+                        task = Task.query.filter_by(id=request.task_id, project_id=request.project_id).first()
+                        if task and task.embedding is not None:
+                            task_embedding = task.embedding
+                            logger.debug(f"Using task embedding for semantic context: {task.title}")
+
+                    # Get current subtask if specified
+                    if hasattr(request, 'subtask_id') and request.subtask_id:
+                        subtask = Subtask.query.filter_by(id=request.subtask_id, task_id=request.task_id).first()
+                        if subtask and subtask.embedding is not None:
+                            subtask_embedding = subtask.embedding
+                            logger.debug(f"Using subtask embedding for semantic context: {subtask.title}")
+
+                except Exception as e:
+                    logger.debug(f"Could not load project/task context embeddings: {e}")
+
+            # ENHANCED: Calculate context-aware semantic similarity using project/task/subtask embeddings
+            context_enhanced_scores = {}
+            try:
+                # Get content embeddings for comparison
+                content_embeddings = {}
+                for content in content_list:
+                    if content.get('embedding') is not None:
+                        content_embeddings[content['id']] = content['embedding']
+
+                if content_embeddings:
+                    # Calculate similarity between project/task context and content
+                    for content_id, content_emb in content_embeddings.items():
+                        best_similarity = 0.0
+
+                        # Compare with project embedding
+                        if project_embedding is not None:
+                            try:
+                                import numpy as np
+                                similarity = np.dot(project_embedding, content_emb) / (
+                                    np.linalg.norm(project_embedding) * np.linalg.norm(content_emb)
+                                )
+                                best_similarity = max(best_similarity, float(similarity))
+                                logger.debug(f"Project-content similarity for {content_id}: {similarity}")
+                            except Exception as e:
+                                logger.debug(f"Project-content similarity failed: {e}")
+
+                        # Compare with task embedding
+                        if task_embedding is not None:
+                            try:
+                                similarity = np.dot(task_embedding, content_emb) / (
+                                    np.linalg.norm(task_embedding) * np.linalg.norm(content_emb)
+                                )
+                                best_similarity = max(best_similarity, float(similarity))
+                                logger.debug(f"Task-content similarity for {content_id}: {similarity}")
+                            except Exception as e:
+                                logger.debug(f"Task-content similarity failed: {e}")
+
+                        # Compare with subtask embedding
+                        if subtask_embedding is not None:
+                            try:
+                                similarity = np.dot(subtask_embedding, content_emb) / (
+                                    np.linalg.norm(subtask_embedding) * np.linalg.norm(content_emb)
+                                )
+                                best_similarity = max(best_similarity, float(similarity))
+                                logger.debug(f"Subtask-content similarity for {content_id}: {similarity}")
+                            except Exception as e:
+                                logger.debug(f"Subtask-content similarity failed: {e}")
+
+                        if best_similarity > 0:
+                            context_enhanced_scores[content_id] = best_similarity
+
+                    logger.info(f"✅ Context-enhanced semantic similarity calculated for {len(context_enhanced_scores)} items")
+            except Exception as e:
+                logger.warning(f"Context-enhanced semantic similarity failed: {e}")
+
             recommendations = []
             
             for content in content_list:
                 # Get precomputed semantic similarity
                 precomputed_sim = semantic_scores.get(content['id'])
-                
-                # Calculate comprehensive score with precomputed similarity
-                score_components = self._calculate_score_components(content, context, precomputed_sim)
+
+                # ENHANCED: Use context-enhanced semantic similarity if available (better relevance)
+                context_sim = context_enhanced_scores.get(content['id'])
+                if context_sim is not None:
+                    # Blend context similarity with precomputed similarity for best results
+                    effective_similarity = max(context_sim, precomputed_sim) if precomputed_sim else context_sim
+                    logger.debug(f"Using context-enhanced similarity for {content['id']}: {effective_similarity} (context: {context_sim}, precomputed: {precomputed_sim})")
+                else:
+                    effective_similarity = precomputed_sim
+
+                # Calculate comprehensive score with enhanced similarity
+                score_components = self._calculate_score_components(content, context, effective_similarity)
                 
                 # Add ML score to components
                 ml_score = ml_scores.get(content['id'], 0)
                 score_components['ml_similarity'] = ml_score
                 
-                # Weighted final score with ML enhancement
+                # ENHANCED: Weighted final score with stronger technology/semantic filtering
                 final_score = (
-                    score_components['technology'] * 0.30 +      # Technology match (30%)
-                    score_components['semantic'] * 0.25 +        # Semantic similarity (25%)
-                    score_components['content_type'] * 0.15 +    # Content type match (15%)
-                    score_components['ml_similarity'] * 0.10 +   # ML TF-IDF (10%)
-                    score_components['intent_alignment'] * 0.10 + # Intent alignment (10%)
-                    score_components['difficulty'] * 0.05 +      # Difficulty alignment (5%)
-                    score_components['quality'] * 0.05          # Quality score (5%)
+                    score_components['technology'] * 0.45 +      # Technology match (45% - INCREASED)
+                    score_components['semantic'] * 0.35 +        # Semantic similarity (35% - INCREASED)
+                    score_components['content_type'] * 0.08 +    # Content type match (8% - REDUCED)
+                    score_components['ml_similarity'] * 0.05 +   # ML TF-IDF (5% - REDUCED)
+                    score_components['intent_alignment'] * 0.05 + # Intent alignment (5% - REDUCED)
+                    score_components['difficulty'] * 0.01 +      # Difficulty alignment (1% - REDUCED)
+                    score_components['quality'] * 0.01          # Quality score (1% - REDUCED)
                 )
+
+                # MINIMUM THRESHOLDS: Filter out completely irrelevant content
+                # If technology score is 0 AND semantic score is below 0.3, heavily penalize
+                if score_components['technology'] == 0.0 and score_components['semantic'] < 0.3:
+                    final_score *= 0.3  # Reduce score by 70% for completely irrelevant content
+
+                # STRICT FILTERING: If user specified specific technologies and content has 0 technology match,
+                # further penalize unless semantic similarity is very high
+                context_techs = context.get('technologies', [])
+                if context_techs and len([t for t in context_techs if t.strip()]) > 0:
+                    if score_components['technology'] == 0.0 and score_components['semantic'] < 0.5:
+                        logger.debug(f"Applying strict tech filter to {content['title'][:50]}: tech={score_components['technology']}, semantic={score_components['semantic']}")
+                        final_score *= 0.1  # Reduce score by 90% for tech-specific queries with no tech match
                 
                 # Apply user content boost (all content is user's own)
                 final_score += 0.1

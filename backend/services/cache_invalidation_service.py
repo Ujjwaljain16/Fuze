@@ -116,17 +116,77 @@ class CacheInvalidationService:
             if user_id:
                 logger.info(f"Invalidating recommendation cache for user {user_id}")
                 redis_cache.invalidate_user_recommendations(user_id)
-                # Also invalidate unified recommendation cache
-                redis_cache.delete_keys_pattern(f"*unified_recommendations:*{user_id}*")
-                redis_cache.delete_keys_pattern(f"*unified_project_recommendations:*{user_id}*")
-                redis_cache.delete_keys_pattern(f"*context_extraction:*")
+                # Also invalidate unified recommendation cache - use broader patterns
+                redis_cache.delete_keys_pattern("*unified_recommendations:*")
+                redis_cache.delete_keys_pattern("*unified_recommendations_intent:*")
+                redis_cache.delete_keys_pattern("*unified_project_recommendations:*")
+                redis_cache.delete_keys_pattern("*context_extraction:*")
+                # Also clear intent analysis caches
+                redis_cache.delete_keys_pattern("*intent_analysis:*")
+                # Also clear context caches
+                redis_cache.delete_keys_pattern(f"suggested_contexts:{user_id}")
+                redis_cache.delete_keys_pattern(f"recent_contexts:{user_id}")
+                # Also clear embedding caches (recommendations depend on embeddings)
+                redis_cache.delete_keys_pattern("*embedding:*")
+                redis_cache.delete_keys_pattern("*content_embedding:*")
+                redis_cache.delete_keys_pattern("*project_embedding:*")
+                redis_cache.delete_keys_pattern("*task_embedding:*")
+                # Also clear in-memory Gemini analyzer cache
+                try:
+                    from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
+                    cleared = clear_gemini_analyzer_cache()
+                    logger.info(f"Cleared {cleared} in-memory Gemini analyzer instances")
+                except Exception as e:
+                    logger.warning(f"Failed to clear in-memory Gemini cache: {e}")
+                # Also clear database-level intent analysis cache
+                try:
+                    from models import db, Project
+                    from run_production import app
+                    with app.app_context():
+                        cleared_projects = db.session.query(Project).filter(
+                            Project.intent_analysis.isnot(None)
+                        ).update({"intent_analysis": None})
+                        db.session.commit()
+                        logger.info(f"Cleared intent analysis from {cleared_projects} projects")
+                except Exception as e:
+                    logger.warning(f"Failed to clear database intent analysis cache: {e}")
             else:
                 logger.info("Invalidating all recommendation cache")
                 redis_cache.invalidate_all_recommendations()
                 # Also invalidate all unified recommendation cache
                 redis_cache.delete_keys_pattern("*unified_recommendations:*")
+                redis_cache.delete_keys_pattern("*unified_recommendations_intent:*")
                 redis_cache.delete_keys_pattern("*unified_project_recommendations:*")
                 redis_cache.delete_keys_pattern("*context_extraction:*")
+                # Also clear intent analysis caches
+                redis_cache.delete_keys_pattern("*intent_analysis:*")
+                # Also clear all context caches
+                redis_cache.delete_keys_pattern("suggested_contexts:*")
+                redis_cache.delete_keys_pattern("recent_contexts:*")
+                # Also clear all embedding caches (recommendations depend on embeddings)
+                redis_cache.delete_keys_pattern("*embedding:*")
+                redis_cache.delete_keys_pattern("*content_embedding:*")
+                redis_cache.delete_keys_pattern("*project_embedding:*")
+                redis_cache.delete_keys_pattern("*task_embedding:*")
+                # Also clear all in-memory Gemini analyzer cache
+                try:
+                    from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
+                    cleared = clear_gemini_analyzer_cache()
+                    logger.info(f"Cleared {cleared} in-memory Gemini analyzer instances")
+                except Exception as e:
+                    logger.warning(f"Failed to clear in-memory Gemini cache: {e}")
+                # Also clear all database-level intent analysis cache
+                try:
+                    from models import db, Project
+                    from run_production import app
+                    with app.app_context():
+                        cleared_projects = db.session.query(Project).filter(
+                            Project.intent_analysis.isnot(None)
+                        ).update({"intent_analysis": None})
+                        db.session.commit()
+                        logger.info(f"Cleared intent analysis from {cleared_projects} projects")
+                except Exception as e:
+                    logger.warning(f"Failed to clear database intent analysis cache: {e}")
             
             return True
             
