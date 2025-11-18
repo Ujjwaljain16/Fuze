@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Project, User, Task
+from models import db, Project, User, Task, Subtask
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,15 @@ def get_projects():
                 "id": task.id,
                 "title": task.title,
                 "description": task.description,
-                "created_at": task.created_at.isoformat()
+                "created_at": task.created_at.isoformat(),
+                "subtasks": [{
+                    "id": st.id,
+                    "title": st.title,
+                    "description": st.description,
+                    "completed": bool(st.completed),
+                    "created_at": st.created_at.isoformat(),
+                    "updated_at": st.updated_at.isoformat() if st.updated_at else None
+                } for st in task.subtasks]
             } for task in tasks]
         
         projects_data.append(project_dict)
@@ -74,35 +82,58 @@ def create_project():
     )
     
     try:
+        # Generate embedding for the new project BEFORE committing
+        try:
+            from utils.embedding_utils import get_project_embedding
+            new_project.embedding = get_project_embedding(new_project)
+            if new_project.embedding is not None:
+                # Check if it's not a zero vector (fallback case)
+                try:
+                    import numpy as np
+                    is_zero_vector = isinstance(new_project.embedding, np.ndarray) and np.all(new_project.embedding == 0)
+                except:
+                    # Fallback check for list/array
+                    is_zero_vector = isinstance(new_project.embedding, (list, tuple)) and all(x == 0.0 for x in new_project.embedding)
+
+                if not is_zero_vector:
+                    logger.info(f"Generated embedding for new project: {new_project.title}")
+        except Exception as embedding_error:
+            logger.warning(f"Embedding generation failed for new project: {str(embedding_error)}")
+            # Don't fail the project creation if embedding generation fails
+            # The embedding can be generated later when needed
+
         db.session.add(new_project)
         db.session.commit()
-        
-        # Generate intent analysis for the new project
+
+        # Generate intent analysis for the new project (after commit so project.id exists)
         try:
             from ml.intent_analysis_engine import analyze_user_intent
-            
+
             # Build user input from project data
             user_input = f"{new_project.title} {new_project.description} {new_project.technologies}"
-            
+
             # Generate intent analysis
             intent = analyze_user_intent(
                 user_input=user_input,
                 project_id=new_project.id,
-                force_analysis=True,  # Force new analysis for new project
-                user_id=user_id  # Use user's API key
+                force_analysis=True  # Force new analysis for new project
             )
-            
+
             # The intent analysis is automatically saved to the project by the engine
             logger.info(f"Intent analysis generated for new project: {intent.primary_goal} - {intent.project_type}")
-            
+
         except Exception as intent_error:
             logger.warning(f"Intent analysis failed for new project: {str(intent_error)}")
             # Don't fail the project creation if intent analysis fails
             # The analysis can be generated later when needed
         
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_project_save(new_project.id, user_id)
+        try:
+            from services.cache_invalidation_service import cache_invalidator
+            cache_invalidator.after_project_save(new_project.id, user_id)
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+            # Don't fail project creation if cache invalidation fails
         
         return jsonify({
             "message": "Project created successfully", 
@@ -152,7 +183,15 @@ def get_project_tasks(project_id):
         'id': t.id,
         'title': t.title,
         'description': t.description,
-        'created_at': t.created_at.isoformat()
+        'created_at': t.created_at.isoformat(),
+        'subtasks': [{
+            'id': st.id,
+            'title': st.title,
+            'description': st.description,
+            'completed': bool(st.completed),
+            'created_at': st.created_at.isoformat(),
+            'updated_at': st.updated_at.isoformat() if st.updated_at else None
+        } for st in t.subtasks]
     } for t in tasks]}), 200
 
 @projects_bp.route('/<int:project_id>', methods=['PUT'])
@@ -196,8 +235,7 @@ def update_project(project_id):
             intent = analyze_user_intent(
                 user_input=user_input,
                 project_id=project.id,
-                force_analysis=True,  # Force new analysis for updated project
-                user_id=user_id  # Use user's API key
+                force_analysis=True  # Force new analysis for updated project
             )
             
             # The intent analysis is automatically saved to the project by the engine
@@ -206,10 +244,55 @@ def update_project(project_id):
         except Exception as intent_error:
             logger.warning(f"Intent analysis update failed for project: {str(intent_error)}")
             # Don't fail the project update if intent analysis fails
-        
+
+        # Regenerate embedding for the updated project
+        try:
+            from utils.embedding_utils import get_project_embedding
+            logger.info(f"Generating embedding for project: {project.title}")
+            embedding = get_project_embedding(project)
+            logger.info(f"Embedding generated, type: {type(embedding)}, is None: {embedding is None}")
+
+            if embedding is not None:
+                project.embedding = embedding
+                logger.info(f"Set embedding on project object, type: {type(project.embedding)}")
+
+                # Check if it's not a zero vector (fallback case)
+                try:
+                    import numpy as np
+                    is_zero_vector = isinstance(project.embedding, np.ndarray) and np.all(project.embedding == 0)
+                except:
+                    # Fallback check for list/array
+                    is_zero_vector = isinstance(project.embedding, (list, tuple)) and all(x == 0.0 for x in project.embedding)
+
+                logger.info(f"Is zero vector: {is_zero_vector}")
+                if not is_zero_vector:
+                    logger.info(f"✅ Regenerated embedding for updated project: {project.title}")
+                else:
+                    logger.warning(f"Generated zero vector embedding for project: {project.title}")
+        except Exception as embedding_error:
+            logger.warning(f"❌ Embedding regeneration failed for updated project: {str(embedding_error)}")
+            logger.warning(f"Error details: {repr(embedding_error)}")
+            # Don't fail the project update if embedding regeneration fails
+
+        # Commit all changes (project updates + embedding)
+        logger.info(f"Committing changes for project: {project.title}, embedding exists: {project.embedding is not None}")
+        db.session.commit()
+        logger.info(f"✅ Commit successful, checking if embedding persisted...")
+
+        # Verify embedding was saved
+        committed_project = Project.query.get(project.id)
+        if committed_project and committed_project.embedding is not None:
+            logger.info(f"✅ Embedding successfully saved to database for project: {project.title}")
+        else:
+            logger.error(f"❌ Embedding NOT saved to database for project: {project.title}")
+
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_project_update(project.id, user_id)
+        try:
+            from services.cache_invalidation_service import cache_invalidator
+            cache_invalidator.after_project_update(project.id, user_id)
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+            # Don't fail project update if cache invalidation fails
         
         return jsonify({
             "message": "Project updated successfully",
@@ -245,9 +328,13 @@ def delete_project(project_id):
         db.session.commit()
         
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
-        cache_invalidator.invalidate_project_cache(project_id_for_cache)
-        cache_invalidator.invalidate_user_cache(user_id_for_cache)
+        try:
+            from services.cache_invalidation_service import cache_invalidator
+            cache_invalidator.invalidate_project_cache(project_id_for_cache)
+            cache_invalidator.invalidate_user_cache(user_id_for_cache)
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+            # Don't fail project deletion if cache invalidation fails
         
         return jsonify({"message": "Project deleted successfully"}), 200
     except Exception as e:

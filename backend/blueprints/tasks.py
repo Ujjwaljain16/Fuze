@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Task, Project, User, SavedContent
+from models import db, Task, Project, User, SavedContent, Subtask
 from utils.gemini_utils import get_gemini_response
 import json
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,25 @@ def create_task():
         description=description.strip() if isinstance(description, str) else ''
     )
     try:
+        # Generate embedding for task BEFORE committing
+        try:
+            from utils.embedding_utils import get_task_embedding
+            new_task.embedding = get_task_embedding(new_task)
+            if new_task.embedding is not None:
+                # Check if it's not a zero vector (fallback case)
+                try:
+                    import numpy as np
+                    is_zero_vector = isinstance(new_task.embedding, np.ndarray) and np.all(new_task.embedding == 0)
+                except:
+                    # Fallback check for list/array
+                    is_zero_vector = isinstance(new_task.embedding, (list, tuple)) and all(x == 0.0 for x in new_task.embedding)
+
+                if not is_zero_vector:
+                    logger.info(f"Generated embedding for task: {title}")
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for task: {e}")
+            # Continue without embedding - it can be generated later
+
         db.session.add(new_task)
         db.session.commit()
         return jsonify({'message': 'Task created', 'task_id': new_task.id}), 201
@@ -47,7 +67,15 @@ def get_tasks_for_project(project_id):
         'id': t.id,
         'title': t.title,
         'description': t.description,
-        'created_at': t.created_at.isoformat()
+        'created_at': t.created_at.isoformat(),
+        'subtasks': [{
+            'id': st.id,
+            'title': st.title,
+            'description': st.description,
+            'completed': bool(st.completed),
+            'created_at': st.created_at.isoformat(),
+            'updated_at': st.updated_at.isoformat() if st.updated_at else None
+        } for st in t.subtasks]
     } for t in tasks]}), 200
 
 @tasks_bp.route('/ai-breakdown', methods=['POST'])
@@ -122,16 +150,16 @@ Return ONLY the JSON array, no additional text.
         user_id = int(get_jwt_identity())
         response = get_gemini_response(prompt, user_id=user_id)
         
-        if not response or not response.get('success'):
+        if not response:
             return jsonify({
                 'success': False,
                 'error': 'Failed to generate task breakdown',
-                'details': response.get('error') if response else 'No response from AI'
+                'details': 'No response from AI'
             }), 500
         
         # Parse response
         try:
-            ai_response = response['response'].strip()
+            ai_response = response.strip() if isinstance(response, str) else str(response).strip()
             # Remove markdown code blocks if present
             if '```json' in ai_response:
                 ai_response = ai_response.split('```json')[1].split('```')[0].strip()
@@ -227,7 +255,25 @@ def update_task(task_id):
             task.title = data['title']
         if 'description' in data:
             task.description = data['description']
-        
+
+        # Regenerate embedding for updated task
+        try:
+            from utils.embedding_utils import get_task_embedding
+            task.embedding = get_task_embedding(task)
+            if task.embedding is not None:
+                # Check if it's not a zero vector (fallback case)
+                try:
+                    import numpy as np
+                    is_zero_vector = isinstance(task.embedding, np.ndarray) and np.all(task.embedding == 0)
+                except:
+                    # Fallback check for list/array
+                    is_zero_vector = isinstance(task.embedding, (list, tuple)) and all(x == 0.0 for x in task.embedding)
+
+                if not is_zero_vector:
+                    logger.info(f"Updated embedding for task: {task.title}")
+        except Exception as e:
+            logger.warning(f"Failed to update embedding for task: {e}")
+
         db.session.commit()
         
         return jsonify({
@@ -271,5 +317,219 @@ def delete_task(task_id):
     
     except Exception as e:
         logger.error(f"Error deleting task: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ============================================================================
+# SUBTASK ENDPOINTS
+# ============================================================================
+
+@tasks_bp.route('/<int:task_id>/subtasks', methods=['POST'])
+@jwt_required()
+def create_subtask(task_id):
+    """Create a new subtask for a task"""
+    try:
+        user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        # Verify ownership through project
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        title = data.get('title', '').strip()
+        if not title:
+            return jsonify({'success': False, 'error': 'Subtask title is required'}), 400
+        
+        description = data.get('description', '').strip() if data.get('description') else ''
+        
+        new_subtask = Subtask(
+            task_id=task_id,
+            title=title,
+            description=description,
+            completed=0
+        )
+        
+        # Generate embedding for subtask for better semantic matching
+        try:
+            from utils.embedding_utils import get_subtask_embedding
+            new_subtask.embedding = get_subtask_embedding(new_subtask)
+            if new_subtask.embedding is not None:
+                # Check if it's not a zero vector (fallback case)
+                try:
+                    import numpy as np
+                    is_zero_vector = isinstance(new_subtask.embedding, np.ndarray) and np.all(new_subtask.embedding == 0)
+                except:
+                    # Fallback check for list/array
+                    is_zero_vector = isinstance(new_subtask.embedding, (list, tuple)) and all(x == 0.0 for x in new_subtask.embedding)
+
+                if not is_zero_vector:
+                    logger.info(f"Generated embedding for subtask: {title}")
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for subtask: {e}")
+            # Continue without embedding - it can be generated later
+        
+        db.session.add(new_subtask)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Subtask created successfully',
+            'subtask': {
+                'id': new_subtask.id,
+                'title': new_subtask.title,
+                'description': new_subtask.description,
+                'completed': bool(new_subtask.completed),
+                'created_at': new_subtask.created_at.isoformat(),
+                'updated_at': new_subtask.updated_at.isoformat() if new_subtask.updated_at else None
+            }
+        }), 201
+    
+    except Exception as e:
+        logger.error(f"Error creating subtask: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@tasks_bp.route('/<int:task_id>/subtasks', methods=['GET'])
+@jwt_required()
+def get_subtasks(task_id):
+    """Get all subtasks for a task"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        # Verify ownership through project
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        subtasks = Subtask.query.filter_by(task_id=task_id).order_by(Subtask.created_at).all()
+        
+        return jsonify({
+            'success': True,
+            'subtasks': [{
+                'id': st.id,
+                'title': st.title,
+                'description': st.description,
+                'completed': bool(st.completed),
+                'created_at': st.created_at.isoformat(),
+                'updated_at': st.updated_at.isoformat() if st.updated_at else None
+            } for st in subtasks]
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error fetching subtasks: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@tasks_bp.route('/subtasks/<int:subtask_id>', methods=['PUT'])
+@jwt_required()
+def update_subtask(subtask_id):
+    """Update a subtask"""
+    try:
+        user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        subtask = Subtask.query.get(subtask_id)
+        if not subtask:
+            return jsonify({'success': False, 'error': 'Subtask not found'}), 404
+        
+        # Verify ownership through task and project
+        task = Task.query.get(subtask.task_id)
+        if not task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        # Update fields
+        title_changed = False
+        description_changed = False
+        
+        if 'title' in data:
+            subtask.title = data['title'].strip()
+            title_changed = True
+        if 'description' in data:
+            subtask.description = data['description'].strip() if data['description'] else ''
+            description_changed = True
+        if 'completed' in data:
+            subtask.completed = 1 if data['completed'] else 0
+        
+        # Regenerate embedding if title or description changed
+        if title_changed or description_changed:
+            try:
+                from utils.embedding_utils import get_subtask_embedding
+                subtask.embedding = get_subtask_embedding(subtask)
+                if subtask.embedding is not None:
+                    # Check if it's not a zero vector (fallback case)
+                    try:
+                        import numpy as np
+                        is_zero_vector = isinstance(subtask.embedding, np.ndarray) and np.all(subtask.embedding == 0)
+                    except:
+                        # Fallback check for list/array
+                        is_zero_vector = isinstance(subtask.embedding, (list, tuple)) and all(x == 0.0 for x in subtask.embedding)
+
+                    if not is_zero_vector:
+                        logger.info(f"Updated embedding for subtask: {subtask.title}")
+            except Exception as e:
+                logger.warning(f"Failed to update embedding for subtask: {e}")
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Subtask updated successfully',
+            'subtask': {
+                'id': subtask.id,
+                'title': subtask.title,
+                'description': subtask.description,
+                'completed': bool(subtask.completed),
+                'created_at': subtask.created_at.isoformat(),
+                'updated_at': subtask.updated_at.isoformat() if subtask.updated_at else None
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error updating subtask: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@tasks_bp.route('/subtasks/<int:subtask_id>', methods=['DELETE'])
+@jwt_required()
+def delete_subtask(subtask_id):
+    """Delete a subtask"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        subtask = Subtask.query.get(subtask_id)
+        if not subtask:
+            return jsonify({'success': False, 'error': 'Subtask not found'}), 404
+        
+        # Verify ownership through task and project
+        task = Task.query.get(subtask.task_id)
+        if not task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        db.session.delete(subtask)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Subtask deleted successfully'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error deleting subtask: {e}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500

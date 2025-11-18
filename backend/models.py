@@ -89,10 +89,13 @@ class Project(Base):
     description = Column(TEXT)
     technologies = Column(TEXT)
     created_at = Column(DateTime, default=func.now())
-    
+
     # Intent analysis caching fields
     intent_analysis = Column(JSON)  # Store intent analysis results
     intent_analysis_updated = Column(DateTime)  # When analysis was last updated
+
+    # Embedding field for semantic matching
+    embedding = Column(Vector(384))  # Combined embedding for semantic matching
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 
@@ -166,3 +169,16 @@ class Task(Base):
     description = Column(Text)
     created_at = Column(DateTime, default=func.now())
     embedding = Column(Vector(384))
+    
+    subtasks = relationship('Subtask', backref='task', lazy=True, cascade='all, delete-orphan', order_by='Subtask.created_at')
+
+class Subtask(Base):
+    __tablename__ = 'subtasks'
+    id = Column(Integer, primary_key=True)
+    task_id = Column(Integer, ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    completed = Column(Integer, default=0)  # 0 = not completed, 1 = completed
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    embedding = Column(Vector(384))  # Embedding for semantic matching in recommendations
