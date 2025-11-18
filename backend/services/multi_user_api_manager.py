@@ -314,6 +314,7 @@ class MultiUserAPIManager:
         """Load user API keys from database"""
         try:
             users = db.session.query(User).all()
+            loaded_count = 0
             for user in users:
                 metadata = getattr(user, 'user_metadata', {}) or {}
                 if 'api_key' in metadata:
@@ -327,20 +328,63 @@ class MultiUserAPIManager:
                         last_used=datetime.fromisoformat(api_key_data['last_used']) if api_key_data['last_used'] else None
                     )
                     self.user_api_keys[user.id] = user_api_key
-                    
+                    loaded_count += 1
+
+            self.logger.info(f"Loaded {loaded_count} user API keys from database")
+
         except Exception as e:
-            self.logger.error(f"Error loading user API keys: {e}")
+            # Don't crash if database is temporarily unavailable
+            # API keys can be loaded later when needed
+            self.logger.warning(f"Could not load user API keys from database (will retry later): {e}")
+
+            # Try to load from a simple fallback if available
+            try:
+                # Check if we can at least connect to the database
+                db.session.execute(db.text('SELECT 1'))
+                self.logger.info("Database connection OK, will load API keys on demand")
+            except Exception as db_error:
+                self.logger.error(f"Database connection failed: {db_error}")
     
     def get_user_api_stats(self, user_id: int) -> Dict:
         """Get API usage statistics for a user"""
         try:
             rate_data = self.rate_limit_cache.get(user_id, {})
             user_api_key = self.user_api_keys.get(user_id)
-            
+
+            # If API key not in cache, try to load it from database
+            has_api_key = False
+            api_key_status = 'none'
+
+            if user_api_key:
+                has_api_key = True
+                api_key_status = user_api_key.status.value
+            else:
+                # Check database directly
+                try:
+                    user = User.query.get(user_id)
+                    if user and user.user_metadata and 'api_key' in user.user_metadata:
+                        has_api_key = True
+                        api_key_status = user.user_metadata['api_key'].get('status', 'active')
+                        self.logger.info(f"Found API key in database for user {user_id}, loading into cache")
+
+                        # Load into cache for future use
+                        api_key_data = user.user_metadata['api_key']
+                        cached_key = UserAPIKey(
+                            user_id=user.id,
+                            api_key_hash=api_key_data['hash'],
+                            api_key_name=api_key_data['name'],
+                            status=APIKeyStatus(api_key_data['status']),
+                            created_at=datetime.fromisoformat(api_key_data['created_at']),
+                            last_used=datetime.fromisoformat(api_key_data['last_used']) if api_key_data['last_used'] else None
+                        )
+                        self.user_api_keys[user.id] = cached_key
+                except Exception as db_error:
+                    self.logger.warning(f"Could not check database for user {user_id} API key: {db_error}")
+
             return {
                 'user_id': user_id,
-                'has_api_key': user_id in self.user_api_keys,
-                'api_key_status': user_api_key.status.value if user_api_key else 'none',
+                'has_api_key': has_api_key,
+                'api_key_status': api_key_status,
                 'requests_last_minute': rate_data.get('requests_last_minute', 0),
                 'requests_today': rate_data.get('requests_today', 0),
                 'requests_this_month': rate_data.get('requests_this_month', 0),
@@ -350,7 +394,7 @@ class MultiUserAPIManager:
                 'last_request': rate_data.get('last_request_time'),
                 'can_make_request': self.check_user_rate_limit(user_id)['can_make_request']
             }
-            
+
         except Exception as e:
             self.logger.error(f"Error getting API stats for user {user_id}: {e}")
             return {}

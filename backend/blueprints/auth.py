@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
-    create_access_token, create_refresh_token, jwt_required, get_jwt_identity, 
+    create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
     set_refresh_cookies, unset_jwt_cookies
 )
 from models import db, User
@@ -8,6 +8,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from utils.database_utils import retry_on_connection_error
 import re
 import logging
+import random
+import string
+from sqlalchemy import text, func
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,192 @@ def apply_rate_limit():
             logger.warning(f"Rate limit check failed: {e}")
             # Continue if rate limiting fails
 
+# ============================================================================
+# ROBUST USERNAME DETECTION SYSTEM
+# ============================================================================
+
+def check_username_availability(username):
+    """
+    Fast, scalable username availability check with case-insensitive support.
+    Returns (is_available, exact_match_exists, case_insensitive_match)
+    """
+    if not username:
+        return False, False, None
+
+    username_lower = username.lower().strip()
+
+    try:
+        # Use raw SQL for optimal performance with case-insensitive check
+        result = db.session.execute(text("""
+            SELECT
+                COUNT(*) as exact_count,
+                COUNT(*) FILTER (WHERE LOWER(username) = :username_lower) as case_insensitive_count,
+                (SELECT username FROM users WHERE LOWER(username) = :username_lower LIMIT 1) as existing_username
+            FROM users
+            WHERE username = :username_exact OR LOWER(username) = :username_lower
+        """), {
+            'username_exact': username,
+            'username_lower': username_lower
+        }).fetchone()
+
+        exact_count = result[0]
+        case_insensitive_count = result[1]
+        existing_username = result[2]
+
+        is_available = exact_count == 0
+        exact_match_exists = exact_count > 0
+        case_insensitive_match = existing_username
+
+        return is_available, exact_match_exists, case_insensitive_match
+
+    except Exception as e:
+        logger.error(f"Username availability check failed: {e}")
+        # Fallback to ORM query if raw SQL fails
+        try:
+            exact_match = User.query.filter_by(username=username).first()
+            case_insensitive_match = User.query.filter(func.lower(User.username) == username_lower).first()
+
+            is_available = exact_match is None
+            exact_match_exists = exact_match is not None
+            case_insensitive_match = case_insensitive_match.username if case_insensitive_match else None
+
+            return is_available, exact_match_exists, case_insensitive_match
+        except Exception as e2:
+            logger.error(f"Fallback username check also failed: {e2}")
+            # Conservative approach: assume unavailable on error
+            return False, True, None
+
+def generate_username_suggestions(base_username, max_suggestions=5):
+    """
+    Generate smart username suggestions when the desired username is taken.
+    Returns list of available username suggestions.
+    """
+    if not base_username:
+        return []
+
+    base_username = base_username.lower().strip()
+    suggestions = []
+
+    # Strategy 1: Add numbers
+    for i in range(1, max_suggestions + 1):
+        suggestion = f"{base_username}{i}"
+        if len(suggestion) <= 50:  # Respect username length limit
+            is_available, _, _ = check_username_availability(suggestion)
+            if is_available:
+                suggestions.append(suggestion)
+                if len(suggestions) >= max_suggestions:
+                    break
+
+    if len(suggestions) >= max_suggestions:
+        return suggestions
+
+    # Strategy 2: Add random 2-letter combinations
+    if len(suggestions) < max_suggestions:
+        consonants = 'bcdfghjklmnpqrstvwxyz'
+        vowels = 'aeiou'
+
+        for _ in range(max_suggestions - len(suggestions)):
+            # Generate pattern like: base_username + consonant + vowel + number
+            consonant = random.choice(consonants)
+            vowel = random.choice(vowels)
+            number = random.randint(1, 99)
+            suggestion = f"{base_username}{consonant}{vowel}{number}"
+
+            if len(suggestion) <= 50:
+                is_available, _, _ = check_username_availability(suggestion)
+                if is_available:
+                    suggestions.append(suggestion)
+
+    # Strategy 3: Add underscores with numbers
+    if len(suggestions) < max_suggestions:
+        for i in range(1, max_suggestions - len(suggestions) + 1):
+            suggestion = f"{base_username}_{i}"
+            if len(suggestion) <= 50:
+                is_available, _, _ = check_username_availability(suggestion)
+                if is_available:
+                    suggestions.append(suggestion)
+
+    return suggestions[:max_suggestions]
+
+def bulk_check_usernames(usernames):
+    """
+    Efficiently check availability of multiple usernames in a single query.
+    Returns dict of {username: is_available}
+    """
+    if not usernames:
+        return {}
+
+    # Normalize usernames for case-insensitive check
+    username_data = [(uname, uname.lower().strip()) for uname in usernames]
+
+    try:
+        # Single query to check all usernames
+        placeholders = ','.join([f'(:uname{i}, :lower{i})' for i in range(len(username_data))])
+        params = {}
+        for i, (uname, uname_lower) in enumerate(username_data):
+            params[f'uname{i}'] = uname
+            params[f'lower{i}'] = uname_lower
+
+        query = f"""
+            SELECT DISTINCT uname as username
+            FROM (
+                SELECT unnest(ARRAY[{','.join([f':uname{i}' for i in range(len(username_data))])}]) as uname
+            ) input_usernames
+            WHERE LOWER(uname) IN (
+                SELECT LOWER(username) FROM users WHERE LOWER(username) IN (
+                    {','.join([f':lower{i}' for i in range(len(username_data))])}
+                )
+            )
+        """
+
+        result = db.session.execute(text(query), params)
+        taken_usernames = {row[0].lower() for row in result}
+
+        # Return availability for each requested username
+        return {uname: uname.lower() not in taken_usernames for uname, _ in username_data}
+
+    except Exception as e:
+        logger.error(f"Bulk username check failed: {e}")
+        # Fallback: check each username individually
+        return {uname: check_username_availability(uname)[0] for uname in usernames}
+
+@auth_bp.route('/check-username', methods=['POST'])
+@retry_on_connection_error(max_retries=1, delay=1.0)
+def check_username():
+    """Fast username availability check endpoint"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+
+        if not username:
+            return jsonify({'available': False, 'error': 'Username is required'}), 400
+
+        # Validate format first
+        if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', username):
+            return jsonify({
+                'available': False,
+                'error': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'
+            }), 400
+
+        is_available, exact_match, case_insensitive_match = check_username_availability(username)
+
+        response = {
+            'available': is_available,
+            'username': username
+        }
+
+        if not is_available:
+            response['suggestions'] = generate_username_suggestions(username, 3)
+
+            if case_insensitive_match and case_insensitive_match != username:
+                response['case_insensitive_conflict'] = case_insensitive_match
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logger.error(f"Username check error: {e}")
+        return jsonify({'available': False, 'error': 'Service temporarily unavailable'}), 500
+
 @auth_bp.route('/register', methods=['POST'])
 @retry_on_connection_error(max_retries=1, delay=1.0)
 def register():
@@ -98,29 +288,92 @@ def register():
         # Validate username format (alphanumeric, underscore, hyphen, 3-50 chars)
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', username):
             return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
-        
+
         # Validate password strength
         is_valid, error_msg = validate_password_strength(password)
         if not is_valid:
             return jsonify({'message': error_msg}), 400
-        
-        # Check for existing user (SQLAlchemy connection pool handles connection management)
-        if User.query.filter_by(username=username).first():
-            return jsonify({'message': 'Username already exists'}), 409
+
+        # Robust username availability check with race condition protection
+        is_available, exact_match, case_insensitive_match = check_username_availability(username)
+        if not is_available:
+            suggestions = generate_username_suggestions(username, 3)
+            response = {'message': 'Username already exists'}
+
+            if suggestions:
+                response['suggestions'] = suggestions
+                response['message'] += f'. Try: {", ".join(suggestions[:2])}'
+
+            if case_insensitive_match and case_insensitive_match != username:
+                response['case_insensitive_conflict'] = case_insensitive_match
+
+            return jsonify(response), 409
+
+        # Check email availability (also race condition protected)
         if User.query.filter_by(email=email).first():
             return jsonify({'message': 'Email already exists'}), 409
         
-        # Create user
-        user = User(username=username, email=email, password_hash=generate_password_hash(password))
-        db.session.add(user)
-        db.session.commit()
-        
-        logger.info(f"User registered successfully: {username}")
-        return jsonify({'message': 'User registered successfully'}), 201
+        # Create user with race condition protection
+        try:
+            user = User(username=username, email=email, password_hash=generate_password_hash(password))
+            db.session.add(user)
+            db.session.commit()
+
+            logger.info(f"User registered successfully: {username}")
+            return jsonify({'message': 'User registered successfully'}), 201
+
+        except IntegrityError as e:
+            # Handle race conditions where another request created the user between our check and commit
+            db.session.rollback()
+
+            error_str = str(e).lower()
+            if 'username' in error_str and 'unique' in error_str:
+                # Username constraint violation - suggest alternatives
+                suggestions = generate_username_suggestions(username, 3)
+                response = {'message': 'Username was taken during registration'}
+                if suggestions:
+                    response['suggestions'] = suggestions
+                    response['message'] += f'. Try: {", ".join(suggestions[:2])}'
+                return jsonify(response), 409
+
+            elif 'email' in error_str and 'unique' in error_str:
+                # Email constraint violation
+                return jsonify({'message': 'Email was registered during signup process'}), 409
+
+            else:
+                # Other constraint violation
+                logger.error(f"IntegrityError during registration: {e}")
+                return jsonify({'message': 'Registration failed due to data conflict. Please try again.'}), 409
+
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Unexpected error during user creation: {e}")
+            return jsonify({'message': 'Registration failed. Please try again.'}), 500
         
     except Exception as e:
         logger.error(f"Registration error: {str(e)}", exc_info=True)
         return jsonify({'message': 'Registration failed. Please try again.'}), 500
+
+@auth_bp.route('/verify', methods=['GET'])
+@jwt_required()
+def verify_token():
+    """Verify JWT token is valid and return user info - used by Chrome extension"""
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+
+        if not user:
+            return jsonify({'message': 'User not found'}), 404
+
+        return jsonify({
+            'valid': True,
+            'user': user.to_dict(),
+            'message': 'Token is valid'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
+        return jsonify({'message': 'Token verification failed'}), 401
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -269,7 +522,7 @@ def get_csrf_token_endpoint():
 @auth_bp.route('/verify-token', methods=['POST'])
 @jwt_required()
 @retry_on_connection_error(max_retries=1, delay=1.0)
-def verify_token():
+def verify_token_status():
     """Verify if the current token is valid"""
     current_user_id = get_jwt_identity()
     

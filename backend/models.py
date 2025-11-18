@@ -71,12 +71,19 @@ class Base(db.Model):
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
-    username = Column(String(80), unique=True, nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
+    username = Column(String(80), unique=True, nullable=False, index=True)  # Added index for performance
+    email = Column(String(120), unique=True, nullable=False, index=True)  # Added index for performance
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
     user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted) - renamed from 'metadata' to avoid SQLAlchemy conflict
     created_at = Column(DateTime, default=func.now())
+
+    # Additional indexes for optimized username queries
+    __table_args__ = (
+        db.Index('idx_users_username_lower', func.lower(username)),  # Case-insensitive username search
+        db.Index('idx_users_email_lower', func.lower(email)),  # Case-insensitive email search
+        db.Index('idx_users_created_at', created_at),  # For user analytics
+    )
 
     saved_content = relationship('SavedContent', backref='user', lazy=True, cascade='all, delete-orphan')
     projects = relationship('Project', backref='user', lazy=True, cascade='all, delete-orphan')

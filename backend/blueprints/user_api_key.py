@@ -9,7 +9,15 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
 from datetime import datetime
 from models import db, User
-from services.multi_user_api_manager import add_user_api_key, get_user_api_stats, check_user_rate_limit, get_user_api_key, api_manager
+
+# Lazy imports to avoid import-time dependency issues
+def get_multi_user_api_manager():
+    """Lazy import of multi-user API manager"""
+    try:
+        from services.multi_user_api_manager import add_user_api_key, get_user_api_stats, check_user_rate_limit, get_user_api_key, api_manager
+        return add_user_api_key, get_user_api_stats, check_user_rate_limit, get_user_api_key, api_manager
+    except ImportError as e:
+        raise ImportError(f"Multi-user API manager not available: {e}")
 
 # Create blueprint
 user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api/user')
@@ -19,25 +27,28 @@ user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api/user')
 def add_api_key():
     """Add or update user's API key"""
     try:
+        # Lazy import
+        add_user_api_key, _, _, _, _ = get_multi_user_api_manager()
+
         data = request.get_json()
-        
+
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
+
         api_key = data.get('api_key')
         api_key_name = data.get('api_key_name', 'My API Key')
         user_id = int(get_jwt_identity())
-        
+
         if not api_key:
             return jsonify({'error': 'API key is required'}), 400
-        
+
         # Validate API key format
         if not api_key.startswith('AIza') or len(api_key) < 30:
             return jsonify({'error': 'Invalid API key format'}), 400
-        
+
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)
-        
+
         if success:
             return jsonify({
                 'message': 'API key added successfully',
@@ -46,7 +57,7 @@ def add_api_key():
             }), 200
         else:
             return jsonify({'error': 'Failed to add API key'}), 500
-            
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
@@ -88,26 +99,28 @@ def get_api_key_info():
 def remove_api_key():
     """Remove user's API key"""
     try:
+        # Lazy import
+        _, _, _, _, api_manager = get_multi_user_api_manager()
+
         user_id = int(get_jwt_identity())
-        
+
         # Get user and remove API key info
         user = db.session.query(User).filter_by(id=user_id).first()
-        
+
         if not user:
             return jsonify({'error': 'User not found'}), 404
-        
+
         metadata = user.user_metadata or {}
-        
+
         if 'api_key' in metadata:
             del metadata['api_key']
             user.user_metadata = metadata
             db.session.commit()
-            
+
             # Also remove from memory cache
-            from multi_user_api_manager import api_manager
             if user_id in api_manager.user_api_keys:
                 del api_manager.user_api_keys[user_id]
-            
+
             return jsonify({
                 'message': 'API key removed successfully'
             }), 200
@@ -115,7 +128,7 @@ def remove_api_key():
             return jsonify({
                 'message': 'No API key to remove'
             }), 200
-            
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
@@ -124,11 +137,14 @@ def remove_api_key():
 def get_api_key_status():
     """Get user's API key status and usage statistics"""
     try:
+        # Lazy import
+        _, get_user_api_stats, _, _, _ = get_multi_user_api_manager()
+
         user_id = int(get_jwt_identity())
-        
+
         # Get comprehensive API stats
         stats = get_user_api_stats(user_id)
-        
+
         if not stats:
             return jsonify({
                 'has_api_key': False,
@@ -140,9 +156,9 @@ def get_api_key_status():
                 'can_make_request': False,
                 'message': 'No API key configured'
             }), 200
-        
+
         return jsonify(stats), 200
-        
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
@@ -151,11 +167,14 @@ def get_api_key_status():
 def test_api_key():
     """Test if user's API key is valid"""
     try:
+        # Lazy import
+        _, _, _, get_user_api_key, api_manager = get_multi_user_api_manager()
+
         user_id = int(get_jwt_identity())
-        
+
         # Get user's API key
         api_key = get_user_api_key(user_id)
-        
+
         if not api_key or api_key == os.environ.get('GEMINI_API_KEY'):
             # Check if user has their own key
             user = db.session.query(User).filter_by(id=user_id).first()
@@ -167,21 +186,21 @@ def test_api_key():
                         'valid': False,
                         'message': 'No API key configured. Using default key.'
                     }), 200
-        
+
         # Test the API key by making a simple request
         try:
             from gemini_utils import GeminiAnalyzer
-            
+
             if not api_key:
                 return jsonify({
                     'valid': False,
                     'message': 'API key not found'
                 }), 200
-            
+
             # Test with Gemini
             analyzer = GeminiAnalyzer(api_key=api_key)
             test_response = analyzer.model.generate_content("Test")
-            
+
             if test_response and test_response.text:
                 return jsonify({
                     'valid': True,
@@ -193,13 +212,13 @@ def test_api_key():
                     'valid': False,
                     'message': 'API key test failed - no response'
                 }), 200
-                
+
         except Exception as test_error:
             return jsonify({
                 'valid': False,
                 'message': f'API key test failed: {str(test_error)}'
             }), 200
-            
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
@@ -208,14 +227,17 @@ def test_api_key():
 def get_api_usage():
     """Get detailed API usage statistics"""
     try:
+        # Lazy import
+        _, get_user_api_stats, check_user_rate_limit, _, _ = get_multi_user_api_manager()
+
         user_id = int(get_jwt_identity())
-        
+
         # Get rate limit status
         rate_status = check_user_rate_limit(user_id)
-        
+
         # Get API stats
         stats = get_user_api_stats(user_id)
-        
+
         # Combine information
         usage_info = {
             'user_id': user_id,
@@ -227,9 +249,9 @@ def get_api_usage():
                 'requests_per_month': 45000
             }
         }
-        
+
         return jsonify(usage_info), 200
-        
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
