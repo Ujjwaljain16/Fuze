@@ -157,9 +157,9 @@ def analyze_linkedin_content():
         try:
             analysis_prompt = f"""
             Analyze this LinkedIn post content and provide structured insights:
-            
+
             {analysis_input}
-            
+
             Please provide analysis in the following JSON format:
             {{
                 "technologies": ["list", "of", "technologies", "mentioned"],
@@ -169,9 +169,30 @@ def analyze_linkedin_content():
                 "summary": "2-3 sentence summary of the main points",
                 "key_insights": ["key", "insights", "from", "content"],
                 "target_audience": "who this content is for",
-                "practical_applications": "how this content can be applied"
+                "practical_applications": "how this content can be applied",
+                "technology_clusters": [
+                    {{
+                        "cluster": "technology_category_name",
+                        "technologies": ["tech1", "tech2", "tech3"],
+                        "description": "what this cluster covers"
+                    }}
+                ],
+                "primary_topic": "main subject of the post",
+                "secondary_topics": ["additional", "topics", "covered"],
+                "content_segments": [
+                    {{
+                        "segment": "Section name",
+                        "technologies": ["techs", "covered"],
+                        "difficulty": "beginner|intermediate|advanced",
+                        "key_points": ["main", "points"]
+                    }}
+                ]
             }}
-            
+
+            IMPORTANT: If the post covers multiple distinct technologies or topics, break them down into technology_clusters.
+            Each cluster should group related technologies (e.g., frontend: React, Vue, JavaScript).
+            Only create multiple clusters if the content genuinely covers different technology areas.
+
             Focus on extracting actionable insights and technologies that would be useful for learning and development.
             """
             
@@ -193,7 +214,11 @@ def analyze_linkedin_content():
                     "summary": "LinkedIn post content analyzed successfully",
                     "key_insights": [],
                     "target_audience": "General audience",
-                    "practical_applications": "Learning and development"
+                    "practical_applications": "Learning and development",
+                    "technology_clusters": [],
+                    "primary_topic": title or "General topic",
+                    "secondary_topics": [],
+                    "content_segments": []
                 }
             
             # Store analysis result
@@ -251,7 +276,11 @@ def analyze_linkedin_content():
                 'summary': f'LinkedIn post: {title}',
                 'key_insights': ['Content extracted successfully'],
                 'target_audience': 'General audience',
-                'practical_applications': 'Learning and reference'
+                'practical_applications': 'Learning and reference',
+                'technology_clusters': [],
+                'primary_topic': title or 'General topic',
+                'secondary_topics': [],
+                'content_segments': []
             }
             
             return jsonify({

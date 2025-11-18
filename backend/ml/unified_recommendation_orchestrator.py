@@ -157,6 +157,8 @@ class UnifiedRecommendationResult:
     engine_used: str
     confidence: float
     metadata: Dict[str, Any]
+    basic_summary: str = ""
+    context_summary: str = ""
     cached: bool = False
 
 @dataclass
@@ -368,7 +370,7 @@ class UnifiedDataLayer:
                 'embedding': content.embedding,
                 'relevance_score': 0
             }
-    
+
     def get_candidate_content(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
         """Get candidate content in unified format"""
         try:
@@ -437,37 +439,11 @@ class UnifiedDataLayer:
             for content, analysis in user_content:
                 # Use the normalize_content_data method to ensure all required fields
                 normalized_content = self.normalize_content_data(content, analysis)
-                
-                # OPTIMIZATION 6: Simplified relevance scoring for better performance
-                relevance_score = self._calculate_fast_content_relevance(
-                    normalized_content, request_techs, request_text, request
-                )
-                
-                # Add additional fields needed by engines
-                # Boost quality if we have rich ContentAnalysis data
-                analysis_boost = 0.0
-                if analysis and analysis.analysis_data:
-                    # Bonus for having Gemini analysis
-                    analysis_boost = 0.05
-                    if len(analysis.key_concepts or '') > 0:
-                        analysis_boost += 0.02
-                    if analysis.relevance_score > 0:
-                        analysis_boost += 0.03
-                
-                normalized_content.update({
-                    'user_id': content.user_id,
-                    'is_user_content': True,
-                    'project_relevance_boost': relevance_score,
-                    'relevance_score': relevance_score,
-                    'analysis_boost': analysis_boost,
-                    'has_analysis': analysis is not None
-                })
-                
+
+                # NOTE: Multi-topic splitting happens at orchestrator level, not data layer
+                # Just add the normalized content directly to the list
                 content_list.append(normalized_content)
-            
-            # OPTIMIZATION 7: Use more efficient sorting
-            content_list.sort(key=lambda x: (x.get('relevance_score', 0), x.get('quality_score', 0)), reverse=True)
-            
+
             logger.info(f"Retrieved {len(content_list)} content items from user {user_id}")
             return content_list
             
@@ -990,6 +966,16 @@ class FastSemanticEngine:
             recommendations = []
             for rec in filtered_recommendations:
                 content = rec['content']
+                # Get basic summary from analysis data
+                basic_summary = ""
+                analysis_data = content.get('analysis_data', {})
+                if analysis_data and 'basic_summary' in analysis_data:
+                    basic_summary = analysis_data['basic_summary']
+                elif content.get('extracted_text'):
+                    # Fallback: create a simple summary from title and technologies
+                    techs = content.get('technologies', [])[:3]
+                    basic_summary = f"Content about {', '.join(techs) if techs else content.get('title', 'topic')}"
+
                 recommendations.append(UnifiedRecommendationResult(
                     id=content['id'],
                     title=content['title'],
@@ -1003,6 +989,7 @@ class FastSemanticEngine:
                     quality_score=content.get('quality_score', 6),
                     engine_used=self.name,
                     confidence=rec['similarity'],
+                    basic_summary=basic_summary,
                     metadata={
                         'semantic_similarity': rec['similarity'],
                         'tech_overlap': rec['tech_overlap'],
@@ -1487,6 +1474,16 @@ class ContextAwareEngine:
                 # Generate detailed reason
                 reason = self._generate_detailed_reason(content, context, score_components)
                 
+                # Get basic summary from analysis data
+                basic_summary = ""
+                analysis_data = content.get('analysis_data', {})
+                if analysis_data and 'basic_summary' in analysis_data:
+                    basic_summary = analysis_data['basic_summary']
+                elif content.get('extracted_text'):
+                    # Fallback: create a simple summary from title and technologies
+                    techs = content.get('technologies', [])[:3]
+                    basic_summary = f"Content about {', '.join(techs) if techs else content.get('title', 'topic')}"
+
                 # Create result
                 result = UnifiedRecommendationResult(
                     id=content['id'],
@@ -1501,6 +1498,7 @@ class ContextAwareEngine:
                     quality_score=content.get('quality_score', 6),
                     engine_used=f"{self.name}+ML",
                     confidence=score_components['semantic'],
+                    basic_summary=basic_summary,
                     metadata={
                         'score_components': score_components,
                         'context_used': context,
@@ -2170,6 +2168,8 @@ class UnifiedRecommendationOrchestrator:
                         quality_score=rec_data['quality_score'],
                         engine_used=rec_data['engine_used'],
                         confidence=rec_data['confidence'],
+                        basic_summary=rec_data.get('basic_summary', ''),
+                        context_summary=rec_data.get('context_summary', ''),
                         metadata=rec_data['metadata'],
                         cached=True
                     )
@@ -2499,6 +2499,91 @@ class UnifiedRecommendationOrchestrator:
             logger.error(f"All intent analysis methods failed: {e}")
             return None
 
+    def generate_context_summaries(self, recommendations: List[UnifiedRecommendationResult],
+                                 request: UnifiedRecommendationRequest, user_id: int) -> List[UnifiedRecommendationResult]:
+        """Generate context-specific summaries for top recommendations
+
+        For the top recommendations, create detailed summaries that explain
+        why this content is relevant to the user's specific project/task.
+        """
+        if not recommendations:
+            return recommendations
+
+        # Only generate context summaries for top 10 recommendations to control costs
+        top_recommendations = recommendations[:10]
+
+        try:
+            # Get user's API key for context summary generation
+            from services.multi_user_api_manager import get_user_api_key
+            api_key = get_user_api_key(user_id)
+            gemini_analyzer = GeminiAnalyzer(api_key=api_key) if api_key else None
+
+            if not gemini_analyzer:
+                logger.warning(f"No API key available for user {user_id}, skipping context summaries")
+                return recommendations
+
+            # Generate context summaries for top recommendations
+            for i, rec in enumerate(top_recommendations):
+                try:
+                    context_summary = self._generate_context_summary(
+                        gemini_analyzer, rec, request, i + 1
+                    )
+                    if context_summary:
+                        rec.context_summary = context_summary
+                except Exception as e:
+                    logger.error(f"Error generating context summary for recommendation {rec.id}: {e}")
+                    # Keep the basic summary as fallback
+
+        except Exception as e:
+            logger.error(f"Error in context summary generation: {e}")
+            # Continue with basic summaries only
+
+        return recommendations
+
+    def _generate_context_summary(self, gemini_analyzer: GeminiAnalyzer,
+                                recommendation: UnifiedRecommendationResult,
+                                request: UnifiedRecommendationRequest,
+                                rank: int) -> str:
+        """Generate a context-specific summary explaining why this recommendation fits"""
+        try:
+            context_prompt = f"""
+            Create a personalized summary explaining why this content is recommended for this specific project.
+
+            PROJECT CONTEXT:
+            Title: {request.title}
+            Description: {request.description}
+            Technologies: {', '.join(request.technologies.split(',')) if request.technologies else 'General'}
+            User Interests: {request.user_interests or 'General development'}
+
+            RECOMMENDED CONTENT:
+            Title: {recommendation.title}
+            Technologies: {', '.join(recommendation.technologies)}
+            Content Type: {recommendation.content_type}
+            Difficulty: {recommendation.difficulty}
+            Basic Summary: {recommendation.basic_summary}
+
+            This is recommendation #{rank} in the list.
+
+            Create a 2-3 sentence summary that:
+            1. Explains the specific relevance to the user's project
+            2. Highlights how the technologies align
+            3. Mentions what the user will learn that's directly applicable
+            4. Makes it clear why this is a top recommendation
+
+            Keep it concise but personalized to the project context.
+            """
+
+            context_summary = gemini_analyzer.analyze_text(context_prompt)
+            if context_summary and len(context_summary.strip()) > 20:
+                return context_summary.strip()
+            else:
+                # Return enhanced basic summary as fallback
+                return f"#{rank} recommendation: {recommendation.basic_summary}"
+
+        except Exception as e:
+            logger.error(f"Error generating context summary: {e}")
+            return recommendation.basic_summary
+
     def get_recommendations_robust(self, request: UnifiedRecommendationRequest):
         """Get recommendations with robust intent analysis"""
         # Get intent analysis with fallbacks
@@ -2514,6 +2599,194 @@ class UnifiedRecommendationOrchestrator:
             # Fallback to basic recommendations without intent
             content_list = self.data_layer.get_candidate_content(request.user_id, request)
             return self._execute_engine_strategy(request, content_list)
+
+    def split_multi_topic_content(self, content: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Split content covering multiple topics into focused recommendations
+
+        For LinkedIn posts and articles that cover multiple technologies,
+        create separate recommendation entries for each major topic cluster.
+        This enables more precise matching and better user experience.
+        """
+        try:
+            analysis_data = content.get('analysis_data', {})
+
+            # Only split content that has multiple technology clusters
+            # Check for explicit technology clusters or multiple technologies
+            technology_clusters = analysis_data.get('technology_clusters', [])
+            technologies = content.get('technologies', [])
+
+            # If we have explicit clusters from AI analysis, use those
+            if technology_clusters and len(technology_clusters) > 1:
+                return self._split_by_clusters(content, technology_clusters)
+
+            # Otherwise, check if we have multiple distinct technologies
+            # and the content is substantial enough to warrant splitting
+            elif len(technologies) > 2 and self._should_split_content(content):
+                return self._split_by_technologies(content, technologies)
+
+            # Content doesn't need splitting
+            return [content]
+
+        except Exception as e:
+            logger.error(f"Error splitting multi-topic content: {e}")
+            # Return original content if splitting fails
+            return [content]
+
+    def _split_by_clusters(self, content: Dict[str, Any], clusters: List[Dict]) -> List[Dict[str, Any]]:
+        """Split content based on explicit technology clusters from AI analysis"""
+        split_contents = []
+
+        for i, cluster in enumerate(clusters):
+            cluster_techs = cluster.get('technologies', [])
+            if not cluster_techs:
+                continue
+
+            # Create a focused version of the content
+            split_content = content.copy()
+
+            # Generate unique ID for this split
+            split_content['id'] = f"{content['id']}_split_{i}"
+            split_content['original_id'] = content['id']
+
+            # Update technology focus
+            split_content['technologies'] = cluster_techs
+            split_content['primary_technology'] = cluster_techs[0] if cluster_techs else ''
+            split_content['related_technologies'] = cluster_techs[1:] if len(cluster_techs) > 1 else []
+
+            # Update title to indicate focus area
+            cluster_name = cluster.get('cluster', 'topic')
+            original_title = content.get('title', '')
+            split_content['title'] = f"{original_title} ({cluster_name.capitalize()})"
+
+            # Add focus metadata
+            split_content['focus_area'] = cluster_name
+            split_content['learning_path'] = self._map_cluster_to_learning_path(cluster_name)
+            split_content['is_split_content'] = True
+            split_content['split_index'] = i
+
+            # Adjust quality score slightly for splits (keep it high since it's the same content)
+            split_content['quality_score'] = max(1, content.get('quality_score', 6) - 0.5)
+
+            split_contents.append(split_content)
+
+        return split_contents if split_contents else [content]
+
+    def _split_by_technologies(self, content: Dict[str, Any], technologies: List[str]) -> List[Dict[str, Any]]:
+        """Split content based on individual technologies when no explicit clusters exist"""
+        split_contents = []
+
+        # Group technologies by category for better splitting
+        tech_groups = self._group_technologies_by_category(technologies)
+
+        # Create splits for each major technology group
+        for i, (category, techs_in_group) in enumerate(tech_groups.items()):
+            if len(techs_in_group) == 0:
+                continue
+
+            split_content = content.copy()
+
+            # Generate unique ID
+            split_content['id'] = f"{content['id']}_tech_{i}"
+            split_content['original_id'] = content['id']
+
+            # Focus on this technology group
+            split_content['technologies'] = techs_in_group
+            split_content['primary_technology'] = techs_in_group[0]
+            split_content['related_technologies'] = techs_in_group[1:] if len(techs_in_group) > 1 else []
+
+            # Update title
+            original_title = content.get('title', '')
+            category_display = category.replace('_', ' ').title()
+            split_content['title'] = f"{original_title} ({category_display})"
+
+            # Add metadata
+            split_content['focus_area'] = category
+            split_content['learning_path'] = self._map_cluster_to_learning_path(category)
+            split_content['is_split_content'] = True
+            split_content['split_index'] = i
+
+            # Slightly reduce quality score for splits
+            split_content['quality_score'] = max(1, content.get('quality_score', 6) - 0.5)
+
+            split_contents.append(split_content)
+
+        return split_contents if split_contents else [content]
+
+    def _should_split_content(self, content: Dict[str, Any]) -> bool:
+        """Determine if content should be split based on various factors"""
+        # Only split LinkedIn posts and substantial articles
+        content_type = content.get('content_type', '').lower()
+        if content_type not in ['linkedin_post', 'article', 'tutorial']:
+            return False
+
+        # Only split if content is substantial (has enough text)
+        extracted_text = content.get('extracted_text', '')
+        if len(extracted_text) < 1000:  # Less than ~300 words
+            return False
+
+        # Only split if quality is good enough
+        quality_score = content.get('quality_score', 0)
+        if quality_score < 6:
+            return False
+
+        # Check if content explicitly mentions multiple technologies
+        technologies = content.get('technologies', [])
+        return len(technologies) >= 3  # At least 3 technologies suggest multi-topic
+
+    def _group_technologies_by_category(self, technologies: List[str]) -> Dict[str, List[str]]:
+        """Group technologies by learning categories"""
+        # Define technology categories
+        categories = {
+            'frontend': ['react', 'vue', 'angular', 'javascript', 'js', 'typescript', 'ts', 'html', 'css', 'sass', 'scss', 'tailwind', 'bootstrap'],
+            'backend': ['node.js', 'node', 'express', 'python', 'django', 'flask', 'fastapi', 'java', 'spring', 'php', 'laravel', 'ruby', 'rails'],
+            'database': ['postgresql', 'postgres', 'mysql', 'mongodb', 'mongo', 'redis', 'sqlite', 'sql', 'oracle'],
+            'cloud': ['aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'k8s', 'terraform'],
+            'mobile': ['react native', 'flutter', 'ios', 'android', 'swift', 'kotlin'],
+            'ml_ai': ['tensorflow', 'pytorch', 'scikit-learn', 'pandas', 'numpy', 'machine learning', 'ai', 'deep learning'],
+            'devops': ['docker', 'kubernetes', 'jenkins', 'github actions', 'ci/cd', 'linux', 'bash']
+        }
+
+        grouped = {}
+
+        for tech in technologies:
+            tech_lower = tech.lower().strip()
+            found_category = None
+
+            # Find which category this technology belongs to
+            for category, category_techs in categories.items():
+                if tech_lower in category_techs:
+                    found_category = category
+                    break
+
+            # If no category found, put in 'other'
+            if not found_category:
+                found_category = 'other'
+
+            if found_category not in grouped:
+                grouped[found_category] = []
+            grouped[found_category].append(tech)
+
+        return grouped
+
+    def _map_cluster_to_learning_path(self, cluster: str) -> str:
+        """Map technology clusters to learning paths"""
+        cluster_paths = {
+            'frontend': 'frontend_development',
+            'backend': 'backend_development',
+            'fullstack': 'fullstack_development',
+            'database': 'data_management',
+            'cloud': 'cloud_computing',
+            'mobile': 'mobile_development',
+            'ml_ai': 'machine_learning',
+            'devops': 'devops_engineering',
+            'web_dev': 'web_development',
+            'data_science': 'data_science',
+            'api': 'api_development',
+            'testing': 'software_testing',
+            'security': 'cybersecurity'
+        }
+
+        return cluster_paths.get(cluster.lower(), 'general_programming')
 
 # Global orchestrator instance
 _orchestrator_instance = None
@@ -2548,7 +2821,10 @@ def get_unified_recommendations(user_id: int, request_data: Dict[str, Any]) -> L
         
         # Get recommendations
         results = orchestrator.get_recommendations(request)
-        
+
+        # Generate context-specific summaries for top recommendations
+        results = orchestrator.generate_context_summaries(results, request, user_id)
+
         # Convert to dictionary format for API response
         return [asdict(result) for result in results]
         
