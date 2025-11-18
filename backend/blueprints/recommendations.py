@@ -52,13 +52,13 @@ ENHANCED_MODULES_AVAILABLE = False
 unified_engine_instance = None
 
 def get_embedding_model():
-    """Get embedding model lazily - uses embedding_utils singleton"""
+    """Check if embedding model is available without loading it"""
     try:
-        from utils.embedding_utils import get_embedding_model as _get_embedding_model
-        return _get_embedding_model()
+        from utils.embedding_utils import is_embedding_available
+        return is_embedding_available()
     except Exception as e:
-        logger.error(f"Error getting embedding model: {e}")
-        return None
+        logger.error(f"Error checking embedding model: {e}")
+        return False
 
 def init_models():
     """Initialize models with error handling - LAZY: only loads when needed"""
@@ -195,15 +195,21 @@ def get_unified_orchestrator_recommendations():
         # Use production-optimized unified orchestrator
         from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
         from dataclasses import asdict
+        import json
+        
+        # NOTE: Project-level recommendations do NOT include subtasks
+        # Only use the provided description - subtasks are only included in task/subtask-specific endpoints
+        description = data.get('description', '')
+        project_id = data.get('project_id')
         
         # Create request
         unified_request = UnifiedRecommendationRequest(
             user_id=user_id,
             title=data.get('title', ''),
-            description=data.get('description', ''),
+            description=description,
             technologies=data.get('technologies', ''),
             user_interests=data.get('user_interests', ''),
-            project_id=data.get('project_id'),
+            project_id=project_id,
             max_recommendations=data.get('max_recommendations', 10),
             engine_preference=data.get('engine_preference', 'context'),
             quality_threshold=data.get('quality_threshold', 3),
@@ -268,7 +274,7 @@ def get_unified_recommendations():
         technologies = data.get('technologies', '')
         user_interests = data.get('user_interests', '')
         max_recommendations = data.get('max_recommendations', 10)
-        
+
         # Create cache key based on request parameters
         cache_key = f"unified_recommendations:{user_id}:{hash(f'{title}{description}{technologies}{user_interests}{max_recommendations}')}"
         
@@ -390,6 +396,7 @@ def get_unified_project_recommendations(project_id):
             })
         
         # Extract context using the enhanced context extraction
+        # NOTE: Project-level recommendations do NOT include subtasks - only project info
         context = engine.extract_context_from_input(
             title=project.title,
             description=project.description or '',
@@ -463,6 +470,7 @@ def get_project_recommendations(project_id):
             })
         
         # Extract context from project
+        # NOTE: Project-level recommendations do NOT include subtasks - only project info
         context = engine.extract_context_from_input(
             title=project.title,
             description=project.description or '',
@@ -493,23 +501,271 @@ def get_project_recommendations(project_id):
         logger.error(f"Error in project recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
-@recommendations_bp.route('/task/<int:task_id>', methods=['GET'])
+@recommendations_bp.route('/task/<int:task_id>', methods=['POST'])
 @jwt_required()
 def get_task_recommendations(task_id):
-    """Get task-specific recommendations using SmartRecommendationEngine"""
+    """Get task-specific recommendations using UnifiedRecommendationOrchestrator"""
     try:
         user_id = get_jwt_identity()
-        engine = get_smart_engine(user_id)
-        if not engine:
-            return jsonify({'error': 'Smart recommendation engine not available'}), 500
-        from models import Task
-        task = Task.query.filter_by(id=task_id, user_id=user_id).first()
+        data = request.get_json() or {}
+        
+        # Import models
+        from models import Task, Subtask, Project, SavedContent
+        
+        # Get task and verify ownership
+        task = Task.query.get(task_id)
         if not task:
             return jsonify({'error': 'Task not found'}), 404
-        result = engine.get_task_recommendations(user_id, task_id)
-        return jsonify(result)
+        
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        # Get subtasks for this task
+        subtasks = Subtask.query.filter_by(task_id=task_id).all()
+        incomplete_subtasks = [st for st in subtasks if not st.completed]
+        
+        # Build enhanced description with task and subtask information
+        task_description = task.description or ''
+        try:
+            task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
+            if isinstance(task_details, dict):
+                task_description = task_details.get('description', '')
+        except:
+            pass
+        
+        enhanced_description = f"Task: {task.title}"
+        if task_description:
+            enhanced_description += f" - {task_description}"
+        
+        # Add incomplete subtasks to context
+        if incomplete_subtasks:
+            subtask_titles = [st.title for st in incomplete_subtasks]
+            enhanced_description += f" Subtasks to complete: {', '.join(subtask_titles)}"
+        
+        # Use unified orchestrator
+        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        from dataclasses import asdict
+        import numpy as np
+        from utils.embedding_utils import calculate_cosine_similarity
+        
+        # Get project technologies for context
+        technologies = project.technologies or ''
+        
+        # Create request
+        unified_request = UnifiedRecommendationRequest(
+            user_id=user_id,
+            title=task.title,
+            description=enhanced_description,
+            technologies=technologies,
+            user_interests='',
+            project_id=project.id,
+            max_recommendations=data.get('max_recommendations', 10),
+            engine_preference=data.get('engine_preference', 'context'),
+            quality_threshold=data.get('quality_threshold', 6),
+            include_global_content=data.get('include_global_content', True)
+        )
+        
+        # Get orchestrator and recommendations
+        orchestrator = get_unified_orchestrator()
+        recommendations = orchestrator.get_recommendations(unified_request)
+        
+        # Enhance recommendations with subtask embeddings if available
+        if incomplete_subtasks and len(recommendations) > 0:
+            try:
+                from models import SavedContent
+                # Get subtask embeddings and boost scores based on similarity
+                subtask_embeddings = [st.embedding for st in incomplete_subtasks if st.embedding is not None]
+                
+                if subtask_embeddings:
+                    enhanced_recommendations = []
+                    for rec in recommendations:
+                        content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
+                        if content_id:
+                            content = SavedContent.query.get(content_id)
+                            if content and content.embedding is not None:
+                                # Calculate max similarity across all incomplete subtask embeddings
+                                max_similarity = max([
+                                    calculate_cosine_similarity(
+                                        np.array(subtask_emb),
+                                        np.array(content.embedding)
+                                    ) for subtask_emb in subtask_embeddings
+                                ])
+                                # Boost score by embedding similarity (weight: 15% for tasks with multiple subtasks)
+                                if isinstance(rec, dict):
+                                    original_score = rec.get('match_score', rec.get('score', 0))
+                                    embedding_boost = max_similarity * 0.15  # 15% weight
+                                    rec['match_score'] = min(100, original_score + (embedding_boost * 100))
+                                    rec['subtask_embedding_similarity'] = float(max_similarity)
+                                else:
+                                    original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
+                                    embedding_boost = max_similarity * 0.15
+                                    rec.match_score = min(100, original_score + (embedding_boost * 100))
+                                    rec.subtask_embedding_similarity = float(max_similarity)
+                        enhanced_recommendations.append(rec)
+                    
+                    # Re-sort by enhanced score
+                    if enhanced_recommendations:
+                        enhanced_recommendations.sort(
+                            key=lambda x: x.get('match_score', getattr(x, 'match_score', 0)) if isinstance(x, dict) else getattr(x, 'match_score', 0),
+                            reverse=True
+                        )
+                        recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
+                        logger.info(f"Enhanced {len(recommendations)} recommendations using {len(subtask_embeddings)} subtask embeddings")
+            except Exception as e:
+                logger.warning(f"Failed to enhance recommendations with subtask embeddings: {e}")
+                # Continue with original recommendations
+        
+        # Convert to dictionary format
+        result = []
+        for rec in recommendations:
+            if isinstance(rec, dict):
+                result.append(rec)
+            else:
+                result.append(asdict(rec))
+        
+        return jsonify({
+            'recommendations': result,
+            'total_recommendations': len(result),
+            'task_id': task_id,
+            'task_title': task.title,
+            'subtasks_count': len(incomplete_subtasks),
+            'engine_used': 'UnifiedOrchestrator_TaskSpecific'
+        })
+        
     except Exception as e:
         logger.error(f"Error in task recommendations: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/subtask/<int:subtask_id>', methods=['POST'])
+@jwt_required()
+def get_subtask_recommendations(subtask_id):
+    """Get subtask-specific recommendations using UnifiedRecommendationOrchestrator"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        
+        # Import models
+        from models import Subtask, Task, Project, SavedContent
+        
+        # Get subtask and verify ownership
+        subtask = Subtask.query.get(subtask_id)
+        if not subtask:
+            return jsonify({'error': 'Subtask not found'}), 404
+        
+        task = Task.query.get(subtask.task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        
+        project = Project.query.get(task.project_id)
+        if not project or project.user_id != user_id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        # Build enhanced description with subtask and parent task information
+        task_description = task.description or ''
+        try:
+            task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
+            if isinstance(task_details, dict):
+                task_description = task_details.get('description', '')
+        except:
+            pass
+        
+        enhanced_description = f"Subtask: {subtask.title}"
+        if subtask.description:
+            enhanced_description += f" - {subtask.description}"
+        enhanced_description += f" (Part of task: {task.title})"
+        if task_description:
+            enhanced_description += f" Task context: {task_description}"
+        
+        # Use unified orchestrator
+        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        from dataclasses import asdict
+        import numpy as np
+        from utils.embedding_utils import calculate_cosine_similarity
+        
+        # Get project technologies for context
+        technologies = project.technologies or ''
+        
+        # Create request
+        unified_request = UnifiedRecommendationRequest(
+            user_id=user_id,
+            title=subtask.title,
+            description=enhanced_description,
+            technologies=technologies,
+            user_interests='',
+            project_id=project.id,
+            max_recommendations=data.get('max_recommendations', 10),
+            engine_preference=data.get('engine_preference', 'context'),
+            quality_threshold=data.get('quality_threshold', 6),
+            include_global_content=data.get('include_global_content', True)
+        )
+        
+        # Get orchestrator and recommendations
+        orchestrator = get_unified_orchestrator()
+        recommendations = orchestrator.get_recommendations(unified_request)
+        
+        # Enhance recommendations with subtask embedding similarity if available
+        if subtask.embedding is not None and len(recommendations) > 0:
+            try:
+                from models import SavedContent
+                # Get content embeddings and boost scores based on subtask embedding similarity
+                enhanced_recommendations = []
+                for rec in recommendations:
+                    content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
+                    if content_id:
+                        content = SavedContent.query.get(content_id)
+                        if content and content.embedding is not None:
+                            # Calculate similarity between subtask embedding and content embedding
+                            similarity = calculate_cosine_similarity(
+                                np.array(subtask.embedding),
+                                np.array(content.embedding)
+                            )
+                            # Boost score by embedding similarity (weight: 20%)
+                            if isinstance(rec, dict):
+                                original_score = rec.get('match_score', rec.get('score', 0))
+                                embedding_boost = similarity * 0.2  # 20% weight for embedding similarity
+                                rec['match_score'] = min(100, original_score + (embedding_boost * 100))
+                                rec['subtask_embedding_similarity'] = float(similarity)
+                            else:
+                                # If it's a dataclass object
+                                original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
+                                embedding_boost = similarity * 0.2
+                                rec.match_score = min(100, original_score + (embedding_boost * 100))
+                                rec.subtask_embedding_similarity = float(similarity)
+                    enhanced_recommendations.append(rec)
+                
+                # Re-sort by enhanced score
+                if enhanced_recommendations:
+                    enhanced_recommendations.sort(
+                        key=lambda x: x.get('match_score', getattr(x, 'match_score', 0)) if isinstance(x, dict) else getattr(x, 'match_score', 0),
+                        reverse=True
+                    )
+                    recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
+                    logger.info(f"Enhanced {len(recommendations)} recommendations using subtask embedding")
+            except Exception as e:
+                logger.warning(f"Failed to enhance recommendations with subtask embedding: {e}")
+                # Continue with original recommendations
+        
+        # Convert to dictionary format
+        result = []
+        for rec in recommendations:
+            if isinstance(rec, dict):
+                result.append(rec)
+            else:
+                result.append(asdict(rec))
+        
+        return jsonify({
+            'recommendations': result,
+            'total_recommendations': len(result),
+            'subtask_id': subtask_id,
+            'subtask_title': subtask.title,
+            'task_id': task.id,
+            'task_title': task.title,
+            'engine_used': 'UnifiedOrchestrator_SubtaskSpecific'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in subtask recommendations: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -704,9 +960,15 @@ def get_phase3_health():
 # UTILITY ENDPOINTS
 # ============================================================================
 
-@recommendations_bp.route('/status', methods=['GET'])
+# Note: OPTIONS requests are automatically handled by flask-cors
+# No manual OPTIONS handlers needed - they can cause conflicts
+
+@recommendations_bp.route('/status', methods=['GET', 'OPTIONS'])
 def get_engine_status():
     """Get status of all recommendation engines"""
+    # Handle OPTIONS preflight requests
+    if request.method == 'OPTIONS':
+        return '', 200
     try:
         status = {
             'unified_orchestrator_available': UNIFIED_ORCHESTRATOR_AVAILABLE,
@@ -760,25 +1022,6 @@ def get_performance_metrics():
             logger.error(f"Error getting Redis metrics: {e}")
             metrics['redis_cache'] = {'error': str(e)}
         
-        # Get Gemini metrics
-        if FAST_GEMINI_AVAILABLE:
-            try:
-                from fast_gemini_engine import FastGeminiEngine
-                engine = FastGeminiEngine()
-                metrics['gemini'] = {
-                    'available': True,
-                    'cache_stats': engine.get_cache_stats(),
-                    'components_available': {
-                        'analyzer': engine.gemini_analyzer is not None,
-                        'rate_limiter': engine.rate_limiter is not None
-                    }
-                }
-            except Exception as e:
-                logger.error(f"Error getting Gemini metrics: {e}")
-                metrics['gemini'] = {'error': str(e)}
-        else:
-            metrics['gemini'] = {'available': False}
-        
         # Get database stats
         try:
             from models import SavedContent, ContentAnalysis
@@ -804,15 +1047,109 @@ def clear_recommendation_cache():
     try:
         user_id = get_jwt_identity()
         success = invalidate_user_recommendations(user_id)
-        
+
         if success:
             return jsonify({'message': 'Cache cleared successfully'})
         else:
             return jsonify({'error': 'Failed to clear cache'}), 500
-            
+
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
         return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/cache/clear-context', methods=['POST'])
+@jwt_required()
+def clear_context_cache():
+    """Clear context-related caches (suggested-contexts, recent-contexts)"""
+    try:
+        user_id = get_jwt_identity()
+
+        # Clear Redis caches for context data
+        try:
+            from utils.redis_utils import redis_cache
+            cache_keys = [
+                f"suggested_contexts:{user_id}",
+                f"recent_contexts:{user_id}"
+            ]
+            cleared_count = 0
+            for key in cache_keys:
+                try:
+                    redis_cache.delete_cache(key)
+                    cleared_count += 1
+                except Exception:
+                    pass  # Continue if individual key fails
+
+            logger.info(f"Cleared {cleared_count}/{len(cache_keys)} context cache keys for user {user_id}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to clear Redis context caches: {cache_error}")
+
+        return jsonify({
+            'message': 'Context cache cleared successfully',
+            'user_id': user_id
+        })
+
+    except Exception as e:
+        logger.error(f"Error clearing context cache: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/cache/clear-all-recommendations', methods=['POST'])
+@jwt_required()
+def clear_all_recommendation_caches():
+    """Clear ALL recommendation-related caches (both Redis and context data)"""
+    try:
+        user_id = get_jwt_identity()
+
+        cleared_items = {
+            'redis_recommendations': False,
+            'redis_context': False,
+            'success': True
+        }
+
+        # 1. Clear Redis recommendation caches
+        try:
+            success = invalidate_user_recommendations(user_id)
+            cleared_items['redis_recommendations'] = success
+            if success:
+                logger.info(f"Cleared Redis recommendation caches for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to clear Redis recommendation caches: {e}")
+
+        # 2. Clear Redis context caches
+        try:
+            from utils.redis_utils import redis_cache
+            context_keys = [
+                f"suggested_contexts:{user_id}",
+                f"recent_contexts:{user_id}"
+            ]
+            context_cleared = 0
+            for key in context_keys:
+                try:
+                    redis_cache.delete_cache(key)
+                    context_cleared += 1
+                except Exception:
+                    pass
+
+            cleared_items['redis_context'] = context_cleared >= len(context_keys)
+            if context_cleared > 0:
+                logger.info(f"Cleared {context_cleared}/{len(context_keys)} Redis context cache keys for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to clear Redis context caches: {e}")
+
+        # Note: Client-side cache is cleared via the global window.clearContextCache() function
+
+        return jsonify({
+            'message': 'All recommendation caches cleared',
+            'user_id': user_id,
+            'cleared': cleared_items,
+            'note': 'Client-side cache should be cleared via window.clearContextCache()'
+        })
+
+    except Exception as e:
+        logger.error(f"Error clearing all recommendation caches: {e}")
+        return jsonify({
+            'error': str(e),
+            'note': 'Some caches may not have been cleared'
+        }), 500
 
 @recommendations_bp.route('/analysis/stats', methods=['GET'])
 @jwt_required()
@@ -874,7 +1211,6 @@ def get_phase_status():
             'phase2_enhanced_engine': ENHANCED_ENGINE_AVAILABLE,
             'phase3_advanced_engine': PHASE3_ENGINE_AVAILABLE,
             'unified_engine': UNIFIED_ENGINE_AVAILABLE,
-            'fast_gemini_engine': FAST_GEMINI_AVAILABLE,
             'enhanced_modules': ENHANCED_MODULES_AVAILABLE,
             'total_engines_available': sum([
                 SMART_ENGINE_AVAILABLE,
@@ -1357,58 +1693,6 @@ def get_similar_content(content_id):
 # GEMINI-ENHANCED ENDPOINTS
 # ============================================================================
 
-@recommendations_bp.route('/gemini-enhanced', methods=['POST'])
-@jwt_required()
-def get_gemini_enhanced_recommendations():
-    """Get Gemini-enhanced recommendations using FastGeminiEngine"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        
-        if not FAST_GEMINI_AVAILABLE:
-            return jsonify({'error': 'Fast Gemini Engine not available'}), 503
-        
-        try:
-            from fast_gemini_engine import FastGeminiEngine
-            engine = FastGeminiEngine()
-            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
-            return jsonify(result)
-        except Exception as e:
-            logger.error(f"Error in Gemini-enhanced recommendations: {e}")
-            return jsonify({'error': str(e)}), 500
-            
-    except Exception as e:
-        logger.error(f"Error in Gemini-enhanced recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@recommendations_bp.route('/gemini-enhanced-project/<int:project_id>', methods=['POST'])
-@jwt_required()
-def get_gemini_enhanced_project_recommendations(project_id):
-    """Get Gemini-enhanced project recommendations using FastGeminiEngine"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        
-        if not FAST_GEMINI_AVAILABLE:
-            return jsonify({'error': 'Fast Gemini Engine not available'}), 503
-        
-        try:
-            from fast_gemini_engine import FastGeminiEngine
-            engine = FastGeminiEngine()
-            
-            # Add project context to user input
-            user_input['project_id'] = project_id
-            
-            result = engine.get_gemini_enhanced_recommendations(user_id, user_input)
-            return jsonify(result)
-        except Exception as e:
-            logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
-            return jsonify({'error': str(e)}), 500
-            
-    except Exception as e:
-        logger.error(f"Error in Gemini-enhanced project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
-
 @recommendations_bp.route('/ultra-fast', methods=['POST'])
 @jwt_required()
 def get_ultra_fast_recommendations():
@@ -1471,27 +1755,6 @@ def get_gemini_status():
             }
         }
         
-        # Test Gemini with a simple call if available
-        if FAST_GEMINI_AVAILABLE:
-            try:
-                from fast_gemini_engine import FastGeminiEngine
-                engine = FastGeminiEngine()
-                
-                # Check if Gemini components are working
-                if engine.gemini_available and engine.gemini_analyzer:
-                    status_info['details']['test_result'] = 'success'
-                    status_info['details']['gemini_analyzer_available'] = True
-                    status_info['details']['rate_limiter_available'] = engine.rate_limiter is not None
-                else:
-                    status_info['details']['test_result'] = 'components_unavailable'
-                    status_info['details']['error_message'] = 'Gemini components not properly initialized'
-                    
-            except Exception as e:
-                logger.warning(f"Gemini test failed: {e}")
-                status_info['details']['test_result'] = 'error'
-                status_info['details']['error_message'] = str(e)
-        else:
-            status_info['details']['error_message'] = 'Fast Gemini Engine not available'
         
         return jsonify(status_info)
         
@@ -1509,16 +1772,32 @@ def get_gemini_status():
 # CONTEXT SELECTOR ENDPOINTS
 # ============================================================================
 
-@recommendations_bp.route('/suggested-contexts', methods=['GET'])
-@jwt_required()
+@recommendations_bp.route('/suggested-contexts', methods=['GET', 'OPTIONS'])
 def get_suggested_contexts():
     """Get smart suggestions based on user activity"""
+    # Handle OPTIONS preflight requests - no JWT needed
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # For actual requests, require JWT
     try:
+        from flask_jwt_extended import verify_jwt_in_request
+        verify_jwt_in_request()
         user_id = int(get_jwt_identity())
-        
+
         if not MODELS_AVAILABLE:
             return jsonify({'success': False, 'error': 'Models not available'}), 500
-        
+
+        # Check Redis cache first (5 minute TTL for context data)
+        cache_key = f"suggested_contexts:{user_id}"
+        try:
+            from utils.redis_utils import redis_cache
+            cached_result = redis_cache.get_cache(cache_key)
+            if cached_result:
+                return jsonify(cached_result)
+        except Exception:
+            pass  # Continue without cache if Redis fails
+
         contexts = []
         
         # Get user's most recent activity
@@ -1576,26 +1855,51 @@ def get_suggested_contexts():
             if key not in seen:
                 seen.add(key)
                 unique_contexts.append(ctx)
-        
-        return jsonify({
+
+        result = {
             'success': True,
             'contexts': unique_contexts[:2]
-        })
+        }
+
+        # Cache the result for 5 minutes
+        try:
+            from utils.redis_utils import redis_cache
+            redis_cache.set_cache(cache_key, result, ttl=300)  # 5 minutes
+        except Exception:
+            pass  # Continue without caching if Redis fails
+
+        return jsonify(result)
     
     except Exception as e:
         logger.error(f"Error getting suggested contexts: {e}")
         return jsonify({'success': False, 'error': str(e), 'contexts': []}), 500
 
-@recommendations_bp.route('/recent-contexts', methods=['GET'])
-@jwt_required()
+@recommendations_bp.route('/recent-contexts', methods=['GET', 'OPTIONS'])
 def get_recent_contexts():
     """Get recent projects and tasks"""
+    # Handle OPTIONS preflight requests - no JWT needed
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # For actual requests, require JWT
     try:
+        from flask_jwt_extended import verify_jwt_in_request
+        verify_jwt_in_request()
         user_id = int(get_jwt_identity())
-        
+
         if not MODELS_AVAILABLE:
             return jsonify({'success': False, 'error': 'Models not available'}), 500
-        
+
+        # Check Redis cache first (5 minute TTL for context data)
+        cache_key = f"recent_contexts:{user_id}"
+        try:
+            from utils.redis_utils import redis_cache
+            cached_result = redis_cache.get_cache(cache_key)
+            if cached_result:
+                return jsonify(cached_result)
+        except Exception:
+            pass  # Continue without cache if Redis fails
+
         recent_items = []
         
         # Get recent projects
@@ -1615,11 +1919,20 @@ def get_recent_contexts():
                 })
         except:
             pass
-        
-        return jsonify({
+
+        result = {
             'success': True,
             'recent': recent_items[:5]
-        })
+        }
+
+        # Cache the result for 5 minutes
+        try:
+            from utils.redis_utils import redis_cache
+            redis_cache.set_cache(cache_key, result, ttl=300)  # 5 minutes
+        except Exception:
+            pass  # Continue without caching if Redis fails
+
+        return jsonify(result)
     
     except Exception as e:
         logger.error(f"Error getting recent contexts: {e}")

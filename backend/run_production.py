@@ -73,6 +73,8 @@ try:
     from services.multi_user_api_manager import init_api_manager
     
     # Import user API key blueprint with error handling
+    user_api_key_available = False
+    init_user_api_key = None
     try:
         from blueprints.user_api_key import init_app as init_user_api_key
         user_api_key_available = True
@@ -418,7 +420,7 @@ def create_app():
             cors_origins = []
             
             if app.config.get('DEBUG'):
-                cors_origins = app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173'])
+                cors_origins = app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'])
             else:
                 cors_origins_env = os.environ.get('CORS_ORIGINS', '')
                 if cors_origins_env:

@@ -3,6 +3,7 @@ Rate limiting middleware for production
 """
 import os
 import logging
+from flask import request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -33,11 +34,13 @@ def init_rate_limiter(app):
         
         limiter = Limiter(
             app=app,
-            key_func=get_remote_address,
+            key_func=get_remote_address,  # Use default key function
             default_limits=default_limits,
             storage_uri=storage_uri,
             headers_enabled=True
         )
+        # Note: OPTIONS requests will use the same rate limits, but limits are high enough
+        # (50 per minute) that preflight requests won't be an issue
         
         logger.info("Rate limiter initialized successfully")
         return limiter

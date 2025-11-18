@@ -288,13 +288,5 @@ def verify_token():
         }
     }), 200
 
-# Handle OPTIONS requests for CORS preflight
-@auth_bp.route('/login', methods=['OPTIONS'])
-@auth_bp.route('/register', methods=['OPTIONS'])
-@auth_bp.route('/refresh', methods=['OPTIONS'])
-@auth_bp.route('/logout', methods=['OPTIONS'])
-@auth_bp.route('/csrf-token', methods=['OPTIONS'])
-@auth_bp.route('/verify-token', methods=['OPTIONS'])
-def handle_options():
-    """Handle OPTIONS requests for CORS preflight"""
-    return '', 200 
+# Note: OPTIONS requests are automatically handled by flask-cors
+# No manual OPTIONS handlers needed - they can cause conflicts 
