@@ -88,8 +88,8 @@ const Recommendations = () => {
     try {
       await refreshTokenIfNeeded()
       
-      // Always use unified orchestrator endpoint
-      const endpoint = '/api/recommendations/unified-orchestrator'
+      // Default to unified orchestrator endpoint, but can be changed for task/subtask
+      let endpoint = '/api/recommendations/unified-orchestrator'
       
       // Build request payload based on selected context
       let data = {}
@@ -132,11 +132,29 @@ const Recommendations = () => {
           enhance_with_gemini: geminiAvailable
         }
       } else if (selectedContext.type === 'task') {
+        // Use unified orchestrator with task context for better recommendations
         data = {
           title: selectedContext.title,
           description: selectedContext.description || '',
-          technologies: selectedContext.projectTitle || '',
-          project_id: selectedContext.projectId,
+          technologies: selectedContext.technologies || '',
+          project_id: selectedContext.project_id,
+          task_id: selectedContext.id,
+          max_recommendations: 10,
+          engine_preference: 'auto',
+          diversity_weight: 0.3,
+          quality_threshold: 6,
+          include_global_content: true,
+          enhance_with_gemini: geminiAvailable
+        }
+      } else if (selectedContext.type === 'subtask') {
+        // Use unified orchestrator with subtask context for better recommendations
+        data = {
+          title: selectedContext.title,
+          description: selectedContext.description || '',
+          technologies: selectedContext.technologies || '',
+          project_id: selectedContext.project_id,
+          task_id: selectedContext.task_id,
+          subtask_id: selectedContext.id,
           max_recommendations: 10,
           engine_preference: 'auto',
           diversity_weight: 0.3,
@@ -410,6 +428,8 @@ const Recommendations = () => {
                         <FolderOpen className="w-5 h-5 text-purple-400" />
                       ) : selectedContext.type === 'task' ? (
                         <CheckSquare className="w-5 h-5 text-green-400" />
+                      ) : selectedContext.type === 'subtask' ? (
+                        <CheckSquare className="w-5 h-5 text-purple-400" />
                       ) : selectedContext.type === 'general' ? (
                         <Globe className="w-5 h-5 text-blue-400" />
                       ) : (
@@ -442,7 +462,7 @@ const Recommendations = () => {
               <div className="mb-8 flex justify-end">
                 <div className="flex items-center space-x-3 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl px-4 py-3 border border-yellow-500/30">
                   <Brain className="w-5 h-5 text-yellow-400" />
-                  <span className="text-white font-medium">Gemini:</span>
+                  <span className="text-white font-medium">Engine:</span>
                   <div className={`w-2 h-2 rounded-full ${geminiAvailable ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
                   <span className={`text-sm ${geminiAvailable ? 'text-green-300' : 'text-red-300'}`}>
                     {geminiAvailable ? 'Ready' : 'Unavailable'}
@@ -531,7 +551,7 @@ const Recommendations = () => {
         />
       )}
 
-      <style jsx>{`
+      <style>{`
         .logo-container {
           width: 120px;
           height: 120px;

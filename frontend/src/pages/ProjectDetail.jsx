@@ -6,14 +6,12 @@ import api from '../services/api'
 import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, 
-  Sparkles, 
   ExternalLink, 
   Bookmark, 
   Plus, 
   Edit, 
   Trash2,
   RefreshCw,
-  Lightbulb,
   Calendar,
   Tag,
   CheckSquare,
@@ -30,15 +28,21 @@ const ProjectDetail = () => {
   const { success, error } = useToast()
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [project, setProject] = useState(null)
-  const [recommendations, setRecommendations] = useState([])
   const [projectBookmarks, setProjectBookmarks] = useState([])
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [tasksLoading, setTasksLoading] = useState(false)
   const [showAITaskModal, setShowAITaskModal] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [skillLevel, setSkillLevel] = useState('intermediate')
+  const [expandedTasks, setExpandedTasks] = useState(new Set())
+  const [editingSubtask, setEditingSubtask] = useState(null)
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [newSubtaskDescription, setNewSubtaskDescription] = useState('')
+  const [addingSubtaskTo, setAddingSubtaskTo] = useState(null)
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDescription, setNewTaskDescription] = useState('')
 
   useEffect(() => {
     if (isAuthenticated && id) {
@@ -51,95 +55,33 @@ const ProjectDetail = () => {
     try {
       setLoading(true)
       const projectRes = await api.get(`/api/projects/${id}`)
-      setProject(projectRes.data.project)
-      setProjectBookmarks(projectRes.data.bookmarks || [])
       
-      // Get project-specific recommendations using unified orchestrator
-      try {
-        const recommendationsRes = await api.post('/api/recommendations/unified-orchestrator', {
-          title: projectRes.data.project.title,
-          description: projectRes.data.project.description,
-          technologies: projectRes.data.project.technologies,
-          user_interests: 'Project-specific learning and development',
-          project_id: parseInt(id),
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true,
-          enhance_with_gemini: true
-        })
-        setRecommendations(recommendationsRes.data.recommendations || [])
-      } catch (recError) {
-        console.error('Error fetching project recommendations:', recError)
-        setRecommendations([])
+      // Backend returns project directly in response.data, not in response.data.project
+      if (!projectRes.data || !projectRes.data.id) {
+        console.error('Project not found in response:', projectRes.data)
+        setProject(null)
+        error('Project not found')
+        return
       }
+      
+      // The project data is directly in projectRes.data
+      setProject(projectRes.data)
+      setProjectBookmarks(projectRes.data.bookmarks || [])
     } catch (err) {
       console.error('Error fetching project data:', err)
-      error('Failed to load project data')
+      setProject(null)
+      if (err.response?.status === 404) {
+        error('Project not found')
+      } else if (err.response?.status === 403) {
+        error('You do not have access to this project')
+      } else {
+        error('Failed to load project data')
+      }
     } finally {
       setLoading(false)
     }
   }
 
-  const handleRefreshRecommendations = async () => {
-    setRefreshing(true)
-    try {
-      const response = await api.post('/api/recommendations/unified-orchestrator', {
-        title: project.title,
-        description: project.description,
-        technologies: project.technologies,
-        user_interests: 'Project-specific learning and development',
-        project_id: parseInt(id),
-        max_recommendations: 10,
-        engine_preference: 'auto',
-        diversity_weight: 0.3,
-        quality_threshold: 6,
-        include_global_content: true,
-        enhance_with_gemini: true
-      })
-      setRecommendations(response.data.recommendations || [])
-      success('Recommendations refreshed!')
-    } catch (err) {
-      console.error('Error refreshing recommendations:', err)
-      error('Failed to refresh recommendations')
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  const handleSaveRecommendation = async (recommendation) => {
-    try {
-      await api.post('/api/bookmarks', {
-        url: recommendation.url,
-        title: recommendation.title,
-        description: recommendation.description || '',
-        category: 'recommended',
-        project_id: id
-      })
-      
-      // Remove from recommendations and add to project bookmarks
-      setRecommendations(prev => prev.filter(rec => rec.id !== recommendation.id))
-      setProjectBookmarks(prev => [...prev, recommendation])
-      success('Content saved to project!')
-    } catch (err) {
-      console.error('Error saving recommendation:', err)
-      error('Failed to save content')
-    }
-  }
-
-  const handleFeedback = async (recommendationId, feedbackType) => {
-    try {
-      await api.post('/api/recommendations/feedback', {
-        content_id: recommendationId,
-        feedback_type: feedbackType,
-        project_id: id
-      })
-      // Optionally refresh recommendations after feedback
-    } catch (err) {
-      console.error('Error submitting feedback:', err)
-    }
-  }
 
   const fetchTasks = async () => {
     try {
@@ -177,24 +119,154 @@ const ProjectDetail = () => {
     }
   }
 
+  const handleCreateTask = async () => {
+    if (!newTaskTitle.trim()) {
+      error('Task title is required')
+      return
+    }
+
+    try {
+      await api.post('/api/tasks', {
+        project_id: parseInt(id),
+        title: newTaskTitle,
+        description: newTaskDescription
+      })
+      success('Task created successfully')
+      setNewTaskTitle('')
+      setNewTaskDescription('')
+      setShowCreateTaskModal(false)
+
+      // Clear context cache since we added a new task
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
+      fetchTasks()
+    } catch (err) {
+      error('Failed to create task')
+    }
+  }
+
   const handleDeleteTask = async (taskId) => {
     if (!confirm('Delete this task?')) return
 
     try {
       await api.delete(`/api/tasks/${taskId}`)
       success('Task deleted')
+
+      // Clear context cache since we deleted a task
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
       fetchTasks()
     } catch (err) {
       error('Failed to delete task')
     }
   }
 
+  const toggleTaskExpanded = (taskId) => {
+    const newExpanded = new Set(expandedTasks)
+    if (newExpanded.has(taskId)) {
+      newExpanded.delete(taskId)
+    } else {
+      newExpanded.add(taskId)
+    }
+    setExpandedTasks(newExpanded)
+  }
+
+  const handleCreateSubtask = async (taskId) => {
+    if (!newSubtaskTitle.trim()) {
+      error('Subtask title is required')
+      return
+    }
+
+    try {
+      await api.post(`/api/tasks/${taskId}/subtasks`, {
+        title: newSubtaskTitle,
+        description: newSubtaskDescription
+      })
+      success('Subtask created')
+      setNewSubtaskTitle('')
+      setNewSubtaskDescription('')
+      setAddingSubtaskTo(null)
+
+      // Clear context cache since we added a new subtask
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
+      fetchTasks()
+    } catch (err) {
+      error('Failed to create subtask')
+    }
+  }
+
+  const handleUpdateSubtask = async (subtaskId, taskId, completed) => {
+    try {
+      await api.put(`/api/tasks/subtasks/${subtaskId}`, {
+        completed: completed
+      })
+      fetchTasks()
+    } catch (err) {
+      error('Failed to update subtask')
+    }
+  }
+
+  const handleDeleteSubtask = async (subtaskId) => {
+    if (!confirm('Delete this subtask?')) return
+
+    try {
+      await api.delete(`/api/tasks/subtasks/${subtaskId}`)
+      success('Subtask deleted')
+
+      // Clear context cache since we deleted a subtask
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
+      fetchTasks()
+    } catch (err) {
+      error('Failed to delete subtask')
+    }
+  }
+
   if (!isAuthenticated) {
     return (
-      <div className="container">
-        <div className="auth-required">
-          <h2>Authentication Required</h2>
-          <p>Please log in to view project details.</p>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        <div className="text-center relative z-10 max-w-md mx-auto p-8">
+          <h2 className="text-3xl font-bold text-white mb-4">Authentication Required</h2>
+          <p className="text-gray-400 mb-8">Please log in to view project details.</p>
+          <Link 
+            to="/login" 
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+          >
+            Go to Login
+          </Link>
         </div>
       </div>
     )
@@ -202,10 +274,10 @@ const ProjectDetail = () => {
 
   if (loading) {
     return (
-      <div className="container">
-        <div className="loading">
-          <FolderOpen className="loading-icon" />
-          <p>Loading project details...</p>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        <div className="text-center relative z-10">
+          <FolderOpen className="w-16 h-16 text-green-400 mx-auto mb-4 animate-pulse" />
+          <p className="text-xl text-gray-300">Loading project details...</p>
         </div>
       </div>
     )
@@ -213,13 +285,22 @@ const ProjectDetail = () => {
 
   if (!project) {
     return (
-      <div className="container">
-        <div className="error-state">
-          <h2>Project Not Found</h2>
-          <p>The project you're looking for doesn't exist or you don't have access to it.</p>
-          <Link to="/projects" className="btn btn-primary">
-            Back to Projects
-          </Link>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+        <div className="text-center relative z-10 max-w-md mx-auto p-8">
+          <div className="mb-6">
+            <FolderOpen className="w-16 h-16 text-red-400 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold text-white mb-4">Project Not Found</h2>
+            <p className="text-gray-400 mb-8">
+              The project you're looking for doesn't exist or you don't have access to it.
+            </p>
+            <Link 
+              to="/projects" 
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+            >
+              <FolderOpen className="w-5 h-5" />
+              Back to Projects
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -402,38 +483,99 @@ const ProjectDetail = () => {
               ))}
             </div>
           ) : (
-            <div className="empty-state">
-              <Bookmark className="empty-icon" />
-              <h3>No content saved to this project yet</h3>
-              <p>Start by adding content or saving recommendations below.</p>
+            <div className="text-center py-16 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+              <div className="p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full w-24 h-24 mx-auto mb-6">
+                <Bookmark className="w-12 h-12 text-green-400 mx-auto mt-3" />
+              </div>
+              <h3 className="text-2xl font-semibold text-white mb-4">No content saved to this project yet</h3>
+              <p className="text-gray-400 mb-8 max-w-md mx-auto">Start by adding content to your project to organize your bookmarks and resources.</p>
             </div>
           )}
         </div>
 
         {/* Tasks Section */}
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">
-              <CheckSquare className="section-icon" />
-              <h2>Project Tasks</h2>
+        <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-lg">
+                <CheckSquare className="w-6 h-6 text-green-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-white">Project Tasks</h2>
+                <p className="text-gray-400 text-sm mt-1">{tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}</p>
+              </div>
             </div>
-            <button 
-              onClick={() => setShowAITaskModal(true)}
-              className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
-              <Zap size={16} />
-              AI Generate Tasks
-            </button>
+            <div className="flex items-center space-x-3">
+              <button 
+                onClick={() => setShowCreateTaskModal(true)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  padding: '10px 20px',
+                  background: 'linear-gradient(135deg, #5C6BC0 0%, #9C27B0 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  boxShadow: '0 4px 12px rgba(156, 39, 176, 0.3)'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'translateY(-2px)'
+                  e.target.style.boxShadow = '0 6px 16px rgba(156, 39, 176, 0.4)'
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)'
+                  e.target.style.boxShadow = '0 4px 12px rgba(156, 39, 176, 0.3)'
+                }}
+              >
+                <Plus size={16} />
+                Add Task
+              </button>
+              <button 
+                onClick={() => setShowAITaskModal(true)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  padding: '10px 20px',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  boxShadow: '0 4px 12px rgba(77, 208, 225, 0.3)'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'translateY(-2px)'
+                  e.target.style.boxShadow = '0 6px 16px rgba(77, 208, 225, 0.4)'
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)'
+                  e.target.style.boxShadow = '0 4px 12px rgba(77, 208, 225, 0.3)'
+                }}
+              >
+                <Zap size={16} />
+                AI Generate Tasks
+              </button>
+            </div>
           </div>
 
           {tasksLoading ? (
-            <div className="loading-state">
-              <RefreshCw className="animate-spin" size={24} />
-              <p>Loading tasks...</p>
+            <div className="flex items-center justify-center py-16">
+              <div className="text-center">
+                <RefreshCw className="w-8 h-8 text-green-400 mx-auto mb-4 animate-spin" />
+                <p className="text-gray-300">Loading tasks...</p>
+              </div>
             </div>
           ) : tasks.length > 0 ? (
-            <div className="tasks-grid" style={{ display: 'grid', gap: '16px' }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {tasks.map((task) => {
                 let taskDetails = {}
                 try {
@@ -445,79 +587,51 @@ const ProjectDetail = () => {
                 }
 
                 return (
-                  <div key={task.id} className="task-card" style={{
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '12px',
-                    padding: '16px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                      <h4 style={{ color: '#fff', margin: 0, flex: 1 }}>{task.title}</h4>
+                  <div key={task.id} className="group bg-gradient-to-br from-gray-800/50 to-black/50 backdrop-blur-xl border border-gray-700 rounded-xl p-6 hover:border-green-500/30 transition-all duration-300">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xl font-semibold text-white group-hover:text-green-400 transition-colors duration-300 mb-2">
+                          {task.title}
+                        </h4>
+                      </div>
                       <button 
                         onClick={() => handleDeleteTask(task.id)}
-                        style={{
-                          background: 'rgba(239,68,68,0.2)',
-                          border: 'none',
-                          borderRadius: '8px',
-                          padding: '6px',
-                          cursor: 'pointer',
-                          color: '#f87171'
-                        }}
+                        className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0"
+                        title="Delete task"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
                     {taskDetails.description && (
-                      <p style={{ color: '#d1d5db', fontSize: '14px', marginBottom: '12px' }}>
+                      <p className="text-gray-400 mb-4 line-clamp-3">
                         {taskDetails.description}
                       </p>
                     )}
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    <div className="flex flex-wrap gap-2 mb-4">
                       {taskDetails.estimated_time && (
-                        <span style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 8px',
-                          background: 'rgba(59,130,246,0.2)',
-                          color: '#60a5fa',
-                          borderRadius: '6px',
-                          fontSize: '12px'
-                        }}>
-                          <Clock size={12} />
+                        <span className="flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                          <Clock className="w-3 h-3" />
                           {taskDetails.estimated_time}
                         </span>
                       )}
                       
                       {taskDetails.difficulty && (
-                        <span style={{
-                          padding: '4px 8px',
-                          background: taskDetails.difficulty === 'beginner' ? 'rgba(34,197,94,0.2)' :
-                                      taskDetails.difficulty === 'intermediate' ? 'rgba(251,146,60,0.2)' :
-                                      'rgba(239,68,68,0.2)',
-                          color: taskDetails.difficulty === 'beginner' ? '#4ade80' :
-                                 taskDetails.difficulty === 'intermediate' ? '#fb923c' :
-                                 '#f87171',
-                          borderRadius: '6px',
-                          fontSize: '12px'
-                        }}>
+                        <span className={`px-2 py-1 text-xs rounded-lg ${
+                          taskDetails.difficulty === 'beginner' ? 'bg-green-600/20 text-green-400' :
+                          taskDetails.difficulty === 'intermediate' ? 'bg-orange-600/20 text-orange-400' :
+                          'bg-red-600/20 text-red-400'
+                        }`}>
                           {taskDetails.difficulty}
                         </span>
                       )}
                     </div>
 
                     {taskDetails.key_technologies && taskDetails.key_technologies.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                      <div className="flex flex-wrap gap-2 mb-4">
                         {taskDetails.key_technologies.map((tech, idx) => (
-                          <span key={idx} style={{
-                            padding: '2px 8px',
-                            background: 'rgba(167,139,250,0.2)',
-                            color: '#a78bfa',
-                            borderRadius: '4px',
-                            fontSize: '11px'
-                          }}>
+                          <span key={idx} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
                             {tech}
                           </span>
                         ))}
@@ -525,58 +639,304 @@ const ProjectDetail = () => {
                     )}
 
                     {taskDetails.success_criteria && (
-                      <div style={{
-                        marginTop: '12px',
-                        padding: '8px',
-                        background: 'rgba(34,197,94,0.1)',
-                        borderLeft: '3px solid #4ade80',
-                        borderRadius: '4px'
-                      }}>
-                        <p style={{ color: '#86efac', fontSize: '12px', margin: 0, display: 'flex', alignItems: 'start', gap: '6px' }}>
-                          <Target size={12} style={{ marginTop: '2px', flexShrink: 0 }} />
+                      <div className="mt-4 p-3 bg-green-600/10 border-l-3 border-green-500 rounded-lg">
+                        <p className="text-green-400 text-xs flex items-start gap-2">
+                          <Target className="w-3 h-3 mt-0.5 flex-shrink-0" />
                           <span>{taskDetails.success_criteria}</span>
                         </p>
                       </div>
                     )}
 
                     {taskDetails.prerequisites && taskDetails.prerequisites.length > 0 && (
-                      <div style={{
-                        marginTop: '8px',
-                        padding: '8px',
-                        background: 'rgba(251,146,60,0.1)',
-                        borderLeft: '3px solid #fb923c',
-                        borderRadius: '4px'
-                      }}>
-                        <p style={{ color: '#fdba74', fontSize: '11px', margin: 0, fontWeight: 'bold' }}>
+                      <div className="mt-4 p-3 bg-orange-600/10 border-l-3 border-orange-500 rounded-lg">
+                        <p className="text-orange-400 text-xs font-semibold mb-2">
                           Prerequisites:
                         </p>
-                        <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px', color: '#fed7aa', fontSize: '11px' }}>
+                        <ul className="text-orange-300 text-xs list-disc list-inside space-y-1">
                           {taskDetails.prerequisites.map((prereq, idx) => (
                             <li key={idx}>{prereq}</li>
                           ))}
                         </ul>
                       </div>
                     )}
+
+                    {/* Subtasks Section */}
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <div className="flex items-center justify-between mb-3">
+                        <button
+                          onClick={() => toggleTaskExpanded(task.id)}
+                          className="text-gray-400 hover:text-white transition-colors duration-300 text-sm flex items-center gap-2"
+                        >
+                          <CheckSquare className="w-4 h-4" />
+                          <span>Subtasks ({task.subtasks?.length || 0})</span>
+                          <span>
+                            {expandedTasks.has(task.id) ? '▼' : '▶'}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => setAddingSubtaskTo(addingSubtaskTo === task.id ? null : task.id)}
+                          className="px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg transition-colors duration-300 text-sm flex items-center gap-2"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add Subtask
+                        </button>
+                      </div>
+
+                      {expandedTasks.has(task.id) && (
+                        <div className="mt-3">
+                          {addingSubtaskTo === task.id && (
+                            <div className="bg-green-600/10 border border-green-500/30 rounded-lg p-4 mb-4">
+                              <input
+                                type="text"
+                                placeholder="Subtask title"
+                                value={newSubtaskTitle}
+                                onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300 text-sm mb-3"
+                              />
+                              <textarea
+                                placeholder="Subtask description (optional)"
+                                value={newSubtaskDescription}
+                                onChange={(e) => setNewSubtaskDescription(e.target.value)}
+                                rows="3"
+                                className="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300 text-sm resize-none mb-3"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleCreateSubtask(task.id)}
+                                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-300 text-sm font-medium"
+                                >
+                                  Create
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setAddingSubtaskTo(null)
+                                    setNewSubtaskTitle('')
+                                    setNewSubtaskDescription('')
+                                  }}
+                                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors duration-300 text-sm font-medium"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {task.subtasks && task.subtasks.length > 0 ? (
+                            <div className="space-y-2">
+                              {task.subtasks.map((subtask) => (
+                                <div
+                                  key={subtask.id}
+                                  className="flex items-start gap-3 p-3 bg-gray-800/30 border border-gray-700 rounded-lg hover:border-gray-600 transition-colors duration-300"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={subtask.completed}
+                                    onChange={(e) => handleUpdateSubtask(subtask.id, task.id, e.target.checked)}
+                                    className="mt-1 cursor-pointer w-4 h-4"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-sm ${subtask.completed ? 'text-gray-500 line-through' : 'text-white'}`}>
+                                      {subtask.title}
+                                    </p>
+                                    {subtask.description && (
+                                      <p className={`text-xs mt-1 ${subtask.completed ? 'text-gray-600 line-through' : 'text-gray-400'}`}>
+                                        {subtask.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteSubtask(subtask.id)}
+                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0"
+                                    title="Delete subtask"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-500 text-sm italic text-center py-4">
+                              No subtasks yet. Click "Add Subtask" to create one.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
             </div>
           ) : (
-            <div className="empty-state">
-              <CheckSquare className="empty-icon" size={48} style={{ color: '#9ca3af' }} />
-              <h3 style={{ color: '#fff' }}>No tasks yet</h3>
-              <p style={{ color: '#d1d5db' }}>Use AI to generate a complete task breakdown for this project!</p>
-              <button 
-                onClick={() => setShowAITaskModal(true)}
-                className="btn btn-primary"
-                style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                <Zap size={16} />
-                Generate Tasks with AI
-              </button>
+            <div className="text-center py-16 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
+              <div className="p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full w-24 h-24 mx-auto mb-6">
+                <CheckSquare className="w-12 h-12 text-green-400 mx-auto mt-3" />
+              </div>
+              <h3 className="text-2xl font-semibold text-white mb-4">No tasks yet</h3>
+              <p className="text-gray-400 mb-8 max-w-md mx-auto">Create tasks manually or use AI to generate a complete task breakdown for this project.</p>
+              <div className="flex items-center justify-center gap-3">
+                <button 
+                  onClick={() => setShowCreateTaskModal(true)}
+                  className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span>Add Task</span>
+                </button>
+                <button 
+                  onClick={() => setShowAITaskModal(true)}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+                >
+                  <Zap className="w-5 h-5" />
+                  <span>AI Generate</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
+
+        {/* Manual Task Creation Modal */}
+        {showCreateTaskModal && (
+          <div 
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0,0,0,0.8)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              backdropFilter: 'blur(4px)'
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowCreateTaskModal(false)
+                setNewTaskTitle('')
+                setNewTaskDescription('')
+              }
+            }}
+          >
+            <div 
+              style={{
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                borderRadius: '16px',
+                padding: '32px',
+                maxWidth: '500px',
+                width: '90%',
+                border: '1px solid rgba(255,255,255,0.1)',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                position: 'relative',
+                zIndex: 10000
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  padding: '12px',
+                  borderRadius: '12px'
+                }}>
+                  <Plus size={24} style={{ color: '#fff' }} />
+                </div>
+                <div>
+                  <h2 style={{ color: '#fff', margin: 0, fontSize: '24px' }}>Create New Task</h2>
+                  <p style={{ color: '#9ca3af', margin: '4px 0 0 0', fontSize: '14px' }}>
+                    Add a manual task to your project
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', color: '#d1d5db', marginBottom: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  Task Title *
+                </label>
+                <input
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="e.g., Set up development environment"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', color: '#d1d5db', marginBottom: '8px', fontSize: '14px', fontWeight: '500' }}>
+                  Task Description (Optional)
+                </label>
+                <textarea
+                  value={newTaskDescription}
+                  onChange={(e) => setNewTaskDescription(e.target.value)}
+                  placeholder="Describe what needs to be done in this task..."
+                  rows="4"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    resize: 'vertical'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => {
+                    setShowCreateTaskModal(false)
+                    setNewTaskTitle('')
+                    setNewTaskDescription('')
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#d1d5db',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateTask}
+                  disabled={!newTaskTitle.trim()}
+                  style={{
+                    flex: 1,
+                    padding: '12px',
+                    background: !newTaskTitle.trim() ? 'rgba(16,185,129,0.5)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: !newTaskTitle.trim() ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Plus size={16} />
+                  Create Task
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* AI Task Generation Modal */}
         {showAITaskModal && (
@@ -606,7 +966,7 @@ const ProjectDetail = () => {
                   padding: '12px',
                   borderRadius: '12px'
                 }}>
-                  <Sparkles size={24} style={{ color: '#fff' }} />
+                  <Zap size={24} style={{ color: '#fff' }} />
                 </div>
                 <div>
                   <h2 style={{ color: '#fff', margin: 0, fontSize: '24px' }}>AI Task Generation</h2>
@@ -709,114 +1069,6 @@ const ProjectDetail = () => {
           </div>
         )}
 
-        {/* AI Recommendations Section */}
-        <div className="section recommendations-section">
-          <div className="section-header">
-            <div className="section-title">
-              <Sparkles className="section-icon" />
-              <h2>Intelligent Recommendations for This Project</h2>
-            </div>
-            <div className="section-actions">
-              <button 
-                onClick={handleRefreshRecommendations}
-                disabled={refreshing}
-                className="btn btn-secondary btn-sm"
-              >
-                <RefreshCw size={16} className={refreshing ? 'spinning' : ''} />
-                {refreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-          </div>
-          
-          <div className="recommendations-explanation">
-            <Lightbulb size={16} />
-            <p>
-              These recommendations are powered by AI, finding content semantically 
-              similar to your project's description and technologies.
-            </p>
-          </div>
-
-          {recommendations.length > 0 ? (
-            <div className="recommendations-grid">
-              {recommendations.map((rec) => (
-                <div key={rec.id} className="recommendation-card">
-                  <div className="recommendation-header">
-                    <div className="recommendation-meta">
-                      <Lightbulb className="recommendation-icon" />
-                      <span className="recommendation-score">
-                        Match: {rec.score || 'High'}%
-                      </span>
-                    </div>
-                    <div className="recommendation-actions">
-                      <button 
-                        onClick={() => handleFeedback(rec.id, 'relevant')}
-                        className="feedback-button positive"
-                        title="This is relevant"
-                      >
-                        👍
-                      </button>
-                      <button 
-                        onClick={() => handleFeedback(rec.id, 'not_relevant')}
-                        className="feedback-button negative"
-                        title="This is not relevant"
-                      >
-                        👎
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <h4 className="recommendation-title">{rec.title}</h4>
-                  <p className="recommendation-url">{rec.url}</p>
-                  
-                  {rec.description && (
-                    <p className="recommendation-description">{rec.description}</p>
-                  )}
-                  
-                  {rec.reason && (
-                    <div className="recommendation-reason">
-                      <strong>Why recommended:</strong> {rec.reason}
-                    </div>
-                  )}
-                  
-                  <div className="recommendation-footer">
-                    <a 
-                      href={rec.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="recommendation-link"
-                    >
-                      <ExternalLink size={16} />
-                      View Content
-                    </a>
-                    <button 
-                      onClick={() => handleSaveRecommendation(rec)}
-                      className="save-recommendation-btn"
-                    >
-                      <Bookmark size={16} />
-                      Save to Project
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <Sparkles className="empty-icon" />
-              <h3>No recommendations available</h3>
-              <p>
-                Add more content to your project or update your project description 
-                to get personalized recommendations.
-              </p>
-              <button 
-                onClick={handleRefreshRecommendations}
-                className="btn btn-primary"
-              >
-                <RefreshCw size={16} />
-                Refresh Recommendations
-              </button>
-            </div>
-          )}
-            </div>
             </div>
           </main>
         </div>

@@ -6,7 +6,7 @@ import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
   Settings, Grid3X3, List, Star, Clock, TrendingUp, 
-  BarChart3, Globe, MoreHorizontal, Tag, Sparkles, LogOut
+  BarChart3, Globe, MoreHorizontal, Tag, Sparkles, LogOut, CheckSquare
 } from 'lucide-react'
 
 const Projects = () => {
@@ -25,6 +25,10 @@ const Projects = () => {
     description: '',
     technologies: ''
   })
+  const [tasks, setTasks] = useState([])
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDescription, setNewTaskDescription] = useState('')
+  const [showTasksSection, setShowTasksSection] = useState(false)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -56,9 +60,42 @@ const Projects = () => {
   const handleCreateProject = async (e) => {
     e.preventDefault()
     try {
-      await api.post('/api/projects', formData)
+      const response = await api.post('/api/projects', formData)
+      const projectId = response.data.project_id || response.data.project.id
+      
+      // Create tasks if any were added
+      if (tasks.length > 0 && projectId) {
+        for (const task of tasks) {
+          try {
+            await api.post('/api/tasks', {
+              project_id: projectId,
+              title: task.title,
+              description: task.description || ''
+            })
+          } catch (taskError) {
+            console.error('Error creating task:', taskError)
+          }
+        }
+      }
+      
       setFormData({ title: '', description: '', technologies: '' })
+      setTasks([])
+      setNewTaskTitle('')
+      setNewTaskDescription('')
+      setShowTasksSection(false)
       setShowCreateForm(false)
+
+      // Clear context cache since we added a new project
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
       fetchProjects()
     } catch (error) {
       console.error('Error creating project:', error)
@@ -69,9 +106,41 @@ const Projects = () => {
     e.preventDefault()
     try {
       await api.put(`/api/projects/${editingProject.id}`, formData)
+      
+      // Create tasks if any were added
+      if (tasks.length > 0 && editingProject.id) {
+        for (const task of tasks) {
+          try {
+            await api.post('/api/tasks', {
+              project_id: editingProject.id,
+              title: task.title,
+              description: task.description || ''
+            })
+          } catch (taskError) {
+            console.error('Error creating task:', taskError)
+          }
+        }
+      }
+      
       setFormData({ title: '', description: '', technologies: '' })
+      setTasks([])
+      setNewTaskTitle('')
+      setNewTaskDescription('')
+      setShowTasksSection(false)
       setShowEditForm(false)
       setEditingProject(null)
+
+      // Clear context cache since we updated a project
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
       fetchProjects()
     } catch (error) {
       console.error('Error updating project:', error)
@@ -83,6 +152,18 @@ const Projects = () => {
       await api.delete(`/api/projects/${deletingProject.id}`)
       setShowDeleteModal(false)
       setDeletingProject(null)
+
+      // Clear context cache since we deleted a project
+      if (window.clearContextCache) {
+        window.clearContextCache()
+      }
+      // Also clear server-side context caches
+      try {
+        api.post('/api/recommendations/cache/clear-context')
+      } catch (err) {
+        console.warn('Failed to clear server context cache:', err)
+      }
+
       fetchProjects()
     } catch (error) {
       console.error('Error deleting project:', error)
@@ -111,6 +192,22 @@ const Projects = () => {
     setEditingProject(null)
     setDeletingProject(null)
     setFormData({ title: '', description: '', technologies: '' })
+    setTasks([])
+    setNewTaskTitle('')
+    setNewTaskDescription('')
+    setShowTasksSection(false)
+  }
+
+  const addTask = () => {
+    if (newTaskTitle.trim()) {
+      setTasks([...tasks, { title: newTaskTitle, description: newTaskDescription }])
+      setNewTaskTitle('')
+      setNewTaskDescription('')
+    }
+  }
+
+  const removeTask = (index) => {
+    setTasks(tasks.filter((_, i) => i !== index))
   }
 
   if (!isAuthenticated) {
@@ -343,7 +440,11 @@ const Projects = () => {
               viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {projects.map((project) => (
-                    <div key={project.id} className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-green-500/30 transition-all duration-300 transform hover:scale-[1.02]">
+                    <Link 
+                      key={project.id} 
+                      to={`/projects/${project.id}`}
+                      className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-green-500/30 transition-all duration-300 transform hover:scale-[1.02] block cursor-pointer"
+                    >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
                           <h3 className="text-xl font-semibold text-white group-hover:text-green-400 transition-colors duration-300 mb-2">
@@ -353,7 +454,13 @@ const Projects = () => {
                             <p className="text-gray-400 mb-4 line-clamp-3">{project.description}</p>
                           )}
                         </div>
-                        <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <button 
+                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
                           <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
                         </button>
                       </div>
@@ -373,16 +480,24 @@ const Projects = () => {
                           <Calendar className="w-4 h-4" />
                           <span>{new Date(project.created_at).toLocaleDateString()}</span>
                         </div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
                           <button 
-                            onClick={() => openEditForm(project)}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              openEditForm(project)
+                            }}
                             className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
                             title="Edit project"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button 
-                            onClick={() => openDeleteModal(project)}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              openDeleteModal(project)
+                            }}
                             className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300"
                             title="Delete project"
                           >
@@ -390,13 +505,17 @@ const Projects = () => {
                           </button>
                         </div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (
                 <div className="space-y-4">
                   {projects.map((project) => (
-                    <div key={project.id} className="flex items-center space-x-4 p-6 bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-green-500/30 transition-all duration-300">
+                    <Link 
+                      key={project.id} 
+                      to={`/projects/${project.id}`}
+                      className="flex items-center space-x-4 p-6 bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-green-500/30 transition-all duration-300 block cursor-pointer"
+                    >
                       <div className="w-12 h-12 bg-gradient-to-br from-green-600/20 to-emerald-600/20 rounded-lg flex items-center justify-center">
                         <FolderOpen className="w-6 h-6 text-green-400" />
                       </div>
@@ -426,21 +545,43 @@ const Projects = () => {
                         </div>
                       </div>
                       
-                      <div className="flex items-center space-x-2">
-                        <button>
+                      <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
                           <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
                         </button>
-                        <button onClick={() => openEditForm(project)}>
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            openEditForm(project)
+                          }}
+                        >
                           <Edit className="w-5 h-5 text-gray-400 hover:text-blue-400" />
                         </button>
-                        <button onClick={() => openDeleteModal(project)}>
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            openDeleteModal(project)
+                          }}
+                        >
                           <Trash2 className="w-5 h-5 text-gray-400 hover:text-red-400" />
                         </button>
-                        <button>
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
                           <MoreHorizontal className="w-5 h-5 text-gray-400 hover:text-white" />
                         </button>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )
@@ -523,6 +664,81 @@ const Projects = () => {
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300"
                 />
               </div>
+
+              {/* Tasks Section */}
+              <div className="border-t border-gray-700 pt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                    <CheckSquare className="w-5 h-5 text-green-400" />
+                    Tasks (Optional)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowTasksSection(!showTasksSection)}
+                    className="text-green-400 hover:text-green-300 text-sm font-medium"
+                  >
+                    {showTasksSection ? 'Hide' : 'Add Tasks'}
+                  </button>
+                </div>
+
+                {showTasksSection && (
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        placeholder="Task title"
+                        className="flex-1 px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addTask()
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={addTask}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-300"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
+                    {newTaskDescription && (
+                      <textarea
+                        value={newTaskDescription}
+                        onChange={(e) => setNewTaskDescription(e.target.value)}
+                        placeholder="Task description (optional)"
+                        rows="2"
+                        className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all duration-300 resize-none"
+                      />
+                    )}
+
+                    {tasks.length > 0 && (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {tasks.map((task, index) => (
+                          <div key={index} className="flex items-start gap-2 p-3 bg-gray-800/30 rounded-lg border border-gray-700">
+                            <div className="flex-1">
+                              <p className="text-white font-medium text-sm">{task.title}</p>
+                              {task.description && (
+                                <p className="text-gray-400 text-xs mt-1">{task.description}</p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeTask(index)}
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               
               <div className="flex items-center space-x-4 pt-4">
                 <button 
@@ -602,6 +818,81 @@ const Projects = () => {
                   placeholder="e.g., React, Python, PostgreSQL"
                   className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300"
                 />
+              </div>
+
+              {/* Tasks Section */}
+              <div className="border-t border-gray-700 pt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                    <CheckSquare className="w-5 h-5 text-blue-400" />
+                    Tasks (Optional)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowTasksSection(!showTasksSection)}
+                    className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+                  >
+                    {showTasksSection ? 'Hide' : 'Add Tasks'}
+                  </button>
+                </div>
+
+                {showTasksSection && (
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        placeholder="Task title"
+                        className="flex-1 px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addTask()
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={addTask}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-300"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
+                    {newTaskDescription && (
+                      <textarea
+                        value={newTaskDescription}
+                        onChange={(e) => setNewTaskDescription(e.target.value)}
+                        placeholder="Task description (optional)"
+                        rows="2"
+                        className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300 resize-none"
+                      />
+                    )}
+
+                    {tasks.length > 0 && (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {tasks.map((task, index) => (
+                          <div key={index} className="flex items-start gap-2 p-3 bg-gray-800/30 rounded-lg border border-gray-700">
+                            <div className="flex-1">
+                              <p className="text-white font-medium text-sm">{task.title}</p>
+                              {task.description && (
+                                <p className="text-gray-400 text-xs mt-1">{task.description}</p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeTask(index)}
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center space-x-4 pt-4">
