@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-import api, { initializeCSRF } from '../services/api'
+import api, { initializeCSRF, handleApiError } from '../services/api'
+import { useToast } from './ToastContext'
 
 const AuthContext = createContext()
 
@@ -16,6 +17,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
   const userRef = useRef(null) // Track user to avoid closure issues
+  const { error: showErrorToast } = useToast()
 
   // Update ref when user changes
   useEffect(() => {
@@ -54,17 +56,23 @@ export const AuthProvider = ({ children }) => {
       userRef.current = response.data
       return true
     } catch (error) {
-      console.error('Error fetching user data:', error)
-      // If token is invalid, logout
-      // But don't logout during initial load if we just logged in (user might be set from login response)
+      const errorInfo = handleApiError(error, 'fetching user profile')
+
+      // Handle authentication errors
       if (error.response?.status === 401) {
         // Only logout if this is not an initial load, or if user is not set
         // This prevents logging out immediately after a successful login
-        // Use ref to get current value
         if (!isInitialLoad || !userRef.current) {
           logout()
+          return false
         }
       }
+
+      // Show error toast for non-auth errors
+      if (error.response?.status !== 401) {
+        showErrorToast(errorInfo.userMessage)
+      }
+
       return false
     }
   }
@@ -94,9 +102,10 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true }
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Login failed' 
+      const errorInfo = handleApiError(error, 'login')
+      return {
+        success: false,
+        error: errorInfo.userMessage
       }
     }
   }
@@ -122,9 +131,10 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true, message: response.data.message }
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Registration failed' 
+      const errorInfo = handleApiError(error, 'registration')
+      return {
+        success: false,
+        error: errorInfo.userMessage
       }
     }
   }

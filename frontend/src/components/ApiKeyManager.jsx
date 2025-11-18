@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useToast } from '../contexts/ToastContext'
+import { useErrorHandler } from '../hooks/useErrorHandler'
 import api from '../services/api'
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Trash2, TestTube, ExternalLink, TrendingUp, Shield, Zap } from 'lucide-react'
 
 const ApiKeyManager = () => {
-  const { success, error } = useToast()
+  const { handleError, handleSuccess } = useErrorHandler()
   const [apiKey, setApiKey] = useState('')
   const [apiKeyName, setApiKeyName] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -27,7 +27,7 @@ const ApiKeyManager = () => {
         }
       }
     } catch (err) {
-      console.error('Error loading API key status:', err)
+      handleError(err, 'loading API key status', false) // Don't show toast for initial load
     }
   }
 
@@ -64,11 +64,25 @@ const ApiKeyManager = () => {
 
       if (response.data) {
         success('API key saved successfully!')
+
+        // Check if user was redirected here for API key setup
+        const urlParams = new URLSearchParams(window.location.search);
+        const wasRequired = urlParams.get('api_key_required') === 'true';
+
+        if (wasRequired) {
+          success('Great! Your API key is now active. Redirecting to dashboard...')
+
+          // Remove the query parameter and redirect to dashboard after a short delay
+          setTimeout(() => {
+            window.location.href = '/dashboard'
+          }, 2000)
+        }
+
         setApiKey('')
         setApiKeyName('')
         loadStatus()
         loadUsage()
-        
+
         // Trigger a custom event for onboarding modal to update
         window.dispatchEvent(new CustomEvent('apiKeyAdded'))
       }
@@ -133,16 +147,39 @@ const ApiKeyManager = () => {
     }
   }, [status])
 
+  // Check if user was redirected here because API key is required
+  const urlParams = new URLSearchParams(window.location.search);
+  const apiKeyRequired = urlParams.get('api_key_required') === 'true' || !status?.has_api_key;
+
   return (
-    <div className="bg-gray-900/50 backdrop-blur-sm border border-gray-800 rounded-lg p-6">
+    <div className={`bg-gray-900/50 backdrop-blur-sm border rounded-lg p-6 ${apiKeyRequired ? 'ring-2 ring-blue-500/50 border-blue-500/50' : 'border-gray-800'}`}>
+      {apiKeyRequired && (
+        <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <div className="flex items-start space-x-3">
+            <Key className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <h4 className="text-blue-400 font-semibold mb-1">API Key Setup Required</h4>
+              <p className="text-gray-300 text-sm">
+                Add your Gemini API key below to unlock all of Fuze's AI features. Get your free key from Google AI Studio - it only takes 2 minutes!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-blue-500/20 rounded-lg">
+          <div className={`p-2 rounded-lg ${apiKeyRequired ? 'bg-blue-500/20' : 'bg-blue-500/20'}`}>
             <Key className="w-5 h-5 text-blue-400" />
           </div>
           <div>
             <h3 className="text-xl font-semibold text-white">Gemini API Key</h3>
-            <p className="text-sm text-gray-400">Use your own API key for better performance</p>
+            <p className="text-sm text-gray-400">
+              {apiKeyRequired
+                ? "Required for AI features - get your free key from Google AI Studio"
+                : "Use your own API key for better performance"
+              }
+            </p>
           </div>
         </div>
         {status?.has_api_key && (

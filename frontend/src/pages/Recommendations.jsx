@@ -599,12 +599,31 @@ const Recommendations = () => {
           }
         }
       `}</style>
+
+      <style>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out;
+        }
+      `}</style>
     </>
   )
 }
 
 const RecommendationCard = ({ recommendation, onFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [showContextSummary, setShowContextSummary] = useState(false)
+  const [loadingContext, setLoadingContext] = useState(false)
 
   // Check recommendation type
   const isSimpleRecommendation = recommendation.analysis && 
@@ -653,6 +672,55 @@ const RecommendationCard = ({ recommendation, onFeedback }) => {
               <div className="bg-gray-800/30 rounded-lg p-3 mb-4">
                 <span className="text-purple-400 font-medium">Why recommended: </span>
                 <span className="text-gray-300">{recommendation.reason}</span>
+              </div>
+            )}
+
+            {/* Basic Summary - Always visible */}
+            {recommendation.basic_summary && (
+              <div className="bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/20 rounded-lg p-4 mb-4">
+                <div className="flex items-start space-x-3">
+                  <BookOpen className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <span className="text-blue-400 font-medium text-sm block mb-1">Summary</span>
+                    <p className="text-gray-300 text-sm leading-relaxed">{recommendation.basic_summary}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Context Summary Toggle - Only for top recommendations */}
+            {recommendation.context_summary && (
+              <div className="mb-4">
+                <button
+                  onClick={() => setShowContextSummary(!showContextSummary)}
+                  className="flex items-center space-x-2 text-purple-400 hover:text-purple-300 transition-colors duration-200 group"
+                >
+                  <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-lg px-3 py-2 hover:border-purple-400/50 transition-all duration-200">
+                    {loadingContext ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <span className={`text-sm transition-transform duration-200 ${showContextSummary ? 'rotate-90' : ''}`}>
+                        ▶
+                      </span>
+                    )}
+                    <span className="font-medium text-sm">
+                      {showContextSummary ? 'Hide' : 'Show'} Personalized Context
+                    </span>
+                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                  </div>
+                </button>
+
+                {showContextSummary && (
+                  <div className="mt-3 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-500/20 rounded-lg p-4 animate-fadeIn">
+                    <div className="flex items-start space-x-3">
+                      <TargetIcon className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <span className="text-purple-400 font-medium text-sm block mb-1">Why This Fits Your Project</span>
+                        <p className="text-gray-300 text-sm leading-relaxed">{recommendation.context_summary}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

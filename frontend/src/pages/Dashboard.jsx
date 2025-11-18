@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
 import api from '../services/api'
+import { useErrorHandler } from '../hooks/useErrorHandler'
 import { 
   Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
@@ -13,6 +14,7 @@ import logo1 from '../assets/logo1.svg'
 const Dashboard = () => {
   const { isAuthenticated, user, logout } = useAuth()
   const navigate = useNavigate()
+  const { handleError, handleSuccess } = useErrorHandler()
   
   // Debug user data
   console.log('Dashboard user data:', user)
@@ -28,8 +30,9 @@ const Dashboard = () => {
   })
   const [recentBookmarks, setRecentBookmarks] = useState([])
   const [recentProjects, setRecentProjects] = useState([])
-  const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(true)
+  const [importProgress, setImportProgress] = useState(null)
+  const [analysisProgress, setAnalysisProgress] = useState(null)
   const [viewMode, setViewMode] = useState('grid')
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
 
@@ -45,6 +48,19 @@ const Dashboard = () => {
   useEffect(() => {
     if (isAuthenticated) {
       fetchDashboardData()
+      checkImportProgress()
+      checkAnalysisProgress()
+    }
+  }, [isAuthenticated])
+
+  // Check progress periodically
+  useEffect(() => {
+    if (isAuthenticated) {
+      const progressInterval = setInterval(() => {
+        checkImportProgress()
+        checkAnalysisProgress()
+      }, 5000) // Check every 5 seconds
+      return () => clearInterval(progressInterval)
     }
   }, [isAuthenticated])
 
@@ -62,47 +78,42 @@ const Dashboard = () => {
         bookmarks: bookmarksRes.data.total || 0,
         projects: projectsRes.data.projects?.length || 0
       })
-      
+
       // Set loading to false after main data is loaded
       setLoading(false)
-      
-      // Load recommendations separately (can be slow)
-      try {
-        const recommendationsRes = await api.post('/api/recommendations/unified-orchestrator', {
-          title: 'Dashboard Recommendations',
-          description: 'General learning recommendations for dashboard',
-          technologies: '',
-          user_interests: 'General learning and skill development',
-          max_recommendations: 5,
-          engine_preference: 'fast',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true,
-          enhance_with_gemini: false
-        })
-        setRecommendations(recommendationsRes.data.recommendations || [])
-      } catch (recError) {
-        console.error('Error fetching recommendations:', recError)
-        setRecommendations([])
-      }
+
+      // NOTE: Recommendations are now loaded only on the Recommendations page
+      // to avoid unnecessary API calls and rate limiting
+      // Users can navigate to /recommendations to see personalized suggestions
     } catch (error) {
-      console.error('Error fetching dashboard data:', error)
-      setRecommendations([])
+      // Handle main data loading error with user notification
+      handleError(error, 'dashboard data')
       setLoading(false)
     }
   }
 
-  const handleSaveRecommendation = async (recommendation) => {
+
+  const checkImportProgress = async () => {
     try {
-      await api.post('/api/bookmarks', {
-        title: recommendation.title,
-        url: recommendation.url,
-        description: recommendation.description,
-        category: 'AI Recommended'
-      })
-      fetchDashboardData()
+      const response = await api.get('/api/bookmarks/import/progress')
+      if (response.data.status !== 'no_import') {
+        setImportProgress(response.data)
+      } else {
+        setImportProgress(null)
+      }
     } catch (error) {
-      console.error('Error saving recommendation:', error)
+      // Import progress endpoint might not exist yet or user might not have imports
+      setImportProgress(null)
+    }
+  }
+
+  const checkAnalysisProgress = async () => {
+    try {
+      const response = await api.get('/api/bookmarks/analysis/progress')
+      setAnalysisProgress(response.data)
+    } catch (error) {
+      // Analysis progress endpoint might not be available
+      setAnalysisProgress({ status: 'error', message: 'Unable to check analysis status' })
     }
   }
 
@@ -374,6 +385,112 @@ const Dashboard = () => {
               ))}
             </div>
 
+            {/* Import Progress Indicator */}
+            {importProgress && importProgress.status !== 'no_import' && (
+              <div className="bg-gradient-to-r from-blue-600/10 to-purple-600/10 border border-blue-500/20 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center">
+                      <Bookmark className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-semibold">
+                        {importProgress.status === 'processing' ? 'Importing Bookmarks' : 'Import Completed'}
+                      </h4>
+                      <p className="text-gray-400 text-sm">
+                        {importProgress.processed} of {importProgress.total} bookmarks processed
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-white font-bold text-lg">
+                      {Math.round((importProgress.processed / importProgress.total) * 100)}%
+                    </div>
+                    {importProgress.status === 'completed' && (
+                      <div className="text-green-400 text-sm">
+                        ✓ {importProgress.added} added, {importProgress.skipped} skipped
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${(importProgress.processed / importProgress.total) * 100}%` }}
+                  ></div>
+                </div>
+
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>Added: {importProgress.added}</span>
+                  <span>Skipped: {importProgress.skipped}</span>
+                  <span>Errors: {importProgress.errors}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Analysis Progress Indicator */}
+            {analysisProgress && (analysisProgress.status === 'analyzing' || analysisProgress.pending_items > 0) && (
+              <div className="bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-500/20 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-purple-600/20 rounded-lg flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-semibold">
+                        {analysisProgress.status === 'analyzing' ? 'Analyzing Content' : 'Content Analysis'}
+                      </h4>
+                      <p className="text-gray-400 text-sm">
+                        {analysisProgress.status === 'analyzing'
+                          ? `Analyzing: ${analysisProgress.current_item || 'Content'}`
+                          : analysisProgress.pending_items > 0
+                            ? `${analysisProgress.pending_items} items waiting for analysis`
+                            : 'All content analyzed'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {analysisProgress.status === 'analyzing' && (
+                      <>
+                        <div className="text-white font-bold text-lg">
+                          {Math.round((analysisProgress.processed / analysisProgress.total) * 100)}%
+                        </div>
+                        <div className="text-green-400 text-sm">
+                          {analysisProgress.processed}/{analysisProgress.total} processed
+                        </div>
+                      </>
+                    )}
+                    {analysisProgress.status === 'idle' && analysisProgress.pending_items > 0 && (
+                      <div className="text-yellow-400 text-sm">
+                        {analysisProgress.pending_items} pending
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {analysisProgress.status === 'analyzing' && (
+                  <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
+                    <div
+                      className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(analysisProgress.processed / analysisProgress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                )}
+
+                <div className="text-xs text-gray-400">
+                  {analysisProgress.status === 'analyzing'
+                    ? 'AI is analyzing your bookmarks to provide better recommendations. This may take a few minutes.'
+                    : analysisProgress.pending_items > 0
+                      ? 'Your bookmarks are being analyzed in the background. Recommendations will improve as analysis completes.'
+                      : 'All your content has been analyzed for optimal recommendations.'
+                  }
+                </div>
+              </div>
+            )}
+
             {/* Action Bar */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-8">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
@@ -446,70 +563,32 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
               {/* Main Content */}
               <div className="lg:col-span-2 space-y-6 md:space-y-8">
-                {/* AI Recommendations Section */}
-                {recommendations.length > 0 && (
-                  <div>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-                      <div className="flex items-center space-x-3">
-                        <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
-                        <h2 className="text-lg md:text-xl font-semibold text-white">Intelligent Recommendations</h2>
-                      </div>
-                      <Link to="/recommendations" className="text-sm md:text-base text-blue-400 hover:text-blue-300 transition-colors duration-300 flex items-center space-x-2 whitespace-nowrap">
-                        <span>View All</span>
-                        <ExternalLink className="w-4 h-4" />
-                      </Link>
+                {/* AI Recommendations Teaser */}
+                <div className="bg-gradient-to-br from-purple-600/10 to-pink-600/10 backdrop-blur-xl border border-purple-500/20 rounded-2xl p-6 hover:border-purple-500/30 transition-all duration-300">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="p-3 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-xl">
+                      <Sparkles className="w-6 h-6 text-purple-400" />
                     </div>
-                    <p className="text-sm md:text-base text-gray-400 mb-6">Content suggestions powered by AI, tailored to your interests</p>
-            
-                    <div className="grid grid-cols-1 gap-6">
-                      {recommendations.slice(0, 3).map((rec) => (
-                        <div key={rec.id} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-purple-500/30 transition-all duration-300">
-                          <div className="flex items-start justify-between mb-4">
-                            <div className="flex items-center space-x-3">
-                              <div className="p-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg">
-                                <Lightbulb className="w-5 h-5 text-purple-400" />
-                              </div>
-                              <span className="text-sm text-purple-400 font-medium">
-                                Match: {rec.score || Math.floor(Math.random() * 30) + 70}%
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <h4 className="text-lg font-semibold text-white mb-2">{rec.title}</h4>
-                          <p className="text-blue-400 text-sm mb-3 break-all">{rec.url}</p>
-                          {rec.description && (
-                            <p className="text-gray-400 mb-4">{rec.description}</p>
-                          )}
-                          {rec.reason && (
-                            <div className="bg-gray-800/30 rounded-lg p-3 mb-4">
-                              <span className="text-gray-300 font-medium">Why recommended: </span>
-                              <span className="text-gray-400">{rec.reason}</span>
-                            </div>
-                          )}
-                          
-                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                            <a 
-                              href={rec.url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              <span>View Content</span>
-                            </a>
-                            <button 
-                              onClick={() => handleSaveRecommendation(rec)}
-                              className="flex items-center justify-center space-x-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg transition-colors duration-300"
-                            >
-                              <Bookmark className="w-4 h-4" />
-                              <span>Save</span>
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <div>
+                      <h2 className="text-lg md:text-xl font-semibold text-white">AI-Powered Recommendations</h2>
+                      <p className="text-sm text-purple-400 font-medium">Discover personalized content</p>
                     </div>
                   </div>
-                )}
+
+                  <p className="text-gray-300 mb-6">
+                    Get intelligent content suggestions based on your saved bookmarks and interests.
+                    Our AI analyzes your content to recommend the most relevant learning resources.
+                  </p>
+
+                  <Link
+                    to="/recommendations"
+                    className="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105"
+                  >
+                    <Lightbulb className="w-5 h-5" />
+                    <span>Explore Recommendations</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </Link>
+                </div>
 
                 {/* Recent Projects Section */}
                 <div>

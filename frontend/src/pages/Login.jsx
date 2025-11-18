@@ -22,6 +22,13 @@ export default function FuzeAuth() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [passwordErrors, setPasswordErrors] = useState({});
+  const [passwordStrength, setPasswordStrength] = useState({
+    score: 0,
+    label: '',
+    color: ''
+  });
+  const [passwordsMatch, setPasswordsMatch] = useState(null);
   const navigate = useNavigate();
   const { login, register } = useAuth();
 
@@ -34,11 +41,88 @@ export default function FuzeAuth() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
+  // Password validation functions
+  const validatePasswordStrength = (password) => {
+    const errors = {};
+    let score = 0;
+
+    if (password.length < 8) {
+      errors.length = 'At least 8 characters';
+    } else {
+      score += 1;
+    }
+
+    if (!/[A-Za-z]/.test(password)) {
+      errors.letter = 'At least one letter';
+    } else {
+      score += 1;
+    }
+
+    if (!/\d/.test(password)) {
+      errors.number = 'At least one number';
+    } else {
+      score += 1;
+    }
+
+    // Optional: special character check
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      errors.special = 'At least one special character';
+    } else {
+      score += 1;
+    }
+
+    // Check for common patterns (bonus points)
+    if (password.length >= 12) score += 1;
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1;
+
+    let label, color;
+    if (score < 3) {
+      label = 'Weak';
+      color = '#ef4444'; // red
+    } else if (score < 5) {
+      label = 'Fair';
+      color = '#f59e0b'; // amber
+    } else if (score < 7) {
+      label = 'Good';
+      color = '#3b82f6'; // blue
+    } else {
+      label = 'Strong';
+      color = '#22c55e'; // green
+    }
+
+    return { errors, strength: { score, label, color } };
+  };
+
+  const checkPasswordsMatch = (password, confirmPassword) => {
+    if (!confirmPassword) return null;
+    return password === confirmPassword;
+  };
+
   const handleInputChange = (e) => {
-    setFormData({
+    const { name, value } = e.target;
+    const newFormData = {
       ...formData,
-      [e.target.name]: e.target.value
-    });
+      [name]: value
+    };
+
+    setFormData(newFormData);
+
+    // Real-time password validation (only for signup mode)
+    if (name === 'password' && !isLogin) {
+      const { errors, strength } = validatePasswordStrength(value);
+      setPasswordErrors(errors);
+      setPasswordStrength(strength);
+
+      // Also check if passwords match when password changes
+      if (newFormData.confirmPassword) {
+        setPasswordsMatch(checkPasswordsMatch(value, newFormData.confirmPassword));
+      }
+    }
+
+    // Real-time confirm password validation
+    if (name === 'confirmPassword') {
+      setPasswordsMatch(checkPasswordsMatch(newFormData.password, value));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -64,14 +148,29 @@ export default function FuzeAuth() {
         setError(result.error || 'Login failed.');
       }
     } else {
+      // Signup validation
       if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword || !formData.name) {
         setError('Please fill in all fields.');
         return;
       }
-      if (formData.password !== formData.confirmPassword) {
+
+      // Password strength validation
+      if (Object.keys(passwordErrors).length > 0) {
+        setError('Please create a stronger password that meets all requirements.');
+        return;
+      }
+
+      // Password matching validation
+      if (passwordsMatch === false) {
         setError('Passwords do not match.');
         return;
       }
+
+      if (passwordsMatch !== true) {
+        setError('Please confirm your password.');
+        return;
+      }
+
       const result = await register(formData.username, formData.email, formData.password, formData.name);
       if (result.success) {
         setSuccess('Registration successful! Redirecting to dashboard...');
@@ -280,13 +379,16 @@ export default function FuzeAuth() {
         }}>
           <div className="relative z-10">
             {/* Toggle Buttons */}
-            <AuthToggle 
-              isLogin={isLogin} 
-              onToggle={(loginState) => { 
-                setIsLogin(loginState); 
-                setError(''); 
-                setSuccess(''); 
-              }} 
+            <AuthToggle
+              isLogin={isLogin}
+              onToggle={(loginState) => {
+                setIsLogin(loginState);
+                setError('');
+                setSuccess('');
+                setPasswordErrors({});
+                setPasswordStrength({ score: 0, label: '', color: '' });
+                setPasswordsMatch(null);
+              }}
             />
 
             {/* Error/Success Messages */}
@@ -333,7 +435,7 @@ export default function FuzeAuth() {
               <Input
                 label={`Email ${isLogin ? 'or Username' : 'Address'}`}
                 icon={Mail}
-                type="email"
+                type={isLogin ? "text" : "email"}
                 name="email"
                 value={formData.email}
                 onChange={handleInputChange}
@@ -349,20 +451,20 @@ export default function FuzeAuth() {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full pl-12 pr-12 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500"
+                    className={`w-full pl-12 pr-12 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${Object.keys(passwordErrors).length > 0 ? 'border-red-500' : ''}`}
                     style={{
                       background: 'rgba(0, 0, 0, 0.4)',
-                      border: '1px solid rgba(77, 208, 225, 0.2)'
+                      border: `1px solid ${Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.2)'}`
                     }}
                     onFocus={(e) => {
-                      e.target.style.borderColor = 'rgba(77, 208, 225, 0.5)';
-                      e.target.style.boxShadow = '0 0 0 3px rgba(77, 208, 225, 0.1)';
+                      e.target.style.borderColor = Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.5)';
+                      e.target.style.boxShadow = `0 0 0 3px ${Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
                     }}
                     onBlur={(e) => {
-                      e.target.style.borderColor = 'rgba(77, 208, 225, 0.2)';
+                      e.target.style.borderColor = Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.2)';
                       e.target.style.boxShadow = 'none';
                     }}
-                    placeholder="Enter your password"
+                    placeholder={isLogin ? "Enter your password" : "Create a strong password"}
                   />
                   <button
                     type="button"
@@ -372,18 +474,104 @@ export default function FuzeAuth() {
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
+
+                {/* Password Strength Indicator - Only show in signup mode */}
+                {!isLogin && formData.password && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">Password Strength:</span>
+                      <span
+                        className="text-xs font-medium px-2 py-1 rounded"
+                        style={{ backgroundColor: `${passwordStrength.color}20`, color: passwordStrength.color }}
+                      >
+                        {passwordStrength.label}
+                      </span>
+                    </div>
+
+                    {/* Password Requirements */}
+                    <div className="space-y-1">
+                      {Object.entries({
+                        length: 'At least 8 characters',
+                        letter: 'At least one letter',
+                        number: 'At least one number',
+                        special: 'At least one special character'
+                      }).map(([key, requirement]) => (
+                        <div key={key} className="flex items-center text-xs">
+                          {passwordErrors[key] ? (
+                            <span className="text-red-400 mr-2">✗</span>
+                          ) : (
+                            <span className="text-green-400 mr-2">✓</span>
+                          )}
+                          <span className={passwordErrors[key] ? 'text-red-400' : 'text-green-400'}>
+                            {requirement}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {!isLogin && (
-                <Input
-                  label="Confirm Password"
-                  icon={Lock}
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleInputChange}
-                  placeholder="Confirm your password"
-                />
+                <div className="group">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors duration-300 group-focus-within:text-cyan-400" />
+                    <input
+                      type="password"
+                      name="confirmPassword"
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      className={`w-full pl-12 pr-4 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${passwordsMatch === false ? 'border-red-500' : ''}`}
+                      style={{
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: `1px solid ${passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.2)'}`
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.5)';
+                        e.target.style.boxShadow = `0 0 0 3px ${passwordsMatch === false ? 'rgba(239, 68, 68, 0.1)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.2)';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                      placeholder="Confirm your password"
+                    />
+
+                    {/* Password Match Indicator */}
+                    {formData.confirmPassword && (
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                        {passwordsMatch === true ? (
+                          <span className="text-green-400 text-lg">✓</span>
+                        ) : passwordsMatch === false ? (
+                          <span className="text-red-400 text-lg">✗</span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Password Match Message */}
+                  {formData.confirmPassword && (
+                    <div className="mt-2 flex items-center text-xs">
+                      {passwordsMatch === true ? (
+                        <>
+                          <span className="text-green-400 mr-2">✓</span>
+                          <span className="text-green-400">Passwords match</span>
+                        </>
+                      ) : passwordsMatch === false ? (
+                        <>
+                          <span className="text-red-400 mr-2">✗</span>
+                          <span className="text-red-400">Passwords do not match</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-gray-400 mr-2">○</span>
+                          <span className="text-gray-400">Confirm your password</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               {isLogin && (
