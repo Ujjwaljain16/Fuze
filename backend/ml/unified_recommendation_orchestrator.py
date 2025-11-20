@@ -397,9 +397,10 @@ class UnifiedDataLayer:
             )
             
             # OPTIMIZATION 2: Apply filters early to reduce data transfer
+            # Use minimal filters to include ALL saved content (quality_score >= 1 for testing and real use)
             query = query.filter(
                 SavedContent.user_id == user_id,
-                SavedContent.quality_score >= 3,  # Lowered to include more user content
+                SavedContent.quality_score >= 1,  # Lowered to include ALL user content
                 SavedContent.extracted_text.isnot(None),
                 SavedContent.extracted_text != '',
                 SavedContent.title.isnot(None),
@@ -425,15 +426,21 @@ class UnifiedDataLayer:
                 SavedContent.saved_at.desc()
             ).all()  # Use all content - DB embeddings make this fast!
             
-            logger.info(f"Found {len(user_content)} content items from user {user_id}")
+            logger.info(f"Found {len(user_content)} content items from user {user_id} (using FULL content pool - no limits)")
             
             # Count how many have content analysis
             analyzed_count = sum(1 for c, a in user_content if a is not None)
             logger.info(f"✅ Using ContentAnalysis for {analyzed_count}/{len(user_content)} items from DB")
+            logger.info(f"📊 Content pool: {len(user_content)} total items (quality_score >= 1, using ALL saved content)")
             
             # OPTIMIZATION 5: Batch process content normalization
             content_list = []
-            request_techs = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
+            if isinstance(request.technologies, str):
+                request_techs = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
+            elif isinstance(request.technologies, list):
+                request_techs = [tech.strip().lower() for tech in request.technologies if tech.strip()]
+            else:
+                request_techs = []
             request_text = f"{request.title} {request.description}".lower()
             
             for content, analysis in user_content:
@@ -448,7 +455,12 @@ class UnifiedDataLayer:
             return content_list
             
         except Exception as e:
-            logger.error(f"Error getting content from database: {e}")
+            error_msg = str(e)
+            # Provide more helpful error messages for common issues
+            if 'no such table' in error_msg.lower() or ('relation' in error_msg.lower() and 'does not exist' in error_msg.lower()):
+                logger.error(f"Database table missing. Please run 'python backend/init_db.py' to create tables. Error: {e}")
+            else:
+                logger.error(f"Error getting content from database: {e}")
             return []
     
     def _get_content_from_db(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
@@ -548,7 +560,13 @@ class UnifiedDataLayer:
                 return content
             
             # Extract project technologies
-            project_techs = [tech.strip().lower() for tech in (project.technologies or '').split(',') if tech.strip()]
+            project_techs_str = project.technologies or ''
+            if isinstance(project_techs_str, str):
+                project_techs = [tech.strip().lower() for tech in project_techs_str.split(',') if tech.strip()]
+            elif isinstance(project_techs_str, list):
+                project_techs = [tech.strip().lower() for tech in project_techs_str if tech.strip()]
+            else:
+                project_techs = []
             if not project_techs:
                 return content
             
@@ -752,13 +770,14 @@ class FastSemanticEngine:
                         return []
                     query = db_session.query(SavedContent).options(joinedload(SavedContent.analyses))
                     query = query.filter(
-                        SavedContent.quality_score >= 3,
+                        SavedContent.quality_score >= 1,  # Lower threshold to include more content
                         SavedContent.extracted_text.isnot(None),
                         SavedContent.extracted_text != ''
                     )
                     # Optionally, filter out test/generic content
                     query = query.filter(~SavedContent.title.ilike('%test%'))
-                    content_objs = query.order_by(SavedContent.quality_score.desc(), SavedContent.saved_at.desc()).limit(200).all()
+                    # NO LIMIT - Use ALL user content for best recommendations
+                    content_objs = query.order_by(SavedContent.quality_score.desc(), SavedContent.saved_at.desc()).all()
                     content_list = []
                     for content in content_objs:
                         # Use normalize_content_data if available
@@ -782,21 +801,20 @@ class FastSemanticEngine:
                     logger.error(f"[FastSemanticEngine] Error fetching content from DB: {e}")
                     content_list = []
             
-            # Filter out low-quality/incomplete content
+            # Minimal filtering - only remove truly broken/invalid content (keep ALL valid content)
             filtered_content = []
             for c in content_list:
                 title = c.get('title', '').strip().lower()
                 url = c.get('url', '').strip()
                 extracted_text = c.get('extracted_text', '').strip()
-                quality_score = c.get('quality_score', 0)
+                # Don't filter by quality_score - use ALL saved content
                 if not title or title.startswith('here are some') or len(title) < 10:
                     continue
                 if not url or url in ('', '#', 'http://', 'https://'):
                     continue
                 if not extracted_text or len(extracted_text) < 20:
                     continue
-                if quality_score < 6:
-                    continue
+                # Removed quality_score filter - use ALL content
                 filtered_content.append(c)
             content_list = filtered_content
             
@@ -865,7 +883,12 @@ class FastSemanticEngine:
             
             # OPTIMIZATION 5: Streamlined scoring calculation
             recommendations_data = []
-            request_techs = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
+            if isinstance(request.technologies, str):
+                request_techs = [tech.strip().lower() for tech in request.technologies.split(',') if tech.strip()]
+            elif isinstance(request.technologies, list):
+                request_techs = [tech.strip().lower() for tech in request.technologies if tech.strip()]
+            else:
+                request_techs = []
             
             for i, content in enumerate(content_list):
                 similarity = similarities[i]
@@ -915,12 +938,28 @@ class FastSemanticEngine:
                     'relevance_score': relevance_score
                 })
             
-            # Sort and filter for final recommendations
+            # Sort and filter for final recommendations - more inclusive
             recommendations_data.sort(key=lambda x: x['final_score'], reverse=True)
-            filtered_recommendations = [r for r in recommendations_data if r['final_score'] * 100 >= 5]
-            if len(filtered_recommendations) < 3:
-                medium_quality = [r for r in recommendations_data if r['final_score'] * 100 >= 15 and r not in filtered_recommendations]
-                filtered_recommendations.extend(medium_quality[:2])
+            # Lower threshold to include more semantically similar content
+            filtered_recommendations = [r for r in recommendations_data if r['final_score'] * 100 >= 3]
+            
+            # If we don't have enough, progressively include more
+            if len(filtered_recommendations) < request.max_recommendations:
+                # Include medium quality
+                medium_quality = [r for r in recommendations_data 
+                                 if r['final_score'] * 100 >= 1 
+                                 and r not in filtered_recommendations]
+                needed = request.max_recommendations - len(filtered_recommendations)
+                filtered_recommendations.extend(medium_quality[:needed])
+            
+            # If still not enough, include any with positive similarity (concept-based)
+            if len(filtered_recommendations) < request.max_recommendations:
+                # Prioritize by semantic similarity
+                remaining = [r for r in recommendations_data if r not in filtered_recommendations]
+                remaining.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+                needed = request.max_recommendations - len(filtered_recommendations)
+                filtered_recommendations.extend(remaining[:needed])
+            
             filtered_recommendations = filtered_recommendations[:request.max_recommendations]
 
             # OPTIMIZATION 6: Skip Gemini reasoning for speed (can be enabled later)
@@ -1132,7 +1171,7 @@ class FastSemanticEngine:
             user_context = {
                 'title': request.title,
                 'description': request.description,
-                'technologies': [tech.strip() for tech in request.technologies.split(',') if tech.strip()],
+                'technologies': [tech.strip() for tech in (request.technologies if isinstance(request.technologies, list) else (request.technologies.split(',') if request.technologies else [])) if tech.strip()],
                 'project_type': 'general',
                 'learning_needs': [],
                 'intent_goal': 'learn'
@@ -1167,7 +1206,7 @@ class FastSemanticEngine:
             
             User Request:
             - Title: {request.title}
-            - Technologies: {[tech.strip() for tech in request.technologies.split(',') if tech.strip()]}
+            - Technologies: {[tech.strip() for tech in (request.technologies if isinstance(request.technologies, list) else request.technologies.split(',')) if tech.strip()]}
             
             Semantic Similarity: {similarity:.2f}
             Technology Overlap: {tech_overlap:.2f}
@@ -1292,8 +1331,23 @@ class ContextAwareEngine:
             # OPTIMIZATION: Batch calculate semantic similarities using STORED EMBEDDINGS from DB
             semantic_scores = {}
             try:
-                # Generate query embedding once
-                query_text = f"{context['title']} {context['description']} {' '.join(context.get('technologies', []))}"
+                # Generate query embedding once - include full semantic context
+                # ENHANCED: Expand query to capture semantic concepts (e.g., "backend APIs" includes REST, API design, etc.)
+                # This captures the full intent: "learn backend in Go" understands both "backend" concepts and "Go"
+                base_query = f"{context['title']} {context['description']} {' '.join(context.get('technologies', []))} {context.get('user_interests', '')}"
+                
+                # Add semantic expansion for common concepts
+                semantic_expansions = []
+                query_lower = base_query.lower()
+                if 'backend' in query_lower or 'api' in query_lower or 'rest' in query_lower:
+                    semantic_expansions.extend(['backend development', 'API design', 'REST APIs', 'server-side', 'web services'])
+                if 'frontend' in query_lower or 'ui' in query_lower or 'interface' in query_lower:
+                    semantic_expansions.extend(['frontend development', 'user interface', 'client-side', 'web design'])
+                if 'database' in query_lower or 'db' in query_lower or 'sql' in query_lower:
+                    semantic_expansions.extend(['database design', 'data storage', 'data management', 'SQL queries'])
+                
+                # Combine base query with semantic expansions
+                query_text = f"{base_query} {' '.join(semantic_expansions)}"
                 query_embedding = self.data_layer.generate_embedding(query_text)
                 
                 if query_embedding is not None:
@@ -1317,9 +1371,24 @@ class ContextAwareEngine:
             ml_scores = {}
             try:
                 from simple_ml_enhancer import calculate_tfidf_similarity
-                query_text = f"{context['title']} {context['description']} {' '.join(context.get('technologies', []))}"
+                # ML scoring with full context - captures semantic relationships
+                # Use same semantic expansion as embedding query for consistency
+                base_query = f"{context['title']} {context['description']} {' '.join(context.get('technologies', []))} {context.get('user_interests', '')}"
+                
+                # Add semantic expansion for common concepts (same as embedding query)
+                semantic_expansions = []
+                query_lower = base_query.lower()
+                if 'backend' in query_lower or 'api' in query_lower or 'rest' in query_lower:
+                    semantic_expansions.extend(['backend development', 'API design', 'REST APIs', 'server-side', 'web services'])
+                if 'frontend' in query_lower or 'ui' in query_lower or 'interface' in query_lower:
+                    semantic_expansions.extend(['frontend development', 'user interface', 'client-side', 'web design'])
+                if 'database' in query_lower or 'db' in query_lower or 'sql' in query_lower:
+                    semantic_expansions.extend(['database design', 'data storage', 'data management', 'SQL queries'])
+                
+                query_text = f"{base_query} {' '.join(semantic_expansions)}"
                 for content in content_list:
-                    content_text = f"{content['title']} {content['extracted_text'][:500]} {' '.join(content.get('technologies', []))}"
+                    # Include full content context for better semantic matching
+                    content_text = f"{content['title']} {content.get('extracted_text', '')[:500]} {' '.join(content.get('technologies', []))}"
                     ml_score = calculate_tfidf_similarity(query_text, content_text)
                     ml_scores[content['id']] = ml_score
                 logger.info(f"✅ ML (TF-IDF) scores calculated for {len(ml_scores)} items")
@@ -1374,7 +1443,6 @@ class ContextAwareEngine:
                         # Compare with project embedding
                         if project_embedding is not None:
                             try:
-                                import numpy as np
                                 similarity = np.dot(project_embedding, content_emb) / (
                                     np.linalg.norm(project_embedding) * np.linalg.norm(content_emb)
                                 )
@@ -1418,14 +1486,22 @@ class ContextAwareEngine:
                 # Get precomputed semantic similarity
                 precomputed_sim = semantic_scores.get(content['id'])
 
-                # ENHANCED: Use context-enhanced semantic similarity if available (better relevance)
+                # ENHANCED: Use context-enhanced semantic similarity if available (project/task embeddings)
+                # This captures semantic relationships from project context
                 context_sim = context_enhanced_scores.get(content['id'])
-                if context_sim is not None:
-                    # Blend context similarity with precomputed similarity for best results
-                    effective_similarity = max(context_sim, precomputed_sim) if precomputed_sim else context_sim
-                    logger.debug(f"Using context-enhanced similarity for {content['id']}: {effective_similarity} (context: {context_sim}, precomputed: {precomputed_sim})")
+                if context_sim is not None and precomputed_sim is not None:
+                    # Blend: 50% context (project embeddings) + 50% query (request embeddings)
+                    # Project embeddings provide domain context, query embeddings provide specific intent
+                    # Balanced blend to capture both project context and specific query intent
+                    effective_similarity = (context_sim * 0.5) + (precomputed_sim * 0.5)
+                    logger.debug(f"Using blended similarity for {content['id']}: {effective_similarity:.3f} (context: {context_sim:.3f}, query: {precomputed_sim:.3f})")
+                elif context_sim is not None:
+                    # Only context similarity available (project embeddings)
+                    effective_similarity = context_sim
+                    logger.debug(f"Using context-only similarity for {content['id']}: {effective_similarity:.3f}")
                 else:
-                    effective_similarity = precomputed_sim
+                    # Only query similarity available
+                    effective_similarity = precomputed_sim if precomputed_sim is not None else 0.5
 
                 # Calculate comprehensive score with enhanced similarity
                 score_components = self._calculate_score_components(content, context, effective_similarity)
@@ -1434,42 +1510,117 @@ class ContextAwareEngine:
                 ml_score = ml_scores.get(content['id'], 0)
                 score_components['ml_similarity'] = ml_score
                 
-                # ENHANCED: Weighted final score with stronger technology/semantic filtering
+                # ENHANCED: Weighted final score prioritizing semantic understanding (embeddings)
+                # Semantic similarity understands concepts (e.g., "backend" is similar across languages)
+                # Technology match is secondary - exact tech match is nice but semantic similarity is more important
+                # Increased semantic weight to better capture concept-based matches
                 final_score = (
-                    score_components['technology'] * 0.45 +      # Technology match (45% - INCREASED)
-                    score_components['semantic'] * 0.35 +        # Semantic similarity (35% - INCREASED)
-                    score_components['content_type'] * 0.08 +    # Content type match (8% - REDUCED)
-                    score_components['ml_similarity'] * 0.05 +   # ML TF-IDF (5% - REDUCED)
-                    score_components['intent_alignment'] * 0.05 + # Intent alignment (5% - REDUCED)
-                    score_components['difficulty'] * 0.01 +      # Difficulty alignment (1% - REDUCED)
-                    score_components['quality'] * 0.01          # Quality score (1% - REDUCED)
+                    score_components['semantic'] * 0.55 +        # Semantic similarity (55% - INCREASED) - understands concepts
+                    score_components['technology'] * 0.20 +      # Technology match (20% - REDUCED) - exact match is bonus
+                    score_components['content_type'] * 0.08 +    # Content type match (8%)
+                    score_components['ml_similarity'] * 0.10 +    # ML TF-IDF (10% - INCREASED) - helps with concept matching
+                    score_components['intent_alignment'] * 0.04 + # Intent alignment (4%)
+                    score_components['difficulty'] * 0.02 +      # Difficulty alignment (2%)
+                    score_components['quality'] * 0.01           # Quality score (1%)
                 )
 
-                # MINIMUM THRESHOLDS: Filter out completely irrelevant content
-                # If technology score is 0 AND semantic score is below 0.3, heavily penalize
-                if score_components['technology'] == 0.0 and score_components['semantic'] < 0.3:
-                    final_score *= 0.3  # Reduce score by 70% for completely irrelevant content
-
-                # STRICT FILTERING: If user specified specific technologies and content has 0 technology match,
-                # further penalize unless semantic similarity is very high
+                # ENHANCED FILTERING: Prioritize semantic similarity over exact tech match
+                # High semantic similarity means concepts are similar (e.g., "backend in Go" vs "backend in Java")
+                # Trust embeddings - they understand semantic relationships across languages
                 context_techs = context.get('technologies', [])
-                if context_techs and len([t for t in context_techs if t.strip()]) > 0:
-                    if score_components['technology'] == 0.0 and score_components['semantic'] < 0.5:
-                        logger.debug(f"Applying strict tech filter to {content['title'][:50]}: tech={score_components['technology']}, semantic={score_components['semantic']}")
-                        final_score *= 0.1  # Reduce score by 90% for tech-specific queries with no tech match
+                has_specific_techs = context_techs and len([t for t in context_techs if t.strip()]) > 0
                 
-                # Apply user content boost (all content is user's own)
-                final_score += 0.1
+                # RELAXED FILTERING: Only penalize when BOTH tech is very weak AND semantic is low
+                # Allow semantically similar content even if tech match is weak (e.g., backend APIs in different languages)
+                tech_score = score_components['technology']
+                semantic_score = score_components['semantic']
                 
-                # Apply relevance score boost
+                # ENHANCED: More nuanced tech filtering - prioritize semantic understanding
+                # High semantic similarity should allow content through even with weak tech match
+                # Only penalize when BOTH tech is very weak AND semantic is also low
+                if tech_score < 0.2 and semantic_score < 0.3:
+                    # Both tech and semantic are weak - apply penalty
+                    if has_specific_techs:
+                        # User asked for specific technologies, but both tech and semantic are weak
+                        if tech_score < 0.1:
+                            final_score *= 0.3  # 70% penalty for very weak tech + low semantic
+                        else:
+                            final_score *= 0.5  # 50% penalty for weak tech + low semantic
+                    else:
+                        # No specific techs, but both are weak
+                        final_score *= 0.4  # 60% penalty
+                elif tech_score < 0.2 and semantic_score >= 0.3:
+                    # Weak tech but decent semantic (>= 0.3) - allow it with penalty based on tech strength
+                    # Semantic similarity of 0.3+ indicates concept-based relevance
+                    if semantic_score >= 0.4:
+                        # High semantic - apply penalty based on tech strength
+                        if tech_score < 0.1:
+                            final_score *= 0.9  # 10% penalty for very weak tech + high semantic
+                        else:
+                            # Tech between 0.1-0.2 with high semantic - still apply penalty
+                            final_score *= 0.85  # 15% penalty - tech match is still weak
+                    else:
+                        # Medium semantic (0.3-0.4) - apply penalty
+                        if tech_score < 0.1:
+                            final_score *= 0.75  # 25% penalty for very weak tech + medium semantic
+                        else:
+                            final_score *= 0.80  # 20% penalty for weak tech + medium semantic (increased from 15%)
+                elif tech_score >= 0.2 and tech_score < 0.4:
+                    # Moderate tech match - apply small penalty only if semantic is also low
+                    if semantic_score < 0.25:
+                        final_score *= 0.7  # 30% penalty for moderate tech + low semantic
+                    # If semantic is decent (>= 0.25), allow it with minimal or no penalty
+                
+                # ENHANCED: Apply PROPORTIONAL boosts with better differentiation
+                # Use smaller, more nuanced boosts to prevent all items from hitting 100.0
+                # Only boost if base score is already decent
+                if final_score > 0.5:
+                    # High-quality content - small boost to differentiate
+                    final_score *= 1.05  # 5% boost (reduced from 10%)
+                elif final_score > 0.3:
+                    # Medium-quality content - minimal boost
+                    final_score *= 1.02  # 2% boost (reduced from 10%)
+                elif final_score > 0.1:
+                    # Lower-quality content - very small boost
+                    final_score *= 1.01  # 1% boost (reduced from 5%)
+                # Don't boost very low scores
+                
                 relevance_score = content.get('relevance_score', 0)
-                if relevance_score > 0:
-                    final_score = min(final_score + (relevance_score * 0.15), 1.0)
+                if relevance_score > 0 and final_score > 0.3:
+                    # Only apply relevance boost if score is already decent
+                    # Use smaller boost to prevent capping
+                    final_score *= (1.0 + relevance_score * 0.05)  # Reduced from 0.1
                 
-                # Apply ContentAnalysis boost for pre-analyzed content
                 analysis_boost = content.get('analysis_boost', 0)
-                if analysis_boost > 0:
-                    final_score = min(final_score + analysis_boost, 1.0)
+                if analysis_boost > 0 and final_score > 0.3:
+                    # Only apply analysis boost if score is already decent
+                    # Use smaller boost to prevent capping
+                    final_score *= (1.0 + analysis_boost * 0.2)  # Reduced from 0.5
+                
+                # ENHANCED: Use aggressive soft cap for better differentiation
+                # Start soft cap earlier to prevent all top items from hitting 100.0
+                # Items above 0.80 get diminishing returns - creates better score spread
+                if final_score > 0.80:
+                    # Apply diminishing returns: 0.80 + (excess * 0.15)
+                    # This means: 0.80 → 0.80, 0.90 → 0.815, 1.0 → 0.83, 1.2 → 0.86
+                    excess = final_score - 0.80
+                    final_score = 0.80 + (excess * 0.15)
+                elif final_score > 0.70:
+                    # Medium-high scores get slight diminishing returns
+                    excess = final_score - 0.70
+                    final_score = 0.70 + (excess * 0.5)  # 50% of excess
+                
+                # Hard cap at 1.0 (should rarely be reached now)
+                final_score = min(final_score, 1.0)
+                
+                # DEBUG: Log scoring for ALL recommendations to understand scoring
+                if final_score > 0.7:
+                    logger.info(f"High score ({final_score:.2f}): "
+                               f"semantic={score_components['semantic']:.2f}, "
+                               f"tech={score_components['technology']:.2f}, "
+                               f"content_techs={content.get('technologies', [])[:3]}, "
+                               f"request_techs={context.get('technologies', [])[:3]}, "
+                               f"title={content.get('title', '')[:40]}")
                 
                 # Generate detailed reason
                 reason = self._generate_detailed_reason(content, context, score_components)
@@ -1489,7 +1640,7 @@ class ContextAwareEngine:
                     id=content['id'],
                     title=content['title'],
                     url=content['url'],
-                    score=final_score * 100,
+                    score=round(final_score * 100, 1),
                     reason=reason,
                     content_type=content.get('content_type', 'article'),
                     difficulty=content.get('difficulty', 'intermediate'),
@@ -1503,7 +1654,7 @@ class ContextAwareEngine:
                         'score_components': score_components,
                         'context_used': context,
                         'response_time_ms': (time.time() - start_time) * 1000,
-                        'ml_enhanced': True,
+                        'ml_enhanced': ml_score > 0 or score_components['semantic'] > 0.5,
                         'ml_similarity': ml_score,
                         'content_analysis_used': content.get('has_analysis', False),
                         'analysis_boost': content.get('analysis_boost', 0)
@@ -1515,17 +1666,31 @@ class ContextAwareEngine:
             # Sort and limit
             recommendations.sort(key=lambda x: x.score, reverse=True)
             
-            # Filter out low-quality recommendations
-            min_score_threshold = 25  # Minimum score to be considered relevant
+            # ENHANCED FILTERING: More inclusive to capture semantically similar content
+            # Lower thresholds to include more recommendations, especially those with high semantic similarity
+            min_score_threshold = 10  # Lowered from 25 - allow more semantically similar content
             filtered_recommendations = [r for r in recommendations if r.score >= min_score_threshold]
             
-            # If we don't have enough high-quality recommendations, include some medium quality
-            if len(filtered_recommendations) < 3:
-                medium_threshold = 15
+            # If we don't have enough recommendations, progressively lower threshold
+            if len(filtered_recommendations) < request.max_recommendations:
+                # Include medium quality recommendations
+                medium_threshold = 5  # Lowered from 15
                 medium_quality = [r for r in recommendations if r.score >= medium_threshold and r not in filtered_recommendations]
-                filtered_recommendations.extend(medium_quality[:2])  # Add max 2 medium quality
+                # Add more medium quality items to reach max_recommendations
+                needed = request.max_recommendations - len(filtered_recommendations)
+                filtered_recommendations.extend(medium_quality[:needed])
             
-            # Limit to requested number
+            # If still not enough, include any with positive semantic similarity (concept-based matching)
+            if len(filtered_recommendations) < request.max_recommendations:
+                # Prioritize items with high semantic similarity even if tech match is weak
+                semantic_based = [r for r in recommendations 
+                                 if r not in filtered_recommendations 
+                                 and r.metadata.get('score_components', {}).get('semantic', 0) > 0.3]
+                semantic_based.sort(key=lambda x: x.metadata.get('score_components', {}).get('semantic', 0), reverse=True)
+                needed = request.max_recommendations - len(filtered_recommendations)
+                filtered_recommendations.extend(semantic_based[:needed])
+            
+            # Limit to requested number (should already be at max, but ensure)
             filtered_recommendations = filtered_recommendations[:request.max_recommendations]
             
             # Update performance
@@ -1540,8 +1705,13 @@ class ContextAwareEngine:
     
     def _extract_context(self, request: UnifiedRecommendationRequest) -> Dict[str, Any]:
         """Extract context from request with intent analysis enhancement"""
-        # Extract technologies
-        technologies = [tech.strip() for tech in request.technologies.split(',') if tech.strip()]
+        # Extract technologies (handle both string and list inputs)
+        if isinstance(request.technologies, str):
+            technologies = [tech.strip() for tech in request.technologies.split(',') if tech.strip()]
+        elif isinstance(request.technologies, list):
+            technologies = [tech.strip() for tech in request.technologies if tech.strip()]
+        else:
+            technologies = []
         
         # Use intent analysis if available
         intent_analysis = getattr(request, 'intent_analysis', None)
@@ -1597,14 +1767,24 @@ class ContextAwareEngine:
                 difficulty = 'beginner'
             elif 'advanced' in request.description.lower() or 'expert' in request.description.lower():
                 difficulty = 'advanced'
-            
+
+            # Determine intent goal from description
+            intent_goal = 'general'
+            if 'learn' in request.description.lower() or 'tutorial' in request.description.lower():
+                intent_goal = 'learn'
+            elif 'build' in request.description.lower() or 'implement' in request.description.lower():
+                intent_goal = 'build'
+            elif 'optimize' in request.description.lower() or 'improve' in request.description.lower():
+                intent_goal = 'optimize'
+
             context = {
                 'technologies': technologies,
                 'content_type': content_type,
                 'difficulty': difficulty,
                 'title': request.title,
                 'description': request.description,
-                'user_interests': request.user_interests
+                'user_interests': request.user_interests,
+                'intent_goal': intent_goal
             }
         
         return context
@@ -1630,8 +1810,28 @@ class ContextAwareEngine:
             content_text = f"{content['title']} {content['extracted_text']} {' '.join(content_techs)}"
             components['semantic'] = self.data_layer.calculate_semantic_similarity(request_text, content_text)
         
-        # Technology match with intent enhancement
-        tech_overlap = self._calculate_enhanced_technology_overlap(content_techs, context_techs, context)
+        # Technology match with intent enhancement - use universal matcher for semantic tech matching
+        # The universal matcher uses embeddings to understand tech variations semantically
+        if hasattr(self.data_layer, 'universal_matcher') and self.data_layer.universal_matcher:
+            try:
+                # Use universal matcher for semantic technology matching (handles variations via embeddings)
+                # This leverages the embedding model to understand "go lang" vs "golang" etc.
+                request_text = f"{context.get('title', '')} {' '.join(context_techs)}"
+                tech_overlap = self.data_layer.universal_matcher.calculate_technology_overlap(
+                    request_text,
+                    {'technologies': content_techs}
+                )
+                # If universal matcher returns 0 but we have techs, try enhanced matching as backup
+                if tech_overlap == 0.0 and context_techs and content_techs:
+                    enhanced_overlap = self._calculate_enhanced_technology_overlap(content_techs, context_techs, context)
+                    # Use the higher of the two (semantic might miss some, enhanced might catch)
+                    tech_overlap = max(tech_overlap, enhanced_overlap * 0.7)  # Weight enhanced slightly lower
+            except Exception as e:
+                logger.debug(f"Universal matcher tech overlap failed, using fallback: {e}")
+                tech_overlap = self._calculate_enhanced_technology_overlap(content_techs, context_techs, context)
+        else:
+            tech_overlap = self._calculate_enhanced_technology_overlap(content_techs, context_techs, context)
+        
         components['technology'] = tech_overlap
         
         # Content type match with intent enhancement
@@ -1653,22 +1853,56 @@ class ContextAwareEngine:
         return components
     
     def _calculate_enhanced_technology_overlap(self, content_techs: List[str], context_techs: List[str], context: Dict) -> float:
-        """Calculate enhanced technology overlap with intent awareness"""
+        """Calculate enhanced technology overlap using semantic similarity when possible"""
         if not context_techs:
             return 0.5
         
-        # Calculate exact matches
-        exact_matches = set(content_techs).intersection(set(context_techs))
-        exact_score = len(exact_matches) / len(context_techs)
+        # Normalize to lowercase for case-insensitive matching
+        content_techs_lower = [tech.lower().strip() for tech in content_techs if tech.strip()]
+        context_techs_lower = [tech.lower().strip() for tech in context_techs if tech.strip()]
         
-        # Calculate partial matches for technology variations
+        # Use batch semantic similarity for technology matching if embedding model is available
+        # This is more efficient than calling similarity for each pair individually
+        if hasattr(self.data_layer, 'embedding_model') and self.data_layer.embedding_model:
+            try:
+                # Create tech text strings for batch similarity calculation
+                context_tech_text = ' '.join(context_techs_lower)
+                content_tech_text = ' '.join(content_techs_lower)
+                
+                # Calculate semantic similarity between tech lists (batch operation)
+                tech_similarity = self.data_layer.calculate_semantic_similarity(context_tech_text, content_tech_text)
+                
+                # Also check for exact matches to boost confidence
+                exact_matches = set(content_techs_lower).intersection(set(context_techs_lower))
+                if exact_matches:
+                    # Boost semantic similarity if we have exact matches
+                    tech_similarity = max(tech_similarity, 0.8)
+                
+                # Use semantic similarity as base, but ensure exact matches get full credit
+                if exact_matches:
+                    exact_score = len(exact_matches) / len(context_techs_lower)
+                    # Blend: 70% semantic (handles variations) + 30% exact (handles perfect matches)
+                    return min(1.0, (tech_similarity * 0.7) + (exact_score * 0.3))
+                else:
+                    # No exact matches, rely on semantic similarity
+                    return min(1.0, tech_similarity * 0.9)  # Slightly conservative for no exact matches
+            except Exception as e:
+                logger.debug(f"Semantic tech matching failed, using fallback: {e}")
+        
+        # Fallback: Simple case-insensitive matching
+        exact_matches = set(content_techs_lower).intersection(set(context_techs_lower))
+        exact_score = len(exact_matches) / len(context_techs_lower) if context_techs_lower else 0.0
+        
+        # Partial matches (substring matching)
         partial_matches = 0
-        for context_tech in context_techs:
-            for content_tech in content_techs:
+        unmatched_context = [ct for ct in context_techs_lower if ct not in exact_matches]
+        for context_tech in unmatched_context:
+            for content_tech in content_techs_lower:
                 if (context_tech in content_tech or content_tech in context_tech) and context_tech != content_tech:
                     partial_matches += 0.5
+                    break
         
-        partial_score = min(partial_matches / len(context_techs), 0.3)
+        partial_score = min(partial_matches / len(context_techs_lower), 0.3) if context_techs_lower else 0.0
         tech_score = exact_score + partial_score
         
         # Apply intent-based boosting
@@ -2269,7 +2503,12 @@ class UnifiedRecommendationOrchestrator:
             complexity_score += 1
         
         # Number of technologies
-        tech_count = len([tech for tech in request.technologies.split(',') if tech.strip()])
+        if isinstance(request.technologies, str):
+            tech_count = len([tech for tech in request.technologies.split(',') if tech.strip()])
+        elif isinstance(request.technologies, list):
+            tech_count = len([tech for tech in request.technologies if tech.strip()])
+        else:
+            tech_count = 0
         if tech_count > 3:
             complexity_score += 1
         
@@ -2552,7 +2791,7 @@ class UnifiedRecommendationOrchestrator:
             PROJECT CONTEXT:
             Title: {request.title}
             Description: {request.description}
-            Technologies: {', '.join(request.technologies.split(',')) if request.technologies else 'General'}
+            Technologies: {', '.join(request.technologies) if isinstance(request.technologies, list) else (', '.join(request.technologies.split(',')) if request.technologies else 'General')}
             User Interests: {request.user_interests or 'General development'}
 
             RECOMMENDED CONTENT:
@@ -2573,7 +2812,7 @@ class UnifiedRecommendationOrchestrator:
             Keep it concise but personalized to the project context.
             """
 
-            context_summary = gemini_analyzer.analyze_text(context_prompt)
+            context_summary = gemini_analyzer._make_gemini_request(context_prompt)
             if context_summary and len(context_summary.strip()) > 20:
                 return context_summary.strip()
             else:

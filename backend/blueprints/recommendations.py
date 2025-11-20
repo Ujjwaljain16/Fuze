@@ -219,7 +219,10 @@ def get_unified_orchestrator_recommendations():
         # Get orchestrator and recommendations (ML enhancement is AUTOMATIC!)
         orchestrator = get_unified_orchestrator()
         recommendations = orchestrator.get_recommendations(unified_request)
-        
+
+        # Generate contextual summaries for better recommendations (TOGGLE FEATURE!)
+        recommendations = orchestrator.generate_context_summaries(recommendations, unified_request, user_id)
+
         # Convert to dictionary format
         result = [asdict(rec) for rec in recommendations]
         

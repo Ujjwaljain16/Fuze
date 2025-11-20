@@ -1,0 +1,919 @@
+FAILED EXTRACTION URLs
+================================================================================
+
+Total: 94 URLs
+
+BY DOMAIN:
+--------------------------------------------------------------------------------
+
+ (2 URLs):
+  - file:///C:/Users/ujjwa/Downloads/002%20Useful%20Resources%20for%20Part%202.html
+    Title: 002 Useful Resources for Part 2.html
+    Quality: 3, Length: 207 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from file:///C:/Users/ujjwa/Downloads/002%20Useful%20Resources%20for%20Part%202.html. This may be due to access restrictions or the site requiring authentication. Source: Pla...
+
+  - javascript:(function(){    var d=document;    d.addEventListener('contextmenu',function(e){e.stopPropagation();return true},true);    d.addEventListener('paste',function(e){e.stopPropagation();return true},true);    d.addEventListener('copy',function(e){e.stopPropagation();return true},true);    var s=d.createElement('style');    s.textContent='*{user-select:text!important;-webkit-user-select:text!important}';    d.head.appendChild(s);})();
+    Title: ERC
+    Quality: 10, Length: 13 chars
+    Reasons: Short content: 13 chars
+    Preview: Bookmark: ERC
+
+
+andreasbm.github.io (1 URLs):
+  - https://andreasbm.github.io/web-skills/
+    Title: Web Skills
+    Quality: 8, Length: 53 chars
+    Reasons: Short content: 53 chars
+    Preview: Web Skills Please enable JavaScript to use this page.
+
+
+app.expense.fyi (1 URLs):
+  - https://app.expense.fyi/signup
+    Title: Sign up for Expense.fyi
+    Quality: 7, Length: 82 chars
+    Reasons: Short content: 82 chars
+    Preview: Sign up for Expense.fyi Expense.fyi Get started for free. No credit card required.
+
+
+chat.deepseek.com (1 URLs):
+  - https://chat.deepseek.com/
+    Title: DeepSeek - Into the Unknown
+    Quality: 7, Length: 8 chars
+    Reasons: Short content: 8 chars
+    Preview: DeepSeek
+
+
+chatgpt.com (2 URLs):
+  - https://chatgpt.com/c/681fabac-4d28-8000-abab-69a848d0625a
+    Title: Restore pushed code
+    Quality: 3, Length: 186 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://chatgpt.com/c/681fabac-4d28-8000-abab-69a848d0625a. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+  - https://chatgpt.com/c/67ad84b2-0a24-8000-999a-18b8399ce2d3
+    Title: Firefly III UPI Tracking
+    Quality: 3, Length: 186 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://chatgpt.com/c/67ad84b2-0a24-8000-999a-18b8399ce2d3. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+claude.ai (2 URLs):
+  - https://claude.ai/chat/cec1d0f7-d709-4622-b46c-286c9865aa1e
+    Title: Distribute Chrome Extension Without Web Store Fee - Claude
+    Quality: 3, Length: 187 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://claude.ai/chat/cec1d0f7-d709-4622-b46c-286c9865aa1e. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+  - https://claude.ai/chat/117423fc-d282-4e10-bfcb-d127a076b6f9
+    Title: Building a Chrome Bookmark Sync Extension - Claude
+    Quality: 3, Length: 187 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://claude.ai/chat/117423fc-d282-4e10-bfcb-d127a076b6f9. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+codeforces.com (2 URLs):
+  - https://codeforces.com/problemset/problem/214/A
+    Title: Problem - 214A - Codeforces
+    Quality: 3, Length: 175 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://codeforces.com/problemset/problem/214/A. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+  - https://codeforces.com/blog/entry/49494
+    Title: Number theory practice problems. - Codeforces
+    Quality: 3, Length: 167 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://codeforces.com/blog/entry/49494. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+colab.research.google.com (1 URLs):
+  - https://colab.research.google.com/drive/1YdjUx5VjfuBGjS3CJaY8g4JTLGE0X2V6#scrollTo=tLX0v6wUnQtN
+    Title: Untitled4.ipynb - Colab
+    Quality: 6, Length: 20 chars
+    Reasons: Short content: 20 chars
+    Preview: Google Colab Sign in
+
+
+dashboard.render.com (2 URLs):
+  - https://dashboard.render.com/web/srv-d0i6vq3uibrs73a0p2fg/deploys/dep-d0i7kmumcj7s739pmfhg?r=2025-05-14%4011%3A10%3A23%7E2025-05-14%4011%3A14%3A19
+    Title: BookmarkHub ・ Web Service ・ Render Dashboard
+    Quality: 8, Length: 86 chars
+    Reasons: Short content: 86 chars
+    Preview: Render · The Easiest Cloud For All Your Apps Please enable JavaScript to run this app.
+
+  - https://dashboard.render.com/web/srv-d0i6vq3uibrs73a0p2fg/deploys/dep-d0ir0g2dbo4c738prtcg
+    Title: BookmarkHub ・ Web Service ・ Render Dashboard
+    Quality: 8, Length: 86 chars
+    Reasons: Short content: 86 chars
+    Preview: Render · The Easiest Cloud For All Your Apps Please enable JavaScript to run this app.
+
+
+decentro.tech (1 URLs):
+  - https://decentro.tech/resources/upi-apis?utm_source=chatgpt.com
+    Title: UPI Payment APIs | UPI Integration APIs For Business | Decentro
+    Quality: 5, Length: 0 chars
+    Reasons: Empty extracted_text
+
+
+dev.to (1 URLs):
+  - https://dev.to/nicks101/8-computer-networking-resources-for-all-levels-766
+    Title: 8 Computer Networking Resources for All Levels - DEV Community
+    Quality: 3, Length: 202 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://dev.to/nicks101/8-computer-networking-resources-for-all-levels-766. This may be due to access restrictions or the site requiring authentication. Source: Playwrig...
+
+
+devdocs.io (1 URLs):
+  - https://devdocs.io/
+    Title: DevDocs API Documentation
+    Quality: 8, Length: 61 chars
+    Reasons: Short content: 61 chars
+    Preview: DevDocs API Documentation DevDocs requires JavaScript to run.
+
+
+flaviocopes.com (1 URLs):
+  - https://flaviocopes.com/javascript/
+    Title: Roadmap to Learn JavaScript
+    Quality: 3, Length: 163 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://flaviocopes.com/javascript/. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+gemini.google.com (1 URLs):
+  - https://gemini.google.com/app/a0bb0eaf89080969?hl=en-IN
+    Title: Gemini
+    Quality: 7, Length: 22 chars
+    Reasons: Short content: 22 chars
+    Preview: ‎Google Gemini Sign in
+
+
+github.com (51 URLs):
+  - https://github.com/AbdelrahmanAlsayed/competitive-programming
+    Title: AbdelrahmanAlsayed/competitive-programming: A collection of C++ solutions to various problems from Codeforces. This repository includes diverse problem-solving techniques and code examples for competitive programming challenges.
+    Quality: 3, Length: 185 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/AbdelrahmanAlsayed/competitive-programming. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/KKshitiz/whatsapp-ui-clone/tree/master/styles
+    Title: whatsapp-ui-clone/styles at master · KKshitiz/whatsapp-ui-clone
+    Quality: 3, Length: 188 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/KKshitiz/whatsapp-ui-clone/tree/master/styles. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/KKshitiz/whatsapp-ui-clone/blob/master/icons/status.svg
+    Title: whatsapp-ui-clone/icons/status.svg at master · KKshitiz/whatsapp-ui-clone
+    Quality: 3, Length: 198 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/KKshitiz/whatsapp-ui-clone/blob/master/icons/status.svg. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module/commit/bc4d22bfef97b01a63236a558eca20b03688c9fc#diff-be5f3f363f35c02f19bc6cc7c4fcf8b999ee0c7ab24fea236bd1614ec8cb1b70R7
+    Title: Added questions from class-1 to class-5 · mrinal1224/Scaler-Frontend-questions-Beginner-Module@bc4d22b
+    Quality: 3, Length: 315 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module/commit/bc4d22bfef97b01a63236a558eca20b03688c9fc#diff-be5f3f363f35c02f19bc6cc7c4fcf8b999ee0c7ab24f...
+
+  - https://github.com/mrinal1224/JS-Beginner-Notes/tree/main/notes
+    Title: JS-Beginner-Notes/notes at main · mrinal1224/JS-Beginner-Notes
+    Quality: 3, Length: 187 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/JS-Beginner-Notes/tree/main/notes. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module
+    Title: mrinal1224/Scaler-Frontend-questions-Beginner-Module
+    Quality: 3, Length: 195 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Discord-JS-Challenges
+    Title: mrinal1224/Discord-JS-Challenges
+    Quality: 3, Length: 175 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Discord-JS-Challenges. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Approaches_and_Solutions/tree/main/js
+    Title: Approaches_and_Solutions/js at main · mrinal1224/Approaches_and_Solutions
+    Quality: 3, Length: 191 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Approaches_and_Solutions/tree/main/js. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/SST-dev-2-Assignments
+    Title: mrinal1224/SST-dev-2-Assignments
+    Quality: 3, Length: 175 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/SST-dev-2-Assignments. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Batch-3/blob/main/notes/functionalProgramming.md
+    Title: Batch-3/notes/functionalProgramming.md at main · mrinal1224/Batch-3
+    Quality: 3, Length: 202 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Batch-3/blob/main/notes/functionalProgramming.md. This may be due to access restrictions or the site requiring authentication. Source: GitH...
+
+  - https://github.com/surujtv/LearnJavaScript
+    Title: surujtv/LearnJavaScript: Core and advance concept of Synchronous and Asynchronous JavaScript with example codes and snippets
+    Quality: 3, Length: 166 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/surujtv/LearnJavaScript. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Shweta2024/JavaScript-Projects/tree/master/Projects%20starting%20with%20S/Sorting-Visualizer-js
+    Title: JavaScript-Projects/Projects starting with S/Sorting-Visualizer-js at master · Shweta2024/JavaScript-Projects
+    Quality: 3, Length: 238 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Shweta2024/JavaScript-Projects/tree/master/Projects%20starting%20with%20S/Sorting-Visualizer-js. This may be due to access restrictions or the site re...
+
+  - https://github.com/Narahari-Sundaragopalan/JavaScript-Interview-Questions/blob/master/concepts/Promises.md
+    Title: JavaScript-Interview-Questions/concepts/Promises.md at master · Narahari-Sundaragopalan/JavaScript-Interview-Questions
+    Quality: 3, Length: 230 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Narahari-Sundaragopalan/JavaScript-Interview-Questions/blob/master/concepts/Promises.md. This may be due to access restrictions or the site requiring ...
+
+  - https://github.com/HaythemLazaar/toCopy
+    Title: HaythemLazaar/toCopy: Landing page for a tool that generates fake whatsapp chat conversation
+    Quality: 3, Length: 163 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/HaythemLazaar/toCopy. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/SST-dev-2-Assignments/blob/main/promises/4.md
+    Title: SST-dev-2-Assignments/promises/4.md at main · mrinal1224/SST-dev-2-Assignments
+    Quality: 3, Length: 199 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/SST-dev-2-Assignments/blob/main/promises/4.md. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/expo-starter/expo-local-first-template
+    Title: expo-starter/expo-local-first-template: 📱 A template for your local-first Expo project: Bun, Expo 51, TypeScript, TailwindCSS, DrizzleORM, Sqlite, EAS, GitHub Actions, Env Vars, expo-router, react-hook-form.
+    Quality: 3, Length: 181 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/expo-starter/expo-local-first-template. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/mrinal1224/Js-Revision-Class-Questions/tree/main/JS%20questions
+    Title: Js-Revision-Class-Questions/JS questions at main · mrinal1224/Js-Revision-Class-Questions
+    Quality: 3, Length: 206 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/mrinal1224/Js-Revision-Class-Questions/tree/main/JS%20questions. This may be due to access restrictions or the site requiring authentication. Source: ...
+
+  - https://github.com/sanjaysamantra1/react_notes/blob/main/React%20Notes.txt
+    Title: react_notes/React Notes.txt at main · sanjaysamantra1/react_notes
+    Quality: 3, Length: 198 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/sanjaysamantra1/react_notes/blob/main/React%20Notes.txt. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/akarsh1995/leetcode-graphql-queries/blob/main/problemset_page/problemset_page.graphql
+    Title: leetcode-graphql-queries/problemset_page/problemset_page.graphql at main · akarsh1995/leetcode-graphql-queries
+    Quality: 3, Length: 228 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/akarsh1995/leetcode-graphql-queries/blob/main/problemset_page/problemset_page.graphql. This may be due to access restrictions or the site requiring au...
+
+  - https://github.com/Ujjwaljain16/chrome-bookmark-bridge
+    Title: Ujjwaljain16/chrome-bookmark-bridge
+    Quality: 3, Length: 178 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Ujjwaljain16/chrome-bookmark-bridge. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Ujjwaljain16/BookmarkSyncHub
+    Title: Ujjwaljain16/BookmarkSyncHub
+    Quality: 3, Length: 171 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Ujjwaljain16/BookmarkSyncHub. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/sherlock-project/sherlock
+    Title: Hactober
+    Quality: 3, Length: 168 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/sherlock-project/sherlock. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/jonasschmedtmann/complete-javascript-course
+    Title: jonasschmedtmann/complete-javascript-course: Starter files, final projects, and FAQ for my Complete JavaScript course
+    Quality: 3, Length: 186 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/jonasschmedtmann/complete-javascript-course. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Thant998/oop-project
+    Title: Thant998/oop-project: Mini Project in Java Object Oriented Programming
+    Quality: 3, Length: 163 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Thant998/oop-project. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/dyingpotato890/KTU-S3-LAB
+    Title: dyingpotato890/KTU-S3-LAB: This repository is dedicated to storing programs necessary for the Data Structures and Object-Oriented Programming lab sessions conducted in Semester 3 for KTU students (2019 Syllabus).
+    Quality: 3, Length: 168 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/dyingpotato890/KTU-S3-LAB. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/topics/object-oriented-programming-project?l=java&o=asc&s=updated
+    Title: object-oriented-programming-project · GitHub Topics
+    Quality: 3, Length: 208 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/topics/object-oriented-programming-project?l=java&o=asc&s=updated. This may be due to access restrictions or the site requiring authentication. Source...
+
+  - https://github.com/disha2sinha/Object-Oriented-Programming-in-Java
+    Title: disha2sinha/Object-Oriented-Programming-in-Java: This repository can act as a guide if you are trying to learn Java
+    Quality: 3, Length: 190 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/disha2sinha/Object-Oriented-Programming-in-Java. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/CodeChefVIT/resources/blob/master/OOPS/OOPS.md
+    Title: resources/OOPS/OOPS.md at master · CodeChefVIT/resources
+    Quality: 3, Length: 189 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/CodeChefVIT/resources/blob/master/OOPS/OOPS.md. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/manjunath5496/Java-Programming-Books
+    Title: manjunath5496/Java-Programming-Books: "Java: write once, run away!" – Brucee
+    Quality: 3, Length: 179 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/manjunath5496/Java-Programming-Books. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Nitin96Bisht/Java-Books
+    Title: Nitin96Bisht/Java-Books: Java Books
+    Quality: 3, Length: 166 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Nitin96Bisht/Java-Books. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/avinashyadav16/Codeforces-CodeSolution-And-OOPs
+    Title: avinashyadav16/Codeforces-CodeSolution-And-OOPs: This repo contains solutions to codes from codeforces platform and concepts of OOPs & Data Structure in cpp.
+    Quality: 3, Length: 190 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/avinashyadav16/Codeforces-CodeSolution-And-OOPs. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/bethrobson/Head-First-Design-Patterns/tree/master/src/headfirst/designpatterns/decorator/starbuzz
+    Title: Head-First-Design-Patterns/src/headfirst/designpatterns/decorator/starbuzz at master · bethrobson/Head-First-Design-Patterns
+    Quality: 3, Length: 240 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/bethrobson/Head-First-Design-Patterns/tree/master/src/headfirst/designpatterns/decorator/starbuzz. This may be due to access restrictions or the site ...
+
+  - https://github.com/huangsam/ultimate-python
+    Title: huangsam/ultimate-python: Ultimate Python study guide :snake: :snake:
+    Quality: 3, Length: 167 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/huangsam/ultimate-python. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Zain-Tanveer/Product-Management/blob/main/register.html
+    Title: Product-Management/register.html at main · Zain-Tanveer/Product-Management
+    Quality: 3, Length: 198 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Zain-Tanveer/Product-Management/blob/main/register.html. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/tomorrowdevs-projects/real-world-projects/tree/main/projects/travel-web-scraper
+    Title: real-world-projects/projects/travel-web-scraper at main · tomorrowdevs-projects/real-world-projects
+    Quality: 3, Length: 222 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/tomorrowdevs-projects/real-world-projects/tree/main/projects/travel-web-scraper. This may be due to access restrictions or the site requiring authenti...
+
+  - https://github.com/GauravWalia19/Free-Algorithms-Books/blob/main/Library/src/JAVASCRIPT/A-Common-Sense-Guide-to-Data-Structures-and-Algorithms-Level-Up-Your-Core-Programming-Skills.pdf
+    Title: Free-Algorithms-Books/Library/src/JAVASCRIPT/A-Common-Sense-Guide-to-Data-Structures-and-Algorithms-Level-Up-Your-Core-Programming-Skills.pdf at main · GauravWalia19/Free-Algorithms-Books
+    Quality: 3, Length: 308 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/GauravWalia19/Free-Algorithms-Books/blob/main/Library/src/JAVASCRIPT/A-Common-Sense-Guide-to-Data-Structures-and-Algorithms-Level-Up-Your-Core-Program...
+
+  - https://github.com/greyhatguy007/Mathematics-for-Machine-Learning-and-Data-Science-Specialization-Coursera/tree/main
+    Title: greyhatguy007/Mathematics-for-Machine-Learning-and-Data-Science-Specialization-Coursera: Mathematics for Machine Learning and Data Science Specialization - Coursera - deeplearning.ai - solutions and notes
+    Quality: 3, Length: 240 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/greyhatguy007/Mathematics-for-Machine-Learning-and-Data-Science-Specialization-Coursera/tree/main. This may be due to access restrictions or the site ...
+
+  - https://github.com/hemantshirsath/Expensetracker
+    Title: hemantshirsath/Expensetracker: Personal Expense Tracker and AI based budgetting assitance
+    Quality: 3, Length: 172 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/hemantshirsath/Expensetracker. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/bahuma20/firefly-iii-ai-categorize
+    Title: bahuma20/firefly-iii-ai-categorize: Automatically categorize your expenses by using OpenAI
+    Quality: 3, Length: 177 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/bahuma20/firefly-iii-ai-categorize. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Mohit-15/UPIGO?utm_source=chatgpt.com
+    Title: Mohit-15/UPIGO: Unified Payments Interface (UPI) APIs using Django REST Framework.
+    Quality: 3, Length: 180 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Mohit-15/UPIGO?utm_source=chatgpt.com. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/gokulkrishh/expense.fyi?utm_source=chatgpt.com
+    Title: gokulkrishh/expense.fyi: Effortlessly track and manage expenses on-the-go with categorisation and logging.
+    Quality: 3, Length: 189 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/gokulkrishh/expense.fyi?utm_source=chatgpt.com. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/Akash-Ramjyothi/UPI-Pay
+    Title: Akash-Ramjyothi/UPI-Pay: The project "UPI Pay" is an Android Application to make Payments through UPI (Unified Payments Interface). The Amount, UPI ID, Name and Remarks are set through the App, and when the button is clicked, the entities are Parsed into the selected desired application and after authenticating, the Payment is made to the specified Reciever. Made this project to demonstrate the support and integration of UPI Payment gateway into custom 3rd party applications.
+    Quality: 3, Length: 166 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/Akash-Ramjyothi/UPI-Pay. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/HimanshuSingour/UPI-Payment-Application
+    Title: HimanshuSingour/UPI-Payment-Application: Developing a Java Spring Boot and Angular-based full-stack app, it offers bill payments, recharges, and flight bookings. Integration with the "Bank of Bharat" on GitHub enables seamless payment processing for these services, enhancing user convenience within the same tech stack.
+    Quality: 3, Length: 182 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/HimanshuSingour/UPI-Payment-Application. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/facyber/awesome-networking
+    Title: facyber/awesome-networking: A collection of awesome networking courses, books, tutorials and other resources
+    Quality: 3, Length: 169 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/facyber/awesome-networking. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/facyber/awesome-networking?tab=readme-ov-file
+    Title: facyber/awesome-networking: A collection of awesome networking courses, books, tutorials and other resources
+    Quality: 3, Length: 188 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/facyber/awesome-networking?tab=readme-ov-file. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/bharadwaj221/edu.io/tree/master/Grokking%20Computer%20Networking%20for%20Software%20Engineers%20-%20Learn%20Interactively
+    Title: edu.io/Grokking Computer Networking for Software Engineers - Learn Interactively at master · bharadwaj221/edu.io
+    Quality: 3, Length: 264 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/bharadwaj221/edu.io/tree/master/Grokking%20Computer%20Networking%20for%20Software%20Engineers%20-%20Learn%20Interactively. This may be due to access r...
+
+  - https://github.com/RILUCK/Supply-Chain-Management-Machine-Learning
+    Title: RILUCK/Supply-Chain-Management-Machine-Learning: Predicting Global Supply Chain Outcomes for Essential HIV Medicines using Machine Learning Techniques
+    Quality: 3, Length: 190 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/RILUCK/Supply-Chain-Management-Machine-Learning. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/piyushDuggal-source/summarizer-guy
+    Title: PiyushDuggal-source/summarizer-guy: An AI-powered assistant for your WhatsApp chats. This Chrome extension uses Google's Gemini to summarize conversations, extract key points, and organize links, helping you stay on top of busy group chats.
+    Quality: 3, Length: 177 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/piyushDuggal-source/summarizer-guy. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/zayyehtut/job-hunter
+    Title: zayyehtut/job-hunter
+    Quality: 3, Length: 163 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/zayyehtut/job-hunter. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/XD-MHLOO/Osintgraph
+    Title: XD-MHLOO/Osintgraph: About Osintgraph is an open-source tool that collects Instagram data, followers, and followees, storing them in Neo4j. It helps you easily map and analyze a target's social network, revealing interests, connections, and affiliations for effective OSINT.
+    Quality: 3, Length: 162 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/XD-MHLOO/Osintgraph. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+  - https://github.com/onestardao/WFGY/tree/main
+    Title: onestardao/WFGY: WFGY 2.0 — Semantic Reasoning Engine for LLMs (MIT). Fixes RAG/OCR drift, collapse & “ghost matches” via symbolic overlays + logic patches. Autoboot; OneLine & Flagship. ⭐ Star if you explore semantic RAG or hallucination mitigation.
+    Quality: 3, Length: 168 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://github.com/onestardao/WFGY/tree/main. This may be due to access restrictions or the site requiring authentication. Source: GitHub
+
+
+learning.edx.org (1 URLs):
+  - https://learning.edx.org/course/course-v1:HarvardX+CS50SQL+SQL/home
+    Title: Course | CS50's Introduction to Databases with SQL | edX
+    Quality: 6, Length: 12 chars
+    Reasons: Short content: 12 chars
+    Preview: Course | edX
+
+
+learnxinyminutes.com (1 URLs):
+  - https://learnxinyminutes.com/docs/python/
+    Title: Learn Python in Y Minutes
+    Quality: 5, Length: 0 chars
+    Reasons: Empty extracted_text
+
+
+leetcode.com (8 URLs):
+  - https://leetcode.com/discuss/study-guide/1233854/a-noobs-guide-to-the-binary-search-algorithm
+    Title: ✅ A GUIDE TO THE BINARY SEARCH ALGORITHM!!! - LeetCode Discuss
+    Quality: 3, Length: 221 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/discuss/study-guide/1233854/a-noobs-guide-to-the-binary-search-algorithm. This may be due to access restrictions or the site requiring authenticatio...
+
+  - https://leetcode.com/discuss/interview-question/1322500/5-variations-of-Binary-search-(A-Self-Note)
+    Title: 5 variations of Binary search (A Self Note) - LeetCode Discuss
+    Quality: 3, Length: 227 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/discuss/interview-question/1322500/5-variations-of-Binary-search-(A-Self-Note). This may be due to access restrictions or the site requiring authent...
+
+  - https://leetcode.com/problems/rising-temperature/description/
+    Title: Rising Temperature - LeetCode
+    Quality: 3, Length: 187 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/problems/rising-temperature/description/. This may be due to access restrictions or the site requiring authentication. Source: LeetCode
+
+  - https://leetcode.com/problem-list/design/
+    Title: Design - LeetCode
+    Quality: 3, Length: 169 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/problem-list/design/. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+  - https://leetcode.com/discuss/interview-question/object-oriented-design/124739/Parking-Lot-Design-Using-OO-Design
+    Title: Parking Lot Design Using OO Design - LeetCode Discuss
+    Quality: 3, Length: 240 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/discuss/interview-question/object-oriented-design/124739/Parking-Lot-Design-Using-OO-Design. This may be due to access restrictions or the site requ...
+
+  - https://leetcode.com/discuss/interview-question/313216/binary-search-interview-questions
+    Title: Binary-search Interview Questions - LeetCode Discuss
+    Quality: 3, Length: 216 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/discuss/interview-question/313216/binary-search-interview-questions. This may be due to access restrictions or the site requiring authentication. So...
+
+  - https://leetcode.com/discuss/career/448024/topic-wise-problems-for-beginners
+    Title: Topic wise problems for Beginners - LeetCode Discuss
+    Quality: 3, Length: 204 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/discuss/career/448024/topic-wise-problems-for-beginners. This may be due to access restrictions or the site requiring authentication. Source: Playwr...
+
+  - https://leetcode.com/problems/classes-more-than-5-students/description/
+    Title: Classes More Than 5 Students - LeetCode
+    Quality: 3, Length: 197 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://leetcode.com/problems/classes-more-than-5-students/description/. This may be due to access restrictions or the site requiring authentication. Source: LeetCode
+
+
+lovable.dev (1 URLs):
+  - https://lovable.dev/projects/7e2d9723-e2e5-4837-a5b7-6c33ca7233bd
+    Title: Lovable - Build for the web 20x faster
+    Quality: 7, Length: 38 chars
+    Reasons: Short content: 38 chars
+    Preview: Lovable - Build for the web 20x faster
+
+
+masterjs.vercel.app (1 URLs):
+  - https://masterjs.vercel.app/
+    Title: Home | masterJS
+    Quality: 7, Length: 53 chars
+    Reasons: Short content: 53 chars
+    Preview: Home | masterJS Skip to main content Table of Content
+
+
+medium.com (1 URLs):
+  - https://medium.com/codex/learning-javascript-road-map-1d97d20aef5d
+    Title: Learning JavaScript Road-Map. Prerequisites | by Vlad Ungureanu | CodeX | Medium
+    Quality: 3, Length: 194 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://medium.com/codex/learning-javascript-road-map-1d97d20aef5d. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+mohiyaddeenraza.vercel.app (1 URLs):
+  - https://mohiyaddeenraza.vercel.app/
+    Title: Mohiyaddeen Raza - portfolio
+    Quality: 8, Length: 75 chars
+    Reasons: Short content: 75 chars
+    Preview: Mohiyaddeen Raza - portfolio You need to enable JavaScript to run this app.
+
+
+neetcode.io (1 URLs):
+  - https://neetcode.io/roadmap
+    Title: Roadmap
+    Quality: 8, Length: 8 chars
+    Reasons: Short content: 8 chars
+    Preview: NeetCode
+
+
+neetishop.medium.com (1 URLs):
+  - https://neetishop.medium.com/best-learning-path-to-master-sql-server-4b4de580a2ad
+    Title: Best learning path to master SQL Server | by Neetish Raj | Medium
+    Quality: 3, Length: 209 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://neetishop.medium.com/best-learning-path-to-master-sql-server-4b4de580a2ad. This may be due to access restrictions or the site requiring authentication. Source: P...
+
+
+people.cs.rutgers.edu (1 URLs):
+  - https://people.cs.rutgers.edu/~pxk/416/syllabus.html
+    Title: Operating Systems Design Syllabus
+    Quality: 3, Length: 180 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://people.cs.rutgers.edu/~pxk/416/syllabus.html. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+status.setu.co (1 URLs):
+  - https://status.setu.co/
+    Title: Setu - Status
+    Quality: 7, Length: 13 chars
+    Reasons: Short content: 13 chars
+    Preview: Setu - Status
+
+
+vision.hack2skill.com (1 URLs):
+  - https://vision.hack2skill.com/event/genaiexchange/dashboard/roadmap?utm_source=hack2skill&utm_medium=homepage
+    Title: Gen AI Exchange Program | Roadmap | Hack2skill
+    Quality: 6, Length: 19 chars
+    Reasons: Short content: 19 chars
+    Preview: Vision | Hack2skill
+
+
+www.lintcode.com (1 URLs):
+  - https://www.lintcode.com/problem/?typeId=6
+    Title: LintCode 炼码 - A more effective learning experience!
+    Quality: 8, Length: 23 chars
+    Reasons: Short content: 23 chars
+    Preview: LintCode 炼码 - 更高效的学习体验！
+
+
+www.newline.co (1 URLs):
+  - https://www.newline.co/fullstack-react/assets/media/sGEMe/MNzue/30-days-of-react-ebook-fullstackio.pdf
+    Title: 30-days-of-react-book-cover.png
+    Quality: 3, Length: 230 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://www.newline.co/fullstack-react/assets/media/sGEMe/MNzue/30-days-of-react-ebook-fullstackio.pdf. This may be due to access restrictions or the site requiring auth...
+
+
+www.npci.org.in (1 URLs):
+  - https://www.npci.org.in/what-we-do/upi/3rd-party-apps
+    Title: UPI Apps - List of UPI 3rd Party Apps | NPCI
+    Quality: 3, Length: 181 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://www.npci.org.in/what-we-do/upi/3rd-party-apps. This may be due to access restrictions or the site requiring authentication. Source: Playwright
+
+
+www.openml.org (1 URLs):
+  - https://www.openml.org/search?type=data&sort=date&status=active&order=desc&id=47039
+    Title: OpenML
+    Quality: 8, Length: 53 chars
+    Reasons: Short content: 53 chars
+    Preview: OpenML You need to enable JavaScript to run this app.
+
+
+xhaccess.com (1 URLs):
+  - https://xhaccess.com/videos/fuji-jiju-ne-ki-apni-saali-poonam-ki-thokai-xhAZ8fA
+    Title: Fuji Jiju Ne Ki Apni Saali Poonam Ki Thokai: Indian Blowjob Porn | xHamster
+    Quality: 3, Length: 207 chars
+    Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+    Preview: Unable to extract content from https://xhaccess.com/videos/fuji-jiju-ne-ki-apni-saali-poonam-ki-thokai-xhAZ8fA. This may be due to access restrictions or the site requiring authentication. Source: Pla...
+
+
+================================================================================
+COMPLETE LIST:
+================================================================================
+file:///C:/Users/ujjwa/Downloads/002%20Useful%20Resources%20for%20Part%202.html
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://andreasbm.github.io/web-skills/
+  Reasons: Short content: 53 chars
+
+https://app.expense.fyi/signup
+  Reasons: Short content: 82 chars
+
+https://chat.deepseek.com/
+  Reasons: Short content: 8 chars
+
+https://chatgpt.com/c/67ad84b2-0a24-8000-999a-18b8399ce2d3
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://chatgpt.com/c/681fabac-4d28-8000-abab-69a848d0625a
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://claude.ai/chat/117423fc-d282-4e10-bfcb-d127a076b6f9
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://claude.ai/chat/cec1d0f7-d709-4622-b46c-286c9865aa1e
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://codeforces.com/blog/entry/49494
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://codeforces.com/problemset/problem/214/A
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://colab.research.google.com/drive/1YdjUx5VjfuBGjS3CJaY8g4JTLGE0X2V6#scrollTo=tLX0v6wUnQtN
+  Reasons: Short content: 20 chars
+
+https://dashboard.render.com/web/srv-d0i6vq3uibrs73a0p2fg/deploys/dep-d0i7kmumcj7s739pmfhg?r=2025-05-14%4011%3A10%3A23%7E2025-05-14%4011%3A14%3A19
+  Reasons: Short content: 86 chars
+
+https://dashboard.render.com/web/srv-d0i6vq3uibrs73a0p2fg/deploys/dep-d0ir0g2dbo4c738prtcg
+  Reasons: Short content: 86 chars
+
+https://decentro.tech/resources/upi-apis?utm_source=chatgpt.com
+  Reasons: Empty extracted_text
+
+https://dev.to/nicks101/8-computer-networking-resources-for-all-levels-766
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://devdocs.io/
+  Reasons: Short content: 61 chars
+
+https://flaviocopes.com/javascript/
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://gemini.google.com/app/a0bb0eaf89080969?hl=en-IN
+  Reasons: Short content: 22 chars
+
+https://github.com/AbdelrahmanAlsayed/competitive-programming
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Akash-Ramjyothi/UPI-Pay
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/CodeChefVIT/resources/blob/master/OOPS/OOPS.md
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/GauravWalia19/Free-Algorithms-Books/blob/main/Library/src/JAVASCRIPT/A-Common-Sense-Guide-to-Data-Structures-and-Algorithms-Level-Up-Your-Core-Programming-Skills.pdf
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/HaythemLazaar/toCopy
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/HimanshuSingour/UPI-Payment-Application
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/KKshitiz/whatsapp-ui-clone/blob/master/icons/status.svg
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/KKshitiz/whatsapp-ui-clone/tree/master/styles
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Mohit-15/UPIGO?utm_source=chatgpt.com
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Narahari-Sundaragopalan/JavaScript-Interview-Questions/blob/master/concepts/Promises.md
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Nitin96Bisht/Java-Books
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/RILUCK/Supply-Chain-Management-Machine-Learning
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Shweta2024/JavaScript-Projects/tree/master/Projects%20starting%20with%20S/Sorting-Visualizer-js
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Thant998/oop-project
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Ujjwaljain16/BookmarkSyncHub
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Ujjwaljain16/chrome-bookmark-bridge
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/XD-MHLOO/Osintgraph
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/Zain-Tanveer/Product-Management/blob/main/register.html
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/akarsh1995/leetcode-graphql-queries/blob/main/problemset_page/problemset_page.graphql
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/avinashyadav16/Codeforces-CodeSolution-And-OOPs
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/bahuma20/firefly-iii-ai-categorize
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/bethrobson/Head-First-Design-Patterns/tree/master/src/headfirst/designpatterns/decorator/starbuzz
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/bharadwaj221/edu.io/tree/master/Grokking%20Computer%20Networking%20for%20Software%20Engineers%20-%20Learn%20Interactively
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/disha2sinha/Object-Oriented-Programming-in-Java
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/dyingpotato890/KTU-S3-LAB
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/expo-starter/expo-local-first-template
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/facyber/awesome-networking
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/facyber/awesome-networking?tab=readme-ov-file
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/gokulkrishh/expense.fyi?utm_source=chatgpt.com
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/greyhatguy007/Mathematics-for-Machine-Learning-and-Data-Science-Specialization-Coursera/tree/main
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/hemantshirsath/Expensetracker
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/huangsam/ultimate-python
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/jonasschmedtmann/complete-javascript-course
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/manjunath5496/Java-Programming-Books
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Approaches_and_Solutions/tree/main/js
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Batch-3/blob/main/notes/functionalProgramming.md
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Discord-JS-Challenges
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/JS-Beginner-Notes/tree/main/notes
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Js-Revision-Class-Questions/tree/main/JS%20questions
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/SST-dev-2-Assignments
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/SST-dev-2-Assignments/blob/main/promises/4.md
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/mrinal1224/Scaler-Frontend-questions-Beginner-Module/commit/bc4d22bfef97b01a63236a558eca20b03688c9fc#diff-be5f3f363f35c02f19bc6cc7c4fcf8b999ee0c7ab24fea236bd1614ec8cb1b70R7
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/onestardao/WFGY/tree/main
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/piyushDuggal-source/summarizer-guy
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/sanjaysamantra1/react_notes/blob/main/React%20Notes.txt
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/sherlock-project/sherlock
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/surujtv/LearnJavaScript
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/tomorrowdevs-projects/real-world-projects/tree/main/projects/travel-web-scraper
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/topics/object-oriented-programming-project?l=java&o=asc&s=updated
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://github.com/zayyehtut/job-hunter
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://learning.edx.org/course/course-v1:HarvardX+CS50SQL+SQL/home
+  Reasons: Short content: 12 chars
+
+https://learnxinyminutes.com/docs/python/
+  Reasons: Empty extracted_text
+
+https://leetcode.com/discuss/career/448024/topic-wise-problems-for-beginners
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/discuss/interview-question/1322500/5-variations-of-Binary-search-(A-Self-Note)
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/discuss/interview-question/313216/binary-search-interview-questions
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/discuss/interview-question/object-oriented-design/124739/Parking-Lot-Design-Using-OO-Design
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/discuss/study-guide/1233854/a-noobs-guide-to-the-binary-search-algorithm
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/problem-list/design/
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/problems/classes-more-than-5-students/description/
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://leetcode.com/problems/rising-temperature/description/
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://lovable.dev/projects/7e2d9723-e2e5-4837-a5b7-6c33ca7233bd
+  Reasons: Short content: 38 chars
+
+https://masterjs.vercel.app/
+  Reasons: Short content: 53 chars
+
+https://medium.com/codex/learning-javascript-road-map-1d97d20aef5d
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://mohiyaddeenraza.vercel.app/
+  Reasons: Short content: 75 chars
+
+https://neetcode.io/roadmap
+  Reasons: Short content: 8 chars
+
+https://neetishop.medium.com/best-learning-path-to-master-sql-server-4b4de580a2ad
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://people.cs.rutgers.edu/~pxk/416/syllabus.html
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://status.setu.co/
+  Reasons: Short content: 13 chars
+
+https://vision.hack2skill.com/event/genaiexchange/dashboard/roadmap?utm_source=hack2skill&utm_medium=homepage
+  Reasons: Short content: 19 chars
+
+https://www.lintcode.com/problem/?typeId=6
+  Reasons: Short content: 23 chars
+
+https://www.newline.co/fullstack-react/assets/media/sGEMe/MNzue/30-days-of-react-ebook-fullstackio.pdf
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://www.npci.org.in/what-we-do/upi/3rd-party-apps
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+https://www.openml.org/search?type=data&sort=date&status=active&order=desc&id=47039
+  Reasons: Short content: 53 chars
+
+https://xhaccess.com/videos/fuji-jiju-ne-ki-apni-saali-poonam-ki-thokai-xhAZ8fA
+  Reasons: Low quality score: 3, Contains "Unable to extract", Low quality score: 3, Contains "Unable to extract"
+
+javascript:(function(){    var d=document;    d.addEventListener('contextmenu',function(e){e.stopPropagation();return true},true);    d.addEventListener('paste',function(e){e.stopPropagation();return true},true);    d.addEventListener('copy',function(e){e.stopPropagation();return true},true);    var s=d.createElement('style');    s.textContent='*{user-select:text!important;-webkit-user-select:text!important}';    d.head.appendChild(s);})();
+  Reasons: Short content: 13 chars
+

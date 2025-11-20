@@ -20,6 +20,41 @@ from models import db, SavedContent, ContentAnalysis
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import RedisCache
 
+# Import app for app_context - use lazy import to avoid circular dependencies
+_app_instance = None
+
+def get_app():
+    """Get Flask app instance, creating if necessary"""
+    global _app_instance
+    
+    # Try to use cached instance first
+    if _app_instance is not None:
+        return _app_instance
+    
+    # Try to get from current_app (if in request context)
+    try:
+        from flask import has_app_context, current_app
+        if has_app_context():
+            _app_instance = current_app._get_current_object()
+            return _app_instance
+    except Exception:
+        pass
+    
+    # Not in app context, try to import app directly
+    try:
+        from run_production import app
+        _app_instance = app
+        return app
+    except (ImportError, AttributeError):
+        # Last resort: create app context
+        try:
+            from run_production import create_app
+            _app_instance = create_app()
+            return _app_instance
+        except Exception as e:
+            logger.error(f"Failed to get Flask app: {e}")
+            raise
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,7 +92,8 @@ class BackgroundAnalysisService:
         """Background worker that continuously checks for unanalyzed content"""
         while self.running:
             try:
-                with app.app_context():
+                flask_app = get_app()
+                with flask_app.app_context():
                     self._process_unanalyzed_content()
                 time.sleep(30)  # Check every 30 seconds
             except Exception as e:
@@ -123,11 +159,14 @@ class BackgroundAnalysisService:
         try:
             # Find content without corresponding analysis using proper select() construct
             from sqlalchemy import select
-            analyzed_content_ids = select(ContentAnalysis.content_id).subquery()
+            analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
+            
+            # Use select() explicitly to avoid SQLAlchemy warning
+            analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
             
             # Also exclude content that has no extracted_text to avoid repeated failures
             unanalyzed = db.session.query(SavedContent).filter(
-                ~SavedContent.id.in_(analyzed_content_ids),
+                ~SavedContent.id.in_(analyzed_content_ids_select),
                 SavedContent.extracted_text.isnot(None),
                 SavedContent.extracted_text != ''
             ).limit(10).all()  # Process 10 at a time
@@ -283,7 +322,8 @@ class BackgroundAnalysisService:
                 return cached_result
             
             # Try database
-            with app.app_context():
+            flask_app = get_app()
+            with flask_app.app_context():
                 analysis = db.session.query(ContentAnalysis).filter_by(content_id=content_id).first()
                 if analysis:
                     # Cache in Redis for future use
@@ -299,7 +339,8 @@ class BackgroundAnalysisService:
     def analyze_content_immediately(self, content_id: int, user_id: int = None) -> Optional[Dict]:
         """Analyze content immediately (for user-triggered analysis)"""
         try:
-            with app.app_context():
+            flask_app = get_app()
+            with flask_app.app_context():
                 content = db.session.query(SavedContent).filter_by(id=content_id).first()
                 if not content:
                     logger.error(f"Content {content_id} not found")
@@ -319,7 +360,8 @@ class BackgroundAnalysisService:
     def get_analysis_stats(self) -> Dict:
         """Get statistics about analysis coverage"""
         try:
-            with app.app_context():
+            flask_app = get_app()
+            with flask_app.app_context():
                 total_content = db.session.query(SavedContent).count()
                 analyzed_content = db.session.query(ContentAnalysis).count()
                 

@@ -21,13 +21,54 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 def clear_user_recommendation_cache(user_id):
-    """Clear recommendation caches for a specific user"""
+    """Clear recommendation caches thoroughly for a specific user"""
     try:
         from services.cache_invalidation_service import CacheInvalidationService
-        success = CacheInvalidationService.invalidate_recommendation_cache(user_id)
+        from utils.redis_utils import redis_cache
+        
+        print(f"  📦 Clearing Redis recommendation caches for user {user_id}...")
+        success1 = CacheInvalidationService.invalidate_recommendation_cache(user_id)
+        
+        print(f"  🧠 Clearing in-memory Gemini analyzer cache...")
+        try:
+            from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
+            cleared_gemini = clear_gemini_analyzer_cache()
+            print(f"    ✅ Cleared {cleared_gemini} Gemini analyzer instances")
+        except Exception as e:
+            print(f"    ⚠️ Failed to clear Gemini cache: {e}")
+        
+        print(f"  💾 Clearing database intent analysis cache for user {user_id}...")
+        try:
+            from models import db, Project
+            from run_production import app
+            with app.app_context():
+                cleared_projects = db.session.query(Project).filter(
+                    Project.user_id == user_id,
+                    Project.intent_analysis.isnot(None)
+                ).update({"intent_analysis": None})
+                db.session.commit()
+                print(f"    ✅ Cleared intent analysis from {cleared_projects} projects")
+        except Exception as e:
+            print(f"    ⚠️ Failed to clear database intent analysis cache: {e}")
+        
+        print(f"  🔍 Clearing additional cache patterns for user {user_id}...")
+        additional_patterns = [
+            f"*ensemble_recommendations:*:{user_id}:*",
+            f"*gemini_recommendations:*:{user_id}:*",
+            f"*opt_recommendations:{user_id}",
+            f"*fast_recommendations:{user_id}",
+            f"*learning_path_recommendations:{user_id}*"
+        ]
+        for pattern in additional_patterns:
+            try:
+                count = redis_cache.delete_keys_pattern(pattern)
+                if count > 0:
+                    print(f"    ✅ Cleared {count} keys matching {pattern}")
+            except Exception as e:
+                print(f"    ⚠️ Failed to clear pattern {pattern}: {e}")
 
-        if success:
-            print(f"✅ Cleared recommendation caches for user {user_id}")
+        if success1:
+            print(f"✅ Cleared recommendation caches thoroughly for user {user_id}")
             return True
         else:
             print(f"❌ Failed to clear recommendation caches for user {user_id}")
@@ -37,13 +78,53 @@ def clear_user_recommendation_cache(user_id):
         return False
 
 def clear_all_recommendation_caches():
-    """Clear ALL recommendation caches (admin operation)"""
+    """Clear ALL recommendation caches thoroughly (admin operation)"""
     try:
         from services.cache_invalidation_service import CacheInvalidationService
-        success = CacheInvalidationService.invalidate_recommendation_cache()  # No user_id = clear all
+        from utils.redis_utils import redis_cache
+        
+        print("  📦 Clearing Redis recommendation caches...")
+        success1 = CacheInvalidationService.invalidate_recommendation_cache()  # No user_id = clear all
+        
+        print("  🧠 Clearing in-memory Gemini analyzer cache...")
+        try:
+            from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
+            cleared_gemini = clear_gemini_analyzer_cache()
+            print(f"    ✅ Cleared {cleared_gemini} Gemini analyzer instances")
+        except Exception as e:
+            print(f"    ⚠️ Failed to clear Gemini cache: {e}")
+        
+        print("  💾 Clearing database intent analysis cache...")
+        try:
+            from models import db, Project
+            from run_production import app
+            with app.app_context():
+                cleared_projects = db.session.query(Project).filter(
+                    Project.intent_analysis.isnot(None)
+                ).update({"intent_analysis": None})
+                db.session.commit()
+                print(f"    ✅ Cleared intent analysis from {cleared_projects} projects")
+        except Exception as e:
+            print(f"    ⚠️ Failed to clear database intent analysis cache: {e}")
+        
+        print("  🔍 Clearing additional cache patterns...")
+        additional_patterns = [
+            "*ensemble_recommendations:*",
+            "*gemini_recommendations:*",
+            "*opt_recommendations:*",
+            "*fast_recommendations:*",
+            "*learning_path_recommendations:*"
+        ]
+        for pattern in additional_patterns:
+            try:
+                count = redis_cache.delete_keys_pattern(pattern)
+                if count > 0:
+                    print(f"    ✅ Cleared {count} keys matching {pattern}")
+            except Exception as e:
+                print(f"    ⚠️ Failed to clear pattern {pattern}: {e}")
 
-        if success:
-            print("✅ Cleared ALL recommendation caches")
+        if success1:
+            print("✅ Cleared ALL recommendation caches thoroughly")
             return True
         else:
             print("❌ Failed to clear ALL recommendation caches")

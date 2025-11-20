@@ -288,9 +288,16 @@ class DatabaseConnectionManager:
         
         return database_url
     
+    def _is_sqlite(self, database_url: str) -> bool:
+        """Check if the database URL is for SQLite"""
+        return database_url.startswith('sqlite:///') or database_url.startswith('sqlite://')
+    
     def _create_engine(self, ssl_mode: str = 'prefer') -> Engine:
         """Create database engine with specified SSL mode"""
         database_url = self._get_database_url()
+        
+        # Check if using SQLite
+        is_sqlite = self._is_sqlite(database_url)
         
         # Check if the URL contains IPv6 addresses (shouldn't happen with our new logic, but safety check)
         if '[' in database_url and ']' in database_url:
@@ -313,40 +320,46 @@ class DatabaseConnectionManager:
             except Exception as e:
                 logger.warning(f"⚠️ Error processing IPv6 address: {e}")
         
-        # Update SSL mode in connection string
-        if 'sslmode=' in database_url:
-            # Replace existing SSL mode
-            base_url = database_url.split('sslmode=')[0]
-            remaining = database_url.split('sslmode=')[1]
-            if '&' in remaining:
-                remaining = '&' + remaining.split('&', 1)[1]
+        # Update SSL mode in connection string (only for PostgreSQL)
+        if not is_sqlite:
+            if 'sslmode=' in database_url:
+                # Replace existing SSL mode
+                base_url = database_url.split('sslmode=')[0]
+                remaining = database_url.split('sslmode=')[1]
+                if '&' in remaining:
+                    remaining = '&' + remaining.split('&', 1)[1]
+                else:
+                    remaining = ''
+                database_url = f"{base_url}sslmode={ssl_mode}{remaining}"
             else:
-                remaining = ''
-            database_url = f"{base_url}sslmode={ssl_mode}{remaining}"
+                # Add SSL mode
+                separator = '&' if '?' in database_url else '?'
+                database_url = f"{database_url}{separator}sslmode={ssl_mode}"
+        
+        # Enhanced connection configuration - database-specific
+        if is_sqlite:
+            # SQLite doesn't support PostgreSQL connection arguments
+            connect_args = {}
         else:
-            # Add SSL mode
-            separator = '&' if '?' in database_url else '?'
-            database_url = f"{database_url}{separator}sslmode={ssl_mode}"
-        
-        # Enhanced connection configuration with longer timeouts for Supabase
-        # Note: IPv4 enforcement is done at URL resolution level (hostname -> IPv4 IP)
-        connect_args = {
-            'connect_timeout': 30,  # Increased from 10 to 30 seconds for Supabase
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5,
-            'application_name': 'fuze_connection_manager',
-            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-        }
-        
-        # Add SSL-specific arguments
-        if ssl_mode in ['require', 'verify-ca', 'verify-full']:
-            connect_args.update({
-                'sslcert': None,
-                'sslkey': None,
-                'sslrootcert': None
-            })
+            # PostgreSQL connection configuration with longer timeouts for Supabase
+            # Note: IPv4 enforcement is done at URL resolution level (hostname -> IPv4 IP)
+            connect_args = {
+                'connect_timeout': 30,  # Increased from 10 to 30 seconds for Supabase
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5,
+                'application_name': 'fuze_connection_manager',
+                'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+            }
+            
+            # Add SSL-specific arguments
+            if ssl_mode in ['require', 'verify-ca', 'verify-full']:
+                connect_args.update({
+                    'sslcert': None,
+                    'sslkey': None,
+                    'sslrootcert': None
+                })
         
         engine = create_engine(
             database_url,
@@ -409,6 +422,14 @@ class DatabaseConnectionManager:
     
     def _find_working_ssl_mode(self) -> Optional[str]:
         """Find a working SSL mode by testing different configurations"""
+        database_url = self._get_database_url()
+        is_sqlite = self._is_sqlite(database_url)
+        
+        # SQLite doesn't use SSL modes
+        if is_sqlite:
+            logger.info("SQLite detected - skipping SSL mode testing")
+            return 'none'
+        
         ssl_modes = ['prefer', 'require', 'verify-ca', 'verify-full']
         
         for ssl_mode in ssl_modes:
@@ -432,17 +453,29 @@ class DatabaseConnectionManager:
             logger.info("Testing SSL mode: allow")
             # Create a custom engine with 'allow' mode
             database_url = self._get_database_url()
-            if 'sslmode=' in database_url:
-                base_url = database_url.split('sslmode=')[0]
-                remaining = database_url.split('sslmode=')[1]
-                if '&' in remaining:
-                    remaining = '&' + remaining.split('&', 1)[1]
+            is_sqlite = self._is_sqlite(database_url)
+            
+            if not is_sqlite:
+                if 'sslmode=' in database_url:
+                    base_url = database_url.split('sslmode=')[0]
+                    remaining = database_url.split('sslmode=')[1]
+                    if '&' in remaining:
+                        remaining = '&' + remaining.split('&', 1)[1]
+                    else:
+                        remaining = ''
+                    database_url = f"{base_url}sslmode=allow{remaining}"
                 else:
-                    remaining = ''
-                database_url = f"{base_url}sslmode=allow{remaining}"
+                    separator = '&' if '?' in database_url else '?'
+                    database_url = f"{database_url}{separator}sslmode=allow"
+            
+            # Use appropriate connect_args based on database type
+            if is_sqlite:
+                connect_args = {}
             else:
-                separator = '&' if '?' in database_url else '?'
-                database_url = f"{database_url}{separator}sslmode=allow"
+                connect_args = {
+                    'connect_timeout': 30,
+                    'application_name': 'fuze_connection_manager_allow_ssl'
+                }
             
             test_engine = create_engine(
                 database_url,
@@ -453,10 +486,7 @@ class DatabaseConnectionManager:
                 pool_recycle=300,
                 pool_pre_ping=True,
                 echo=False,
-                connect_args={
-                    'connect_timeout': 30,
-                    'application_name': 'fuze_connection_manager_allow_ssl'
-                }
+                connect_args=connect_args
             )
             
             if self._test_connection(test_engine):
@@ -518,16 +548,29 @@ class DatabaseConnectionManager:
                 logger.warning("No SSL mode works, trying without SSL")
                 try:
                     database_url = self._get_database_url()
-                    # Remove SSL mode completely
-                    if 'sslmode=' in database_url:
-                        base_url = database_url.split('sslmode=')[0]
-                        remaining = database_url.split('sslmode=')[1]
-                        if '&' in remaining:
-                            remaining = '&' + remaining.split('&', 1)[1]
-                        else:
-                            remaining = ''
-                        database_url = base_url + remaining
-                        database_url = database_url.rstrip('&?')
+                    is_sqlite = self._is_sqlite(database_url)
+                    
+                    # Remove SSL mode completely (only for PostgreSQL)
+                    if not is_sqlite:
+                        if 'sslmode=' in database_url:
+                            base_url = database_url.split('sslmode=')[0]
+                            remaining = database_url.split('sslmode=')[1]
+                            if '&' in remaining:
+                                remaining = '&' + remaining.split('&', 1)[1]
+                            else:
+                                remaining = ''
+                            database_url = base_url + remaining
+                            database_url = database_url.rstrip('&?')
+                    
+                    # Use appropriate connect_args based on database type
+                    if is_sqlite:
+                        connect_args = {}
+                    else:
+                        connect_args = {
+                            'connect_timeout': 30,  # Increased from 10 to 30 seconds
+                            'application_name': 'fuze_connection_manager_no_ssl',
+                            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+                        }
                     
                     # Create engine without SSL
                     engine = create_engine(
@@ -539,11 +582,7 @@ class DatabaseConnectionManager:
                         pool_recycle=300,
                         pool_pre_ping=True,
                         echo=False,
-                        connect_args={
-                            'connect_timeout': 30,  # Increased from 10 to 30 seconds
-                            'application_name': 'fuze_connection_manager_no_ssl',
-                            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-                        }
+                        connect_args=connect_args
                     )
                     
                     if self._test_connection(engine):
@@ -561,15 +600,29 @@ class DatabaseConnectionManager:
             if working_ssl_mode == 'none':
                 # Create engine without SSL
                 database_url = self._get_database_url()
-                if 'sslmode=' in database_url:
-                    base_url = database_url.split('sslmode=')[0]
-                    remaining = database_url.split('sslmode=')[1]
-                    if '&' in remaining:
-                        remaining = '&' + remaining.split('&', 1)[1]
-                    else:
-                        remaining = ''
-                    database_url = base_url + remaining
-                    database_url = database_url.rstrip('&?')
+                is_sqlite = self._is_sqlite(database_url)
+                
+                if not is_sqlite:
+                    # Only remove sslmode for PostgreSQL
+                    if 'sslmode=' in database_url:
+                        base_url = database_url.split('sslmode=')[0]
+                        remaining = database_url.split('sslmode=')[1]
+                        if '&' in remaining:
+                            remaining = '&' + remaining.split('&', 1)[1]
+                        else:
+                            remaining = ''
+                        database_url = base_url + remaining
+                        database_url = database_url.rstrip('&?')
+                
+                # Use appropriate connect_args based on database type
+                if is_sqlite:
+                    connect_args = {}
+                else:
+                    connect_args = {
+                        'connect_timeout': 30,  # Increased from 10 to 30 seconds
+                        'application_name': 'fuze_connection_manager_no_ssl',
+                        'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+                    }
                 
                 self._engine = create_engine(
                     database_url,
@@ -580,11 +633,7 @@ class DatabaseConnectionManager:
                     pool_recycle=300,
                     pool_pre_ping=True,
                     echo=False,
-                    connect_args={
-                        'connect_timeout': 30,  # Increased from 10 to 30 seconds
-                        'application_name': 'fuze_connection_manager_no_ssl',
-                        'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-                    }
+                    connect_args=connect_args
                 )
             else:
                 # Create engine with working SSL mode

@@ -135,19 +135,27 @@ def get_database_connection():
         if not database_url:
             raise ValueError("DATABASE_URL environment variable not set")
         
-        # Enhanced SSL configuration
-        connect_args = {
-            'connect_timeout': 10,
-            'sslmode': 'require',  # Require SSL for security
-            'sslcert': None,       # No client certificate required
-            'sslkey': None,        # No client key required
-            'sslrootcert': None,   # No root certificate required
-            'keepalives': 1,       # Enable keepalives
-            'keepalives_idle': 30, # Send keepalive after 30s idle
-            'keepalives_interval': 10,  # Send keepalive every 10s
-            'keepalives_count': 5, # Retry keepalive 5 times
-            'application_name': 'fuze_utils'
-        }
+        # Check if using SQLite
+        is_sqlite = database_url.startswith('sqlite:///') or database_url.startswith('sqlite://')
+        
+        # Enhanced SSL configuration (only for PostgreSQL)
+        if is_sqlite:
+            # SQLite doesn't support PostgreSQL connection arguments
+            connect_args = {}
+        else:
+            # PostgreSQL connection configuration
+            connect_args = {
+                'connect_timeout': 10,
+                'sslmode': 'require',  # Require SSL for security
+                'sslcert': None,       # No client certificate required
+                'sslkey': None,        # No client key required
+                'sslrootcert': None,   # No root certificate required
+                'keepalives': 1,       # Enable keepalives
+                'keepalives_idle': 30, # Send keepalive after 30s idle
+                'keepalives_interval': 10,  # Send keepalive every 10s
+                'keepalives_count': 5, # Retry keepalive 5 times
+                'application_name': 'fuze_utils'
+            }
         
         engine = create_engine(
             database_url, 

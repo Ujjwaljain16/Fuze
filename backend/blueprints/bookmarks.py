@@ -532,10 +532,11 @@ def get_analysis_progress():
             from models import SavedContent, ContentAnalysis
             from sqlalchemy import select
 
-            analyzed_content_ids = select(ContentAnalysis.content_id).subquery()
+            analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
+            analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
             unanalyzed_count = db.session.query(SavedContent).filter(
                 SavedContent.user_id == user_id,
-                ~SavedContent.id.in_(analyzed_content_ids),
+                ~SavedContent.id.in_(analyzed_content_ids_select),
                 SavedContent.extracted_text.isnot(None),
                 SavedContent.extracted_text != ''
             ).count()
