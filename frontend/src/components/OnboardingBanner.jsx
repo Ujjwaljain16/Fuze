@@ -18,6 +18,18 @@ const OnboardingBanner = () => {
     }
   }, [isAuthenticated])
 
+  // Listen for API key added event to update status
+  useEffect(() => {
+    if (!isAuthenticated) return
+    
+    const handleApiKeyAdded = () => {
+      checkSetupStatus()
+    }
+    
+    window.addEventListener('apiKeyAdded', handleApiKeyAdded)
+    return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+  }, [isAuthenticated])
+
   const checkSetupStatus = async () => {
     try {
       const response = await api.get('/api/user/api-key/status')
@@ -107,6 +119,10 @@ const OnboardingBanner = () => {
             <button
               onClick={() => {
                 localStorage.setItem('show_onboarding', 'true')
+                localStorage.removeItem('onboarding_completed')
+                // Dispatch event to trigger onboarding modal
+                window.dispatchEvent(new CustomEvent('showOnboarding'))
+                // Also reload to ensure modal shows
                 window.location.reload()
               }}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"

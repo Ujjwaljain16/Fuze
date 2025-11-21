@@ -13,6 +13,10 @@ const ApiKeyManager = () => {
   const [status, setStatus] = useState(null)
   const [usage, setUsage] = useState(null)
 
+  // Helper functions for error/success messages
+  const error = (message) => handleError(new Error(message), message)
+  const success = (message) => handleSuccess(message)
+
   useEffect(() => {
     loadStatus()
   }, [])
@@ -24,10 +28,14 @@ const ApiKeyManager = () => {
         setStatus(response.data)
         if (response.data.has_api_key) {
           setApiKeyName(response.data.api_key_name || 'My API Key')
+        } else {
+          setApiKeyName('')
         }
       }
     } catch (err) {
       handleError(err, 'loading API key status', false) // Don't show toast for initial load
+      // On error, assume no API key
+      setStatus({ has_api_key: false })
     }
   }
 
@@ -65,6 +73,12 @@ const ApiKeyManager = () => {
       if (response.data) {
         success('API key saved successfully!')
 
+        // Optimistically update status immediately
+        setStatus({
+          has_api_key: true,
+          api_key_name: apiKeyName.trim() || 'My API Key'
+        })
+
         // Check if user was redirected here for API key setup
         const urlParams = new URLSearchParams(window.location.search);
         const wasRequired = urlParams.get('api_key_required') === 'true';
@@ -80,8 +94,10 @@ const ApiKeyManager = () => {
 
         setApiKey('')
         setApiKeyName('')
-        loadStatus()
-        loadUsage()
+        
+        // Reload status from server to ensure consistency
+        await loadStatus()
+        await loadUsage()
 
         // Trigger a custom event for onboarding modal to update
         window.dispatchEvent(new CustomEvent('apiKeyAdded'))

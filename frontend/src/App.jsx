@@ -48,10 +48,66 @@ function AppContent() {
   // Check if onboarding should be shown
   useEffect(() => {
     if (isAuthenticated && !loading) {
-      const shouldShow = localStorage.getItem('show_onboarding') === 'true' && 
-                        localStorage.getItem('onboarding_completed') !== 'true';
-      setShowOnboarding(shouldShow);
+      const checkAndShowOnboarding = async () => {
+        try {
+          // Check if user has API key
+          const api = (await import('./services/api')).default;
+          const response = await api.get('/api/user/api-key/status');
+          const hasApiKey = response.data?.has_api_key || false;
+          
+          // Show onboarding if:
+          // 1. User explicitly requested it (show_onboarding flag), OR
+          // 2. User doesn't have API key (regardless of completion status - they need to set it up)
+          const explicitRequest = localStorage.getItem('show_onboarding') === 'true';
+          const notCompleted = localStorage.getItem('onboarding_completed') !== 'true';
+          
+          // If user doesn't have API key, always show onboarding (reset completion if needed)
+          if (!hasApiKey && localStorage.getItem('onboarding_completed') === 'true') {
+            localStorage.removeItem('onboarding_completed');
+          }
+          
+          const shouldShow = explicitRequest || (!hasApiKey && notCompleted);
+          
+          setShowOnboarding(shouldShow);
+        } catch (error) {
+          // If API check fails, fall back to explicit flag
+          const shouldShow = localStorage.getItem('show_onboarding') === 'true' && 
+                            localStorage.getItem('onboarding_completed') !== 'true';
+          setShowOnboarding(shouldShow);
+        }
+      };
+      
+      checkAndShowOnboarding();
     }
+  }, [isAuthenticated, loading]);
+
+  // Listen for API key added event and showOnboarding event
+  useEffect(() => {
+    const handleApiKeyAdded = async () => {
+      if (isAuthenticated && !loading) {
+        // When API key is added, keep showing onboarding so user can continue to extension step
+        // The modal will handle progression to step 2 automatically
+        const explicitRequest = localStorage.getItem('show_onboarding') === 'true';
+        if (explicitRequest) {
+          setShowOnboarding(true);
+        }
+      }
+    };
+    
+    const handleShowOnboarding = () => {
+      if (isAuthenticated && !loading) {
+        localStorage.setItem('show_onboarding', 'true');
+        localStorage.removeItem('onboarding_completed');
+        setShowOnboarding(true);
+      }
+    };
+    
+    window.addEventListener('apiKeyAdded', handleApiKeyAdded);
+    window.addEventListener('showOnboarding', handleShowOnboarding);
+    return () => {
+      window.removeEventListener('apiKeyAdded', handleApiKeyAdded);
+      window.removeEventListener('showOnboarding', handleShowOnboarding);
+    };
   }, [isAuthenticated, loading]);
 
   // Add sidebar state class to body - CRITICAL for layout
