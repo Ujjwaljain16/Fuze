@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome, Home } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,6 +22,8 @@ export default function FuzeAuth() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [passwordErrors, setPasswordErrors] = useState({});
   const [passwordStrength, setPasswordStrength] = useState({
     score: 0,
@@ -31,6 +33,7 @@ export default function FuzeAuth() {
   const [passwordsMatch, setPasswordsMatch] = useState(null);
   const navigate = useNavigate();
   const { login, register } = useAuth();
+  const submitRef = useRef(false); // Prevent duplicate submissions
 
   useEffect(() => {
     setIsVisible(true);
@@ -127,57 +130,118 @@ export default function FuzeAuth() {
 
   const handleSubmit = async (e) => {
     e && e.preventDefault && e.preventDefault();
+    
+    // Prevent duplicate submissions
+    if (isSubmitting || submitRef.current) {
+      return;
+    }
+    
     setError('');
     setSuccess('');
-    if (isLogin) {
-      if (!formData.email && !formData.username) {
-        setError('Please enter your email or username.');
-        return;
-      }
-      if (!formData.password) {
-        setError('Please enter your password.');
-        return;
-      }
-      const identifier = formData.email || formData.username;
-      const result = await login(identifier, formData.password);
-      if (result.success) {
-        setSuccess('Login successful! Redirecting...');
-        // Wait a bit for auth state to update, then navigate
-        setTimeout(() => navigate('/dashboard'), 500);
+    setIsSubmitting(true);
+    setLoading(true);
+    submitRef.current = true;
+    
+    try {
+      if (isLogin) {
+        if (!formData.email && !formData.username) {
+          setError('Please enter your email or username.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
+        if (!formData.password) {
+          setError('Please enter your password.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
+        const identifier = formData.email || formData.username;
+        const result = await login(identifier, formData.password);
+        if (result.success) {
+          setSuccess('✅ Logged in successfully! Redirecting to dashboard...');
+          // Wait a bit for auth state to update, then navigate
+          setTimeout(() => {
+            navigate('/dashboard');
+          }, 1000);
+        } else {
+          setError(result.error || 'Login failed. Please try again.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+        }
       } else {
-        setError(result.error || 'Login failed.');
-      }
-    } else {
-      // Signup validation
-      if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword || !formData.name) {
-        setError('Please fill in all fields.');
-        return;
-      }
+        // Signup validation
+        if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword || !formData.name) {
+          setError('Please fill in all fields.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
 
-      // Password strength validation
-      if (Object.keys(passwordErrors).length > 0) {
-        setError('Please create a stronger password that meets all requirements.');
-        return;
-      }
+        // Password strength validation
+        if (Object.keys(passwordErrors).length > 0) {
+          setError('Please create a stronger password that meets all requirements.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
 
-      // Password matching validation
-      if (passwordsMatch === false) {
-        setError('Passwords do not match.');
-        return;
-      }
+        // Password matching validation
+        if (passwordsMatch === false) {
+          setError('Passwords do not match.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
 
-      if (passwordsMatch !== true) {
-        setError('Please confirm your password.');
-        return;
-      }
+        if (passwordsMatch !== true) {
+          setError('Please confirm your password.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+          return;
+        }
 
-      const result = await register(formData.username, formData.email, formData.password, formData.name);
-      if (result.success) {
-        setSuccess('Registration successful! Redirecting to dashboard...');
-        setTimeout(() => navigate('/dashboard'), 1500);
-      } else {
-        setError(result.error || 'Registration failed.');
+        const result = await register(formData.username, formData.email, formData.password, formData.name);
+        if (result.success) {
+          setSuccess('✅ Sign up complete! Please log in to continue.');
+          // Clear form
+          setFormData({
+            name: '',
+            username: '',
+            email: '',
+            password: '',
+            confirmPassword: ''
+          });
+          setPasswordErrors({});
+          setPasswordStrength({ score: 0, label: '', color: '' });
+          setPasswordsMatch(null);
+          // Switch to login mode after 2 seconds
+          setTimeout(() => {
+            setIsLogin(true);
+            setSuccess('Please log in with your credentials.');
+            setIsSubmitting(false);
+            setLoading(false);
+            submitRef.current = false;
+          }, 2000);
+        } else {
+          setError(result.error || 'Registration failed. Please try again.');
+          setIsSubmitting(false);
+          setLoading(false);
+          submitRef.current = false;
+        }
       }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      setIsSubmitting(false);
+      setLoading(false);
+      submitRef.current = false;
     }
   };
 
@@ -217,6 +281,22 @@ export default function FuzeAuth() {
         .app-container:has(> .main-content > div[data-login-page="true"]) {
           background-color: #000000 !important;
           margin: 0 !important;
+        }
+        
+        /* Fade-in animation */
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-in;
         }
       `}</style>
       <div 
@@ -375,37 +455,65 @@ export default function FuzeAuth() {
         <div className="backdrop-blur-2xl border rounded-3xl p-8 relative" style={{ 
           background: 'rgba(20, 20, 20, 0.4)',
           borderColor: 'rgba(77, 208, 225, 0.2)',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(77, 208, 225, 0.3)'
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(77, 208, 225, 0.3)',
+          position: 'relative',
+          overflow: 'hidden'
         }}>
-          <div className="relative z-10">
+          <div className="relative z-10" style={{ pointerEvents: (loading || isSubmitting) ? 'none' : 'auto' }}>
             {/* Toggle Buttons */}
             <AuthToggle
               isLogin={isLogin}
               onToggle={(loginState) => {
+                if (loading || isSubmitting) return; // Prevent toggle during submission
                 setIsLogin(loginState);
                 setError('');
                 setSuccess('');
                 setPasswordErrors({});
                 setPasswordStrength({ score: 0, label: '', color: '' });
                 setPasswordsMatch(null);
+                setIsSubmitting(false);
+                setLoading(false);
+                submitRef.current = false;
               }}
+              disabled={loading || isSubmitting}
             />
 
             {/* Error/Success Messages */}
             {error && (
-              <div className="mb-6 p-3 rounded-xl text-red-400 text-center font-medium text-sm" style={{
+              <div className="mb-6 p-4 rounded-xl text-red-400 text-center font-medium text-sm animate-fade-in" style={{
                 background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.2)'
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                animation: 'fadeIn 0.3s ease-in'
               }}>
-                {error}
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-lg">⚠️</span>
+                  <span>{error}</span>
+                </div>
               </div>
             )}
             {success && (
-              <div className="mb-6 p-3 rounded-xl text-green-400 text-center font-medium text-sm" style={{
+              <div className="mb-6 p-4 rounded-xl text-green-400 text-center font-medium text-sm animate-fade-in" style={{
                 background: 'rgba(34, 197, 94, 0.1)',
-                border: '1px solid rgba(34, 197, 94, 0.2)'
+                border: '1px solid rgba(34, 197, 94, 0.3)',
+                animation: 'fadeIn 0.3s ease-in'
               }}>
-                {success}
+                <div className="flex items-center justify-center gap-2">
+                  <span>{success}</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Loading Overlay */}
+            {(loading || isSubmitting) && (
+              <div className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm rounded-3xl flex items-center justify-center z-20" style={{
+                animation: 'fadeIn 0.2s ease-in'
+              }}>
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-cyan-400 font-medium">
+                    {isLogin ? 'Signing you in...' : 'Creating your account...'}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -420,6 +528,7 @@ export default function FuzeAuth() {
                     value={formData.name}
                     onChange={handleInputChange}
                     placeholder="Enter your full name"
+                    disabled={loading || isSubmitting}
                   />
                   <Input
                     label="Username"
@@ -428,6 +537,7 @@ export default function FuzeAuth() {
                     value={formData.username}
                     onChange={handleInputChange}
                     placeholder="Choose a username"
+                    disabled={loading || isSubmitting}
                   />
                 </>
               )}
@@ -440,6 +550,7 @@ export default function FuzeAuth() {
                 value={formData.email}
                 onChange={handleInputChange}
                 placeholder={isLogin ? 'Enter your email or username' : 'Enter your email'}
+                disabled={loading || isSubmitting}
               />
 
               <div className="group">
@@ -451,14 +562,17 @@ export default function FuzeAuth() {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className={`w-full pl-12 pr-12 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${Object.keys(passwordErrors).length > 0 ? 'border-red-500' : ''}`}
+                    disabled={loading || isSubmitting}
+                    className={`w-full pl-12 pr-12 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${Object.keys(passwordErrors).length > 0 ? 'border-red-500' : ''} ${(loading || isSubmitting) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     style={{
                       background: 'rgba(0, 0, 0, 0.4)',
                       border: `1px solid ${Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.2)'}`
                     }}
                     onFocus={(e) => {
-                      e.target.style.borderColor = Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.5)';
-                      e.target.style.boxShadow = `0 0 0 3px ${Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
+                      if (!loading && !isSubmitting) {
+                        e.target.style.borderColor = Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.5)';
+                        e.target.style.boxShadow = `0 0 0 3px ${Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
+                      }
                     }}
                     onBlur={(e) => {
                       e.target.style.borderColor = Object.keys(passwordErrors).length > 0 ? 'rgba(239, 68, 68, 0.5)' : 'rgba(77, 208, 225, 0.2)';
@@ -522,14 +636,17 @@ export default function FuzeAuth() {
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
-                      className={`w-full pl-12 pr-4 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${passwordsMatch === false ? 'border-red-500' : ''}`}
+                      disabled={loading || isSubmitting}
+                      className={`w-full pl-12 pr-4 py-4 rounded-xl focus:outline-none transition-all duration-300 text-white placeholder-gray-500 ${passwordsMatch === false ? 'border-red-500' : ''} ${(loading || isSubmitting) ? 'opacity-50 cursor-not-allowed' : ''}`}
                       style={{
                         background: 'rgba(0, 0, 0, 0.4)',
                         border: `1px solid ${passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.2)'}`
                       }}
                       onFocus={(e) => {
-                        e.target.style.borderColor = passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.5)';
-                        e.target.style.boxShadow = `0 0 0 3px ${passwordsMatch === false ? 'rgba(239, 68, 68, 0.1)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
+                        if (!loading && !isSubmitting) {
+                          e.target.style.borderColor = passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.5)';
+                          e.target.style.boxShadow = `0 0 0 3px ${passwordsMatch === false ? 'rgba(239, 68, 68, 0.1)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.1)' : 'rgba(77, 208, 225, 0.1)'}`;
+                        }
                       }}
                       onBlur={(e) => {
                         e.target.style.borderColor = passwordsMatch === false ? 'rgba(239, 68, 68, 0.5)' : passwordsMatch === true ? 'rgba(34, 197, 94, 0.5)' : 'rgba(77, 208, 225, 0.2)';
@@ -591,10 +708,20 @@ export default function FuzeAuth() {
                 variant="fuze"
                 size="lg"
                 className="group w-full mt-6"
+                disabled={loading || isSubmitting}
               >
                 <span className="flex items-center justify-center">
-                  {isLogin ? 'Sign In to Fuze' : 'Create Your Account'}
-                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+                  {loading || isSubmitting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                      {isLogin ? 'Signing in...' : 'Creating account...'}
+                    </>
+                  ) : (
+                    <>
+                      {isLogin ? 'Sign In to Fuze' : 'Create Your Account'}
+                      <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+                    </>
+                  )}
                 </span>
               </Button>
             </form>
@@ -628,8 +755,16 @@ export default function FuzeAuth() {
                   Don't have an account?{' '}
                   <button
                     type="button"
-                    onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
+                    onClick={() => { 
+                      setIsLogin(false); 
+                      setError(''); 
+                      setSuccess('');
+                      setIsSubmitting(false);
+                      setLoading(false);
+                      submitRef.current = false;
+                    }}
                     className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-semibold"
+                    disabled={loading || isSubmitting}
                   >
                     Sign up for free
                   </button>
@@ -639,8 +774,16 @@ export default function FuzeAuth() {
                   Already have an account?{' '}
                   <button
                     type="button"
-                    onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
+                    onClick={() => { 
+                      setIsLogin(true); 
+                      setError(''); 
+                      setSuccess('');
+                      setIsSubmitting(false);
+                      setLoading(false);
+                      submitRef.current = false;
+                    }}
                     className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-semibold"
+                    disabled={loading || isSubmitting}
                   >
                     Sign in
                   </button>

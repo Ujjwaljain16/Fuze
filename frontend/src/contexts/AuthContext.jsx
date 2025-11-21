@@ -119,17 +119,12 @@ export const AuthProvider = ({ children }) => {
         name 
       })
       
-      // Mark that onboarding should be shown
-      if (response.data.access_token) {
-        const { access_token, user: userData } = response.data
-        setToken(access_token)
-        setUser(userData)
-        localStorage.setItem('token', access_token)
-        localStorage.setItem('show_onboarding', 'true')
-        api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+      // Don't auto-login after registration - user should log in manually
+      // Just return success message
+      return { 
+        success: true, 
+        message: response.data.message || 'Registration successful! Please log in to continue.'
       }
-      
-      return { success: true, message: response.data.message }
     } catch (error) {
       const errorInfo = handleApiError(error, 'registration')
       return {
