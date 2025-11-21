@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
 import api from '../services/api'
 import { useErrorHandler } from '../hooks/useErrorHandler'
+import { optimizedApiCall } from '../utils/apiOptimization'
 import { 
   Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
@@ -28,6 +29,12 @@ const Dashboard = () => {
     bookmarks: 0,
     projects: 0
   })
+  const [dashboardStats, setDashboardStats] = useState({
+    total_bookmarks: { value: 0, change: '0%', change_value: 0 },
+    active_projects: { value: 0, change: '0', change_value: 0 },
+    weekly_saves: { value: 0, change: '0%', change_value: 0 },
+    success_rate: { value: 0, change: '0%', change_value: 0 }
+  })
   const [recentBookmarks, setRecentBookmarks] = useState([])
   const [recentProjects, setRecentProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -48,28 +55,112 @@ const Dashboard = () => {
   useEffect(() => {
     if (isAuthenticated) {
       fetchDashboardData()
-      checkImportProgress()
-      checkAnalysisProgress()
     }
   }, [isAuthenticated])
 
-  // Check progress periodically
+  // Use Server-Sent Events for progress updates instead of polling
   useEffect(() => {
-    if (isAuthenticated) {
-      const progressInterval = setInterval(() => {
-        checkImportProgress()
-        checkAnalysisProgress()
-      }, 5000) // Check every 5 seconds
-      return () => clearInterval(progressInterval)
+    if (!isAuthenticated || !user?.id) return
+
+    const token = localStorage.getItem('token')
+    if (!token) return
+
+    // Get base URL for SSE (use same logic as api.js)
+    const getBaseURL = () => {
+      const isDevelopment = window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1'
+      if (isDevelopment) {
+        return import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
+      } else {
+        return import.meta.env.VITE_API_URL
+      }
     }
-  }, [isAuthenticated])
+
+    const baseURL = getBaseURL()
+
+    // EventSource doesn't support custom headers, so we'll use query param or cookie
+    // Since we're using JWT in localStorage, we need to pass it as query param
+    // Note: In production, consider using cookies for SSE auth instead
+    
+    // Import progress SSE
+    const importEventSource = new EventSource(
+      `${baseURL}/api/bookmarks/import/progress/stream?token=${encodeURIComponent(token)}`,
+      { withCredentials: true }
+    )
+
+    importEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.status !== 'no_import') {
+          setImportProgress(data)
+        } else {
+          setImportProgress(null)
+        }
+      } catch (error) {
+        console.error('Error parsing import progress:', error)
+      }
+    }
+
+    importEventSource.onerror = (error) => {
+      console.error('Import progress SSE error:', error)
+      // EventSource will automatically reconnect on error
+    }
+
+    // Analysis progress SSE
+    const analysisEventSource = new EventSource(
+      `${baseURL}/api/bookmarks/analysis/progress/stream?token=${encodeURIComponent(token)}`,
+      { withCredentials: true }
+    )
+
+    analysisEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        setAnalysisProgress(data)
+      } catch (error) {
+        console.error('Error parsing analysis progress:', error)
+      }
+    }
+
+    analysisEventSource.onerror = (error) => {
+      console.error('Analysis progress SSE error:', error)
+      // EventSource will automatically reconnect on error
+    }
+
+    // Cleanup on unmount or when auth changes
+    return () => {
+      importEventSource.close()
+      analysisEventSource.close()
+    }
+  }, [isAuthenticated, user?.id])
 
   const fetchDashboardData = async () => {
     try {
-      // Load main dashboard data first (fast)
-      const [bookmarksRes, projectsRes] = await Promise.all([
-        api.get('/api/bookmarks?per_page=5'),
-        api.get('/api/projects')
+      // PRODUCTION OPTIMIZATION: Use optimized API calls with caching and deduplication
+      const [bookmarksRes, projectsRes, statsRes] = await Promise.all([
+        optimizedApiCall(
+          () => api.get('/api/bookmarks?per_page=5'),
+          {
+            cacheKey: `dashboard:bookmarks:${user?.id || 'anon'}`,
+            cacheTTL: 30000, // 30 seconds cache
+            deduplicate: true
+          }
+        ),
+        optimizedApiCall(
+          () => api.get('/api/projects'),
+          {
+            cacheKey: `dashboard:projects:${user?.id || 'anon'}`,
+            cacheTTL: 30000, // 30 seconds cache
+            deduplicate: true
+          }
+        ),
+        optimizedApiCall(
+          () => api.get('/api/bookmarks/dashboard/stats'),
+          {
+            cacheKey: `dashboard:stats:${user?.id || 'anon'}`,
+            cacheTTL: 60000, // 1 minute cache (stats don't change as frequently)
+            deduplicate: true
+          }
+        )
       ])
 
       setRecentBookmarks(bookmarksRes.data.bookmarks || [])
@@ -78,6 +169,16 @@ const Dashboard = () => {
         bookmarks: bookmarksRes.data.total || 0,
         projects: projectsRes.data.projects?.length || 0
       })
+
+      // Set dashboard stats with real calculated values
+      if (statsRes.data) {
+        setDashboardStats({
+          total_bookmarks: statsRes.data.total_bookmarks || { value: 0, change: '0%', change_value: 0 },
+          active_projects: statsRes.data.active_projects || { value: 0, change: '0', change_value: 0 },
+          weekly_saves: statsRes.data.weekly_saves || { value: 0, change: '0%', change_value: 0 },
+          success_rate: statsRes.data.success_rate || { value: 0, change: '0%', change_value: 0 }
+        })
+      }
 
       // Set loading to false after main data is loaded
       setLoading(false)
@@ -93,29 +194,7 @@ const Dashboard = () => {
   }
 
 
-  const checkImportProgress = async () => {
-    try {
-      const response = await api.get('/api/bookmarks/import/progress')
-      if (response.data.status !== 'no_import') {
-        setImportProgress(response.data)
-      } else {
-        setImportProgress(null)
-      }
-    } catch (error) {
-      // Import progress endpoint might not exist yet or user might not have imports
-      setImportProgress(null)
-    }
-  }
-
-  const checkAnalysisProgress = async () => {
-    try {
-      const response = await api.get('/api/bookmarks/analysis/progress')
-      setAnalysisProgress(response.data)
-    } catch (error) {
-      // Analysis progress endpoint might not be available
-      setAnalysisProgress({ status: 'error', message: 'Unable to check analysis status' })
-    }
-  }
+  // Removed checkImportProgress and checkAnalysisProgress - now using SSE
 
   const handleCreateProject = () => {
     navigate('/projects')
@@ -249,11 +328,35 @@ const Dashboard = () => {
     )
   }
 
-  const dashboardStats = [
-    { label: 'Total Bookmarks', value: stats.bookmarks.toString(), change: '+12%', icon: Bookmark },
-    { label: 'Active Projects', value: stats.projects.toString(), change: '+2', icon: FolderOpen },
-    { label: 'Weekly Saves', value: recentBookmarks.length > 0 ? Math.floor(recentBookmarks.length * 2.3).toString() : '0', change: '+23%', icon: TrendingUp },
-    { label: 'Success Rate', value: stats.bookmarks > 0 ? '94%' : '0%', change: '+5%', icon: BarChart3 }
+  const dashboardStatsArray = [
+    { 
+      label: 'Total Bookmarks', 
+      value: dashboardStats.total_bookmarks.value.toString(), 
+      change: dashboardStats.total_bookmarks.change, 
+      changeValue: dashboardStats.total_bookmarks.change_value,
+      icon: Bookmark 
+    },
+    { 
+      label: 'Active Projects', 
+      value: dashboardStats.active_projects.value.toString(), 
+      change: dashboardStats.active_projects.change, 
+      changeValue: dashboardStats.active_projects.change_value,
+      icon: FolderOpen 
+    },
+    { 
+      label: 'Weekly Saves', 
+      value: dashboardStats.weekly_saves.value.toString(), 
+      change: dashboardStats.weekly_saves.change, 
+      changeValue: dashboardStats.weekly_saves.change_value,
+      icon: TrendingUp 
+    },
+    { 
+      label: 'Success Rate', 
+      value: `${Math.round(dashboardStats.success_rate.value)}%`, 
+      change: dashboardStats.success_rate.change, 
+      changeValue: dashboardStats.success_rate.change_value,
+      icon: BarChart3 
+    }
   ]
 
   return (
@@ -371,13 +474,19 @@ const Dashboard = () => {
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
-              {dashboardStats.map((stat, index) => (
+              {dashboardStatsArray.map((stat, index) => (
                 <div key={index} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 group">
                   <div className="flex items-center justify-between mb-4">
                     <div className="p-3 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300">
                       <stat.icon className="w-6 h-6 text-blue-400" />
                     </div>
-                    <div className="text-green-400 text-sm font-medium">{stat.change}</div>
+                    <div className={`text-sm font-medium ${
+                      stat.changeValue > 0 ? 'text-green-400' : 
+                      stat.changeValue < 0 ? 'text-red-400' : 
+                      'text-gray-400'
+                    }`}>
+                      {stat.change}
+                    </div>
                   </div>
                   <div className="text-2xl font-bold text-white mb-1">{stat.value}</div>
                   <div className="text-gray-400 text-sm">{stat.label}</div>
@@ -786,7 +895,7 @@ const Dashboard = () => {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-gray-400 text-sm md:text-base">This Week</span>
-                        <span className="text-white font-semibold text-sm md:text-base">{recentBookmarks.length > 0 ? Math.floor(recentBookmarks.length * 2.3) : 0} saves</span>
+                        <span className="text-white font-semibold text-sm md:text-base">{dashboardStats.weekly_saves.value} saves</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-gray-400 text-sm md:text-base">Most Used Tag</span>
@@ -796,7 +905,7 @@ const Dashboard = () => {
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-gray-400 text-sm md:text-base">Success Rate</span>
-                        <span className="text-green-400 font-semibold text-sm md:text-base">{stats.bookmarks > 0 ? '94%' : '0%'}</span>
+                        <span className="text-green-400 font-semibold text-sm md:text-base">{Math.round(dashboardStats.success_rate.value)}%</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-gray-400 text-sm md:text-base">Active Projects</span>
@@ -836,21 +945,6 @@ const Dashboard = () => {
                           </p>
                           <div className="flex items-center justify-between mt-1 gap-2">
                             <span className="text-xs text-gray-500 truncate">{recentBookmarks[0].title}</span>
-                            <span className="text-xs text-gray-500 whitespace-nowrap">Recently</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : recommendations.length > 0 ? (
-                      <div className="flex items-start space-x-3 p-4 bg-gradient-to-r from-gray-900/30 to-black/30 rounded-xl">
-                        <div className="w-8 h-8 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-full flex items-center justify-center mt-1 flex-shrink-0">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white">
-                            <span className="text-purple-400">Received</span> AI recommendation
-                          </p>
-                          <div className="flex items-center justify-between mt-1 gap-2">
-                            <span className="text-xs text-gray-500 truncate">{recommendations[0].title}</span>
                             <span className="text-xs text-gray-500 whitespace-nowrap">Recently</span>
                           </div>
                         </div>

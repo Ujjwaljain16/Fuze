@@ -1,17 +1,21 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, SavedContent, User
+from models import db, SavedContent, User, Project, ContentAnalysis
 import requests
 from readability import Document
 from bs4 import BeautifulSoup
 import numpy as np
 from sqlalchemy.exc import IntegrityError
-from scrapers.enhanced_web_scraper import scrape_url_enhanced
+from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
 from urllib.parse import urlparse, urljoin, urlunparse
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.redis_utils import redis_cache
+from middleware.security_middleware import validate_request_data, sanitize_string
 import logging
+import traceback
+from datetime import datetime, timedelta
+from sqlalchemy import func
 
 # Import embedding function
 from utils.embedding_utils import get_embedding
@@ -94,16 +98,76 @@ def extract_article_content(url):
     """Extract main content, title, headings, and meta from a URL"""
     return scrape_url_enhanced(url)
 
+def generate_comprehensive_embedding(title, description, meta_description, headings, extracted_text, url=None):
+    """
+    Generate comprehensive embedding using optimized strategy from test workflow.
+    Priority: title > meta_description > headings > notes > extracted_text (first 5000 + last 1000)
+    Always generates embedding even with minimal content - ensures semantic search works.
+    """
+    embedding_parts = []
+    
+    # Add title (highest priority)
+    if title and title.strip():
+        embedding_parts.append(title.strip())
+    
+    # Add meta description if available
+    if meta_description and meta_description.strip():
+        embedding_parts.append(meta_description.strip())
+    
+    # Add headings if available (limit to first 10)
+    if headings:
+        embedding_parts.append(' '.join(headings[:10]))
+    
+    # Add user notes/description if available
+    if description and description.strip():
+        embedding_parts.append(description.strip())
+    
+    # Add extracted text (first 5000 + last 1000 chars for better context)
+    if extracted_text and extracted_text.strip():
+        text_for_embedding = extracted_text[:5000]
+        if len(extracted_text) > 5000:
+            text_for_embedding += " " + extracted_text[-1000:]
+        embedding_parts.append(text_for_embedding)
+    
+    # Join all parts
+    content_for_embedding = ' '.join(embedding_parts).strip()
+    
+    # If we have no content at all, use URL as absolute minimum fallback
+    if not content_for_embedding:
+        content_for_embedding = url or "unknown content"
+    
+    # Generate embedding
+    try:
+        embedding = get_embedding(content_for_embedding)
+        return embedding
+    except Exception as embed_error:
+        logger.error(f"Embedding generation failed: {embed_error}")
+        # Fallback: try with just title and URL
+        try:
+            fallback_content = f"{title or 'Unknown'} {url or ''}".strip()
+            if fallback_content:
+                return get_embedding(fallback_content)
+        except Exception as fallback_error:
+            logger.error(f"Fallback embedding also failed: {fallback_error}")
+            # Last resort: return None (will be handled by caller)
+            return None
+
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
+@validate_request_data(required_fields=['url'])
 def save_bookmark():
     user_id = int(get_jwt_identity())
     data = request.get_json()
-    url = data.get('url')
-    title = data.get('title', '')
-    description = data.get('description', '')  # Keep for API compatibility
-    category = data.get('category', 'other')
+    
+    # PRODUCTION OPTIMIZATION: Sanitize input
+    url = sanitize_string(data.get('url')) if data.get('url') else None
+    # PRODUCTION OPTIMIZATION: Sanitize all string inputs
+    title = sanitize_string(data.get('title', ''))
+    description = sanitize_string(data.get('description', ''))  # Keep for API compatibility
+    category = sanitize_string(data.get('category', 'other'))
     tags = data.get('tags', [])
+    if isinstance(tags, list):
+        tags = [sanitize_string(tag) if isinstance(tag, str) else tag for tag in tags]
     
     if not url:
         return jsonify({'message': 'URL is required'}), 400
@@ -117,7 +181,7 @@ def save_bookmark():
         existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
         db.session.commit()
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
+        from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_update(existing_bookmark.id, user_id)
         return jsonify({
             'message': 'Bookmark updated',
@@ -145,9 +209,19 @@ def save_bookmark():
     if not title or title == 'Untitled Bookmark':
         title = scraped_title or 'Untitled Bookmark'
     
-    # Generate embedding for semantic search
-    content_for_embedding = f"{title} {description} {meta_description} {' '.join(headings)} {extracted_text}"
-    embedding = get_embedding(content_for_embedding)
+    # Generate comprehensive embedding using optimized strategy
+    embedding = generate_comprehensive_embedding(
+        title=title,
+        description=description,
+        meta_description=meta_description,
+        headings=headings,
+        extracted_text=extracted_text,
+        url=url
+    )
+    
+    # If embedding generation failed, still save bookmark but log warning
+    if embedding is None:
+        logger.warning(f"Failed to generate embedding for {url}, saving bookmark without embedding")
     
     new_bm = SavedContent(
         user_id=user_id,
@@ -163,8 +237,11 @@ def save_bookmark():
         db.session.add(new_bm)
         db.session.commit()
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
+        from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_save(new_bm.id, user_id)
+        
+        # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
+        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
 
         # Trigger background analysis for this new content (non-blocking)
         try:
@@ -217,7 +294,7 @@ def bulk_import_bookmarks():
 
     # Store import progress in Redis for real-time updates
     import_key = f"import_progress:{user_id}"
-    redis_cache.set(import_key, {
+    redis_cache.set_cache(import_key, {
         'total': total_count,
         'processed': 0,
         'added': 0,
@@ -225,7 +302,7 @@ def bulk_import_bookmarks():
         'updated': 0,
         'errors': 0,
         'status': 'processing'
-    }, expire=3600)  # Expire in 1 hour
+    }, ttl=3600)  # Expire in 1 hour
 
     # Try to get cached user bookmarks first
     cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
@@ -263,15 +340,36 @@ def bulk_import_bookmarks():
             if url in existing_urls or norm_url in normalized_urls:
                 return ('skip', url, 'Duplicate bookmark')
 
-            # Scrape and embed
+            # Scrape and embed (same workflow as single save)
             scraped = extract_article_content(url)
             extracted_text = scraped.get('content', '')
+            scraped_title = scraped.get('title', '')
+            headings = scraped.get('headings', [])
+            meta_description = scraped.get('meta_description', '')
             quality_score = scraped.get('quality_score', 10)
+            
+            # Update title if scraped title is better
+            if scraped_title and scraped_title != title:
+                title = scraped_title[:200]  # Ensure it fits in column
+            
+            # Use same quality check as single save (skip low quality, but don't fail)
             if quality_score < 5:
                 return ('skip', url, 'Low quality content')
-
-            content_for_embedding = f"{title} {extracted_text}"
-            embedding = get_embedding(content_for_embedding)
+            
+            # Generate comprehensive embedding using same optimized strategy
+            embedding = generate_comprehensive_embedding(
+                title=title if title else 'Untitled Bookmark',
+                description='',  # No description in bulk import
+                meta_description=meta_description,
+                headings=headings,
+                extracted_text=extracted_text,
+                url=url
+            )
+            
+            # If embedding generation failed, still save bookmark but log warning
+            if embedding is None:
+                logger.warning(f"Failed to generate embedding for {url} during bulk import")
+            
             new_bm = SavedContent(
                 user_id=user_id,
                 url=url,
@@ -307,7 +405,7 @@ def bulk_import_bookmarks():
 
             # Update progress in Redis every 10 bookmarks or at the end
             if processed_count % 10 == 0 or processed_count == total_count:
-                redis_cache.set(import_key, {
+                redis_cache.set_cache(import_key, {
                     'total': total_count,
                     'processed': processed_count,
                     'added': added_count,
@@ -315,7 +413,7 @@ def bulk_import_bookmarks():
                     'updated': updated_count,
                     'errors': len(errors),
                     'status': 'processing' if processed_count < total_count else 'completed'
-                }, expire=3600)
+                }, ttl=3600)
 
     try:
         for bm in new_bookmarks:
@@ -347,7 +445,7 @@ def bulk_import_bookmarks():
                 logger.warning(f"Could not trigger bulk background analysis: {analysis_error}")
         
         # Mark import as completed in Redis
-        redis_cache.set(import_key, {
+        redis_cache.set_cache(import_key, {
             'total': total_count,
             'processed': total_count,
             'added': added_count,
@@ -355,7 +453,7 @@ def bulk_import_bookmarks():
             'updated': updated_count,
             'errors': len(errors),
             'status': 'completed'
-        }, expire=3600)
+        }, ttl=3600)
 
         return jsonify({
             'message': 'Bulk import completed (optimized with Redis)',
@@ -380,8 +478,16 @@ def list_bookmarks():
     search = request.args.get('search', '').strip()
     category = request.args.get('category', '').strip()
     
-    # Build query
-    query = SavedContent.query.filter_by(user_id=user_id)
+    # PRODUCTION OPTIMIZATION: Check cache first
+    cache_key = f"bookmarks:{user_id}:{page}:{per_page}:{search}:{category}"
+    cached_result = redis_cache.get_cached_query_result(cache_key)
+    if cached_result:
+        return jsonify(cached_result), 200
+    
+    # Build query - SECURITY: Always filter by user_id
+    # PRODUCTION OPTIMIZATION: Use eager loading to prevent N+1 queries
+    from sqlalchemy.orm import joinedload
+    query = SavedContent.query.options(joinedload(SavedContent.analyses)).filter_by(user_id=user_id)
     
     # Add search filter
     if search:
@@ -410,18 +516,27 @@ def list_bookmarks():
         'has_content': bool(b.extracted_text)
     } for b in pagination.items]
     
-    return jsonify({
+    result = {
         'bookmarks': bookmarks,
         'total': pagination.total,
         'page': pagination.page,
         'per_page': pagination.per_page,
         'pages': pagination.pages
-    }), 200
+    }
+    
+    # PRODUCTION OPTIMIZATION: Cache result (shorter TTL for search results)
+    cache_ttl = 60 if search else 300  # 1 min for search, 5 min for regular
+    redis_cache.cache_query_result(cache_key, result, ttl=cache_ttl)
+    
+    return jsonify(result), 200
 
 @bookmarks_bp.route('/<int:bookmark_id>', methods=['DELETE'])
 @jwt_required()
 def delete_bookmark(bookmark_id):
     user_id = int(get_jwt_identity())
+    
+    # PRODUCTION OPTIMIZATION: Invalidate query cache before deletion
+    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
     bm = SavedContent.query.get(bookmark_id)
     if not bm or bm.user_id != user_id:
         return jsonify({'message': 'Bookmark not found or unauthorized'}), 404
@@ -434,7 +549,7 @@ def delete_bookmark(bookmark_id):
         db.session.commit()
         
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
+        from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
         
         return jsonify({'message': 'Bookmark deleted'}), 200
@@ -462,7 +577,7 @@ def delete_bookmark_by_url(url):
         db.session.commit()
         
         # Invalidate caches using comprehensive cache invalidation service
-        from cache_invalidation_service import cache_invalidator
+        from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
         
         return jsonify({'message': 'Bookmark deleted'}), 200
@@ -505,7 +620,7 @@ def check_duplicate():
 @bookmarks_bp.route('/import/progress', methods=['GET'])
 @jwt_required()
 def get_import_progress():
-    """Get current import progress for the user"""
+    """Get current import progress for the user (legacy endpoint - use SSE instead)"""
     user_id = int(get_jwt_identity())
     import_key = f"import_progress:{user_id}"
 
@@ -518,10 +633,69 @@ def get_import_progress():
 
     return jsonify(progress), 200
 
+@bookmarks_bp.route('/import/progress/stream', methods=['GET'])
+def stream_import_progress():
+    """Server-Sent Events stream for import progress"""
+    from flask import Response, stream_with_context, request
+    from flask_jwt_extended import decode_token
+    import json
+    import time
+    
+    # Get token from query param (EventSource doesn't support headers)
+    token = request.args.get('token')
+    if not token:
+        return Response('Token required', status=401, mimetype='text/plain')
+    
+    try:
+        decoded = decode_token(token)
+        user_id = int(decoded['sub'])
+    except Exception as e:
+        logger.error(f"Error decoding token for SSE: {e}")
+        return Response('Invalid token', status=401, mimetype='text/plain')
+    
+    import_key = f"import_progress:{user_id}"
+    
+    def generate():
+        last_status = None
+        while True:
+            try:
+                progress = redis_cache.get(import_key)
+                
+                if not progress:
+                    if last_status != 'no_import':
+                        yield f"data: {json.dumps({'status': 'no_import', 'message': 'No import in progress'})}\n\n"
+                        last_status = 'no_import'
+                else:
+                    current_status = progress.get('status', 'unknown')
+                    if progress != last_status:
+                        yield f"data: {json.dumps(progress)}\n\n"
+                        last_status = progress
+                        
+                        # If import is completed, send final update and close
+                        if current_status == 'completed':
+                            time.sleep(1)  # Give client time to process
+                            break
+                
+                time.sleep(1)  # Check every second
+            except Exception as e:
+                logger.error(f"Error in import progress stream: {e}")
+                yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+                break
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+    )
+
 @bookmarks_bp.route('/analysis/progress', methods=['GET'])
 @jwt_required()
 def get_analysis_progress():
-    """Get current background analysis progress for the user"""
+    """Get current background analysis progress for the user (legacy endpoint - use SSE instead)"""
     user_id = int(get_jwt_identity())
     analysis_key = f"analysis_progress:{user_id}"
 
@@ -554,6 +728,211 @@ def get_analysis_progress():
             }), 500
 
     return jsonify(progress), 200
+
+@bookmarks_bp.route('/analysis/progress/stream', methods=['GET'])
+def stream_analysis_progress():
+    """Server-Sent Events stream for analysis progress"""
+    from flask import Response, stream_with_context, request
+    from flask_jwt_extended import decode_token
+    import json
+    import time
+    
+    # Get token from query param (EventSource doesn't support headers)
+    token = request.args.get('token')
+    if not token:
+        return Response('Token required', status=401, mimetype='text/plain')
+    
+    try:
+        decoded = decode_token(token)
+        user_id = int(decoded['sub'])
+    except Exception as e:
+        logger.error(f"Error decoding token for SSE: {e}")
+        return Response('Invalid token', status=401, mimetype='text/plain')
+    
+    analysis_key = f"analysis_progress:{user_id}"
+    
+    def generate():
+        last_status = None
+        while True:
+            try:
+                progress = redis_cache.get(analysis_key)
+                
+                if not progress:
+                    # Check if user has any unanalyzed content
+                    try:
+                        from models import SavedContent, ContentAnalysis
+                        from sqlalchemy import select
+
+                        analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
+                        analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
+                        unanalyzed_count = db.session.query(SavedContent).filter(
+                            SavedContent.user_id == user_id,
+                            ~SavedContent.id.in_(analyzed_content_ids_select),
+                            SavedContent.extracted_text.isnot(None),
+                            SavedContent.extracted_text != ''
+                        ).count()
+
+                        idle_status = {
+                            'status': 'idle',
+                            'message': 'No analysis in progress',
+                            'pending_items': unanalyzed_count
+                        }
+                        
+                        if idle_status != last_status:
+                            yield f"data: {json.dumps(idle_status)}\n\n"
+                            last_status = idle_status
+                    except Exception as e:
+                        logger.error(f"Error checking analysis status: {e}")
+                        error_status = {'status': 'error', 'message': str(e)}
+                        if error_status != last_status:
+                            yield f"data: {json.dumps(error_status)}\n\n"
+                            last_status = error_status
+                else:
+                    current_status = progress.get('status', 'unknown')
+                    if progress != last_status:
+                        yield f"data: {json.dumps(progress)}\n\n"
+                        last_status = progress
+                
+                time.sleep(2)  # Check every 2 seconds (analysis is slower)
+            except Exception as e:
+                logger.error(f"Error in analysis progress stream: {e}")
+                yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+                break
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+    )
+
+@bookmarks_bp.route('/dashboard/stats', methods=['GET'])
+@jwt_required()
+def get_dashboard_stats():
+    """Get dashboard statistics with historical comparisons for percentage changes"""
+    try:
+        user_id = int(get_jwt_identity())
+        
+        # Get current date and calculate comparison periods
+        now = datetime.utcnow()
+        week_ago = now - timedelta(days=7)
+        two_weeks_ago = now - timedelta(days=14)
+        month_ago = now - timedelta(days=30)
+        
+        # Total Bookmarks - compare current vs 30 days ago
+        total_bookmarks = SavedContent.query.filter_by(user_id=user_id).count()
+        bookmarks_month_ago = SavedContent.query.filter(
+            SavedContent.user_id == user_id,
+            SavedContent.saved_at <= month_ago
+        ).count()
+        
+        bookmarks_change = 0
+        if bookmarks_month_ago > 0:
+            bookmarks_change = ((total_bookmarks - bookmarks_month_ago) / bookmarks_month_ago) * 100
+        elif total_bookmarks > 0:
+            bookmarks_change = 100  # New user, 100% increase
+        
+        # Active Projects - compare current vs 30 days ago
+        total_projects = Project.query.filter_by(user_id=user_id).count()
+        projects_month_ago = Project.query.filter(
+            Project.user_id == user_id,
+            Project.created_at <= month_ago
+        ).count()
+        
+        projects_change = total_projects - projects_month_ago
+        if projects_month_ago > 0:
+            projects_change_percent = ((total_projects - projects_month_ago) / projects_month_ago) * 100
+            projects_change_display = f"+{projects_change_percent:.0f}%" if projects_change_percent > 0 else f"{projects_change_percent:.0f}%"
+        else:
+            projects_change_display = f"+{projects_change}" if projects_change > 0 else str(projects_change)
+        
+        # Weekly Saves - compare this week vs last week
+        weekly_saves = SavedContent.query.filter(
+            SavedContent.user_id == user_id,
+            SavedContent.saved_at >= week_ago
+        ).count()
+        
+        last_week_saves = SavedContent.query.filter(
+            SavedContent.user_id == user_id,
+            SavedContent.saved_at >= two_weeks_ago,
+            SavedContent.saved_at < week_ago
+        ).count()
+        
+        weekly_change = 0
+        if last_week_saves > 0:
+            weekly_change = ((weekly_saves - last_week_saves) / last_week_saves) * 100
+        elif weekly_saves > 0:
+            weekly_change = 100  # First week with saves
+        
+        # Success Rate - based on quality scores and analysis completion
+        # Success = bookmarks with quality_score >= 5 and have analysis
+        successful_bookmarks = db.session.query(SavedContent).join(
+            ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+        ).filter(
+            SavedContent.user_id == user_id,
+            SavedContent.quality_score >= 5
+        ).count()
+        
+        success_rate = 0
+        if total_bookmarks > 0:
+            success_rate = (successful_bookmarks / total_bookmarks) * 100
+        
+        # Get previous success rate (30 days ago)
+        successful_bookmarks_month_ago = db.session.query(SavedContent).join(
+            ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
+        ).filter(
+            SavedContent.user_id == user_id,
+            SavedContent.quality_score >= 5,
+            SavedContent.saved_at <= month_ago
+        ).count()
+        
+        success_rate_month_ago = 0
+        if bookmarks_month_ago > 0:
+            success_rate_month_ago = (successful_bookmarks_month_ago / bookmarks_month_ago) * 100
+        
+        success_rate_change = success_rate - success_rate_month_ago
+        
+        # Format changes
+        def format_change(value):
+            if value > 0:
+                return f"+{value:.0f}%"
+            elif value < 0:
+                return f"{value:.0f}%"
+            else:
+                return "0%"
+        
+        stats = {
+            'total_bookmarks': {
+                'value': total_bookmarks,
+                'change': format_change(bookmarks_change),
+                'change_value': bookmarks_change
+            },
+            'active_projects': {
+                'value': total_projects,
+                'change': projects_change_display,
+                'change_value': projects_change
+            },
+            'weekly_saves': {
+                'value': weekly_saves,
+                'change': format_change(weekly_change),
+                'change_value': weekly_change
+            },
+            'success_rate': {
+                'value': round(success_rate, 0),
+                'change': format_change(success_rate_change),
+                'change_value': success_rate_change
+            }
+        }
+        
+        return jsonify(stats), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting dashboard stats: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 @bookmarks_bp.route('/extract-url', methods=['POST'])
 @jwt_required()
