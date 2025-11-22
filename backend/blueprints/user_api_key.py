@@ -50,6 +50,12 @@ def add_api_key():
         success = add_user_api_key(user_id, api_key, api_key_name)
 
         if success:
+            # Clear cache to ensure fresh data on next retrieval
+            _, _, _, _, api_manager = get_multi_user_api_manager()
+            if user_id in api_manager.user_api_keys:
+                # Don't delete, just reload to get fresh encrypted key
+                api_manager.load_user_api_keys()
+            
             return jsonify({
                 'message': 'API key added successfully',
                 'user_id': user_id,
@@ -68,12 +74,14 @@ def get_api_key_info():
     try:
         user_id = int(get_jwt_identity())
         
-        # Get API key info from database
+        # Get API key info from database (refresh to get latest data)
         user = db.session.query(User).filter_by(id=user_id).first()
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
+        # Refresh to ensure we have latest data
+        db.session.refresh(user)
         metadata = getattr(user, 'user_metadata', {}) or {}
         api_key_info = metadata.get('api_key', {})
         
@@ -110,12 +118,21 @@ def remove_api_key():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        metadata = user.user_metadata or {}
+        metadata = dict(user.user_metadata) if user.user_metadata else {}
 
         if 'api_key' in metadata:
             del metadata['api_key']
             user.user_metadata = metadata
+            
+            # Tell SQLAlchemy that the JSON field has been modified
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(user, 'user_metadata')
+            
+            db.session.flush()
             db.session.commit()
+            
+            # Refresh to ensure changes are saved
+            db.session.refresh(user)
 
             # Also remove from memory cache
             if user_id in api_manager.user_api_keys:

@@ -157,23 +157,27 @@ class MultiUserAPIManager:
                         if decrypted:
                             return decrypted
             
-            # Try loading from database
+            # Try loading from database (refresh to get latest data)
             user = db.session.query(User).filter_by(id=user_id).first()
-            if user and user.user_metadata:
-                api_key_info = user.user_metadata.get('api_key', {})
-                if api_key_info and api_key_info.get('encrypted'):
-                    decrypted = self.decrypt_api_key(api_key_info['encrypted'])
-                    if decrypted:
-                        # Cache in memory
-                        if user_id not in self.user_api_keys:
-                            self.user_api_keys[user_id] = UserAPIKey(
-                                user_id=user_id,
-                                api_key_hash=api_key_info.get('hash', ''),
-                                api_key_name=api_key_info.get('name', ''),
-                                status=APIKeyStatus(api_key_info.get('status', 'active'))
-                            )
-                        self.user_api_keys[user_id].encrypted_key = api_key_info['encrypted']
-                        return decrypted
+            if user:
+                # Refresh to ensure we have latest data from database
+                db.session.refresh(user)
+                if user.user_metadata:
+                    api_key_info = user.user_metadata.get('api_key', {})
+                    if api_key_info and api_key_info.get('encrypted'):
+                        decrypted = self.decrypt_api_key(api_key_info['encrypted'])
+                        if decrypted:
+                            # Cache in memory (update or create)
+                            if user_id not in self.user_api_keys:
+                                self.user_api_keys[user_id] = UserAPIKey(
+                                    user_id=user_id,
+                                    api_key_hash=api_key_info.get('hash', ''),
+                                    api_key_name=api_key_info.get('name', ''),
+                                    status=APIKeyStatus(api_key_info.get('status', 'active'))
+                                )
+                            # Always update the encrypted_key to ensure we have the latest
+                            self.user_api_keys[user_id].encrypted_key = api_key_info['encrypted']
+                            return decrypted
             
             # Fallback to default API key (if no user key found)
             return os.environ.get('GEMINI_API_KEY')
@@ -291,31 +295,66 @@ class MultiUserAPIManager:
     def save_user_api_key_to_db(self, user_api_key: UserAPIKey, encrypted_key: str):
         """Save user API key to database (encrypted)"""
         try:
+            # Use merge to ensure we're working with the current database state
             user = db.session.query(User).filter_by(id=user_api_key.user_id).first()
-            if user:
-                # Store API key info in user metadata (JSON field)
-                metadata = user.user_metadata or {}
-                metadata['api_key'] = {
-                    'encrypted': encrypted_key,  # Store encrypted key
-                    'hash': user_api_key.api_key_hash,  # Hash for verification
-                    'name': user_api_key.api_key_name,
-                    'status': user_api_key.status.value,
-                    'created_at': user_api_key.created_at.isoformat(),
-                    'last_used': user_api_key.last_used.isoformat() if user_api_key.last_used else None
-                }
-                user.user_metadata = metadata
-                db.session.commit()
+            if not user:
+                self.logger.error(f"User {user_api_key.user_id} not found")
+                return
+            
+            # Create a fresh copy of metadata to ensure we're updating it properly
+            metadata = dict(user.user_metadata) if user.user_metadata else {}
+            
+            # Store API key info in user metadata (JSON field)
+            metadata['api_key'] = {
+                'encrypted': encrypted_key,  # Store encrypted key
+                'hash': user_api_key.api_key_hash,  # Hash for verification
+                'name': user_api_key.api_key_name,
+                'status': user_api_key.status.value,
+                'created_at': user_api_key.created_at.isoformat(),
+                'last_used': user_api_key.last_used.isoformat() if user_api_key.last_used else None
+            }
+            
+            # Explicitly set the metadata
+            user.user_metadata = metadata
+            
+            # Tell SQLAlchemy that the JSON field has been modified
+            # This is critical for JSON fields - SQLAlchemy won't detect changes to nested dicts
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(user, 'user_metadata')
+            
+            # Flush to ensure changes are staged
+            db.session.flush()
+            
+            # Commit the transaction
+            db.session.commit()
+            
+            # Expire and refresh to ensure we have the latest data
+            db.session.expire(user)
+            db.session.refresh(user)
+            
+            # Verify the save worked
+            if user.user_metadata and user.user_metadata.get('api_key', {}).get('hash') == user_api_key.api_key_hash:
+                self.logger.debug(f"API key successfully saved to database for user {user_api_key.user_id}")
+            else:
+                self.logger.warning(f"API key save verification failed for user {user_api_key.user_id}")
                 
         except Exception as e:
             self.logger.error(f"Error saving API key to database: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             db.session.rollback()
+            raise  # Re-raise to ensure caller knows it failed
     
     def load_user_api_keys(self):
         """Load user API keys from database"""
         try:
+            # Expire all to ensure we get fresh data
+            db.session.expire_all()
             users = db.session.query(User).all()
             loaded_count = 0
             for user in users:
+                # Refresh to get latest data
+                db.session.refresh(user)
                 metadata = getattr(user, 'user_metadata', {}) or {}
                 if 'api_key' in metadata:
                     api_key_data = metadata['api_key']
@@ -327,6 +366,18 @@ class MultiUserAPIManager:
                         created_at=datetime.fromisoformat(api_key_data['created_at']),
                         last_used=datetime.fromisoformat(api_key_data['last_used']) if api_key_data['last_used'] else None
                     )
+                    # Store encrypted key so get_user_api_key can use it from cache
+                    if 'encrypted' in api_key_data:
+                        user_api_key.encrypted_key = api_key_data['encrypted']
+                        # Verify the encrypted key matches the hash
+                        try:
+                            decrypted = self.decrypt_api_key(api_key_data['encrypted'])
+                            if decrypted:
+                                test_hash = self.hash_api_key(decrypted)
+                                if test_hash != api_key_data['hash']:
+                                    self.logger.warning(f"API key hash mismatch for user {user.id} - encrypted value may be stale")
+                        except Exception as e:
+                            self.logger.warning(f"Could not verify API key for user {user.id}: {e}")
                     self.user_api_keys[user.id] = user_api_key
                     loaded_count += 1
 
