@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
 import api from '../services/api'
 import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
   Settings, Grid3X3, List, Star, Clock, TrendingUp, 
-  BarChart3, Globe, MoreHorizontal, Tag, Sparkles, LogOut, CheckSquare
+  BarChart3, Globe, MoreHorizontal, Tag, Sparkles, LogOut, CheckSquare, Loader2
 } from 'lucide-react'
 
 const Projects = () => {
   const { isAuthenticated, logout } = useAuth()
+  const { success, error } = useToast()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -29,6 +31,9 @@ const Projects = () => {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [showTasksSection, setShowTasksSection] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -59,11 +64,13 @@ const Projects = () => {
 
   const handleCreateProject = async (e) => {
     e.preventDefault()
+    setIsCreating(true)
     try {
       const response = await api.post('/api/projects', formData)
       const projectId = response.data.project_id || response.data.project.id
       
       // Create tasks if any were added
+      let tasksCreated = 0
       if (tasks.length > 0 && projectId) {
         for (const task of tasks) {
           try {
@@ -72,6 +79,7 @@ const Projects = () => {
               title: task.title,
               description: task.description || ''
             })
+            tasksCreated++
           } catch (taskError) {
             console.error('Error creating task:', taskError)
           }
@@ -96,18 +104,29 @@ const Projects = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchProjects()
-    } catch (error) {
-      console.error('Error creating project:', error)
+      await fetchProjects()
+      
+      if (tasksCreated > 0) {
+        success(`Project created successfully with ${tasksCreated} task${tasksCreated > 1 ? 's' : ''}!`)
+      } else {
+        success('Project created successfully!')
+      }
+    } catch (err) {
+      console.error('Error creating project:', err)
+      error(err.response?.data?.error || 'Failed to create project. Please try again.')
+    } finally {
+      setIsCreating(false)
     }
   }
 
   const handleEditProject = async (e) => {
     e.preventDefault()
+    setIsUpdating(true)
     try {
       await api.put(`/api/projects/${editingProject.id}`, formData)
       
       // Create tasks if any were added
+      let tasksCreated = 0
       if (tasks.length > 0 && editingProject.id) {
         for (const task of tasks) {
           try {
@@ -116,6 +135,7 @@ const Projects = () => {
               title: task.title,
               description: task.description || ''
             })
+            tasksCreated++
           } catch (taskError) {
             console.error('Error creating task:', taskError)
           }
@@ -141,16 +161,27 @@ const Projects = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchProjects()
-    } catch (error) {
-      console.error('Error updating project:', error)
+      await fetchProjects()
+      
+      if (tasksCreated > 0) {
+        success(`Project updated successfully with ${tasksCreated} new task${tasksCreated > 1 ? 's' : ''}!`)
+      } else {
+        success('Project updated successfully!')
+      }
+    } catch (err) {
+      console.error('Error updating project:', err)
+      error(err.response?.data?.error || 'Failed to update project. Please try again.')
+    } finally {
+      setIsUpdating(false)
     }
   }
 
   const handleDeleteProject = async () => {
+    setIsDeleting(true)
     try {
       await api.delete(`/api/projects/${deletingProject.id}`)
       setShowDeleteModal(false)
+      const deletedTitle = deletingProject.title
       setDeletingProject(null)
 
       // Clear context cache since we deleted a project
@@ -164,9 +195,13 @@ const Projects = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchProjects()
-    } catch (error) {
-      console.error('Error deleting project:', error)
+      await fetchProjects()
+      success(`Project "${deletedTitle}" deleted successfully!`)
+    } catch (err) {
+      console.error('Error deleting project:', err)
+      error(err.response?.data?.error || 'Failed to delete project. Please try again.')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -744,15 +779,24 @@ const Projects = () => {
                 <button 
                   type="button" 
                   onClick={closeForms}
-                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white"
+                  disabled={isCreating}
+                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+                  disabled={isCreating}
+                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
                 >
-                  Create Project
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Project'
+                  )}
                 </button>
               </div>
             </form>
@@ -899,15 +943,24 @@ const Projects = () => {
                 <button 
                   type="button" 
                   onClick={closeForms}
-                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white"
+                  disabled={isUpdating}
+                  className="flex-1 px-6 py-3 border border-gray-600 rounded-xl hover:border-gray-500 hover:bg-gray-800/50 transition-all duration-300 text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105"
+                  disabled={isUpdating}
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
                 >
-                  Update Project
+                  {isUpdating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Update Project'
+                  )}
                 </button>
               </div>
             </form>
@@ -942,9 +995,17 @@ const Projects = () => {
                 <button 
                   type="button" 
                   onClick={handleDeleteProject}
-                  className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-red-500/25 transition-all duration-300 transform hover:scale-105 text-white"
+                  disabled={isDeleting}
+                  className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-red-500/25 transition-all duration-300 transform hover:scale-105 text-white disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
                 >
-                  Delete Project
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete Project'
+                  )}
                 </button>
               </div>
             </div>

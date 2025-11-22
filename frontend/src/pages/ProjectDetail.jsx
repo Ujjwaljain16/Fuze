@@ -19,7 +19,8 @@ import {
   Zap,
   Target,
   AlertCircle,
-  LogOut
+  LogOut,
+  Loader2
 } from 'lucide-react'
 
 const ProjectDetail = () => {
@@ -43,6 +44,11 @@ const ProjectDetail = () => {
   const [showCreateTaskModal, setShowCreateTaskModal] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [isCreatingSubtask, setIsCreatingSubtask] = useState(false)
+  const [isDeletingTask, setIsDeletingTask] = useState(false)
+  const [isDeletingSubtask, setIsDeletingSubtask] = useState(false)
+  const [isUpdatingSubtask, setIsUpdatingSubtask] = useState(false)
 
   useEffect(() => {
     if (isAuthenticated && id) {
@@ -125,13 +131,14 @@ const ProjectDetail = () => {
       return
     }
 
+    setIsCreatingTask(true)
     try {
       await api.post('/api/tasks', {
         project_id: parseInt(id),
         title: newTaskTitle,
         description: newTaskDescription
       })
-      success('Task created successfully')
+      success('Task created successfully!')
       setNewTaskTitle('')
       setNewTaskDescription('')
       setShowCreateTaskModal(false)
@@ -147,18 +154,22 @@ const ProjectDetail = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchTasks()
+      await fetchTasks()
     } catch (err) {
-      error('Failed to create task')
+      console.error('Error creating task:', err)
+      error(err.response?.data?.error || 'Failed to create task. Please try again.')
+    } finally {
+      setIsCreatingTask(false)
     }
   }
 
   const handleDeleteTask = async (taskId) => {
     if (!confirm('Delete this task?')) return
 
+    setIsDeletingTask(true)
     try {
       await api.delete(`/api/tasks/${taskId}`)
-      success('Task deleted')
+      success('Task deleted successfully!')
 
       // Clear context cache since we deleted a task
       if (window.clearContextCache) {
@@ -171,9 +182,12 @@ const ProjectDetail = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchTasks()
+      await fetchTasks()
     } catch (err) {
-      error('Failed to delete task')
+      console.error('Error deleting task:', err)
+      error(err.response?.data?.error || 'Failed to delete task. Please try again.')
+    } finally {
+      setIsDeletingTask(false)
     }
   }
 
@@ -193,12 +207,13 @@ const ProjectDetail = () => {
       return
     }
 
+    setIsCreatingSubtask(true)
     try {
       await api.post(`/api/tasks/${taskId}/subtasks`, {
         title: newSubtaskTitle,
         description: newSubtaskDescription
       })
-      success('Subtask created')
+      success('Subtask created successfully!')
       setNewSubtaskTitle('')
       setNewSubtaskDescription('')
       setAddingSubtaskTo(null)
@@ -214,29 +229,42 @@ const ProjectDetail = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchTasks()
+      await fetchTasks()
     } catch (err) {
-      error('Failed to create subtask')
+      console.error('Error creating subtask:', err)
+      error(err.response?.data?.error || 'Failed to create subtask. Please try again.')
+    } finally {
+      setIsCreatingSubtask(false)
     }
   }
 
   const handleUpdateSubtask = async (subtaskId, taskId, completed) => {
+    setIsUpdatingSubtask(true)
     try {
       await api.put(`/api/tasks/subtasks/${subtaskId}`, {
         completed: completed
       })
-      fetchTasks()
+      await fetchTasks()
+      if (completed) {
+        success('Subtask marked as completed!')
+      } else {
+        success('Subtask marked as incomplete!')
+      }
     } catch (err) {
-      error('Failed to update subtask')
+      console.error('Error updating subtask:', err)
+      error(err.response?.data?.error || 'Failed to update subtask. Please try again.')
+    } finally {
+      setIsUpdatingSubtask(false)
     }
   }
 
   const handleDeleteSubtask = async (subtaskId) => {
     if (!confirm('Delete this subtask?')) return
 
+    setIsDeletingSubtask(true)
     try {
       await api.delete(`/api/tasks/subtasks/${subtaskId}`)
-      success('Subtask deleted')
+      success('Subtask deleted successfully!')
 
       // Clear context cache since we deleted a subtask
       if (window.clearContextCache) {
@@ -249,9 +277,12 @@ const ProjectDetail = () => {
         console.warn('Failed to clear server context cache:', err)
       }
 
-      fetchTasks()
+      await fetchTasks()
     } catch (err) {
-      error('Failed to delete subtask')
+      console.error('Error deleting subtask:', err)
+      error(err.response?.data?.error || 'Failed to delete subtask. Please try again.')
+    } finally {
+      setIsDeletingSubtask(false)
     }
   }
 
@@ -596,10 +627,15 @@ const ProjectDetail = () => {
                       </div>
                       <button 
                         onClick={() => handleDeleteTask(task.id)}
-                        className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0"
+                        disabled={isDeletingTask}
+                        className="p-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Delete task"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {isDeletingTask ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
 
@@ -703,9 +739,17 @@ const ProjectDetail = () => {
                               <div className="flex gap-2">
                                 <button
                                   onClick={() => handleCreateSubtask(task.id)}
-                                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-300 text-sm font-medium"
+                                  disabled={isCreatingSubtask}
+                                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
-                                  Create
+                                  {isCreatingSubtask ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      Creating...
+                                    </>
+                                  ) : (
+                                    'Create'
+                                  )}
                                 </button>
                                 <button
                                   onClick={() => {
@@ -713,7 +757,8 @@ const ProjectDetail = () => {
                                     setNewSubtaskTitle('')
                                     setNewSubtaskDescription('')
                                   }}
-                                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors duration-300 text-sm font-medium"
+                                  disabled={isCreatingSubtask}
+                                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors duration-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   Cancel
                                 </button>
@@ -732,7 +777,8 @@ const ProjectDetail = () => {
                                     type="checkbox"
                                     checked={subtask.completed}
                                     onChange={(e) => handleUpdateSubtask(subtask.id, task.id, e.target.checked)}
-                                    className="mt-1 cursor-pointer w-4 h-4"
+                                    disabled={isUpdatingSubtask}
+                                    className="mt-1 cursor-pointer w-4 h-4 disabled:opacity-50 disabled:cursor-not-allowed"
                                   />
                                   <div className="flex-1 min-w-0">
                                     <p className={`text-sm ${subtask.completed ? 'text-gray-500 line-through' : 'text-white'}`}>
@@ -746,10 +792,15 @@ const ProjectDetail = () => {
                                   </div>
                                   <button
                                     onClick={() => handleDeleteSubtask(subtask.id)}
-                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0"
+                                    disabled={isDeletingSubtask}
+                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-colors duration-300 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Delete subtask"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    {isDeletingSubtask ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3 h-3" />
+                                    )}
                                   </button>
                                 </div>
                               ))}
@@ -897,6 +948,7 @@ const ProjectDetail = () => {
                     setNewTaskTitle('')
                     setNewTaskDescription('')
                   }}
+                  disabled={isCreatingTask}
                   style={{
                     flex: 1,
                     padding: '12px',
@@ -906,32 +958,42 @@ const ProjectDetail = () => {
                     color: '#d1d5db',
                     fontSize: '14px',
                     fontWeight: '500',
-                    cursor: 'pointer'
+                    cursor: isCreatingTask ? 'not-allowed' : 'pointer',
+                    opacity: isCreatingTask ? 0.5 : 1
                   }}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateTask}
-                  disabled={!newTaskTitle.trim()}
+                  disabled={!newTaskTitle.trim() || isCreatingTask}
                   style={{
                     flex: 1,
                     padding: '12px',
-                    background: !newTaskTitle.trim() ? 'rgba(16,185,129,0.5)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    background: (!newTaskTitle.trim() || isCreatingTask) ? 'rgba(16,185,129,0.5)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                     border: 'none',
                     borderRadius: '8px',
                     color: '#fff',
                     fontSize: '14px',
                     fontWeight: '500',
-                    cursor: !newTaskTitle.trim() ? 'not-allowed' : 'pointer',
+                    cursor: (!newTaskTitle.trim() || isCreatingTask) ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px'
                   }}
                 >
-                  <Plus size={16} />
-                  Create Task
+                  {isCreatingTask ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={16} />
+                      Create Task
+                    </>
+                  )}
                 </button>
               </div>
             </div>
