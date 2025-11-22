@@ -1031,6 +1031,14 @@ def stream_analysis_progress():
                         if idle_status != last_status:
                             yield f"data: {json.dumps(idle_status)}\n\n"
                             last_status = idle_status
+                            last_activity = time.time()
+                        else:
+                            # Already sent idle - check if we should close
+                            idle_elapsed = time.time() - last_activity
+                            if idle_elapsed > idle_timeout:
+                                # No activity for 30 seconds, close connection
+                                yield f"data: {json.dumps({'status': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
+                                break
                     except Exception as e:
                         logger.error(f"Error checking analysis status: {e}")
                         error_status = {'status': 'error', 'message': str(e)}
@@ -1038,16 +1046,32 @@ def stream_analysis_progress():
                             yield f"data: {json.dumps(error_status)}\n\n"
                             last_status = error_status
                 else:
+                    # Analysis in progress - update status
                     current_status = progress.get('status', 'unknown')
                     if progress != last_status:
                         yield f"data: {json.dumps(progress)}\n\n"
                         last_status = progress
+                        last_activity = time.time()  # Reset idle timer
+                
+                # Send heartbeat periodically to keep connection alive during active analysis
+                if progress and time.time() - last_heartbeat > heartbeat_interval:
+                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    last_heartbeat = time.time()
+                    consecutive_errors = 0  # Reset error count on successful heartbeat
                 
                 time.sleep(2)  # Check every 2 seconds (analysis is slower)
             except Exception as e:
-                logger.error(f"Error in analysis progress stream: {e}")
+                consecutive_errors += 1
+                logger.error(f"Error in analysis progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, close connection
+                if consecutive_errors >= max_errors:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Too many errors - connection closed'})}\n\n"
+                    break
+                
+                # Send error but continue
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
-                break
+                time.sleep(3)  # Wait longer before retrying after error
     
     return Response(
         stream_with_context(generate()),
