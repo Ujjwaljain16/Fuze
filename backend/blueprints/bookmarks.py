@@ -1147,6 +1147,10 @@ def get_dashboard_stats():
             }
         }
         
+        # Cache for 2 minutes (stats don't change frequently)
+        if redis_cache:
+            redis_cache.set(cache_key, stats, ttl=120)
+        
         return jsonify(stats), 200
         
     except Exception as e:
