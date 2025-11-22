@@ -20,7 +20,7 @@ _global_analyzer = None
 def get_gemini_response(prompt: str, temperature: float = 0.3, user_id: int = None) -> Optional[str]:
     """
     Simple wrapper function for getting Gemini responses
-    Used by explainability engine and other modules
+    Used for explainability and other AI-powered features
     
     Args:
         prompt: The prompt to send to Gemini
@@ -177,8 +177,39 @@ class GeminiAnalyzer:
         Analyze bookmark content using Gemini AI
         """
         try:
-            # Prepare content for analysis (limit to avoid token limits)
-            content_preview = content[:2000] if content else ""
+            # Prepare content for analysis (use more content, especially for GitHub repos)
+            # For GitHub repos, we want to capture Repository, Description, Topics, Language, README
+            is_github = 'github.com' in url.lower() if url else False
+            
+            if is_github:
+                # For GitHub, use more content to capture full repo info
+                content_preview = content[:5000] if content else ""
+            else:
+                content_preview = content[:3000] if content else ""
+            
+            # Detect if content has GitHub repository structure
+            has_repo_structure = (
+                'Repository:' in content or 
+                'Primary Language:' in content or 
+                'Topics:' in content or
+                'Description:' in content and 'github.com' in url.lower() if url else False
+            )
+            
+            github_instructions = ""
+            if has_repo_structure or is_github:
+                github_instructions = """
+            
+            IMPORTANT - This appears to be a GitHub repository. Extract information from the structured format:
+            - Look for "Repository:" line to get the repo name
+            - Look for "Description:" line to get the project description
+            - Look for "Topics:" line to extract topics/technologies
+            - Look for "Primary Language:" to identify the main programming language
+            - Look for "Stars:" and "Forks:" to assess popularity
+            - Extract technologies from Description, Topics, and README content
+            - README content often contains technology stack information
+            - Example: "Repository: user/repo-name" should help identify the project type
+            - Technologies should be extracted from Description, Topics, and README (e.g., "HTML, CSS, JavaScript" from description)
+            """
             
             prompt = f"""
             Analyze this technical bookmark content and provide structured insights.
@@ -187,6 +218,18 @@ class GeminiAnalyzer:
             Description: {description}
             URL: {url}
             Content Preview: {content_preview}
+            {github_instructions}
+            
+            CRITICAL INSTRUCTIONS:
+            - Extract ALL technologies, frameworks, libraries, and tools mentioned anywhere in the content
+            - Look for technology mentions in: descriptions, topics, language fields, README, code examples, package names, etc.
+            - Technologies can be mentioned in various formats: "using X", "built with Y", "X, Y, and Z", "X/Y/Z stack", etc.
+            - Extract programming languages, frameworks, libraries, databases, tools, platforms - anything technical
+            - Identify key concepts from project names, descriptions, topics, and content themes
+            - For structured data (like GitHub repos): Parse all structured fields (Repository, Description, Topics, Language, README)
+            - Be adaptive: Extract technologies regardless of how they're mentioned or formatted
+            - Capitalize technology names properly (e.g., "html" → "HTML", "javascript" → "JavaScript")
+            - Include both primary and secondary technologies mentioned
             
             Provide a JSON response with the following structure:
             {{
@@ -227,20 +270,37 @@ class GeminiAnalyzer:
             }}
             
             Important guidelines:
-            - Be precise with technology detection (e.g., distinguish Java from JavaScript)
-            - Assess content quality based on completeness, clarity, and practical value
-            - Identify the target audience and learning objectives
-            - Provide accurate difficulty assessment
-            - Extract key concepts that would be valuable for learning
-            - For learning_path: Identify if content is foundational, what it builds on, and what it leads to
-            - For project_applicability: Determine which project types this content is suitable for
-            - For skill_development: Identify primary and secondary skills that will be developed
-            - If content type is unclear, default to "article" or "guide"
-            - If difficulty is unclear, default to "intermediate"
-            - If target audience is unclear, default to "intermediate"
-            - Always provide specific values, avoid "unknown" or "none"
-            - For general content, classify as "article" or "guide"
-            - Respond ONLY with valid JSON, no additional text
+            - TECHNOLOGY EXTRACTION: Be adaptive and extract ANY technology mentioned, regardless of format or naming
+              * Look for patterns like: "using X", "built with Y", "X/Y/Z", "X stack", "X framework", "X library"
+              * Extract from all sources: descriptions, topics, language fields, README, code blocks, package.json, requirements.txt, etc.
+              * Handle variations: "js" → "JavaScript", "ts" → "TypeScript", "node" → "Node.js", etc.
+              * Capitalize properly: lowercase tech names should be converted to standard capitalization
+              * Be comprehensive: include all technologies, not just the most common ones
+            
+            - KEY CONCEPTS: Extract meaningful concepts from:
+              * Project names and repository names
+              * Topics and tags
+              * Description themes
+              * Content subject matter
+              * Domain-specific terms
+            
+            - STRUCTURED DATA PARSING: For any structured format (GitHub, package files, etc.):
+              * Parse all labeled fields (Repository, Description, Topics, Language, etc.)
+              * Extract information from each field appropriately
+              * Combine information from multiple fields for comprehensive analysis
+            
+            - QUALITY ASSESSMENT: Assess based on content completeness, clarity, and practical value
+            
+            - ALWAYS PROVIDE VALUES: Never return empty arrays for technologies or key_concepts
+              * If no technologies found, infer from context (e.g., "Web Development" for web projects)
+              * If no key concepts, use project name or main theme
+            
+            - DEFAULTS: Use sensible defaults only when truly unclear:
+              * content_type: "article" or "guide" for general content, "example" for code repos
+              * difficulty: "intermediate" if unclear
+              * target_audience: "intermediate" if unclear
+            
+            - Respond ONLY with valid JSON, no additional text or markdown
             """
             
             response_text = self._make_gemini_request(prompt)
@@ -554,6 +614,198 @@ class GeminiAnalyzer:
             return recommendations
     
     def _get_fallback_analysis(self, title: str, description: str, content: str) -> Dict:
+        """
+        Generate fallback analysis when Gemini fails
+        Uses adaptive pattern matching to extract technologies and concepts from any format
+        """
+        technologies = []
+        key_concepts = []
+        summary = f"Content about {title}"
+        
+        # Combine all text for analysis
+        all_text = f"{title} {description} {content}".lower()
+        
+        # Adaptive technology extraction - look for common patterns
+        # Pattern 1: "using X, Y, and Z" or "using X/Y/Z"
+        using_patterns = [
+            r'using\s+([^\.\n]+?)(?:\.|$|\n)',
+            r'built\s+with\s+([^\.\n]+?)(?:\.|$|\n)',
+            r'technologies?[:\s]+([^\.\n]+?)(?:\.|$|\n)',
+            r'stack[:\s]+([^\.\n]+?)(?:\.|$|\n)',
+            r'framework[:\s]+([^\.\n]+?)(?:\.|$|\n)',
+        ]
+        
+        for pattern in using_patterns:
+            matches = re.findall(pattern, all_text, re.IGNORECASE)
+            for match in matches:
+                # Split by common separators
+                techs = re.split(r'\s*,\s*|\s+and\s+|\s+/\s+|\s+', match)
+                for tech in techs:
+                    tech_clean = tech.strip()
+                    if tech_clean and len(tech_clean) > 1 and len(tech_clean) < 50:
+                        # Capitalize properly
+                        tech_formatted = tech_clean.title() if tech_clean.islower() else tech_clean
+                        if tech_formatted not in technologies:
+                            technologies.append(tech_formatted)
+        
+        # Pattern 2: Extract from structured fields (Repository, Description, Topics, Language, etc.)
+        structured_patterns = {
+            'Repository': r'Repository:\s*([^\n]+)',
+            'Description': r'Description:\s*([^\n]+)',
+            'Topics': r'Topics?:\s*([^\n]+)',
+            'Language': r'(?:Primary\s+)?Language:\s*([^\n]+)',
+            'Framework': r'Framework:\s*([^\n]+)',
+            'Library': r'Library:\s*([^\n]+)',
+        }
+        
+        extracted_fields = {}
+        for field_name, pattern in structured_patterns.items():
+            match = re.search(pattern, content or '', re.IGNORECASE)
+            if match:
+                value = match.group(1).strip()
+                extracted_fields[field_name] = value
+                
+                # Use description for summary
+                if field_name == 'Description':
+                    summary = value
+                
+                # Extract technologies from description using adaptive patterns
+                if field_name == 'Description':
+                    desc_lower = value.lower()
+                    # Look for "using X, Y, and Z" patterns
+                    using_match = re.search(r'(?:using|with|built\s+with|made\s+with)\s+([^\.\n]+)', desc_lower)
+                    if using_match:
+                        techs_str = using_match.group(1)
+                        # Split by comma, "and", or space
+                        techs = re.split(r'\s*,\s*|\s+and\s+|\s+', techs_str)
+                        for tech in techs:
+                            tech_clean = tech.strip()
+                            if tech_clean and len(tech_clean) > 1 and len(tech_clean) < 30:
+                                # Capitalize properly
+                                tech_formatted = tech_clean.title() if tech_clean.islower() else tech_clean
+                                if tech_formatted not in technologies:
+                                    technologies.append(tech_formatted)
+                    
+                    # Also look for capitalized tech names in description
+                    desc_techs = re.findall(r'\b([A-Z][a-z]+(?:\.js|\.py|\.ts|\.net|\.jsx|\.tsx)?|[A-Z]{2,})\b', value)
+                    for tech in desc_techs:
+                        if len(tech) > 2 and tech not in technologies:
+                            # Filter out common words
+                            if tech not in {'The', 'This', 'That', 'With', 'From', 'For', 'And', 'Or'}:
+                                technologies.append(tech)
+                
+                # Add topics as key concepts
+                if field_name == 'Topics':
+                    topics = [t.strip() for t in value.split(',')]
+                    key_concepts.extend(topics)
+                
+                # Add language as technology
+                if field_name == 'Language':
+                    if value not in technologies:
+                        technologies.append(value)
+        
+        # Pattern 3: Extract from title/description - look for capitalized tech names
+        # Common pattern: tech names are often capitalized or in specific formats
+        tech_name_pattern = r'\b([A-Z][a-z]+(?:\.js|\.py|\.ts|\.net|\.jsx|\.tsx)?|[A-Z]{2,})\b'
+        title_desc = f"{title} {description}"
+        tech_matches = re.findall(tech_name_pattern, title_desc)
+        for tech in tech_matches:
+            # Filter out common non-tech words
+            non_tech_words = {'The', 'This', 'That', 'With', 'From', 'For', 'And', 'Or', 'But', 'Not', 'All', 'Are', 'Was', 'Were', 'Has', 'Have', 'Had', 'Will', 'Would', 'Should', 'Could', 'Can', 'May', 'Might', 'Must', 'Shall'}
+            if tech not in non_tech_words and len(tech) > 2 and tech not in technologies:
+                technologies.append(tech)
+        
+        # Pattern 4: Extract repository name as key concept
+        repo_match = re.search(r'Repository:\s*([^\n]+)', content or '', re.IGNORECASE)
+        if repo_match:
+            repo_name = repo_match.group(1).strip()
+            repo_slug = repo_name.split('/')[-1] if '/' in repo_name else repo_name
+            if repo_slug not in key_concepts:
+                key_concepts.append(repo_slug)
+        
+        # Pattern 5: Extract from package files patterns (package.json, requirements.txt, etc.)
+        package_patterns = [
+            r'"([^"]+)"\s*:\s*"[^"]*"',  # package.json style
+            r'([a-zA-Z0-9_-]+)\s*==',  # requirements.txt style
+            r'([a-zA-Z0-9_-]+)\s*>=',  # version requirements
+        ]
+        for pattern in package_patterns:
+            matches = re.findall(pattern, content or '')
+            # Filter to likely package names (not version numbers, etc.)
+            for match in matches:
+                if match and len(match) > 2 and match[0].isalpha() and match not in technologies:
+                    # Only add if it looks like a tech name
+                    if not re.match(r'^\d+', match):  # Not starting with number
+                        technologies.append(match)
+        
+        # Clean and deduplicate
+        technologies = [t for t in technologies if t and len(t) > 1 and len(t) < 50]
+        technologies = list(dict.fromkeys(technologies))  # Remove duplicates, preserve order
+        key_concepts = [c for c in key_concepts if c and len(c) > 1]
+        key_concepts = list(dict.fromkeys(key_concepts))  # Remove duplicates, preserve order
+        
+        # Intelligent defaults based on content
+        if not technologies:
+            # Try to infer from context
+            if 'web' in all_text or 'html' in all_text or 'css' in all_text:
+                technologies = ['Web Development']
+            elif 'mobile' in all_text or 'app' in all_text:
+                technologies = ['Mobile Development']
+            elif 'data' in all_text or 'ml' in all_text or 'ai' in all_text:
+                technologies = ['Data Science']
+            else:
+                technologies = ['General Programming']
+        
+        if not key_concepts:
+            # Use title or first meaningful word from description
+            if title:
+                key_concepts = [title]
+            elif description:
+                # Extract first few words from description
+                desc_words = description.split()[:3]
+                key_concepts = [' '.join(desc_words)]
+            else:
+                key_concepts = ['General Content']
+        
+        return {
+            'technologies': technologies,
+            'content_type': 'example' if 'github.com' in (description or '') or 'Repository:' in (content or '') else 'article',
+            'difficulty': 'intermediate',
+            'intent': 'learning',
+            'key_concepts': key_concepts,
+            'relevance_score': 60,
+            'summary': summary or f"Content about {title}",
+            'learning_objectives': [],
+            'quality_indicators': {
+                'completeness': 60,
+                'clarity': 60,
+                'practical_value': 60
+            },
+            'target_audience': 'intermediate',
+            'prerequisites': [],
+            'learning_path': {
+                'is_foundational': False,
+                'builds_on': [],
+                'leads_to': [],
+                'estimated_time': '1-2 hours',
+                'hands_on_practice': False
+            },
+            'project_applicability': {
+                'suitable_for': ['web_app'] if technologies else ['general'],
+                'implementation_ready': 'github.com' in (description or '') or 'Repository:' in (content or ''),
+                'code_examples': 'github.com' in (description or '') or 'Repository:' in (content or ''),
+                'real_world_examples': False
+            },
+            'skill_development': {
+                'primary_skills': technologies[:3] if technologies else [],
+                'secondary_skills': [],
+                'skill_level_after': 'intermediate',
+                'certification_relevant': False
+            },
+            'basic_summary': summary or f"Content about {title}"
+        }
+    
+    def _get_fallback_analysis_old(self, title: str, description: str, content: str) -> Dict:
         """Fallback analysis when Gemini fails"""
         # Try to extract basic information from title and description
         text = f"{title} {description}".lower()

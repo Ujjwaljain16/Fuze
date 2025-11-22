@@ -73,10 +73,9 @@ class ContentAnalysisEngine:
         if self.use_user_api_key and self.analyzer is None:
             try:
                 from services.multi_user_api_manager import get_user_api_key
-                # Use force_refresh to ensure we get the latest key from database
-                self.user_api_key = get_user_api_key(self.user_id, force_refresh=True)
+                self.user_api_key = get_user_api_key(self.user_id)
                 if self.user_api_key:
-                    logger.info(f"Using user's API key for analysis (force refreshed)")
+                    logger.info(f"Using user's API key for analysis")
                 else:
                     logger.info(f"No user API key found, using default")
             except Exception as e:
@@ -87,13 +86,26 @@ class ContentAnalysisEngine:
             self.analyzer = GeminiAnalyzer(api_key=self.user_api_key)
 
         # Get all user's saved content
+        total_bookmarks = SavedContent.query.filter_by(user_id=self.user_id).count()
+        logger.info(f"Total bookmarks for user {self.user_id}: {total_bookmarks}")
+
         query = SavedContent.query.filter_by(user_id=self.user_id)
 
         # Filter out already analyzed content unless force refresh
         if not force_refresh:
-            analyzed_content_ids = db.session.query(ContentAnalysis.content_id).all()
+            # Get analyzed content IDs for THIS user only (join through SavedContent)
+            analyzed_content_ids = db.session.query(ContentAnalysis.content_id).join(
+                SavedContent, ContentAnalysis.content_id == SavedContent.id
+            ).filter(SavedContent.user_id == self.user_id).all()
             analyzed_ids = {row[0] for row in analyzed_content_ids}
+            already_analyzed = len(analyzed_ids)
+            logger.info(f"Already analyzed: {already_analyzed} bookmarks")
             query = query.filter(~SavedContent.id.in_(analyzed_ids))
+        else:
+            already_analyzed = ContentAnalysis.query.join(
+                SavedContent, ContentAnalysis.content_id == SavedContent.id
+            ).filter(SavedContent.user_id == self.user_id).count()
+            logger.info(f"Force refresh mode: Will re-analyze {already_analyzed} existing analyses")
 
         saved_content = query.all()
         logger.info(f"Found {len(saved_content)} bookmarks to analyze")
@@ -125,19 +137,14 @@ class ContentAnalysisEngine:
                     except Exception as rate_limit_error:
                         logger.warning(f"Could not check rate limit: {rate_limit_error}")
 
-                # Skip low-quality content
-                if content.quality_score < 5:
-                    logger.debug(f"Skipping low-quality content: {content.title} (score: {content.quality_score})")
-                    skipped_count += 1
-                    continue
-
-                # Skip empty content
+                # Analyze all content regardless of quality or emptiness
+                # Use fallback content if extracted_text is empty
                 if not content.extracted_text or not content.extracted_text.strip():
-                    logger.debug(f"Skipping empty content: {content.title}")
-                    skipped_count += 1
-                    continue
+                    # Use minimal fallback content for analysis (same as background_analysis_service)
+                    content.extracted_text = content.title or content.url or "Untitled content"
+                    logger.debug(f"Using fallback content for analysis: {content.title}")
 
-                # Analyze content
+                # Analyze content (no quality score filtering - analyze everything)
                 analysis_result = self._analyze_single_content(content)
 
                 if analysis_result:
@@ -237,10 +244,21 @@ class ContentAnalysisEngine:
     def _save_single_analysis(self, content_id: int, analysis_result: Dict):
         """Save a single analysis result to database immediately"""
         try:
-            # Check if analysis already exists (avoid duplicates)
+            # Check if analysis already exists (avoid duplicates/race conditions)
             existing_analysis = ContentAnalysis.query.filter_by(content_id=content_id).first()
             if existing_analysis:
-                logger.debug(f"Analysis already exists for content {content_id}, skipping")
+                # If force_refresh is False, we shouldn't hit this (query filters them out)
+                # But handle race conditions gracefully
+                logger.debug(f"Analysis already exists for content {content_id}, updating instead of skipping")
+                # Update existing analysis instead of skipping
+                existing_analysis.analysis_data = analysis_result
+                existing_analysis.key_concepts = ','.join(analysis_result.get('key_concepts', [])) if isinstance(analysis_result.get('key_concepts', []), list) else str(analysis_result.get('key_concepts', ''))
+                existing_analysis.content_type = analysis_result.get('content_type', 'article')
+                existing_analysis.difficulty_level = analysis_result.get('difficulty', 'intermediate')
+                existing_analysis.technology_tags = ','.join(analysis_result.get('technologies', [])) if isinstance(analysis_result.get('technologies', []), list) else str(analysis_result.get('technologies', ''))
+                existing_analysis.relevance_score = analysis_result.get('relevance_score', 50)
+                existing_analysis.updated_at = datetime.now()
+                db.session.commit()
                 return
 
             # Extract key information from analysis
