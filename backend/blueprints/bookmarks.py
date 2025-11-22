@@ -152,6 +152,216 @@ def generate_comprehensive_embedding(title, description, meta_description, headi
             # Last resort: return None (will be handled by caller)
             return None
 
+def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
+    """
+    RQ Task function to process bookmark content extraction, embedding, and analysis
+    This is called by RQ workers in the background
+    """
+    try:
+        # Get Flask app context for database operations
+        from run_production import app
+        with app.app_context():
+            # Get the bookmark
+            bookmark = SavedContent.query.get(bookmark_id)
+            if not bookmark:
+                logger.error(f"Bookmark {bookmark_id} not found for background processing")
+                return
+            
+            logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
+            
+            # Extract content from URL
+            scraped = extract_article_content(url)
+            extracted_text = scraped.get('content', '')
+            scraped_title = scraped.get('title', '')
+            headings = scraped.get('headings', [])
+            meta_description = scraped.get('meta_description', '')
+            quality_score = scraped.get('quality_score', 10)
+            
+            # Update title if we got a better one from scraping
+            if scraped_title and (not bookmark.title or bookmark.title == 'Untitled Bookmark'):
+                final_title = scraped_title.strip()
+                if len(final_title) > 200:
+                    truncated = final_title[:197]
+                    last_space = truncated.rfind(' ')
+                    if last_space > 150:
+                        final_title = truncated[:last_space] + "..."
+                    else:
+                        final_title = truncated + "..."
+                bookmark.title = final_title
+            
+            # Generate comprehensive embedding
+            embedding = generate_comprehensive_embedding(
+                title=bookmark.title,
+                description=bookmark.notes or '',
+                meta_description=meta_description,
+                headings=headings,
+                extracted_text=extracted_text,
+                url=url
+            )
+            
+            # Update bookmark with extracted content and embedding
+            if extracted_text:
+                extracted_text = extracted_text.replace('\x00', '')
+                if not isinstance(extracted_text, str):
+                    extracted_text = str(extracted_text)
+                bookmark.extracted_text = extracted_text
+            
+            if embedding is not None:
+                bookmark.embedding = embedding
+            
+            bookmark.quality_score = quality_score
+            
+            # Commit the updates
+            db.session.commit()
+            
+            # Invalidate caches
+            from services.cache_invalidation_service import cache_invalidator
+            cache_invalidator.after_content_update(bookmark_id, user_id)
+            redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+            
+            logger.info(f"Background processing completed for bookmark {bookmark_id}")
+            
+            # Trigger background analysis
+            try:
+                from services.background_analysis_service import analyze_content
+                analyze_content(bookmark_id, user_id)
+            except Exception as e:
+                logger.error(f"Error triggering background analysis for bookmark {bookmark_id}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error in background processing for bookmark {bookmark_id}: {e}", exc_info=True)
+        raise  # Re-raise so RQ can handle retries
+
+def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
+    """
+    Enqueue bookmark processing task using RQ (or fallback to threading)
+    This function returns immediately after enqueueing, allowing fast API responses
+    """
+    # Try to use RQ first
+    try:
+        from services.task_queue import enqueue_bookmark_processing, is_rq_available
+        
+        if is_rq_available():
+            job = enqueue_bookmark_processing(bookmark_id, url, user_id)
+            if job:
+                logger.info(f"Bookmark {bookmark_id} processing enqueued as job {job.id}")
+                return
+    except Exception as e:
+        logger.warning(f"Failed to enqueue with RQ: {e}, falling back to threading")
+    
+    # Fallback to threading if RQ is not available
+    import threading
+    from flask import current_app
+    
+    def process():
+        # Call the task function directly
+        process_bookmark_content_task(bookmark_id, url, user_id)
+    
+    # Start background thread
+    thread = threading.Thread(target=process, daemon=True)
+    thread.start()
+    logger.info(f"Bookmark {bookmark_id} processing started in background thread (RQ unavailable)")
+
+@bookmarks_bp.route('/quick-save', methods=['POST'])
+@jwt_required()
+@validate_request_data(
+    required_fields=['url'],
+    field_rules={
+        'url': {'check_sql_injection': False},
+        'title': {'check_sql_injection': False},
+        'description': {'check_sql_injection': False},
+    }
+)
+def quick_save_bookmark():
+    """
+    Quick save endpoint: Save bookmark immediately with minimal data,
+    then process content extraction, embedding, and analysis in background.
+    Returns immediately so user can return to previous app.
+    """
+    user_id = int(get_jwt_identity())
+    data = request.get_json()
+    
+    url = sanitize_string(data.get('url')) if data.get('url') else None
+    title = sanitize_string(data.get('title', ''))
+    description = sanitize_string(data.get('description', ''))
+    
+    if not url:
+        return jsonify({'message': 'URL is required'}), 400
+    
+    # Check if bookmark already exists
+    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    
+    if existing_bookmark:
+        # Update existing bookmark with new title/description if provided
+        if title:
+            existing_bookmark.title = title.strip()
+        if description:
+            existing_bookmark.notes = description.strip()
+        db.session.commit()
+        
+        # Invalidate caches
+        from services.cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_update(existing_bookmark.id, user_id)
+        
+        # Still trigger background processing in case content needs updating
+        process_bookmark_content_async(existing_bookmark.id, url, user_id)
+        
+        return jsonify({
+            'message': 'Bookmark updated',
+            'bookmark': {'id': existing_bookmark.id, 'url': existing_bookmark.url},
+            'wasDuplicate': True,
+            'duplicateType': duplicate_type,
+            'processing': 'background'
+        }), 200
+    
+    # Ensure title is not empty
+    if not title or not title.strip():
+        title = 'Untitled Bookmark'
+    
+    # Truncate title if needed
+    final_title = title.strip() if title else 'Untitled Bookmark'
+    if len(final_title) > 200:
+        truncated = final_title[:197]
+        last_space = truncated.rfind(' ')
+        if last_space > 150:
+            final_title = truncated[:last_space] + "..."
+        else:
+            final_title = truncated + "..."
+    
+    # Save bookmark immediately with minimal data (no scraping/embedding yet)
+    new_bm = SavedContent(
+        user_id=user_id,
+        url=url.strip(),
+        title=final_title,
+        notes=description.strip() if isinstance(description, str) else '',
+        extracted_text='',  # Will be filled by background processing
+        embedding=None,  # Will be generated by background processing
+        quality_score=0  # Will be updated by background processing
+    )
+    
+    try:
+        db.session.add(new_bm)
+        db.session.commit()
+        
+        # Invalidate caches
+        from services.cache_invalidation_service import cache_invalidator
+        cache_invalidator.after_content_save(new_bm.id, user_id)
+        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+        
+        # Start background processing (non-blocking)
+        process_bookmark_content_async(new_bm.id, url, user_id)
+        
+        return jsonify({
+            'message': 'Bookmark saved',
+            'bookmark': {'id': new_bm.id, 'url': new_bm.url},
+            'processing': 'background',
+            'wasDuplicate': False
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in quick save: {e}", exc_info=True)
+        return jsonify({'message': f'Error: {str(e)}'}), 500
+
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
 @validate_request_data(

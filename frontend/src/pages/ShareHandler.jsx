@@ -260,14 +260,28 @@ const ShareHandler = () => {
         description: previewData?.description || sharedText || ''
       }
 
-      const response = await api.post('/api/bookmarks', bookmarkData)
+      // Use quick-save endpoint for immediate response
+      const response = await api.post('/api/bookmarks/quick-save', bookmarkData)
 
       if (response.data) {
         setSuccess(true)
-        // Redirect to bookmarks page after 2 seconds
+        
+        // Try to return user to previous app (where they shared from)
+        // This works for PWA share targets
         setTimeout(() => {
-          navigate('/bookmarks')
-        }, 2000)
+          // Try to close the window (works if opened as share target)
+          if (window.history.length > 1) {
+            // If we have history, go back
+            window.history.back()
+          } else {
+            // Otherwise, try to close (may not work if not opened by share)
+            window.close()
+            // Fallback: navigate to dashboard if close doesn't work
+            setTimeout(() => {
+              navigate('/dashboard')
+            }, 500)
+          }
+        }, 1000) // Show success message for 1 second before returning
       }
     } catch (err) {
       console.error('Save failed:', err)
@@ -330,7 +344,7 @@ const ShareHandler = () => {
               <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
               <div>
                 <p className="text-green-400 font-medium">Bookmark saved successfully!</p>
-                <p className="text-green-400/70 text-sm">Redirecting to bookmarks...</p>
+                <p className="text-green-400/70 text-sm">Processing content in background. Returning to previous app...</p>
               </div>
             </div>
           )}

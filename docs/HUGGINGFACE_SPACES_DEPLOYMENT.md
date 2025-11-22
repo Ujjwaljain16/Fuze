@@ -61,6 +61,7 @@ cp /path/to/fuze/requirements.txt .
 cp /path/to/fuze/Dockerfile .
 cp /path/to/fuze/app.py .
 cp /path/to/fuze/wsgi.py .
+cp /path/to/fuze/start.sh .
 cp /path/to/fuze/README.md .
 
 # Commit and push
@@ -141,24 +142,37 @@ python backend/init_db.py
 
 ### 1. Created `Dockerfile`
 - Python 3.11 base image
-- Installs all dependencies
+- Installs all dependencies (including RQ for background jobs)
 - Exposes port 7860 (Hugging Face standard)
-- Runs Gunicorn with 1 worker
+- Uses `start.sh` to run both web server and RQ worker
 
 ### 2. Created `app.py`
 - Entry point for Hugging Face Spaces
 - Imports app from `wsgi.py`
 - Compatible with Spaces requirements
 
-### 3. Updated `README.md`
+### 3. Created `start.sh`
+- Startup script that runs both processes:
+  - RQ worker (background) - processes bookmark tasks
+  - Gunicorn web server (foreground) - handles API requests
+- Handles graceful shutdown
+
+### 4. Updated `README.md`
 - Spaces-specific configuration
 - Environment variables documentation
 - API endpoint reference
 
-### 4. No Code Changes Needed! ✅
+### 5. Background Job Processing ✅
+- RQ worker runs automatically alongside web server
+- Processes bookmark content extraction, embeddings, and analysis
+- Uses same Redis connection as web server
+- See `docs/HF_SPACES_RQ_WORKER.md` for details
+
+### 6. No Backend Code Changes Needed! ✅
 - Your JWT auth works perfectly
 - Your Flask app structure is compatible
 - Your ML models will work great with 16GB RAM
+- Background jobs work automatically
 
 ---
 
@@ -258,6 +272,7 @@ cp ../requirements.txt .
 cp ../Dockerfile .
 cp ../app.py .
 cp ../wsgi.py .
+cp ../start.sh .
 
 # 6. Push
 git add .
@@ -321,23 +336,26 @@ In Spaces UI → Settings → Variables:
 3. **Docker Support** - Full control
 4. **Truly Free** - No payment method needed
 5. **HTTPS Included** - PWA ready
+6. **Background Jobs** - RQ worker runs automatically
 
 ### Setup Required
 
 1. ✅ Create Hugging Face account
 2. ✅ Create Docker Space
-3. ✅ Push code (Dockerfile, app.py, etc.)
-4. ✅ Set environment variables
+3. ✅ Push code (Dockerfile, app.py, start.sh, etc.)
+4. ✅ Set environment variables (including REDIS_URL)
 5. ✅ Initialize database
 6. ✅ Deploy frontend to Vercel
 7. ✅ Update CORS settings
 
 ### Code Changes: Minimal ✅
 
-- Created Dockerfile
+- Created Dockerfile (with RQ worker support)
 - Created app.py entry point
+- Created start.sh (runs web server + worker)
 - Updated README.md
 - **No backend code changes needed!**
+- **RQ worker starts automatically!**
 
 ---
 

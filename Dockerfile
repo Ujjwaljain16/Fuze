@@ -26,11 +26,15 @@ RUN camoufox fetch || echo "Camoufox fetch completed"
 COPY backend/ ./backend/
 COPY wsgi.py .
 COPY app.py .
+COPY start.sh .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
+
+# Make startup script executable
+RUN chmod +x start.sh
 
 # Expose port (Hugging Face Spaces uses 7860)
 EXPOSE 7860
@@ -40,8 +44,12 @@ EXPOSE 7860
 #     CMD python -c "import requests; requests.get('http://localhost:7860/api/health')" || exit 1
 
 # Run the application
-# Use app.py as entry point for Hugging Face Spaces compatibility
+# Use startup script to run both web server and RQ worker
 # 
+# The startup script (start.sh) runs:
+# 1. RQ worker in background (processes bookmark tasks)
+# 2. Gunicorn web server in foreground (handles API requests)
+#
 # Gunicorn Configuration with Gevent Worker:
 # - worker-class: gevent - Async worker that handles concurrent connections without blocking
 #   Gevent automatically monkey-patches standard library for async I/O
@@ -55,5 +63,6 @@ EXPOSE 7860
 # ✅ Multiple users with simultaneous requests
 # ✅ Long-lived SSE connections for real-time progress updates
 # ✅ Efficient resource usage (1 worker handles many connections)
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "2000", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-"]
+# ✅ Background job processing with RQ worker
+CMD ["./start.sh"]
 
