@@ -988,8 +988,23 @@ def stream_analysis_progress():
     
     def generate():
         last_status = None
+        start_time = time.time()
+        max_connection_time = 1800  # 30 minutes maximum (for long analyses)
+        idle_timeout = 30  # Close connection after 30 seconds of no activity
+        last_activity = time.time()
+        heartbeat_interval = 15  # Send heartbeat every 15 seconds
+        last_heartbeat = time.time()
+        consecutive_errors = 0
+        max_errors = 5
+        
         while True:
             try:
+                # Check if connection has been open too long
+                elapsed = time.time() - start_time
+                if elapsed > max_connection_time:
+                    yield f"data: {json.dumps({'status': 'timeout', 'message': 'Connection timeout - please refresh'})}\n\n"
+                    break
+                
                 progress = redis_cache.get(analysis_key)
                 
                 if not progress:
