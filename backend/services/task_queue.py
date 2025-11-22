@@ -20,15 +20,17 @@ def get_redis_connection():
     # Create connection from environment variables (same config as redis_cache)
     redis_url = os.environ.get('REDIS_URL')
     
-    if redis_url:
-        # Use REDIS_URL if available
-        try:
-            return Redis.from_url(
-                redis_url,
-                decode_responses=False,
-                socket_connect_timeout=10,
-                socket_timeout=10
-            )
+        if redis_url:
+            # Use REDIS_URL if available
+            try:
+                return Redis.from_url(
+                    redis_url,
+                    decode_responses=False,
+                    socket_connect_timeout=10,
+                    socket_timeout=30,  # Increased timeout for long-running jobs
+                    socket_keepalive=True,
+                    health_check_interval=30  # Check connection every 30 seconds
+                )
         except Exception as e:
             logger.warning(f"Failed to create Redis connection from URL: {e}")
     
@@ -43,15 +45,22 @@ def get_redis_connection():
     if not use_ssl and any(provider in redis_host for provider in ['upstash.io', 'redislabs.com', 'redis.cache']):
         use_ssl = True
     
-    connection_params = {
-        'host': redis_host,
-        'port': redis_port,
-        'db': redis_db,
-        'password': redis_password,
-        'decode_responses': False,
-        'socket_connect_timeout': 10,
-        'socket_timeout': 10
-    }
+            connection_params = {
+                'host': redis_host,
+                'port': redis_port,
+                'db': redis_db,
+                'password': redis_password,
+                'decode_responses': False,
+                'socket_connect_timeout': 10,
+                'socket_timeout': 30,  # Increased timeout for long-running jobs
+                'socket_keepalive': True,  # Enable keepalive
+                'socket_keepalive_options': {
+                    1: 1,  # TCP_KEEPIDLE: 1 second
+                    2: 1,  # TCP_KEEPINTVL: 1 second
+                    3: 3   # TCP_KEEPCNT: 3 probes
+                },
+                'health_check_interval': 30  # Check connection every 30 seconds
+            }
     
     if use_ssl:
         connection_params['ssl'] = True
