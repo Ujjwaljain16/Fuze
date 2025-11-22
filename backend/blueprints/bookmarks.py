@@ -154,7 +154,14 @@ def generate_comprehensive_embedding(title, description, meta_description, headi
 
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
-@validate_request_data(required_fields=['url'])
+@validate_request_data(
+    required_fields=['url'],
+    field_rules={
+        'url': {'check_sql_injection': False},  # URLs can contain SQL keywords legitimately
+        'extracted_text': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},  # No limits for extracted text
+        'content': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},  # No limits for content
+    }
+)
 def save_bookmark():
     user_id = int(get_jwt_identity())
     data = request.get_json()
@@ -202,16 +209,28 @@ def save_bookmark():
     meta_description = scraped.get('meta_description', '')
     quality_score = scraped.get('quality_score', 10)
 
-    if quality_score < 5:
-        return jsonify({'message': 'Content quality too low (login page, homepage, or too short). Please save a more content-rich page.'}), 400
+    # Save all bookmarks regardless of quality score - embeddings are always generated
+    # Quality score is stored for reference but doesn't prevent saving
     
     # Prefer scraped title if not provided
     if not title or title == 'Untitled Bookmark':
         title = scraped_title or 'Untitled Bookmark'
     
+    # Ensure title fits within database column limit (200 characters)
+    # Truncate if necessary, preserving meaningful content
+    final_title = title.strip() if title else 'Untitled Bookmark'
+    if len(final_title) > 200:
+        # Try to truncate at a word boundary if possible
+        truncated = final_title[:197]  # Leave room for "..."
+        last_space = truncated.rfind(' ')
+        if last_space > 150:  # Only use word boundary if it's not too early
+            final_title = truncated[:last_space] + "..."
+        else:
+            final_title = truncated + "..."
+    
     # Generate comprehensive embedding using optimized strategy
     embedding = generate_comprehensive_embedding(
-        title=title,
+        title=final_title,
         description=description,
         meta_description=meta_description,
         headings=headings,
@@ -223,12 +242,21 @@ def save_bookmark():
     if embedding is None:
         logger.warning(f"Failed to generate embedding for {url}, saving bookmark without embedding")
     
+    # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
+    # Don't truncate - save the complete extracted content
+    if extracted_text:
+        # Remove null bytes that could cause issues
+        extracted_text = extracted_text.replace('\x00', '')
+        # Ensure it's a string
+        if not isinstance(extracted_text, str):
+            extracted_text = str(extracted_text)
+    
     new_bm = SavedContent(
         user_id=user_id,
         url=url.strip(),
-        title=title.strip(),
+        title=final_title,  # Truncated to 200 chars max
         notes=description.strip() if isinstance(description, str) else '',
-        extracted_text=extracted_text,
+        extracted_text=extracted_text,  # Full extracted text - no truncation
         embedding=embedding,
         quality_score=quality_score
         # Optionally: store headings/meta_description in new columns if desired
@@ -289,6 +317,7 @@ def bulk_import_bookmarks():
     skipped_count = 0
     updated_count = 0
     errors = []
+    skip_reasons = {}  # Track skip reasons: {reason: count}
     new_bookmarks = []
     max_workers = 8  # Tune as needed
 
@@ -333,32 +362,139 @@ def bulk_import_bookmarks():
             if len(url) > 2048:
                 url = url[:2048]
             if not url:
-                return ('skip', url, 'Empty URL')
+                return ('skip', url, 'Empty URL', 'empty_url')
+
+            # Filter out invalid URL schemes that can't be scraped
+            invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
+            url_lower = url.lower()
+            if any(url_lower.startswith(scheme) for scheme in invalid_schemes):
+                return ('skip', url, f'Invalid URL scheme (cannot scrape {urlparse(url).scheme}:// URLs)', 'invalid_scheme')
+
+            # Validate URL format
+            try:
+                parsed = urlparse(url)
+                if not parsed.scheme or not parsed.netloc:
+                    # Allow relative URLs or URLs without scheme (will be treated as http)
+                    if not parsed.scheme and not parsed.netloc and not parsed.path:
+                        return ('skip', url, 'Invalid URL format', 'invalid_format')
+            except Exception:
+                return ('skip', url, 'Invalid URL format', 'invalid_format')
 
             norm_url = normalize_url(url)
             # Fast duplicate check using cached data
             if url in existing_urls or norm_url in normalized_urls:
-                return ('skip', url, 'Duplicate bookmark')
+                return ('skip', url, 'Duplicate bookmark', 'duplicate')
 
-            # Scrape and embed (same workflow as single save)
-            scraped = extract_article_content(url)
+            # Scrape and embed (same workflow as single save) with retry logic
+            # Use the same enhanced scraper that the test script uses
+            # This ensures GitHub API and other enhanced features are used
+            scraped = None
+            max_retries = 2
+            
+            for attempt in range(max_retries):
+                try:
+                    scraped = extract_article_content(url)
+                    
+                    if scraped:
+                        content_length = len(scraped.get('content', ''))
+                        quality = scraped.get('quality_score', 0)
+                        
+                        # Accept if we have reasonable content (even if quality is low)
+                        # The scraper handles GitHub API, Scrapling, etc. automatically
+                        if content_length > 50:
+                            break  # Got good content, exit retry loop
+                        elif attempt < max_retries - 1:
+                            # Content too short, retry with exponential backoff
+                            import time
+                            time.sleep(0.5 * (attempt + 1))  # 0.5s, 1s delays
+                    else:
+                        if attempt < max_retries - 1:
+                            import time
+                            time.sleep(0.5 * (attempt + 1))
+                            
+                except Exception as scrape_error:
+                    error_str = str(scrape_error).lower()
+                    # Check for rate limiting errors
+                    if any(rate_limit_indicator in error_str for rate_limit_indicator in 
+                           ['rate limit', '429', 'too many requests', 'quota exceeded']):
+                        if attempt < max_retries - 1:
+                            # Rate limited - wait longer before retry
+                            import time
+                            wait_time = 2 * (attempt + 1)  # 2s, 4s delays
+                            logger.warning(f"Rate limited for {url[:50]}, waiting {wait_time}s before retry...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"Rate limited for {url[:50]} after {max_retries} attempts")
+                    elif attempt < max_retries - 1:
+                        # Other errors - shorter retry delay
+                        import time
+                        time.sleep(1 * (attempt + 1))  # 1s, 2s delays
+                    else:
+                        logger.error(f"All scraping attempts failed for {url[:50]}: {scrape_error}")
+            
+            # If scraping failed completely, use proper fallback (never save "Unable to extract")
+            if not scraped or not scraped.get('content'):
+                logger.warning(f"Scraping failed for {url}, using proper fallback")
+                parsed = urlparse(url)
+                domain = parsed.netloc.replace('www.', '')
+                path_parts = [p for p in parsed.path.strip('/').split('/') if p]
+                
+                # Generate meaningful fallback content (same as test script)
+                fallback_content = f"Content from {domain}"
+                if path_parts:
+                    meaningful_parts = [p.replace('-', ' ').replace('_', ' ') 
+                                      for p in path_parts[:3] 
+                                      if p.lower() not in {'www', 'index', 'home', 'page'}]
+                    if meaningful_parts:
+                        fallback_content += f". Topic: {' '.join(meaningful_parts)}"
+                
+                scraped = {
+                    'content': fallback_content,
+                    'title': title or f"Content from {domain}",
+                    'headings': [],
+                    'meta_description': f"Content from {domain}",
+                    'quality_score': 3  # Low but not zero
+                }
+            
             extracted_text = scraped.get('content', '')
             scraped_title = scraped.get('title', '')
             headings = scraped.get('headings', [])
             meta_description = scraped.get('meta_description', '')
             quality_score = scraped.get('quality_score', 10)
             
+            # Never save "Unable to extract" or "extraction failed" messages
+            # Replace them with proper fallback content
+            if extracted_text and ('unable to extract' in extracted_text.lower() or 
+                                 'extraction failed' in extracted_text.lower()):
+                logger.warning(f"Replacing 'Unable to extract' message for {url[:50]} with proper fallback")
+                parsed = urlparse(url)
+                domain = parsed.netloc.replace('www.', '')
+                extracted_text = f"Content from {domain}. URL: {url}"
+                scraped['content'] = extracted_text
+                scraped['quality_score'] = 3
+            
             # Update title if scraped title is better
             if scraped_title and scraped_title != title:
-                title = scraped_title[:200]  # Ensure it fits in column
+                title = scraped_title
             
-            # Use same quality check as single save (skip low quality, but don't fail)
-            if quality_score < 5:
-                return ('skip', url, 'Low quality content')
+            # Ensure title fits within database column limit (200 characters)
+            # Truncate if necessary, preserving meaningful content
+            final_title = title if title else 'Untitled Bookmark'
+            if len(final_title) > 200:
+                # Try to truncate at a word boundary if possible
+                truncated = final_title[:197]  # Leave room for "..."
+                last_space = truncated.rfind(' ')
+                if last_space > 150:  # Only use word boundary if it's not too early
+                    final_title = truncated[:last_space] + "..."
+                else:
+                    final_title = truncated + "..."
+            
+            # Save all bookmarks regardless of quality score - embeddings are always generated
+            # Quality score is stored for reference but doesn't prevent saving
             
             # Generate comprehensive embedding using same optimized strategy
             embedding = generate_comprehensive_embedding(
-                title=title if title else 'Untitled Bookmark',
+                title=final_title,
                 description='',  # No description in bulk import
                 meta_description=meta_description,
                 headings=headings,
@@ -370,37 +506,72 @@ def bulk_import_bookmarks():
             if embedding is None:
                 logger.warning(f"Failed to generate embedding for {url} during bulk import")
             
+            # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
+            # Don't truncate - save the complete extracted content
+            if extracted_text:
+                # Remove null bytes that could cause issues
+                extracted_text = extracted_text.replace('\x00', '')
+                # Ensure it's a string
+                if not isinstance(extracted_text, str):
+                    extracted_text = str(extracted_text)
+            
             new_bm = SavedContent(
                 user_id=user_id,
                 url=url,
-                title=title if title else 'Untitled Bookmark',
+                title=final_title,  # Truncated to 200 chars max
                 notes='',
-                extracted_text=extracted_text,
+                category=category,  # Set category from bookmark data
+                extracted_text=extracted_text,  # Full extracted text - no truncation
                 embedding=embedding,
                 quality_score=quality_score
             )
-            return ('add', url, new_bm)
+            return ('add', url, new_bm, None)
         except Exception as e:
-            return ('error', bookmark_data.get('url', ''), str(e))
+            return ('error', bookmark_data.get('url', ''), str(e), 'exception')
 
     # Use ThreadPoolExecutor for parallel scraping/embedding
+    # Keep full parallelism for speed - rate limiting is handled in the scraper
+    # Each worker adds a small random delay to spread out requests naturally
     processed_count = 0
+    import time
+    import random
+    
+    def process_with_smart_delay(bookmark_data):
+        """Process bookmark with smart delay to avoid rate limiting"""
+        # Small random delay (0-200ms) to spread out requests naturally
+        # This prevents all workers from hitting APIs at exactly the same time
+        # while maintaining full parallelism
+        time.sleep(random.uniform(0, 0.2))
+        return process_bookmark(bookmark_data)
+    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_bookmark, bm) for bm in data]
+        futures = [executor.submit(process_with_smart_delay, bm) for bm in data]
         for future in as_completed(futures):
             result = future.result()
             processed_count += 1
 
             if result[0] == 'add':
-                _, url, new_bm = result
+                _, url, new_bm, _ = result
                 new_bookmarks.append(new_bm)
                 added_count += 1
-            elif result[0] == 'update':
-                updated_count += 1
             elif result[0] == 'skip':
+                # Handle both 3-tuple (old) and 4-tuple (new) formats
+                if len(result) == 4:
+                    _, url, reason, reason_code = result
+                else:
+                    _, url, reason = result
+                    reason_code = 'unknown'
                 skipped_count += 1
+                # Track skip reasons
+                reason_code = reason_code or 'unknown'
+                skip_reasons[reason_code] = skip_reasons.get(reason_code, 0) + 1
+                logger.debug(f"Skipped bookmark {url[:50]}: {reason}")
             elif result[0] == 'error':
-                _, url, err = result
+                # Handle both 3-tuple (old) and 4-tuple (new) formats
+                if len(result) == 4:
+                    _, url, err, _ = result
+                else:
+                    _, url, err = result
                 errors.append(f"Error processing {url}: {err}")
 
             # Update progress in Redis every 10 bookmarks or at the end
@@ -412,6 +583,7 @@ def bulk_import_bookmarks():
                     'skipped': skipped_count,
                     'updated': updated_count,
                     'errors': len(errors),
+                    'skip_reasons': skip_reasons.copy(),  # Include skip reason breakdown
                     'status': 'processing' if processed_count < total_count else 'completed'
                 }, ttl=3600)
 
@@ -452,6 +624,7 @@ def bulk_import_bookmarks():
             'skipped': skipped_count,
             'updated': updated_count,
             'errors': len(errors),
+            'skip_reasons': skip_reasons.copy(),  # Include skip reason breakdown
             'status': 'completed'
         }, ttl=3600)
 
@@ -462,6 +635,7 @@ def bulk_import_bookmarks():
             'skipped': skipped_count,
             'updated': updated_count,
             'errors': len(errors),
+            'skip_reasons': skip_reasons,  # Breakdown of why bookmarks were skipped
             'error_details': errors[:10] if errors else [],  # Limit error details to first 10
             'cache_used': cached_bookmarks is not None
         }), 200
@@ -499,9 +673,20 @@ def list_bookmarks():
             )
         )
     
-    # Add category filter
+    # Add category filter (only if category is provided and not 'all')
+    # Handle None/empty categories by treating them as 'other'
     if category and category != 'all':
-        query = query.filter(SavedContent.category == category)
+        # Filter by category, but also include bookmarks with None/empty category if filtering for 'other'
+        if category == 'other':
+            query = query.filter(
+                db.or_(
+                    SavedContent.category == category,
+                    SavedContent.category.is_(None),
+                    SavedContent.category == ''
+                )
+            )
+        else:
+            query = query.filter(SavedContent.category == category)
     
     # Order by saved date and paginate
     pagination = query.order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
@@ -641,8 +826,13 @@ def stream_import_progress():
     import json
     import time
     
-    # Get token from query param (EventSource doesn't support headers)
-    token = request.args.get('token')
+    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]  # Remove 'Bearer ' prefix
+    else:
+        token = request.args.get('token')
+    
     if not token:
         return Response('Token required', status=401, mimetype='text/plain')
     
@@ -737,8 +927,13 @@ def stream_analysis_progress():
     import json
     import time
     
-    # Get token from query param (EventSource doesn't support headers)
-    token = request.args.get('token')
+    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]  # Remove 'Bearer ' prefix
+    else:
+        token = request.args.get('token')
+    
     if not token:
         return Response('Token required', status=401, mimetype='text/plain')
     
@@ -945,40 +1140,52 @@ def extract_url_content():
         return jsonify({'message': 'URL is required'}), 400
     
     try:
-        # Extract content from URL
+        # Extract content from URL (scrape_url_enhanced now handles LinkedIn URLs automatically)
         scraped = scrape_url_enhanced(url)
         extracted_text = scraped.get('content', '')
         scraped_title = scraped.get('title', '')
         headings = scraped.get('headings', [])
         meta_description = scraped.get('meta_description', '')
+        quality_score = scraped.get('quality_score', 0)
         
-        # Try to get title from the page
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, "html.parser")
-            title = soup.find('title')
-            page_title = title.get_text().strip() if title else 'Untitled'
-        except Exception as e:
-            logger.warning(f"Error getting title: {e}")
-            page_title = 'Untitled'
+        # Use scraped title as primary, fallback to page title only if needed
+        page_title = scraped_title or 'Untitled'
+        
+        # For LinkedIn URLs, the LinkedIn scraper already provides good title
+        # For other URLs, try to get title from the page if scraped title is generic
+        if not scraped_title or scraped_title in ['Untitled', 'LinkedIn Post']:
+            try:
+                headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.text, "html.parser")
+                title = soup.find('title')
+                if title:
+                    page_title = title.get_text().strip() or scraped_title or 'Untitled'
+            except Exception as e:
+                logger.debug(f"Error getting page title: {e}")
+                # Use scraped title as fallback
+                page_title = scraped_title or 'Untitled'
         
         return jsonify({
             'title': page_title,
             'description': extracted_text[:1000],  # Limit preview content
             'url': url,
             'success': True,
+            'quality_score': quality_score,
             'scraped': {
                 'title': scraped_title,
                 'headings': headings,
-                'meta_description': meta_description
+                'meta_description': meta_description,
+                'content_length': len(extracted_text)
             }
         }), 200
         
     except Exception as e:
         logger.error(f"Error in extract_url_content: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         return jsonify({
             'title': 'Untitled',
             'description': '',
