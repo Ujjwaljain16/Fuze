@@ -237,7 +237,7 @@ export default function FuzeAuth() {
           submitRef.current = false;
         }
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred. Please try again.');
       setIsSubmitting(false);
       setLoading(false);

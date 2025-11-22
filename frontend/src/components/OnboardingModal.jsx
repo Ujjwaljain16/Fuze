@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
 import { X, Key, Download, CheckCircle, ArrowRight, ExternalLink, Sparkles, AlertCircle } from 'lucide-react'
-import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 
 const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
-  const { user } = useAuth()
   const [currentStep, setCurrentStep] = useState(1)
   const [hasApiKey, setHasApiKey] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -23,7 +21,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
     
     window.addEventListener('apiKeyAdded', handleApiKeyAdded)
     return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep])
 
   const checkApiKeyStatus = async () => {
     try {
@@ -67,6 +66,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
     if (currentStep === 1) {
       checkApiKeyStatus()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep])
 
   if (loading) {

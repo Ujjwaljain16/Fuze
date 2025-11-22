@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { LogOut } from 'lucide-react'
 import './navbar-styles.css'
 
-const Navbar = ({ onMenuClick }) => {
+const Navbar = () => {
   const { isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
 

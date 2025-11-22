@@ -27,7 +27,7 @@ const ProjectDetail = () => {
   const { id } = useParams()
   const { isAuthenticated, logout } = useAuth()
   const { success, error } = useToast()
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const [mousePos] = useState({ x: 0, y: 0 })
   const [project, setProject] = useState(null)
   const [projectBookmarks, setProjectBookmarks] = useState([])
   const [tasks, setTasks] = useState([])
@@ -37,7 +37,6 @@ const ProjectDetail = () => {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [skillLevel, setSkillLevel] = useState('intermediate')
   const [expandedTasks, setExpandedTasks] = useState(new Set())
-  const [editingSubtask, setEditingSubtask] = useState(null)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
   const [newSubtaskDescription, setNewSubtaskDescription] = useState('')
   const [addingSubtaskTo, setAddingSubtaskTo] = useState(null)
@@ -55,6 +54,7 @@ const ProjectDetail = () => {
       fetchProjectData()
       fetchTasks()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, id])
 
   const fetchProjectData = async () => {
@@ -613,7 +613,7 @@ const ProjectDetail = () => {
                   taskDetails = typeof task.description === 'string' 
                     ? JSON.parse(task.description) 
                     : task.description
-                } catch (e) {
+                } catch {
                   taskDetails = { description: task.description }
                 }
 

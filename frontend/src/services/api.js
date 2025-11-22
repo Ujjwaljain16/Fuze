@@ -103,7 +103,7 @@ api.interceptors.response.use(
         localStorage.setItem('token', newToken)
         originalRequest.headers['Authorization'] = `Bearer ${newToken}`
         return api(originalRequest)
-      } catch (refreshError) {
+      } catch {
         localStorage.removeItem('token')
         window.location.href = '/login'
       }
@@ -306,7 +306,7 @@ export const retryRequest = async (requestFn, maxRetries = 3, delay = 1000) => {
 // Enhanced error display hook - Note: This is a utility function, not a React hook
 // Components should import and use this pattern: const { error } = useToast(); const { handleError } = useErrorHandler();
 export const createErrorHandler = (toastFunctions) => {
-  const { error: showErrorToast, warning, info, success } = toastFunctions;
+  const { error: showErrorToast, success: showSuccessToast } = toastFunctions;
 
   const handleError = (error, context = '', showToast = true) => {
     const errorInfo = handleApiError(error, context);
@@ -330,7 +330,11 @@ export const createErrorHandler = (toastFunctions) => {
   };
 
   const handleSuccess = (message) => {
-    success(message);
+    if (showSuccessToast) {
+      showSuccessToast(message);
+    } else if (import.meta.env.DEV) {
+      console.log('Success:', message);
+    }
   };
 
   return {

@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { 
   Bookmark, 
   FolderOpen, 
@@ -37,6 +37,8 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
     return location.pathname === item.href
   }
 
+  const [isAnimating, setIsAnimating] = useState(false)
+
   if (!isAuthenticated) return null
 
   // Clean class name construction with proper state management
@@ -47,8 +49,6 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
 
   // Debug logging
   console.log('Sidebar state:', { isMobile, isOpen, collapsed, sidebarClasses });
-
-  const [isAnimating, setIsAnimating] = useState(false)
 
   const handleToggle = () => {
     setIsAnimating(true)

@@ -69,7 +69,7 @@ function AppContent() {
           const shouldShow = explicitRequest || (!hasApiKey && notCompleted);
           
           setShowOnboarding(shouldShow);
-        } catch (error) {
+        } catch {
           // If API check fails, fall back to explicit flag
           const shouldShow = localStorage.getItem('show_onboarding') === 'true' && 
                             localStorage.getItem('onboarding_completed') !== 'true';
@@ -155,7 +155,7 @@ function AppContent() {
       // Force layout recalculation
       document.body.offsetHeight;
     }
-  }, []); // Empty dependency array - runs only on mount
+  }, [isMobile]); // Include isMobile dependency
 
   if (loading) {
     return <Loader fullScreen={true} message="Loading Fuze..." size="large" variant="full" />;

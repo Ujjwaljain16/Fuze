@@ -15,7 +15,7 @@ import logo1 from '../assets/logo1.svg'
 const Dashboard = () => {
   const { isAuthenticated, user, logout } = useAuth()
   const navigate = useNavigate()
-  const { handleError, handleSuccess } = useErrorHandler()
+  const { handleError } = useErrorHandler()
   
   // Debug user data
   console.log('Dashboard user data:', user)
@@ -56,6 +56,7 @@ const Dashboard = () => {
     if (isAuthenticated) {
       fetchDashboardData()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
   // Use Server-Sent Events for progress updates instead of polling

@@ -11,7 +11,6 @@ import { ToastProvider } from '../../contexts/ToastContext'
  */
 export const renderWithProviders = (ui, options = {}) => {
   const {
-    initialAuthState = { user: null, token: null },
     ...renderOptions
   } = options
 

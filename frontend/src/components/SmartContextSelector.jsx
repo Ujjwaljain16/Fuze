@@ -121,7 +121,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
           fetchedSuggestedContexts = suggestedRes.data.contexts || []
           setSuggestedContexts(fetchedSuggestedContexts)
         }
-      } catch (err) {
+      } catch {
         console.log('Suggested contexts not available, using fallback')
       }
 

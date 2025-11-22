@@ -18,7 +18,7 @@ const categoryOptions = [
 ]
 
 const Bookmarks = () => {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
   const [bookmarks, setBookmarks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +61,7 @@ const Bookmarks = () => {
     if (isAuthenticated) {
       fetchBookmarks()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, page, debouncedSearchTerm, filter])
 
   const fetchBookmarks = async () => {
@@ -127,7 +128,7 @@ const Bookmarks = () => {
       if (response.data.source === 'fallback') {
         setSemanticError(`⚠️ ${response.data.message || 'Using fallback search mode'}`)
       }
-    } catch (error) {
+    } catch {
       setSemanticError('Semantic search failed. Try again.')
       setSemanticResults([])
     } finally {
@@ -275,7 +276,7 @@ const Bookmarks = () => {
               <button
                 onClick={() => {
                   logout()
-                  window.location.href = '/login'
+                  navigate('/login')
                 }}
                 className="flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
                 style={{

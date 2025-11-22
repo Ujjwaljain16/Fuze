@@ -23,21 +23,7 @@ const Recommendations = () => {
   const [showContextSelector, setShowContextSelector] = useState(false)
   const [selectedContext, setSelectedContext] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
-  const [selectedEngine, setSelectedEngine] = useState('unified')
   const [error, setError] = useState(null)
-  
-  // Engine configurations - only unified engine
-  const engines = [
-    {
-      id: 'unified',
-      name: 'Swift Match',
-      description: 'Fast & Reliable',
-      color: 'from-blue-500 via-cyan-500 to-blue-600',
-      hoverColor: 'from-blue-400 via-cyan-400 to-blue-500',
-      glowColor: 'shadow-blue-500/50',
-      icon: Zap
-    }
-  ]
 
   // Mouse tracking for animated background
   useEffect(() => {

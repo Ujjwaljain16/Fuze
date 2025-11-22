@@ -1,0 +1,51 @@
+name: CSS Linting
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'frontend/**/*.css'
+      - '.github/workflows/css-lint.yml'
+      - 'frontend/package.json'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'frontend/**/*.css'
+      - '.github/workflows/css-lint.yml'
+      - 'frontend/package.json'
+  workflow_dispatch:
+
+jobs:
+  lint-css:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      
+      - name: Run Stylelint
+        working-directory: frontend
+        run: npm run lint:css
+      
+      - name: Validate Tailwind CSS config
+        working-directory: frontend
+        run: |
+          # Ensure Tailwind config is valid
+          node -e "require('./tailwind.config.js')"
+      
+      - name: Build check (PostCSS validation)
+        working-directory: frontend
+        run: npm run build
+

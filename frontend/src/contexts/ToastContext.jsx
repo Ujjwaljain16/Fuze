@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, AlertCircle, X } from 'lucide-react'
 
 const ToastContext = createContext()
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useToast = () => {
   const context = useContext(ToastContext)
   if (!context) {
@@ -13,6 +14,10 @@ export const useToast = () => {
 
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([])
+
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }, [])
 
   const addToast = useCallback(({ type = 'info', message, duration = 5000 }) => {
     const id = Date.now()
@@ -25,11 +30,7 @@ export const ToastProvider = ({ children }) => {
         removeToast(id)
       }, duration)
     }
-  }, [])
-
-  const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id))
-  }, [])
+  }, [removeToast])
 
   const success = useCallback((message, duration) => {
     addToast({ type: 'success', message, duration })

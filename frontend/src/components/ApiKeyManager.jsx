@@ -19,6 +19,7 @@ const ApiKeyManager = () => {
 
   useEffect(() => {
     loadStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadStatus = async () => {
