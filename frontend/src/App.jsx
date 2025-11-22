@@ -10,6 +10,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import Recommendations from './pages/Recommendations';
 import Bookmarks from './pages/Bookmarks';
 import SaveContent from './pages/SaveContent';
+import ShareHandler from './pages/ShareHandler';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -50,9 +51,9 @@ function AppContent() {
     if (isAuthenticated && !loading) {
       const checkAndShowOnboarding = async () => {
         try {
-          // Check if user has API key
+          // Check if user has API key (non-critical, use shorter timeout)
           const api = (await import('./services/api')).default;
-          const response = await api.get('/api/user/api-key/status');
+          const response = await api.get('/api/user/api-key/status', { timeout: 10000 });
           const hasApiKey = response.data?.has_api_key || false;
           
           // Show onboarding if:
@@ -247,6 +248,10 @@ function AppContent() {
                   <SaveContent />
                 </ProtectedRoute>
               } 
+            />
+            <Route 
+              path="/share" 
+              element={<ShareHandler />} 
             />
 
             <Route path="*" element={<Navigate to="/" />} />

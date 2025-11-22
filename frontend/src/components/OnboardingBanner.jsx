@@ -32,7 +32,8 @@ const OnboardingBanner = () => {
 
   const checkSetupStatus = async () => {
     try {
-      const response = await api.get('/api/user/api-key/status')
+      // Use shorter timeout for non-critical status check
+      const response = await api.get('/api/user/api-key/status', { timeout: 10000 })
       setHasApiKey(response.data?.has_api_key || false)
       
       // Check if extension is installed (this would need to be implemented)
@@ -40,7 +41,9 @@ const OnboardingBanner = () => {
       const extensionInstalled = localStorage.getItem('extension_installed') === 'true'
       setHasExtension(extensionInstalled)
     } catch (error) {
-      console.error('Error checking setup status:', error)
+      // Silently fail - this is a non-critical check
+      console.warn('Error checking setup status (non-critical):', error.message)
+      setHasApiKey(false) // Default to false on error
     } finally {
       setLoading(false)
     }

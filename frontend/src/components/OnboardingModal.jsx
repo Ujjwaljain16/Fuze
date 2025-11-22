@@ -26,7 +26,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
 
   const checkApiKeyStatus = async () => {
     try {
-      const response = await api.get('/api/user/api-key/status')
+      // Use shorter timeout for non-critical status check
+      const response = await api.get('/api/user/api-key/status', { timeout: 10000 })
       if (response.data?.has_api_key) {
         setHasApiKey(true)
         // Skip to extension step if API key is already set
@@ -35,7 +36,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
         }
       }
     } catch (error) {
-      console.error('Error checking API key status:', error)
+      // Silently fail - this is a non-critical check
+      console.warn('Error checking API key status (non-critical):', error.message)
     } finally {
       setLoading(false)
     }

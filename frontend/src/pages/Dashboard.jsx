@@ -153,14 +153,74 @@ const Dashboard = () => {
   }, [isAuthenticated, user?.id])
 
   const fetchDashboardData = async () => {
+    // Use AbortController to cancel requests if component unmounts
+    const abortController = new AbortController()
+    
     try {
-      // TEMPORARY: Direct API calls to debug timeout issues
-      // Removed optimization layer to test if it's causing problems
-      const [bookmarksRes, projectsRes, statsRes] = await Promise.all([
-        api.get('/api/bookmarks?per_page=5'),
-        api.get('/api/projects'),
-        api.get('/api/bookmarks/dashboard/stats')
+      // Use Promise.allSettled to handle partial failures gracefully
+      // This prevents one slow request from blocking others
+      const results = await Promise.allSettled([
+        api.get('/api/bookmarks?per_page=5', { 
+          signal: abortController.signal,
+          timeout: 45000 // 45 seconds for slow network
+        }),
+        api.get('/api/projects', { 
+          signal: abortController.signal,
+          timeout: 45000
+        }),
+        api.get('/api/bookmarks/dashboard/stats', { 
+          signal: abortController.signal,
+          timeout: 45000
+        })
       ])
+      
+      // Handle each result independently
+      const [bookmarksResult, projectsResult, statsResult] = results
+      
+      // Process bookmarks
+      if (bookmarksResult.status === 'fulfilled') {
+        const bookmarksRes = bookmarksResult.value
+        setRecentBookmarks(bookmarksRes.data.bookmarks || [])
+        setStats(prev => ({
+          ...prev,
+          bookmarks: bookmarksRes.data.total || 0
+        }))
+      } else {
+        console.error('Failed to fetch bookmarks:', bookmarksResult.reason)
+        handleError(bookmarksResult.reason, 'bookmarks')
+      }
+      
+      // Process projects
+      if (projectsResult.status === 'fulfilled') {
+        const projectsRes = projectsResult.value
+        setRecentProjects(projectsRes.data.projects?.slice(0, 3) || [])
+        setStats(prev => ({
+          ...prev,
+          projects: projectsRes.data.projects?.length || 0
+        }))
+      } else {
+        console.error('Failed to fetch projects:', projectsResult.reason)
+        handleError(projectsResult.reason, 'projects')
+      }
+      
+      // Process stats
+      if (statsResult.status === 'fulfilled') {
+        const statsRes = statsResult.value
+        if (statsRes.data) {
+          setDashboardStats({
+            total_bookmarks: statsRes.data.total_bookmarks || { value: 0, change: '0%', change_value: 0 },
+            active_projects: statsRes.data.active_projects || { value: 0, change: '0', change_value: 0 },
+            weekly_saves: statsRes.data.weekly_saves || { value: 0, change: '0%', change_value: 0 },
+            success_rate: statsRes.data.success_rate || { value: 0, change: '0%', change_value: 0 }
+          })
+        }
+      } else {
+        console.error('Failed to fetch stats:', statsResult.reason)
+        handleError(statsResult.reason, 'dashboard stats')
+      }
+      
+      // Set loading to false after processing all results
+      setLoading(false)
 
       setRecentBookmarks(bookmarksRes.data.bookmarks || [])
       setRecentProjects(projectsRes.data.projects?.slice(0, 3) || [])

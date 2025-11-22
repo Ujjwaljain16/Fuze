@@ -24,7 +24,8 @@ const ApiKeyManager = () => {
 
   const loadStatus = async () => {
     try {
-      const response = await api.get('/api/user/api-key/status')
+      // Use shorter timeout for status check
+      const response = await api.get('/api/user/api-key/status', { timeout: 10000 })
       if (response.data) {
         setStatus(response.data)
         if (response.data.has_api_key) {
