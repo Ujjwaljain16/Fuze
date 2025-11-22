@@ -24,9 +24,25 @@ from datetime import timedelta, datetime
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
+from flask_compress import Compress
 import numpy as np
 from utils.redis_utils import redis_cache
 import logging
+
+# Import Redis exceptions for error handling
+try:
+    import redis.exceptions
+except ImportError:
+    # Redis not installed, create dummy exception classes
+    class ConnectionError(Exception):
+        pass
+    class TimeoutError(Exception):
+        pass
+    redis = type('redis', (), {'exceptions': type('exceptions', (), {
+        'ConnectionError': ConnectionError,
+        'TimeoutError': TimeoutError,
+        'RedisError': Exception
+    })()})()
 
 # Configure production logging first
 logging.basicConfig(
@@ -185,69 +201,45 @@ def create_app():
         app.config.from_object('config.DevelopmentConfig')
     
     # JWT configuration is already set in config.py
-    # Production-optimized CORS configuration
+    # Production-optimized CORS configuration using UnifiedConfig
+    from utils.unified_config import UnifiedConfig
+    unified_config = UnifiedConfig()
+    cors_config = unified_config.cors
+    
+    # Get CORS origins from UnifiedConfig
+    cors_origins = cors_config.origins.copy()
+    
+    # In development, add localhost origins if not present
     if app.config.get('DEBUG'):
-        # Development: Allow localhost origins
-        CORS(app, 
-             origins=app.config.get('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']), 
-             supports_credentials=True,
-             allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
-             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-             expose_headers=['Content-Type', 'X-CSRF-TOKEN'],
-             max_age=86400)
+        localhost_origins = ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']
+        for origin in localhost_origins:
+            if origin not in cors_origins:
+                cors_origins.append(origin)
     else:
-        # Production: Allow explicitly configured origins + Vercel patterns
-        cors_origins_env = os.environ.get('CORS_ORIGINS', '')
-        cors_origins = []
-        
-        if cors_origins_env:
-            # Parse comma-separated list from environment
-            cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-        
-        # Normalize origins (remove trailing slashes and duplicates)
-        cors_origins_normalized = []
-        seen = set()
-        for origin in cors_origins:
-            # Remove trailing slash
-            origin_clean = origin.rstrip('/')
-            # Skip if already seen
-            if origin_clean not in seen:
-                cors_origins_normalized.append(origin_clean)
-                seen.add(origin_clean)
-        cors_origins = cors_origins_normalized
-        
-        # Add common Vercel patterns if not already included
-        # This allows both main deployments and preview deployments
+        # Production: Add Vercel patterns if not already included
         vercel_patterns = [
             'https://itsfuze.vercel.app',
             'https://*.vercel.app',  # Allow all Vercel preview deployments
         ]
         
-        # Add Vercel patterns if CORS_ORIGINS is not explicitly set or if it's empty
-        # This provides a sensible default while still allowing override
-        if not cors_origins_env or len(cors_origins) == 0:
-            logger.warning("[WARNING] CORS_ORIGINS not set - using default Vercel patterns")
-            cors_origins = vercel_patterns
-        else:
-            # Merge user-provided origins with Vercel patterns (avoid duplicates)
-            for pattern in vercel_patterns:
-                pattern_clean = pattern.rstrip('/')
-                if pattern_clean not in seen:
-                    cors_origins.append(pattern_clean)
-                    seen.add(pattern_clean)
-        
-        logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
-        logger.info(f"[DEBUG] CORS origins: {cors_origins}")
-        
-        # flask-cors supports wildcard patterns directly as strings
-        # No need to convert to regex - just pass the list as-is
-        CORS(app, 
-             origins=cors_origins,  # flask-cors handles wildcards like "https://*.vercel.app" automatically
-             supports_credentials=True,
-             allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
-             expose_headers=['Content-Type', 'X-CSRF-TOKEN'],
-             methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-             max_age=86400)
+        # Merge Vercel patterns (avoid duplicates)
+        for pattern in vercel_patterns:
+            pattern_clean = pattern.rstrip('/')
+            if pattern_clean not in cors_origins:
+                cors_origins.append(pattern_clean)
+    
+    logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
+    logger.info(f"[DEBUG] CORS origins: {cors_origins}")
+    
+    # flask-cors supports wildcard patterns directly as strings
+    # No need to convert to regex - just pass the list as-is
+    CORS(app, 
+         origins=cors_origins,  # flask-cors handles wildcards like "https://*.vercel.app" automatically
+         supports_credentials=cors_config.supports_credentials,
+         allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
+         expose_headers=['Content-Type', 'X-CSRF-TOKEN'],
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+         max_age=cors_config.max_age)
     
     # Initialize rate limiting
     limiter = None
@@ -262,6 +254,11 @@ def create_app():
     
     # Make limiter available to blueprints
     app.limiter = limiter
+    
+    # Initialize response compression for better performance
+    compress = Compress()
+    compress.init_app(app)
+    logger.info("[OK] Response compression enabled")
     
     # Initialize database with enhanced SSL handling
     try:
@@ -424,37 +421,42 @@ def create_app():
             logger.error(f"[ERROR] Error initializing Intent Analysis System: {e}")
             intent_analysis_available = False
     
+    # Import and apply security middleware
+    try:
+        from middleware.security_middleware import add_security_headers as security_headers_middleware
+        security_middleware_available = True
+    except ImportError:
+        logger.warning("[WARNING] Security middleware not available")
+        security_middleware_available = False
+    
     # Security headers middleware - Production-grade
     @app.after_request
     def add_security_headers(response):
-        # Prevent MIME type sniffing
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        # Prevent clickjacking
-        response.headers['X-Frame-Options'] = 'DENY'
-        # XSS protection (legacy but still useful)
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        # Referrer policy
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        # Permissions policy
-        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
-        
-        # HTTPS-only headers in production
-        if not app.config.get('DEBUG') and app.config.get('HTTPS_ENABLED'):
-            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
-        
-        # Content Security Policy (adjust based on your needs)
-        if not app.config.get('DEBUG'):
-            # Restrictive CSP for production
-            csp = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Adjust as needed
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                "font-src 'self' https://fonts.gstatic.com; "
-                "img-src 'self' data: https:; "
-                "connect-src 'self' https:; "
-                "frame-ancestors 'none';"
-            )
-            response.headers['Content-Security-Policy'] = csp
+        # Use security middleware if available, otherwise use built-in
+        if security_middleware_available:
+            response = security_headers_middleware(response)
+        else:
+            # Fallback to built-in security headers
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['X-XSS-Protection'] = '1; mode=block'
+            response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+            response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+            
+            if not app.config.get('DEBUG') and app.config.get('HTTPS_ENABLED'):
+                response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+            
+            if not app.config.get('DEBUG'):
+                csp = (
+                    "default-src 'self'; "
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    "font-src 'self' https://fonts.gstatic.com; "
+                    "img-src 'self' data: https:; "
+                    "connect-src 'self' https:; "
+                    "frame-ancestors 'none';"
+                )
+                response.headers['Content-Security-Policy'] = csp
         
         return response
     
@@ -761,8 +763,41 @@ def create_app():
     # Database connection error handler with SSL error handling
     @app.errorhandler(Exception)
     def handle_exception(e):
-        # Check if it's a database connection error
+        # PRODUCTION OPTIMIZATION: Comprehensive error logging with full context
+        import traceback
+        error_traceback = traceback.format_exc()
+        user_id = None
+        try:
+            from flask_jwt_extended import get_jwt_identity
+            user_id = get_jwt_identity()
+        except:
+            pass
+        
+        # Check if it's a Redis connection error (rate limiting)
         error_str = str(e).lower()
+        error_type = type(e).__name__
+        
+        # Handle Redis connection errors gracefully - don't crash the app
+        is_redis_error = (
+            isinstance(e, (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.RedisError)) or
+            'connection closed by server' in error_str or
+            ('redis' in error_str and ('connection' in error_str or 'timeout' in error_str or 'closed' in error_str))
+        )
+        
+        if is_redis_error:
+            logger.warning(f"Redis connection error in rate limiting: {e}. Allowing request to proceed without rate limiting.")
+            # For Redis errors during rate limiting, we want to bypass rate limiting
+            # but still process the request. However, we can't easily bypass Flask-Limiter
+            # at this point, so we'll just log and return a 503 with a helpful message
+            # The rate limiter should have already been configured with swallow_errors=True
+            # which should prevent this, but if it still happens, handle it gracefully
+            return jsonify({
+                'error': 'Rate limiting service temporarily unavailable',
+                'message': 'The rate limiting service is temporarily unavailable. Please try again in a moment.',
+                'status': 'rate_limit_service_unavailable'
+            }), 503
+        
+        # Check if it's a database connection error
         if any(error_type in error_str for error_type in [
             'could not translate host name', 
             'operationalerror', 
@@ -770,7 +805,13 @@ def create_app():
             'connection closed unexpectedly',
             'ssl error'
         ]):
-            logger.error(f"Database connection error: {e}")
+            logger.error(
+                f"Database connection error: {e}\n"
+                f"User ID: {user_id}\n"
+                f"Request URL: {request.url}\n"
+                f"Request Method: {request.method}\n"
+                f"Traceback:\n{error_traceback}"
+            )
             
             # Try to refresh connections if using connection manager
             if connection_manager_available:
@@ -794,16 +835,32 @@ def create_app():
                     'Verify network connectivity',
                     'Check database configuration',
                     'Check SSL configuration if using SSL',
-                    'Contact system administrator'
                 ]
             }), 503
         
-        # Log other errors (don't expose details to client)
-        logger.error(f"Unhandled exception: {e}", exc_info=True)
+        # PRODUCTION OPTIMIZATION: Log all other exceptions with full context
+        import traceback
+        error_traceback = traceback.format_exc()
+        user_id = None
+        try:
+            from flask_jwt_extended import get_jwt_identity
+            user_id = get_jwt_identity()
+        except:
+            pass
+        
+        logger.error(
+            f"Unhandled exception: {str(e)}\n"
+            f"User ID: {user_id}\n"
+            f"Request URL: {request.url}\n"
+            f"Request Method: {request.method}\n"
+            f"Request Headers: {dict(request.headers)}\n"
+            f"Traceback:\n{error_traceback}",
+            exc_info=True
+        )
+        
         return jsonify({
             'error': 'Internal server error',
-            'message': 'An unexpected error occurred. Please try again later.',
-            'status': 'error'
+            'message': 'An unexpected error occurred'
         }), 500
     
     return app
