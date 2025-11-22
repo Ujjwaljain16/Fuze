@@ -59,9 +59,10 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  // Use Server-Sent Events for progress updates - prevent reconnection when idle
+  // Use Server-Sent Events for progress updates - LAZY INITIALIZATION
+  // Only open SSE streams AFTER dashboard data has loaded to avoid blocking
   useEffect(() => {
-    if (!isAuthenticated || !user?.id) return
+    if (!isAuthenticated || !user?.id || loading) return // Wait for dashboard to load first
 
     const token = localStorage.getItem('token')
     if (!token) return
@@ -188,7 +189,7 @@ const Dashboard = () => {
       if (importEventSource) importEventSource.close()
       if (analysisEventSource) analysisEventSource.close()
     }
-  }, [isAuthenticated, user?.id])
+  }, [isAuthenticated, user?.id, loading]) // Also depend on loading to delay until dashboard loads
 
   const fetchDashboardData = async () => {
     // Use AbortController to cancel requests if component unmounts
