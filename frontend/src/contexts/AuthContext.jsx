@@ -52,7 +52,8 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = async (isInitialLoad = false) => {
     try {
-      const response = await api.get('/api/profile')
+      // Use longer timeout for profile fetch (critical endpoint)
+      const response = await api.get('/api/profile', { timeout: 90000 })
       setUser(response.data)
       userRef.current = response.data
       return true

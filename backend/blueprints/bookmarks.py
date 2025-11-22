@@ -847,8 +847,24 @@ def stream_import_progress():
     
     def generate():
         last_status = None
+        start_time = time.time()
+        max_connection_time = 1800  # 30 minutes maximum connection time
+        heartbeat_interval = 30  # Send heartbeat every 30 seconds
+        last_heartbeat = time.time()
+        
         while True:
             try:
+                # Check if connection has been open too long
+                elapsed = time.time() - start_time
+                if elapsed > max_connection_time:
+                    yield f"data: {json.dumps({'status': 'timeout', 'message': 'Connection timeout - please refresh'})}\n\n"
+                    break
+                
+                # Send heartbeat to keep connection alive
+                if time.time() - last_heartbeat > heartbeat_interval:
+                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    last_heartbeat = time.time()
+                
                 progress = redis_cache.get(import_key)
                 
                 if not progress:

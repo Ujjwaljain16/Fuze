@@ -34,7 +34,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Important for cookies and CSRF
-  timeout: 30000, // 30 second timeout for all requests
+  timeout: 60000, // 60 second timeout for all requests (increased for slower connections)
 })
 
 // CSRF token management - optimized for performance
