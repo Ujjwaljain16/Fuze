@@ -90,6 +90,9 @@ class TestBookmarks:
             deleted = SavedContent.query.filter_by(user_id=test_user['id']).delete(synchronize_session=False)
             db.session.commit()
             
+            # Flush to ensure cleanup is complete
+            db.session.flush()
+            
             # Create 15 bookmarks with unique URLs to avoid conflicts
             import uuid
             base_uuid = str(uuid.uuid4())[:8]
@@ -103,7 +106,12 @@ class TestBookmarks:
                 )
                 bookmarks.append(bookmark)
                 db.session.add(bookmark)
+            # Flush before commit to ensure objects are persisted
+            db.session.flush()
             db.session.commit()
+            
+            # Refresh the session to ensure we see the committed data
+            db.session.expire_all()
             
             # Verify all 15 were created
             count = SavedContent.query.filter_by(user_id=test_user['id']).count()
@@ -118,9 +126,22 @@ class TestBookmarks:
             assert existing == 15, f"Expected 15 of our bookmarks to exist, found {existing}"
         
         # First page - verify we get exactly 10
+        # Use a fresh request to ensure we're not hitting any caching
         response = client.get('/api/bookmarks?page=1&per_page=10', headers=auth_headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json}"
         data = response.json
+        
+        # Debug: If we don't get 15, check what we actually have
+        if data.get('total', 0) != 15:
+            with app.app_context():
+                all_bookmarks = SavedContent.query.filter_by(user_id=test_user['id']).all()
+                actual_count = len(all_bookmarks)
+                actual_ids = [b.id for b in all_bookmarks]
+                raise AssertionError(
+                    f"Expected 15 bookmarks total, got {data.get('total', 0)}. "
+                    f"Database has {actual_count} bookmarks for user {test_user['id']} with IDs: {actual_ids}"
+                )
+        
         assert len(data['bookmarks']) == 10, f"Expected 10 bookmarks on first page, got {len(data['bookmarks'])}. Total: {data.get('total', 'unknown')}"
         assert data['total'] == 15, f"Expected total of 15, got {data['total']}"
         

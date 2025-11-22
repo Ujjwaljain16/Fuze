@@ -39,21 +39,29 @@ class TestBackgroundAnalysisService:
             content_id = content.id
             user_id = user.id
             
-            # Clean up any other unanalyzed content for this user to ensure our content is returned
+            # Clean up ALL other unanalyzed content from ALL users to ensure our content is returned
+            # The service groups by user and returns first user's content, so we need to clean all
             # This ensures the test is isolated from other test data
-            other_content = SavedContent.query.filter(
-                SavedContent.user_id == user_id,
+            all_other_content = SavedContent.query.filter(
                 SavedContent.id != content_id,
                 SavedContent.extracted_text.isnot(None),
                 SavedContent.extracted_text != ''
             ).all()
-            for oc in other_content:
+            for oc in all_other_content:
                 db.session.delete(oc)
             db.session.commit()
             
+            # Verify only our content exists
+            remaining = SavedContent.query.filter(
+                SavedContent.extracted_text.isnot(None),
+                SavedContent.extracted_text != ''
+            ).all()
+            assert len(remaining) == 1, f"Expected 1 unanalyzed content after cleanup, found {len(remaining)}"
+            assert remaining[0].id == content_id, f"Expected content ID {content_id}, found {remaining[0].id}"
+            
             service = BackgroundAnalysisService()
             # _get_unanalyzed_content() groups by user and returns first user's content
-            # Since we cleaned up other content, our content should be returned
+            # Since we cleaned up all other content, our content should be returned
             unanalyzed = service._get_unanalyzed_content()
             
             assert len(unanalyzed) >= 1, f"Expected at least 1 unanalyzed content, got {len(unanalyzed)}"
