@@ -912,14 +912,25 @@ def stream_import_progress():
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
                 time.sleep(2)  # Wait longer before retrying after error
     
+    # SSE headers - optimized for Hugging Face Spaces and other reverse proxies
+    import os
+    headers = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',  # Nginx
+        'Transfer-Encoding': 'chunked',  # Ensure chunked encoding
+    }
+    
+    # Additional headers for Hugging Face Spaces to prevent buffering
+    if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
+        headers['X-Content-Type-Options'] = 'nosniff'
+        headers['X-No-Buffering'] = '1'
+    
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
+        headers=headers
     )
 
 @bookmarks_bp.route('/analysis/progress', methods=['GET'])
@@ -1073,14 +1084,25 @@ def stream_analysis_progress():
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
                 time.sleep(3)  # Wait longer before retrying after error
     
+    # SSE headers - optimized for Hugging Face Spaces and other reverse proxies
+    import os
+    headers = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',  # Nginx
+        'Transfer-Encoding': 'chunked',  # Ensure chunked encoding
+    }
+    
+    # Additional headers for Hugging Face Spaces to prevent buffering
+    if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
+        headers['X-Content-Type-Options'] = 'nosniff'
+        headers['X-No-Buffering'] = '1'
+    
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',
-            'Connection': 'keep-alive'
-        }
+        headers=headers
     )
 
 @bookmarks_bp.route('/dashboard/stats', methods=['GET'])
