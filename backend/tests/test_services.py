@@ -35,18 +35,32 @@ class TestBackgroundAnalysisService:
             db.session.add(content)
             db.session.commit()
             
-            # Store content ID before calling service (to avoid DetachedInstanceError)
+            # Store content ID and user ID before calling service (to avoid DetachedInstanceError)
             content_id = content.id
+            user_id = user.id
+            
+            # Clean up any other unanalyzed content for this user to ensure our content is returned
+            # This ensures the test is isolated from other test data
+            other_content = SavedContent.query.filter(
+                SavedContent.user_id == user_id,
+                SavedContent.id != content_id,
+                SavedContent.extracted_text.isnot(None),
+                SavedContent.extracted_text != ''
+            ).all()
+            for oc in other_content:
+                db.session.delete(oc)
+            db.session.commit()
             
             service = BackgroundAnalysisService()
-            # _get_unanalyzed_content() doesn't take parameters - it gets all unanalyzed content
+            # _get_unanalyzed_content() groups by user and returns first user's content
+            # Since we cleaned up other content, our content should be returned
             unanalyzed = service._get_unanalyzed_content()
             
-            assert len(unanalyzed) >= 1
-            # Check if our content is in the results (may be filtered by user grouping)
+            assert len(unanalyzed) >= 1, f"Expected at least 1 unanalyzed content, got {len(unanalyzed)}"
+            # Check if our content is in the results
             # Access id while still in app context to avoid DetachedInstanceError
             content_ids = [c.id for c in unanalyzed]
-            assert content_id in content_ids
+            assert content_id in content_ids, f"Content ID {content_id} not found in {content_ids}"
     
     @patch('services.background_analysis_service.get_app')
     def test_process_content_analysis(self, mock_get_app, app):

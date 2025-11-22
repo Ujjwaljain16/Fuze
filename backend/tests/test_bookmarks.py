@@ -86,29 +86,42 @@ class TestBookmarks:
         
         with app.app_context():
             # Clean up any existing bookmarks for this user first
-            SavedContent.query.filter_by(user_id=test_user['id']).delete()
+            # Use delete() with synchronize_session=False for better performance
+            deleted = SavedContent.query.filter_by(user_id=test_user['id']).delete(synchronize_session=False)
             db.session.commit()
             
-            # Create 15 bookmarks
+            # Create 15 bookmarks with unique URLs to avoid conflicts
+            import uuid
+            base_uuid = str(uuid.uuid4())[:8]
+            bookmarks = []
             for i in range(15):
                 bookmark = SavedContent(
                     user_id=test_user['id'],
-                    url=f'https://example.com/{i}',
+                    url=f'https://example.com/{base_uuid}/{i}',
                     title=f'Bookmark {i}',
                     extracted_text='Content'
                 )
+                bookmarks.append(bookmark)
                 db.session.add(bookmark)
             db.session.commit()
             
             # Verify all 15 were created
             count = SavedContent.query.filter_by(user_id=test_user['id']).count()
-            assert count == 15, f"Expected 15 bookmarks, but found {count}"
+            assert count == 15, f"Expected 15 bookmarks, but found {count}. Deleted {deleted} existing bookmarks."
+            
+            # Verify the bookmarks we just created exist
+            created_ids = [b.id for b in bookmarks]
+            existing = SavedContent.query.filter(
+                SavedContent.user_id == test_user['id'],
+                SavedContent.id.in_(created_ids)
+            ).count()
+            assert existing == 15, f"Expected 15 of our bookmarks to exist, found {existing}"
         
-        # First page
+        # First page - verify we get exactly 10
         response = client.get('/api/bookmarks?page=1&per_page=10', headers=auth_headers)
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json}"
         data = response.json
-        assert len(data['bookmarks']) == 10, f"Expected 10 bookmarks on first page, got {len(data['bookmarks'])}"
+        assert len(data['bookmarks']) == 10, f"Expected 10 bookmarks on first page, got {len(data['bookmarks'])}. Total: {data.get('total', 'unknown')}"
         assert data['total'] == 15, f"Expected total of 15, got {data['total']}"
         
         # Second page
