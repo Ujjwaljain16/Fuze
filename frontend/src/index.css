@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 
+/* stylelint-disable-next-line unknownAtRules */
 @theme {
   --color-primary-50: #eff6ff;
   --color-primary-100: #dbeafe;

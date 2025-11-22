@@ -98,10 +98,7 @@ html, body {
 }
 
 /* Top bar styling for logo and logout */
-.fuze-logo-btn,
-.logout-btn {
-  /* Positioned within flex container, no absolute positioning needed */
-}
+/* Note: .fuze-logo-btn and .logout-btn are positioned within flex container, no absolute positioning needed */
 
 /* Dashboard specific styles */
 .dashboard-content {
