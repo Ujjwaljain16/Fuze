@@ -124,9 +124,18 @@ class TestBookmarks:
                 SavedContent.id.in_(created_ids)
             ).count()
             assert existing == 15, f"Expected 15 of our bookmarks to exist, found {existing}"
+            
+            # Clear Redis cache for this user's bookmarks to ensure fresh data
+            from utils.redis_utils import redis_cache
+            try:
+                # Invalidate all bookmark caches for this user
+                redis_cache.invalidate_query_cache(f"bookmarks:{test_user['id']}:*")
+            except Exception as e:
+                # If Redis is not available or fails, continue (cache might not be used)
+                pass
         
         # First page - verify we get exactly 10
-        # Use a fresh request to ensure we're not hitting any caching
+        # Clear cache before making request to ensure fresh data
         response = client.get('/api/bookmarks?page=1&per_page=10', headers=auth_headers)
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json}"
         data = response.json
