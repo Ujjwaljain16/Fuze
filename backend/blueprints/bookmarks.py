@@ -157,9 +157,22 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
     RQ Task function to process bookmark content extraction, embedding, and analysis
     This is called by RQ workers in the background
     """
+    import logging
+    task_logger = logging.getLogger(__name__)
+    
     try:
         # Get Flask app context for database operations
-        from run_production import app
+        # Try multiple import paths for flexibility
+        try:
+            from run_production import app
+        except ImportError:
+            try:
+                from backend.run_production import app
+            except ImportError:
+                from backend.wsgi import app
+        
+        task_logger.info(f"Starting background processing for bookmark {bookmark_id}")
+        
         with app.app_context():
             # Get the bookmark
             bookmark = SavedContent.query.get(bookmark_id)
@@ -167,7 +180,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 logger.error(f"Bookmark {bookmark_id} not found for background processing")
                 return
             
-            logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
+            task_logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
             
             # Extract content from URL
             scraped = extract_article_content(url)
@@ -219,17 +232,18 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             cache_invalidator.after_content_update(bookmark_id, user_id)
             redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
             
-            logger.info(f"Background processing completed for bookmark {bookmark_id}")
+            task_logger.info(f"Background processing completed for bookmark {bookmark_id}")
             
             # Trigger background analysis
             try:
                 from services.background_analysis_service import analyze_content
                 analyze_content(bookmark_id, user_id)
+                task_logger.info(f"Background analysis triggered for bookmark {bookmark_id}")
             except Exception as e:
-                logger.error(f"Error triggering background analysis for bookmark {bookmark_id}: {e}")
+                task_logger.error(f"Error triggering background analysis for bookmark {bookmark_id}: {e}")
                 
     except Exception as e:
-        logger.error(f"Error in background processing for bookmark {bookmark_id}: {e}", exc_info=True)
+        task_logger.error(f"Error in background processing for bookmark {bookmark_id}: {e}", exc_info=True)
         raise  # Re-raise so RQ can handle retries
 
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):

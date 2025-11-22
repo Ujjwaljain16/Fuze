@@ -110,6 +110,7 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
     
     try:
         # Import the task function (avoid circular imports)
+        # Use string reference for better RQ compatibility
         from blueprints.bookmarks import process_bookmark_content_task
         
         # Select queue
@@ -118,7 +119,7 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
         # Enqueue the task with retry logic
         # Retry up to 2 times with exponential backoff
         job = queue.enqueue(
-            process_bookmark_content_task,
+            process_bookmark_content_task,  # Function reference
             bookmark_id,
             url,
             user_id,
