@@ -136,32 +136,12 @@ const Dashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      // PRODUCTION OPTIMIZATION: Use optimized API calls with caching and deduplication
+      // TEMPORARY: Direct API calls to debug timeout issues
+      // Removed optimization layer to test if it's causing problems
       const [bookmarksRes, projectsRes, statsRes] = await Promise.all([
-        optimizedApiCall(
-          () => api.get('/api/bookmarks?per_page=5'),
-          {
-            cacheKey: `dashboard:bookmarks:${user?.id || 'anon'}`,
-            cacheTTL: 30000, // 30 seconds cache
-            deduplicate: true
-          }
-        ),
-        optimizedApiCall(
-          () => api.get('/api/projects'),
-          {
-            cacheKey: `dashboard:projects:${user?.id || 'anon'}`,
-            cacheTTL: 30000, // 30 seconds cache
-            deduplicate: true
-          }
-        ),
-        optimizedApiCall(
-          () => api.get('/api/bookmarks/dashboard/stats'),
-          {
-            cacheKey: `dashboard:stats:${user?.id || 'anon'}`,
-            cacheTTL: 60000, // 1 minute cache (stats don't change as frequently)
-            deduplicate: true
-          }
-        )
+        api.get('/api/bookmarks?per_page=5'),
+        api.get('/api/projects'),
+        api.get('/api/bookmarks/dashboard/stats')
       ])
 
       setRecentBookmarks(bookmarksRes.data.bookmarks || [])

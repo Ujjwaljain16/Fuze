@@ -1024,8 +1024,17 @@ def stream_analysis_progress():
 @jwt_required()
 def get_dashboard_stats():
     """Get dashboard statistics with historical comparisons for percentage changes"""
+    from utils.redis_utils import redis_cache
+    
     try:
         user_id = int(get_jwt_identity())
+        
+        # PRODUCTION OPTIMIZATION: Cache dashboard stats (changes infrequently)
+        cache_key = f"dashboard:stats:{user_id}"
+        cached_stats = redis_cache.get(cache_key) if redis_cache else None
+        
+        if cached_stats:
+            return jsonify(cached_stats), 200
         
         # Get current date and calculate comparison periods
         now = datetime.utcnow()

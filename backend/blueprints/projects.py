@@ -11,10 +11,19 @@ projects_bp = Blueprint('projects', __name__, url_prefix='/api/projects')
 @jwt_required()
 def get_projects():
     """Get projects for the current authenticated user"""
+    from utils.redis_utils import redis_cache
+    
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
     include_tasks = request.args.get('include_tasks', default='true').lower() == 'true'
+    
+    # PRODUCTION OPTIMIZATION: Cache projects list (changes infrequently)
+    cache_key = f"projects:{user_id}:{page}:{per_page}:{include_tasks}"
+    cached_projects = redis_cache.get(cache_key) if redis_cache else None
+    
+    if cached_projects:
+        return jsonify(cached_projects), 200
     
     pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     projects_data = []
@@ -48,13 +57,19 @@ def get_projects():
         
         projects_data.append(project_dict)
     
-    return jsonify({
+    response_data = {
         "projects": projects_data,
         "total": pagination.total,
         "page": pagination.page,
         "per_page": pagination.per_page,
         "pages": pagination.pages
-    }), 200
+    }
+    
+    # Cache for 1 minute (projects don't change frequently)
+    if redis_cache:
+        redis_cache.set(cache_key, response_data, ttl=60)
+    
+    return jsonify(response_data), 200
 
 @projects_bp.route('', methods=['POST'])
 @jwt_required()
