@@ -24,12 +24,34 @@ const ShareHandler = () => {
     if (!text) return ''
     
     // Try to find URL in text using regex
-    const urlRegex = /(https?:\/\/[^\s]+)/g
+    // Updated regex to handle:
+    // - Standard URLs (http://, https://)
+    // - LinkedIn URLs with special characters and encoding
+    // - URLs with query parameters and fragments
+    // - URLs at end of text (no trailing space)
+    const urlRegex = /(https?:\/\/[^\s\)]+)/g
     const matches = text.match(urlRegex)
     
     if (matches && matches.length > 0) {
-      // Return the first URL found
-      return matches[0]
+      // Return the first URL found, but clean it up
+      let url = matches[0]
+      
+      // Remove trailing punctuation that might have been captured
+      url = url.replace(/[.,;:!?]+$/, '')
+      
+      // Remove closing parentheses if URL was in parentheses
+      if (url.endsWith(')') && !url.includes('(')) {
+        url = url.slice(0, -1)
+      }
+      
+      return url
+    }
+    
+    // Also check for LinkedIn shortened links (lnkd.in)
+    const linkedInShortRegex = /(https?:\/\/lnkd\.in\/[^\s\)]+)/g
+    const linkedInMatches = text.match(linkedInShortRegex)
+    if (linkedInMatches && linkedInMatches.length > 0) {
+      return linkedInMatches[0].replace(/[.,;:!?)]+$/, '')
     }
     
     return ''
@@ -41,18 +63,41 @@ const ShareHandler = () => {
     const title = searchParams.get('title') || ''
     const text = searchParams.get('text') || ''
 
+    // Debug: Log what we're receiving (only in dev)
+    if (import.meta.env.DEV) {
+      console.log('ShareHandler - Received params:', { url, title, text })
+    }
+
     // If no URL in url parameter, try to extract from text
     // This handles cases where LinkedIn sends URL in text field
     if (!url && text) {
       const extractedUrl = extractUrlFromText(text)
       if (extractedUrl) {
         url = extractedUrl
+        if (import.meta.env.DEV) {
+          console.log('ShareHandler - Extracted URL from text:', url)
+        }
       }
     }
 
     // If still no URL, check if text itself is a URL
     if (!url && text && (text.startsWith('http://') || text.startsWith('https://'))) {
       url = text.trim()
+      // Remove trailing punctuation
+      url = url.replace(/[.,;:!?)]+$/, '')
+    }
+
+    // Additional check: Sometimes LinkedIn sends the URL as the title
+    if (!url && title && (title.startsWith('http://') || title.startsWith('https://'))) {
+      url = title.trim().replace(/[.,;:!?)]+$/, '')
+    }
+
+    // Final check: Try to extract from title if it contains a URL
+    if (!url && title) {
+      const extractedFromTitle = extractUrlFromText(title)
+      if (extractedFromTitle) {
+        url = extractedFromTitle
+      }
     }
 
     setSharedUrl(url)
@@ -67,6 +112,8 @@ const ShareHandler = () => {
         url: url,
         quality_score: 0
       })
+    } else if (import.meta.env.DEV) {
+      console.warn('ShareHandler - No URL found in any parameter:', { url, title, text })
     }
   }, [searchParams])
 
