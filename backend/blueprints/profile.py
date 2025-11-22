@@ -34,7 +34,7 @@ def get_profile():
     
     # Cache for 5 minutes (profile doesn't change often)
     if redis_cache:
-        redis_cache.set(cache_key, profile_data, ttl=300)
+        redis_cache.set_cache(cache_key, profile_data, ttl=300)
     
     return jsonify(profile_data), 200
 

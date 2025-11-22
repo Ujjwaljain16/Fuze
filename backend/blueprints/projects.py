@@ -67,7 +67,7 @@ def get_projects():
     
     # Cache for 1 minute (projects don't change frequently)
     if redis_cache:
-        redis_cache.set(cache_key, response_data, ttl=60)
+        redis_cache.cache_query_result(cache_key, response_data, ttl=60)
     
     return jsonify(response_data), 200
 
