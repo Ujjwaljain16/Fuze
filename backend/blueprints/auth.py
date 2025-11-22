@@ -512,11 +512,16 @@ def logout():
     unset_jwt_cookies(response)
     return response, 200
 
-@auth_bp.route('/csrf-token', methods=['GET'])
+@auth_bp.route('/csrf-token', methods=['GET', 'OPTIONS'])
 def get_csrf_token_endpoint():
-    """Get CSRF token for forms"""
+    """Get CSRF token for forms - optimized for fast response"""
+    # Handle OPTIONS preflight requests immediately
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     # For now, return a simple response since CSRF is optional
     # In a full CSRF implementation, you would generate a token here
+    # This endpoint must respond quickly to avoid dashboard loading delays
     return jsonify({'csrf_token': 'csrf_disabled'}), 200
 
 @auth_bp.route('/verify-token', methods=['POST'])

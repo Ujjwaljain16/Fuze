@@ -44,14 +44,29 @@ except ImportError:
         'RedisError': Exception
     })()})()
 
-# Configure production logging first
+# Configure production logging first with UTC timezone
+import logging.handlers
+from logging import Formatter
+import time
+
+class UTCFormatter(Formatter):
+    """Formatter that converts timestamps to UTC"""
+    converter = time.gmtime  # Use UTC time instead of local time
+
+# Create handlers
+stream_handler = logging.StreamHandler()
+file_handler = logging.FileHandler('production.log', encoding='utf-8')
+
+# Set UTC formatter
+utc_formatter = UTCFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+stream_handler.setFormatter(utc_formatter)
+file_handler.setFormatter(utc_formatter)
+
+# Configure logging with UTC handlers
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('production.log', encoding='utf-8')
-    ]
+    handlers=[stream_handler, file_handler]
 )
 logger = logging.getLogger(__name__)
 
@@ -438,7 +453,11 @@ def create_app():
         else:
             # Fallback to built-in security headers
             response.headers['X-Content-Type-Options'] = 'nosniff'
-            response.headers['X-Frame-Options'] = 'DENY'
+            # Allow framing from Hugging Face Spaces
+            if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
+                response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            else:
+                response.headers['X-Frame-Options'] = 'DENY'
             response.headers['X-XSS-Protection'] = '1; mode=block'
             response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
             response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
@@ -447,6 +466,12 @@ def create_app():
                 response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
             
             if not app.config.get('DEBUG'):
+                # Allow framing from Hugging Face Spaces (for Docker Spaces)
+                # This allows the Space interface to display the app
+                frame_ancestors = "'none'"
+                if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
+                    frame_ancestors = "'self' https://*.hf.space https://huggingface.co"
+                
                 csp = (
                     "default-src 'self'; "
                     "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
@@ -454,7 +479,7 @@ def create_app():
                     "font-src 'self' https://fonts.gstatic.com; "
                     "img-src 'self' data: https:; "
                     "connect-src 'self' https:; "
-                    "frame-ancestors 'none';"
+                    f"frame-ancestors {frame_ancestors};"
                 )
                 response.headers['Content-Security-Policy'] = csp
         
