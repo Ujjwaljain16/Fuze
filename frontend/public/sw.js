@@ -4,14 +4,16 @@ const STATIC_CACHE = 'fuze-static-v1';
 const DYNAMIC_CACHE = 'fuze-dynamic-v1';
 
 // Files to cache for offline functionality
+// Note: Only cache same-origin files, not external API responses
 const STATIC_FILES = [
   '/',
   '/index.html',
-  '/static/js/bundle.js',
-  '/static/css/main.css',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  '/manifest.json'
+  // Don't cache JS/CSS - they're versioned and handled by Vite
+  // '/static/js/bundle.js',
+  // '/static/css/main.css',
+  // '/icons/icon-192x192.png',
+  // '/icons/icon-512x512.png'
 ];
 
 // LinkedIn content analysis API endpoints
@@ -24,20 +26,30 @@ const API_ENDPOINTS = [
 
 // Install event - cache static files
 self.addEventListener('install', (event) => {
-  console.log(' Service Worker installing...');
+  console.log('Service Worker installing...');
   
   event.waitUntil(
     caches.open(STATIC_CACHE)
       .then((cache) => {
-        console.log('📦 Caching static files');
-        return cache.addAll(STATIC_FILES);
+        console.log('Caching static files');
+        // Use addAll with error handling - skip files that fail
+        return Promise.allSettled(
+          STATIC_FILES.map(url => 
+            cache.add(url).catch(err => {
+              console.warn(`Failed to cache ${url}:`, err);
+              return null; // Continue even if one file fails
+            })
+          )
+        );
       })
       .then(() => {
         console.log('Static files cached');
         return self.skipWaiting();
       })
       .catch((error) => {
-        console.error(' Cache installation failed:', error);
+        console.error('Cache installation failed:', error);
+        // Continue even if caching fails
+        return self.skipWaiting();
       })
   );
 });
@@ -70,38 +82,62 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   
-  // Handle LinkedIn content extraction requests
-  if (url.pathname === '/api/linkedin/extract') {
+  // CRITICAL: Don't intercept external API requests (Hugging Face Spaces backend)
+  // This prevents service worker from interfering with cross-origin API calls
+  if (url.hostname.includes('hf.space') || 
+      url.hostname.includes('huggingface.co') ||
+      url.hostname !== self.location.hostname) {
+    // Let all external requests pass through without service worker interception
+    return;
+  }
+  
+  // Don't intercept JS module requests - let them pass through
+  // This fixes the MIME type error for module scripts
+  if (request.destination === 'script' && 
+      (url.pathname.endsWith('.js') || request.headers.get('Accept')?.includes('application/javascript'))) {
+    // Let JS modules pass through without service worker interception
+    return;
+  }
+  
+  // Don't intercept XHR/fetch requests to APIs (they're handled by axios directly)
+  if (request.mode === 'cors' || url.pathname.startsWith('/api/')) {
+    // Let API requests pass through - they're handled by the backend directly
+    return;
+  }
+  
+  // Handle LinkedIn content extraction requests (only for same-origin)
+  if (url.pathname === '/api/linkedin/extract' && url.origin === self.location.origin) {
     event.respondWith(handleLinkedInExtraction(request));
     return;
   }
   
-  // Handle LinkedIn content analysis requests
-  if (url.pathname === '/api/linkedin/analyze') {
+  // Handle LinkedIn content analysis requests (only for same-origin)
+  if (url.pathname === '/api/linkedin/analyze' && url.origin === self.location.origin) {
     event.respondWith(handleLinkedInAnalysis(request));
     return;
   }
   
-  // Handle recommendation requests
-  if (url.pathname.startsWith('/api/recommendations')) {
+  // Handle recommendation requests (only for same-origin)
+  if (url.pathname.startsWith('/api/recommendations') && url.origin === self.location.origin) {
     event.respondWith(handleRecommendations(request));
     return;
   }
   
-  // Handle static files (offline support)
-  if (request.method === 'GET' && request.destination === 'document') {
+  // Handle static files (offline support) - only for same-origin
+  if (request.method === 'GET' && 
+      request.destination === 'document' && 
+      url.origin === self.location.origin) {
     event.respondWith(handleStaticFiles(request));
     return;
   }
   
-  // Handle API requests with network-first strategy
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(handleAPIRequests(request));
-    return;
+  // Default: network first, fallback to cache (only for same-origin static files)
+  if (url.origin === self.location.origin && 
+      (request.destination === 'image' || 
+       request.destination === 'style' || 
+       request.destination === 'font')) {
+    event.respondWith(handleDefaultRequest(request));
   }
-  
-  // Default: network first, fallback to cache
-  event.respondWith(handleDefaultRequest(request));
 });
 
 // Handle LinkedIn content extraction
@@ -110,13 +146,23 @@ async function handleLinkedInExtraction(request) {
     // Try network first
     const response = await fetch(request);
     
-    if (response.ok) {
-      // Cache successful responses
-      const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, response.clone());
-      
-      // Store in IndexedDB for offline access
-      await storeLinkedInData(request, response.clone());
+    if (response.ok && response.status === 200) {
+      // Only cache successful responses with proper error handling
+      try {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        // Clone response before caching (response can only be read once)
+        const responseClone = response.clone();
+        // Check if response is cacheable before putting
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+        
+        // Store in IndexedDB for offline access
+        await storeLinkedInData(request, response.clone());
+      } catch (cacheError) {
+        console.warn('Failed to cache LinkedIn extraction:', cacheError);
+        // Continue even if caching fails
+      }
       
       return response;
     }
@@ -151,13 +197,21 @@ async function handleLinkedInAnalysis(request) {
   try {
     const response = await fetch(request);
     
-    if (response.ok) {
-      // Cache analysis results
-      const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, response.clone());
-      
-      // Store analysis in IndexedDB
-      await storeAnalysisData(request, response.clone());
+    if (response.ok && response.status === 200) {
+      // Only cache successful responses with proper error handling
+      try {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        const responseClone = response.clone();
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+        
+        // Store analysis in IndexedDB
+        await storeAnalysisData(request, response.clone());
+      } catch (cacheError) {
+        console.warn('Failed to cache LinkedIn analysis:', cacheError);
+        // Continue even if caching fails
+      }
       
       return response;
     }
@@ -190,10 +244,18 @@ async function handleRecommendations(request) {
   try {
     const response = await fetch(request);
     
-    if (response.ok) {
-      // Cache recommendations
-      const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, response.clone());
+    if (response.ok && response.status === 200) {
+      // Only cache successful responses with proper error handling
+      try {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        const responseClone = response.clone();
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+      } catch (cacheError) {
+        console.warn('Failed to cache recommendations:', cacheError);
+        // Continue even if caching fails
+      }
       
       return response;
     }
@@ -224,15 +286,30 @@ async function handleRecommendations(request) {
 // Handle static files with cache-first strategy
 async function handleStaticFiles(request) {
   try {
+    // Don't intercept JS module requests - let them go through normally
+    const url = new URL(request.url);
+    if (url.pathname.endsWith('.js') && request.headers.get('Accept')?.includes('application/javascript')) {
+      // Let JS modules pass through without service worker interception
+      return fetch(request);
+    }
+    
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
       return cachedResponse;
     }
     
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(STATIC_CACHE);
-      cache.put(request, response.clone());
+    if (response.ok && response.status === 200) {
+      try {
+        const cache = await caches.open(STATIC_CACHE);
+        const responseClone = response.clone();
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+      } catch (cacheError) {
+        console.warn('Failed to cache static file:', cacheError);
+        // Continue even if caching fails
+      }
     }
     
     return response;
@@ -247,10 +324,19 @@ async function handleAPIRequests(request) {
   try {
     const response = await fetch(request);
     
-    if (response.ok) {
-      // Cache successful API responses
-      const cache = await caches.open(DYNAMIC_CACHE);
-      cache.put(request, response.clone());
+    if (response.ok && response.status === 200) {
+      // Only cache successful API responses with proper error handling
+      try {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        const responseClone = response.clone();
+        // Only cache if response is cacheable (status 200 and type 'basic')
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+      } catch (cacheError) {
+        console.warn('Failed to cache API response:', cacheError);
+        // Continue even if caching fails - don't block the response
+      }
     }
     
     return response;
