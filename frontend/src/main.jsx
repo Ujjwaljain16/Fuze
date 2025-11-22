@@ -20,7 +20,7 @@ if ('serviceWorker' in navigator) {
       })
       .then((registration) => {
         if (import.meta.env.DEV) {
-          console.log('🚀 Service Worker registered successfully:', registration.scope);
+          console.log('Service Worker registered successfully:', registration.scope);
         }
         
         // Check for updates
@@ -29,7 +29,7 @@ if ('serviceWorker' in navigator) {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               if (import.meta.env.DEV) {
-                console.log('🔄 New version available!');
+                console.log('New version available!');
               }
               // You can show a notification to the user here
             }
@@ -39,7 +39,7 @@ if ('serviceWorker' in navigator) {
       .catch((error) => {
         // Don't show error for missing service worker - it's optional
         if (error.message !== 'Service worker file not found') {
-          console.warn('⚠️ Service Worker not available:', error.message);
+          console.warn('Service Worker not available:', error.message);
         }
       });
   });
@@ -52,14 +52,14 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
   if (import.meta.env.DEV) {
-    console.log('📱 PWA install prompt ready');
+    console.log('PWA install prompt ready');
   }
 });
 
 // Handle PWA installation
 window.addEventListener('appinstalled', () => {
   if (import.meta.env.DEV) {
-    console.log('✅ PWA installed successfully');
+    console.log('PWA installed successfully');
   }
   deferredPrompt = null;
 });

@@ -25,7 +25,7 @@ try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
     ML_AVAILABLE = True
-    logger.info("✅ ML features available - will enhance recommendations")
+    logger.info(" ML features available - will enhance recommendations")
 except ImportError:
     logger.info("ℹ️ ML features not available - using standard scoring")
 
@@ -69,7 +69,7 @@ class SimpleMLEnhancer:
                     stop_words='english',
                     ngram_range=(1, 2)
                 )
-                logger.info("✅ TF-IDF vectorizer initialized")
+                logger.info(" TF-IDF vectorizer initialized")
             except Exception as e:
                 logger.warning(f"TF-IDF init failed: {e}")
                 self.tfidf = None
@@ -229,7 +229,7 @@ def test_enhancer():
     if ML_AVAILABLE:
         print("\n🎉 ML Enhancement working!")
     else:
-        print("\n✅ Graceful fallback working (ML not available)")
+        print("\n Graceful fallback working (ML not available)")
     
     return True
 

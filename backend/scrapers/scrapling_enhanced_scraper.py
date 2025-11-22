@@ -26,28 +26,28 @@ try:
     from scrapling.fetchers import StealthyFetcher, DynamicFetcher, Fetcher
     # Test if we can actually use it (browsers might not be installed)
     SCRAPLING_AVAILABLE = True
-    logger.info("✅ Scrapling imported successfully")
+    logger.info("Scrapling imported successfully")
 except ImportError as e:
     SCRAPLING_AVAILABLE = False
-    logger.warning(f"⚠️ Scrapling not installed. Install with: pip install 'scrapling[all]' 'camoufox[geoip]'")
+    logger.warning(f" Scrapling not installed. Install with: pip install 'scrapling[all]' 'camoufox[geoip]'")
     logger.info("   Will use standard scraper instead")
 except (FileNotFoundError, AttributeError, ModuleNotFoundError) as e:
     # Handle errors like missing camoufox, browser dependencies, etc.
     SCRAPLING_AVAILABLE = False
     error_msg = str(e)
     if 'camoufox' in error_msg.lower() or 'fetch' in error_msg.lower() or 'version.json' in error_msg.lower():
-        logger.warning(f"⚠️ Scrapling installed but camoufox browser not set up.")
+        logger.warning(f" Scrapling installed but camoufox browser not set up.")
         logger.warning(f"   Run: camoufox fetch")
         logger.warning(f"   Or: python scripts/setup_scrapling.py")
         logger.info("   Will use standard scraper until browsers are installed")
     else:
-        logger.warning(f"⚠️ Scrapling import failed: {error_msg[:150]}")
+        logger.warning(f" Scrapling import failed: {error_msg[:150]}")
         logger.info("   Will use standard scraper instead")
 except Exception as e:
     # Catch any other errors during import
     SCRAPLING_AVAILABLE = False
     error_msg = str(e)
-    logger.warning(f"⚠️ Scrapling import error: {error_msg[:150]}")
+    logger.warning(f" Scrapling import error: {error_msg[:150]}")
     logger.info("   Will use standard scraper instead")
 
 # Import existing scraper as fallback
@@ -710,7 +710,7 @@ class ScraplingEnhancedScraper:
                             'meta_description': linkedin_result.get('meta_description', ''),
                             'quality_score': linkedin_result.get('quality_score', 7)
                         }
-                        logger.info(f"✅ LinkedIn scraper extraction successful: {len(result['content'])} chars, quality={result['quality_score']}")
+                        logger.info(f" LinkedIn scraper extraction successful: {len(result['content'])} chars, quality={result['quality_score']}")
                         return result
                     else:
                         logger.warning(f"LinkedIn scraper returned low quality result, trying fallback")
@@ -736,7 +736,7 @@ class ScraplingEnhancedScraper:
                         'quality_score': 8  # High quality for GitHub API content
                     }
                     # For GitHub, prefer API result - return immediately
-                    logger.info(f"✅ GitHub API extraction successful: {len(github_content)} chars")
+                    logger.info(f" GitHub API extraction successful: {len(github_content)} chars")
                     return github_api_result
                 # If GitHub API failed, continue with Scrapling (might get better content)
             
@@ -748,7 +748,7 @@ class ScraplingEnhancedScraper:
                     try:
                         result = self._scrape_with_scrapling(url, strategy)
                         if result and result.get('quality_score', 0) >= 5:
-                            logger.info(f"✅ Scrapling extraction successful: quality={result.get('quality_score')}, content_length={len(result.get('content', ''))}")
+                            logger.info(f" Scrapling extraction successful: quality={result.get('quality_score')}, content_length={len(result.get('content', ''))}")
                             return result
                         elif result:
                             logger.warning(f"Scrapling extraction had low quality ({result.get('quality_score')}), trying fallback scraper")

@@ -251,13 +251,13 @@ class RecommendationConfig:
         # Check FastEngine weights sum to 1.0
         fast_sum = sum(cls.FAST_ENGINE_WEIGHTS.values())
         if not (0.99 <= fast_sum <= 1.01):  # Allow small floating point error
-            print(f"⚠️ Warning: FAST_ENGINE_WEIGHTS sum to {fast_sum}, should be 1.0")
+            print(f" Warning: FAST_ENGINE_WEIGHTS sum to {fast_sum}, should be 1.0")
             return False
         
         # Check ContextEngine weights sum to 1.0
         context_sum = sum(cls.CONTEXT_ENGINE_WEIGHTS.values())
         if not (0.99 <= context_sum <= 1.01):
-            print(f"⚠️ Warning: CONTEXT_ENGINE_WEIGHTS sum to {context_sum}, should be 1.0")
+            print(f" Warning: CONTEXT_ENGINE_WEIGHTS sum to {context_sum}, should be 1.0")
             return False
         
         return True
@@ -296,7 +296,7 @@ class RecommendationConfig:
         for key, val in cls.FEATURES.items():
             print(f"   {key}: {val}")
         
-        print("\n✅ Configuration valid:", cls.validate_config())
+        print("\n Configuration valid:", cls.validate_config())
         print("=" * 80)
 
 

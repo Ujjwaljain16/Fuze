@@ -126,7 +126,7 @@ const Bookmarks = () => {
       
       // Show fallback message if using fallback search
       if (response.data.source === 'fallback') {
-        setSemanticError(`⚠️ ${response.data.message || 'Using fallback search mode'}`)
+        setSemanticError(`${response.data.message || 'Using fallback search mode'}`)
       }
     } catch {
       setSemanticError('Semantic search failed. Try again.')
@@ -403,7 +403,7 @@ const Bookmarks = () => {
 
             {semanticError && (
               <div className={`mb-4 p-4 border rounded-xl ${
-                semanticError.includes('⚠️') 
+                semanticError && !semanticError.toLowerCase().includes('error') 
                   ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400' 
                   : 'bg-red-500/10 border-red-500/20 text-red-400'
               }`}>

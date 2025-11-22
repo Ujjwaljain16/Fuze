@@ -33,9 +33,9 @@ def clear_user_recommendation_cache(user_id):
         try:
             from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
             cleared_gemini = clear_gemini_analyzer_cache()
-            print(f"    ✅ Cleared {cleared_gemini} Gemini analyzer instances")
+            print(f"     Cleared {cleared_gemini} Gemini analyzer instances")
         except Exception as e:
-            print(f"    ⚠️ Failed to clear Gemini cache: {e}")
+            print(f"     Failed to clear Gemini cache: {e}")
         
         print(f"  💾 Clearing database intent analysis cache for user {user_id}...")
         try:
@@ -47,11 +47,11 @@ def clear_user_recommendation_cache(user_id):
                     Project.intent_analysis.isnot(None)
                 ).update({"intent_analysis": None})
                 db.session.commit()
-                print(f"    ✅ Cleared intent analysis from {cleared_projects} projects")
+                print(f"     Cleared intent analysis from {cleared_projects} projects")
         except Exception as e:
-            print(f"    ⚠️ Failed to clear database intent analysis cache: {e}")
+            print(f"     Failed to clear database intent analysis cache: {e}")
         
-        print(f"  🔍 Clearing additional cache patterns for user {user_id}...")
+        print(f"   Clearing additional cache patterns for user {user_id}...")
         additional_patterns = [
             f"*ensemble_recommendations:*:{user_id}:*",
             f"*gemini_recommendations:*:{user_id}:*",
@@ -63,18 +63,18 @@ def clear_user_recommendation_cache(user_id):
             try:
                 count = redis_cache.delete_keys_pattern(pattern)
                 if count > 0:
-                    print(f"    ✅ Cleared {count} keys matching {pattern}")
+                    print(f"     Cleared {count} keys matching {pattern}")
             except Exception as e:
-                print(f"    ⚠️ Failed to clear pattern {pattern}: {e}")
+                print(f"     Failed to clear pattern {pattern}: {e}")
 
         if success1:
-            print(f"✅ Cleared recommendation caches thoroughly for user {user_id}")
+            print(f" Cleared recommendation caches thoroughly for user {user_id}")
             return True
         else:
-            print(f"❌ Failed to clear recommendation caches for user {user_id}")
+            print(f" Failed to clear recommendation caches for user {user_id}")
             return False
     except Exception as e:
-        print(f"❌ Error clearing recommendation caches for user {user_id}: {e}")
+        print(f" Error clearing recommendation caches for user {user_id}: {e}")
         return False
 
 def clear_all_recommendation_caches():
@@ -90,9 +90,9 @@ def clear_all_recommendation_caches():
         try:
             from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
             cleared_gemini = clear_gemini_analyzer_cache()
-            print(f"    ✅ Cleared {cleared_gemini} Gemini analyzer instances")
+            print(f"     Cleared {cleared_gemini} Gemini analyzer instances")
         except Exception as e:
-            print(f"    ⚠️ Failed to clear Gemini cache: {e}")
+            print(f"     Failed to clear Gemini cache: {e}")
         
         print("  💾 Clearing database intent analysis cache...")
         try:
@@ -103,11 +103,11 @@ def clear_all_recommendation_caches():
                     Project.intent_analysis.isnot(None)
                 ).update({"intent_analysis": None})
                 db.session.commit()
-                print(f"    ✅ Cleared intent analysis from {cleared_projects} projects")
+                print(f"     Cleared intent analysis from {cleared_projects} projects")
         except Exception as e:
-            print(f"    ⚠️ Failed to clear database intent analysis cache: {e}")
+            print(f"     Failed to clear database intent analysis cache: {e}")
         
-        print("  🔍 Clearing additional cache patterns...")
+        print("   Clearing additional cache patterns...")
         additional_patterns = [
             "*ensemble_recommendations:*",
             "*gemini_recommendations:*",
@@ -119,18 +119,18 @@ def clear_all_recommendation_caches():
             try:
                 count = redis_cache.delete_keys_pattern(pattern)
                 if count > 0:
-                    print(f"    ✅ Cleared {count} keys matching {pattern}")
+                    print(f"     Cleared {count} keys matching {pattern}")
             except Exception as e:
-                print(f"    ⚠️ Failed to clear pattern {pattern}: {e}")
+                print(f"     Failed to clear pattern {pattern}: {e}")
 
         if success1:
-            print("✅ Cleared ALL recommendation caches thoroughly")
+            print(" Cleared ALL recommendation caches thoroughly")
             return True
         else:
-            print("❌ Failed to clear ALL recommendation caches")
+            print(" Failed to clear ALL recommendation caches")
             return False
     except Exception as e:
-        print(f"❌ Error clearing all recommendation caches: {e}")
+        print(f" Error clearing all recommendation caches: {e}")
         return False
 
 def clear_user_context_cache(user_id):
@@ -147,14 +147,14 @@ def clear_user_context_cache(user_id):
             try:
                 redis_cache.delete_cache(key)
                 cleared_count += 1
-                print(f"✅ Cleared context cache: {key}")
+                print(f" Cleared context cache: {key}")
             except Exception as e:
-                print(f"⚠️ Failed to clear context cache {key}: {e}")
+                print(f" Failed to clear context cache {key}: {e}")
 
-        print(f"✅ Cleared {cleared_count}/{len(context_keys)} context cache keys for user {user_id}")
+        print(f" Cleared {cleared_count}/{len(context_keys)} context cache keys for user {user_id}")
         return cleared_count > 0
     except Exception as e:
-        print(f"❌ Error clearing context caches for user {user_id}: {e}")
+        print(f" Error clearing context caches for user {user_id}: {e}")
         return False
 
 def main():

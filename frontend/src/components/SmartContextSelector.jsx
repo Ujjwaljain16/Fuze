@@ -59,10 +59,10 @@ window.clearAllRecommendationCaches = async () => {
 
     // Clear server-side caches (this will clear both Redis recommendation and context caches)
     const response = await api.post('/api/recommendations/cache/clear-all-recommendations')
-    console.log('✅ All recommendation caches cleared:', response.data)
+    console.log('All recommendation caches cleared:', response.data)
     return response.data
   } catch (error) {
-    console.error('❌ Failed to clear all recommendation caches:', error)
+    console.error('Failed to clear all recommendation caches:', error)
     throw error
   }
 }
@@ -107,7 +107,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
         return
       }
 
-      console.log('🌐 Fetching fresh context data from server...')
+      console.log('Fetching fresh context data from server...')
       const startTime = Date.now()
 
       let fetchedSuggestedContexts = []
@@ -146,7 +146,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
       setCachedContextData(contextData)
 
       const fetchTime = Date.now() - startTime
-      console.log(`✅ Context data cached (${fetchTime}ms fetch time)`)
+      console.log(`Context data cached (${fetchTime}ms fetch time)`)
 
     } catch (error) {
       console.error('Failed to fetch context data:', error)
@@ -407,7 +407,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingLeft: '30px' }}>
                           <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-                            {context.type === 'project' ? '📁' : '✅'} {context.subtitle || context.description}
+                            {context.subtitle || context.description}
                           </span>
                           {context.timeAgo && (
                             <span style={{ 

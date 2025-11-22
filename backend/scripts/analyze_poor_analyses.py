@@ -199,14 +199,14 @@ def re_analyze_poor_content(poor_analyses, user_id=None):
                         new_concepts = analysis_result.get('key_concepts', [])
                         new_summary = analysis_result.get('summary', '')
                         
-                        logger.info(f"  ✅ Re-analyzed successfully")
+                        logger.info(f"  Re-analyzed successfully")
                         logger.info(f"  New tech: {new_tech}")
                         logger.info(f"  New concepts: {new_concepts}")
                         logger.info(f"  New summary: {new_summary[:80]}...")
                         
                         total_reanalyzed += 1
                     else:
-                        logger.warning(f"  ⚠️  Analysis returned None")
+                        logger.warning(f"  Analysis returned None")
                         total_failed += 1
                     
                     # Add delay between requests
@@ -214,7 +214,7 @@ def re_analyze_poor_content(poor_analyses, user_id=None):
                     time.sleep(3.0)
                     
                 except Exception as e:
-                    logger.error(f"  ❌ Error re-analyzing content {content_id}: {e}")
+                    logger.error(f"  Error re-analyzing content {content_id}: {e}")
                     total_failed += 1
                     continue
             
@@ -226,9 +226,9 @@ def re_analyze_poor_content(poor_analyses, user_id=None):
     
     logger.info("\n" + "=" * 80)
     logger.info(f"Re-analysis complete:")
-    logger.info(f"  ✅ Successfully re-analyzed: {total_reanalyzed}")
-    logger.info(f"  ❌ Failed: {total_failed}")
-    logger.info(f"  📊 Total processed: {len(poor_analyses)}")
+    logger.info(f"  Successfully re-analyzed: {total_reanalyzed}")
+    logger.info(f"  Failed: {total_failed}")
+    logger.info(f"  Total processed: {len(poor_analyses)}")
 
 def main():
     import argparse
@@ -248,11 +248,11 @@ def main():
         poor_analyses = find_poor_analyses(user_id=args.user_id)
         
         if not poor_analyses:
-            logger.info("✅ No poor analyses found! All analyses look good.")
+            logger.info("No poor analyses found! All analyses look good.")
             return
         
         # Show summary
-        logger.info(f"\n📊 Found {len(poor_analyses)} bookmarks with poor analyses:")
+        logger.info(f"\nFound {len(poor_analyses)} bookmarks with poor analyses:")
         logger.info("=" * 80)
         
         # Count by issue type
@@ -283,7 +283,7 @@ def main():
             content_ids = [a['content_id'] for a in poor_analyses]
             with open(args.export, 'w') as f:
                 f.write(','.join(map(str, content_ids)))
-            logger.info(f"\n✅ Exported {len(content_ids)} content IDs to {args.export}")
+            logger.info(f"\nExported {len(content_ids)} content IDs to {args.export}")
         
         # Re-analyze if not dry run
         if not args.dry_run:
@@ -292,7 +292,7 @@ def main():
             logger.info("=" * 80)
             re_analyze_poor_content(poor_analyses, user_id=args.user_id)
         else:
-            logger.info("\n🔍 DRY RUN - No re-analysis performed")
+            logger.info("\nDRY RUN - No re-analysis performed")
             logger.info("Run without --dry-run to re-analyze these bookmarks")
 
 if __name__ == '__main__':

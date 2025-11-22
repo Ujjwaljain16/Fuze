@@ -49,7 +49,7 @@ def clear_all_data(dry_run=False):
             print(f"\n📊 Current Database Records:")
             print(f"   👥 Users: {counts['users']}")
             print(f"   📁 Projects: {counts['projects']}")
-            print(f"   ✅ Tasks: {counts['tasks']}")
+            print(f"    Tasks: {counts['tasks']}")
             print(f"   🔖 Saved Content: {counts['saved_content']}")
             print(f"   📈 Content Analysis: {counts['content_analysis']}")
             print(f"   💬 Feedback: {counts['feedback']}")
@@ -57,14 +57,14 @@ def clear_all_data(dry_run=False):
             print(f"   📈 TOTAL: {total_records} records")
 
             if total_records == 0:
-                print("\n✅ Database is already empty!")
+                print("\n Database is already empty!")
                 return True
 
             if dry_run:
                 print("\n🔍 DRY RUN COMPLETE - No data was actually deleted")
                 return True
 
-            print(f"\n⚠️  WARNING: This will delete {total_records} records from ALL tables!")
+            print(f"\n  WARNING: This will delete {total_records} records from ALL tables!")
 
             # Clear tables in correct order (respecting foreign keys)
             print("\n🗑️ Clearing tables...")
@@ -74,38 +74,38 @@ def clear_all_data(dry_run=False):
 
             # Clear UserFeedback (no dependencies)
             deleted_counts['user_feedback'] = UserFeedback.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['user_feedback']} user feedback records")
+            print(f"    Cleared {deleted_counts['user_feedback']} user feedback records")
 
             # Clear Feedback (depends on users, projects, saved_content)
             deleted_counts['feedback'] = Feedback.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['feedback']} feedback records")
+            print(f"    Cleared {deleted_counts['feedback']} feedback records")
 
             # Clear ContentAnalysis (depends on saved_content)
             deleted_counts['content_analysis'] = ContentAnalysis.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['content_analysis']} content analysis records")
+            print(f"    Cleared {deleted_counts['content_analysis']} content analysis records")
 
             # Clear Tasks and Subtasks (depends on projects)
             # Note: Subtasks are cascade deleted when tasks are deleted
             deleted_counts['tasks'] = Task.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['tasks']} task records (including subtasks)")
+            print(f"    Cleared {deleted_counts['tasks']} task records (including subtasks)")
 
             # Clear SavedContent (depends on users)
             deleted_counts['saved_content'] = SavedContent.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['saved_content']} saved content records")
+            print(f"    Cleared {deleted_counts['saved_content']} saved content records")
 
             # Clear Projects (depends on users)
             deleted_counts['projects'] = Project.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['projects']} project records")
+            print(f"    Cleared {deleted_counts['projects']} project records")
 
             # Clear Users last (other tables depend on it)
             deleted_counts['users'] = User.query.delete()
-            print(f"   ✅ Cleared {deleted_counts['users']} user records")
+            print(f"    Cleared {deleted_counts['users']} user records")
 
             # Commit all changes
             db.session.commit()
 
             total_deleted = sum(deleted_counts.values())
-            print(f"\n✅ SUCCESS: Deleted {total_deleted} records total")
+            print(f"\n SUCCESS: Deleted {total_deleted} records total")
 
             # Verify everything is cleared
             verification_counts = {
@@ -121,7 +121,7 @@ def clear_all_data(dry_run=False):
             remaining = sum(verification_counts.values())
 
             if remaining == 0:
-                print("✅ VERIFICATION: All data successfully cleared!")
+                print(" VERIFICATION: All data successfully cleared!")
                 print("\n🎉 Database is now ready for fresh user testing!")
                 print("   - All user accounts removed")
                 print("   - All projects, tasks, and content cleared")
@@ -129,11 +129,11 @@ def clear_all_data(dry_run=False):
                 print("   - Schema preserved for new data")
                 return True
             else:
-                print(f"⚠️  WARNING: {remaining} records still remain after clearing!")
+                print(f"  WARNING: {remaining} records still remain after clearing!")
                 return False
 
     except Exception as e:
-        print(f"❌ ERROR: Failed to clear database: {e}")
+        print(f" ERROR: Failed to clear database: {e}")
         if not dry_run:
             try:
                 db.session.rollback()
@@ -155,7 +155,7 @@ def get_confirmation():
     print("  • All feedback and analysis data")
     print("  • All recommendation history")
     print()
-    print("⚠️  This action CANNOT be undone!")
+    print("  This action CANNOT be undone!")
     print("="*60)
 
     while True:
@@ -163,7 +163,7 @@ def get_confirmation():
         if response == 'YES':
             return True
         elif response.lower() in ['no', 'cancel', 'quit', 'exit']:
-            print("❌ Operation cancelled")
+            print(" Operation cancelled")
             return False
         else:
             print("Please type 'YES' to confirm or 'no' to cancel")

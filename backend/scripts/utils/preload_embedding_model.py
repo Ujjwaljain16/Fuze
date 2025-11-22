@@ -39,7 +39,7 @@ def preload_embedding_model():
         
         load_time = time.time() - start_time
         
-        print(f"✅ Model loaded in {load_time:.2f} seconds")
+        print(f" Model loaded in {load_time:.2f} seconds")
         
         # Test the model
         print("🧪 Testing model with sample text...")
@@ -49,7 +49,7 @@ def preload_embedding_model():
         embedding = model.encode([test_text])[0]
         test_time = time.time() - start_time
         
-        print(f"✅ Test embedding generated in {test_time*1000:.1f}ms")
+        print(f" Test embedding generated in {test_time*1000:.1f}ms")
         print(f"📊 Embedding dimensions: {len(embedding)}")
         
         # Test batch processing
@@ -66,7 +66,7 @@ def preload_embedding_model():
         batch_embeddings = model.encode(test_texts, batch_size=5)
         batch_time = time.time() - start_time
         
-        print(f"✅ Batch processing completed in {batch_time*1000:.1f}ms")
+        print(f" Batch processing completed in {batch_time*1000:.1f}ms")
         print(f"📊 Processed {len(test_texts)} texts")
         
         print("\n🎉 Model is ready for use!")
@@ -75,12 +75,12 @@ def preload_embedding_model():
         return True
         
     except Exception as e:
-        print(f"❌ Error pre-loading model: {e}")
+        print(f" Error pre-loading model: {e}")
         return False
 
 def optimize_embedding_utils():
     """Optimize the embedding utilities for better performance"""
-    print("\n🔧 Optimizing Embedding Utilities")
+    print("\n Optimizing Embedding Utilities")
     print("=" * 40)
     
     try:
@@ -94,7 +94,7 @@ def optimize_embedding_utils():
         embedding = get_embedding(test_text)
         test_time = time.time() - start_time
         
-        print(f"✅ Current function: {test_time*1000:.1f}ms")
+        print(f" Current function: {test_time*1000:.1f}ms")
         
         # Test with Redis cache
         print("🧪 Testing with Redis cache...")
@@ -103,22 +103,22 @@ def optimize_embedding_utils():
         cached_embedding = get_embedding(test_text)  # Should be cached now
         cached_time = time.time() - start_time
         
-        print(f"✅ Cached function: {cached_time*1000:.1f}ms")
+        print(f" Cached function: {cached_time*1000:.1f}ms")
         
         if cached_time < test_time * 0.1:  # 10x faster with cache
             print("🎉 Redis caching is working perfectly!")
         else:
-            print("⚠️ Redis caching could be improved")
+            print(" Redis caching could be improved")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error optimizing embedding utilities: {e}")
+        print(f" Error optimizing embedding utilities: {e}")
         return False
 
 def create_optimized_embedding_config():
     """Create optimized configuration for embedding model"""
-    print("\n🔧 Creating Optimized Configuration")
+    print("\n Creating Optimized Configuration")
     print("=" * 40)
     
     config_content = """# Optimized Embedding Configuration
@@ -146,11 +146,11 @@ EMBEDDING_PARALLEL_PROCESSING=True
     try:
         with open('.env.embedding', 'w') as f:
             f.write(config_content)
-        print("✅ Created .env.embedding configuration file")
+        print(" Created .env.embedding configuration file")
         print("💡 Add these variables to your .env file")
         return True
     except Exception as e:
-        print(f"❌ Error creating config: {e}")
+        print(f" Error creating config: {e}")
         return False
 
 def main():
@@ -160,22 +160,22 @@ def main():
     
     # Pre-load the model
     if preload_embedding_model():
-        print("\n✅ Model pre-loaded successfully!")
+        print("\n Model pre-loaded successfully!")
     else:
-        print("\n❌ Failed to pre-load model")
+        print("\n Failed to pre-load model")
         return
     
     # Optimize utilities
     if optimize_embedding_utils():
-        print("\n✅ Embedding utilities optimized!")
+        print("\n Embedding utilities optimized!")
     else:
-        print("\n⚠️ Failed to optimize utilities")
+        print("\n Failed to optimize utilities")
     
     # Create configuration
     if create_optimized_embedding_config():
-        print("\n✅ Configuration created!")
+        print("\n Configuration created!")
     else:
-        print("\n⚠️ Failed to create configuration")
+        print("\n Failed to create configuration")
     
     print("\n" + "=" * 50)
     print("🎯 Embedding optimization complete!")

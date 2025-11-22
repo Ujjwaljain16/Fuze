@@ -33,7 +33,7 @@ def get_embedding_model():
                     from utils.production_optimizations import get_cached_embedding_model
                     _embedding_model = get_cached_embedding_model()
                     _embedding_model_initialized = True
-                    logger.info("✅ Using production-optimized embedding model cache")
+                    logger.info(" Using production-optimized embedding model cache")
                     return _embedding_model
                 except ImportError:
                     # Fallback to standard initialization
@@ -49,7 +49,7 @@ def _initialize_embedding_model_robust():
 
     # Check if embeddings are disabled
     if os.environ.get('DISABLE_EMBEDDINGS', '').lower() in ('true', '1', 'yes'):
-        logger.info("🔧 Embeddings disabled by environment variable, using fallback")
+        logger.info(" Embeddings disabled by environment variable, using fallback")
         return _create_robust_fallback_embedding()
 
     # Optimize memory usage for torch
@@ -72,7 +72,7 @@ def _initialize_embedding_model_robust():
     
     for model_name in model_options:
         try:
-            logger.info(f"🔄 Attempting to load embedding model: {model_name}")
+            logger.info(f" Attempting to load embedding model: {model_name}")
             
             # Clear any corrupted cache for this model
             _clear_model_cache_if_needed(model_name)
@@ -94,14 +94,14 @@ def _initialize_embedding_model_robust():
                     raise init_error
 
             # Don't manually handle device placement - SentenceTransformer handles this internally
-            logger.info(f"✅ Model {model_name} loaded successfully")
+            logger.info(f" Model {model_name} loaded successfully")
 
             # Test the model with a simple encoding
             test_text = "test"
             try:
                 test_embedding = model.encode([test_text])
                 if test_embedding is not None and len(test_embedding) > 0:
-                    logger.info(f"🎉 Successfully loaded and tested embedding model: {model_name}")
+                    logger.info(f" Successfully loaded and tested embedding model: {model_name}")
                     return model
                 else:
                     logger.warning(f"Model {model_name} loaded but failed test encoding")
@@ -117,7 +117,7 @@ def _initialize_embedding_model_robust():
             continue
     
     # If all models fail, create a robust fallback
-    logger.error("❌ All embedding models failed to load. Creating robust fallback.")
+    logger.error(" All embedding models failed to load. Creating robust fallback.")
     with _embedding_lock:
         return _create_robust_fallback_embedding()
 
@@ -133,9 +133,9 @@ def _clear_model_cache_if_needed(model_name):
             try:
                 test_model = SentenceTransformer(model_name)
                 del test_model
-                logger.info(f"✅ Model cache for {model_name} is valid")
+                logger.info(f" Model cache for {model_name} is valid")
             except Exception:
-                logger.warning(f"🗑️ Clearing corrupted cache for {model_name}")
+                logger.warning(f" Clearing corrupted cache for {model_name}")
                 shutil.rmtree(model_cache_path, ignore_errors=True)
     except Exception as e:
         logger.warning(f"Could not check model cache: {e}")
@@ -148,7 +148,7 @@ def _force_clear_model_cache(model_name):
         model_cache_path = os.path.join(cache_dir, 'sentence_transformers', model_name)
 
         if os.path.exists(model_cache_path):
-            logger.warning(f"🗑️ Force clearing cache for {model_name} to fix meta tensor issue")
+            logger.warning(f" Force clearing cache for {model_name} to fix meta tensor issue")
             shutil.rmtree(model_cache_path, ignore_errors=True)
             # Also try to clear any related HuggingFace cache
             try:
@@ -166,13 +166,13 @@ def _force_clear_model_cache(model_name):
 
 def _create_robust_fallback_embedding():
     """Create a robust fallback embedding system"""
-    logger.info("🔧 Creating robust fallback embedding system")
+    logger.info(" Creating robust fallback embedding system")
     
     class FallbackEmbeddingModel:
         def __init__(self):
             self.dimension = 384
             self._generate_fallback_embedding = True  # Mark this as a fallback model
-            logger.info("✅ Fallback embedding model initialized")
+            logger.info(" Fallback embedding model initialized")
         
         def encode(self, texts, **kwargs):
             """Generate fallback embeddings using TF-IDF-like approach"""

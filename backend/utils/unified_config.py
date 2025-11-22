@@ -177,7 +177,7 @@ class UnifiedConfig:
         # Validate configuration
         self._validate_config()
         
-        logger.info(f"✅ Unified configuration loaded for environment: {self.environment}")
+        logger.info(f"Unified configuration loaded for environment: {self.environment}")
     
     def _validate_config(self):
         """Validate configuration values"""
@@ -203,10 +203,10 @@ class UnifiedConfig:
         
         # Log warnings and errors
         for warning in warnings:
-            logger.warning(f"⚠️ Configuration warning: {warning}")
+            logger.warning(f"Configuration warning: {warning}")
         
         for error in errors:
-            logger.error(f"❌ Configuration error: {error}")
+            logger.error(f"Configuration error: {error}")
         
         if errors and self.environment == 'production':
             raise ValueError(f"Invalid production configuration: {', '.join(errors)}")
@@ -236,9 +236,9 @@ class UnifiedConfig:
         try:
             with open(filepath, 'w') as f:
                 f.write(self.to_json())
-            logger.info(f"✅ Configuration saved to {filepath}")
+            logger.info(f"Configuration saved to {filepath}")
         except Exception as e:
-            logger.error(f"❌ Failed to save configuration: {e}")
+            logger.error(f"Failed to save configuration: {e}")
     
     def get_flask_config(self) -> Dict[str, Any]:
         """Get Flask-specific configuration"""
@@ -487,9 +487,9 @@ LOG_ENABLE_CONSOLE=true
     try:
         with open(output_file, 'w') as f:
             f.write(template)
-        print(f"✅ Generated .env template file: {output_file}")
+        print(f"Generated .env template file: {output_file}")
     except Exception as e:
-        print(f"❌ Failed to generate template: {e}")
+        print(f"Failed to generate template: {e}")
 
 # ============================================================================
 # TESTING
@@ -497,45 +497,45 @@ LOG_ENABLE_CONSOLE=true
 
 def test_config():
     """Test configuration system"""
-    print("🧪 Testing Unified Configuration System")
+    print("Testing Unified Configuration System")
     print("=" * 60)
     
     try:
         # Load configuration
         config = get_config()
-        print(f"✅ Configuration loaded for environment: {config.environment}")
+        print(f"Configuration loaded for environment: {config.environment}")
         
         # Test database config
-        print(f"\n📊 Database Configuration:")
+        print(f"\nDatabase Configuration:")
         print(f"   Pool Size: {config.database.pool_size}")
         print(f"   Max Overflow: {config.database.max_overflow}")
         print(f"   SSL Mode: {config.database.ssl_mode}")
         
         # Test ML config
-        print(f"\n🤖 ML Configuration:")
+        print(f"\nML Configuration:")
         print(f"   Embedding Model: {config.ml.embedding_model}")
         print(f"   Learning Rate: {config.ml.learning_rate}")
         print(f"   TF-IDF Max Features: {config.ml.tfidf_max_features}")
         
         # Test recommendation config
-        print(f"\n🎯 Recommendation Configuration:")
+        print(f"\nRecommendation Configuration:")
         print(f"   Max Recommendations: {config.recommendation.max_recommendations_default}")
         print(f"   Enable Diversity: {config.recommendation.enable_diversity}")
         print(f"   Cache TTL: {config.recommendation.cache_ttl_seconds}s")
         
         # Test Flask config export
         flask_config = config.get_flask_config()
-        print(f"\n⚙️ Flask Configuration Keys: {len(flask_config)}")
+        print(f"\nFlask Configuration Keys: {len(flask_config)}")
         
         # Export to JSON
         json_config = config.to_json()
-        print(f"\n📄 JSON Export Length: {len(json_config)} characters")
+        print(f"\nJSON Export Length: {len(json_config)} characters")
         
-        print("\n🎉 Configuration system test completed successfully!")
+        print("\nConfiguration system test completed successfully!")
         return True
     
     except Exception as e:
-        print(f"\n❌ Test failed: {e}")
+        print(f"\nTest failed: {e}")
         import traceback
         traceback.print_exc()
         return False

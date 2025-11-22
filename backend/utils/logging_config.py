@@ -53,7 +53,7 @@ def configure_logging(level='INFO', sqlalchemy_level='WARNING'):
     # Configure PIL
     logging.getLogger('PIL').setLevel(logging.WARNING)
     
-    print(f"✅ Logging configured: General={level}, SQLAlchemy={sqlalchemy_level}")
+    print(f"Logging configured: General={level}, SQLAlchemy={sqlalchemy_level}")
 
 def set_test_logging():
     """Configure logging for testing (minimal output)"""

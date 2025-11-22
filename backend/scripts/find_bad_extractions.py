@@ -245,12 +245,12 @@ def main():
             output_file = args.output_file if args.export_ids else 'bad_extractions_ids.txt'
             with open(output_file, 'w') as f:
                 f.write(ids_str)
-            logger.info(f"\n✅ Exported {len(results['problematic_ids'])} problematic IDs to {output_file}")
+            logger.info(f"\n Exported {len(results['problematic_ids'])} problematic IDs to {output_file}")
             logger.info("   You can use these IDs with the re-scrape script to fix them")
             logger.info(f"   Run: python backend/scripts/rescrape_specific_bookmarks.py --ids-file {output_file}")
         
         logger.info("\n" + "=" * 80)
-        logger.info("✅ ANALYSIS COMPLETE!")
+        logger.info(" ANALYSIS COMPLETE!")
         logger.info("=" * 80)
         logger.info("\nNext steps:")
         logger.info("1. Review the problematic bookmarks above")

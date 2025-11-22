@@ -216,10 +216,10 @@ ALERT_ON_QUOTA_REACHED = True
     try:
         with open("rate_limit_config.py", 'w') as f:
             f.write(config_content)
-        logger.info("✅ Created rate_limit_config.py")
+        logger.info(" Created rate_limit_config.py")
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to create rate limit config: {e}")
+        logger.error(f" Failed to create rate limit config: {e}")
         return False
 
 if __name__ == "__main__":
@@ -233,4 +233,4 @@ if __name__ == "__main__":
     status = gemini_rate_limiter.get_status()
     print(f"Rate limiting status: {status}")
     
-    print("✅ Rate limiting setup complete!") 
+    print(" Rate limiting setup complete!") 

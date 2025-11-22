@@ -90,7 +90,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-white">
-              {forceApiKey ? 'Setup Required' : 'Welcome to Fuze! 🎉'}
+              {forceApiKey ? 'Setup Required' : 'Welcome to Fuze!'}
             </h2>
             <span className="text-sm text-gray-400">
               {forceApiKey ? 'Complete setup to continue' : `Step ${currentStep} of 3`}
@@ -183,9 +183,9 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                 <div className={`${forceApiKey ? 'bg-red-500/10 border border-red-500/20' : 'bg-yellow-500/10 border border-yellow-500/20'} rounded-lg p-4 space-y-3`}>
                   <p className={`${forceApiKey ? 'text-red-400' : 'text-yellow-400'} text-sm`}>
                     {forceApiKey ? (
-                      <>🔐 API key setup is required to access the platform. Please add your API key in your profile.</>
+                      <>API key setup is required to access the platform. Please add your API key in your profile.</>
                     ) : (
-                      <>💡 You can add your API key later in Settings → Profile, but we recommend doing it now for the best experience.</>
+                      <>You can add your API key later in Settings → Profile, but we recommend doing it now for the best experience.</>
                     )}
                   </p>
                   <button
@@ -266,7 +266,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                     </a>
                   </div>
                   <p className="text-gray-400 text-sm">
-                    💡 Extension installation instructions will be shown after download
+                    Extension installation instructions will be shown after download
                   </p>
                 </div>
               </div>
@@ -280,7 +280,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   <Sparkles className="w-8 h-8 text-green-400" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-semibold text-white">You're All Set! 🚀</h3>
+                  <h3 className="text-xl font-semibold text-white">You're All Set!</h3>
                   <p className="text-gray-400">Start exploring Fuze</p>
                 </div>
               </div>
@@ -327,7 +327,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
 
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
                 <p className="text-blue-400 text-sm">
-                  💡 <strong>Tip:</strong> Don't forget to add your API key in Settings → Profile if you haven't already!
+                  <strong>Tip:</strong> Don't forget to add your API key in Settings → Profile if you haven't already!
                 </p>
               </div>
             </div>

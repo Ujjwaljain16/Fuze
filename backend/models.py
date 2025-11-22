@@ -44,12 +44,12 @@ def ensure_user_metadata_column():
                     ADD COLUMN user_metadata JSON;
                 """))
                 db.session.commit()
-                print("✅ Column 'user_metadata' added successfully")
+                print("Column 'user_metadata' added successfully")
             except Exception as add_error:
                 # If column already exists (race condition), that's fine
                 error_str = str(add_error).lower()
                 if 'already exists' in error_str or 'duplicate' in error_str:
-                    print("✅ Column 'user_metadata' already exists")
+                    print("Column 'user_metadata' already exists")
                     db.session.rollback()
                 else:
                     raise

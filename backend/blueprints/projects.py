@@ -266,25 +266,25 @@ def update_project(project_id):
 
                 logger.info(f"Is zero vector: {is_zero_vector}")
                 if not is_zero_vector:
-                    logger.info(f"✅ Regenerated embedding for updated project: {project.title}")
+                    logger.info(f" Regenerated embedding for updated project: {project.title}")
                 else:
                     logger.warning(f"Generated zero vector embedding for project: {project.title}")
         except Exception as embedding_error:
-            logger.warning(f"❌ Embedding regeneration failed for updated project: {str(embedding_error)}")
+            logger.warning(f" Embedding regeneration failed for updated project: {str(embedding_error)}")
             logger.warning(f"Error details: {repr(embedding_error)}")
             # Don't fail the project update if embedding regeneration fails
 
         # Commit all changes (project updates + embedding)
         logger.info(f"Committing changes for project: {project.title}, embedding exists: {project.embedding is not None}")
         db.session.commit()
-        logger.info(f"✅ Commit successful, checking if embedding persisted...")
+        logger.info(f" Commit successful, checking if embedding persisted...")
 
         # Verify embedding was saved
         committed_project = Project.query.get(project.id)
         if committed_project and committed_project.embedding is not None:
-            logger.info(f"✅ Embedding successfully saved to database for project: {project.title}")
+            logger.info(f" Embedding successfully saved to database for project: {project.title}")
         else:
-            logger.error(f"❌ Embedding NOT saved to database for project: {project.title}")
+            logger.error(f" Embedding NOT saved to database for project: {project.title}")
 
         # Invalidate caches using comprehensive cache invalidation service
         try:

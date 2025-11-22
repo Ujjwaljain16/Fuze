@@ -37,7 +37,7 @@ try:
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False
-    logger.warning("⚠️ Models not available for context endpoints")
+    logger.warning("Models not available for context endpoints")
 
 # Initialize global flags for engine availability
 UNIFIED_ORCHESTRATOR_AVAILABLE = False
@@ -75,9 +75,9 @@ def init_engines():
     try:
         from ml.unified_recommendation_orchestrator import get_unified_orchestrator
         UNIFIED_ORCHESTRATOR_AVAILABLE = True
-        logger.info("✅ Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
+        logger.info("Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
     except ImportError as e:
-        logger.error(f"❌ Unified orchestrator not available: {e}")
+        logger.error(f"Unified orchestrator not available: {e}")
         UNIFIED_ORCHESTRATOR_AVAILABLE = False
 
 
@@ -2067,12 +2067,12 @@ def init_recommendations_blueprint():
         logger.error(f"Error initializing engines: {e}")
     
     # Log engine availability
-    logger.info(f"Unified Engine: {'✅ Available' if UNIFIED_ENGINE_AVAILABLE else '❌ Not Available'}")
-    logger.info(f"Smart Engine: {'✅ Available' if SMART_ENGINE_AVAILABLE else '❌ Not Available'}")
-    logger.info(f"Enhanced Engine: {'✅ Available' if ENHANCED_ENGINE_AVAILABLE else '❌ Not Available'}")
-    logger.info(f"Phase 3 Engine: {'✅ Available' if PHASE3_ENGINE_AVAILABLE else '❌ Not Available'}")
-    logger.info(f"Fast Gemini Engine: {'✅ Available' if FAST_GEMINI_AVAILABLE else '❌ Not Available'}")
-    logger.info(f"Enhanced Modules: {'✅ Available' if ENHANCED_MODULES_AVAILABLE else '❌ Not Available'}")
+    logger.info(f"Unified Engine: {'Available' if UNIFIED_ENGINE_AVAILABLE else 'Not Available'}")
+    logger.info(f"Smart Engine: {'Available' if SMART_ENGINE_AVAILABLE else 'Not Available'}")
+    logger.info(f"Enhanced Engine: {'Available' if ENHANCED_ENGINE_AVAILABLE else 'Not Available'}")
+    logger.info(f"Phase 3 Engine: {'Available' if PHASE3_ENGINE_AVAILABLE else 'Not Available'}")
+    logger.info(f"Fast Gemini Engine: {'Available' if FAST_GEMINI_AVAILABLE else 'Not Available'}")
+    logger.info(f"Enhanced Modules: {'Available' if ENHANCED_MODULES_AVAILABLE else 'Not Available'}")
     
     logger.info(f"Total engines available: {sum([UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE, PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE])}")
     

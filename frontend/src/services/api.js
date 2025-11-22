@@ -13,7 +13,7 @@ const getBaseURL = () => {
     // Production: Use environment variable (required)
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) {
-      console.error('⚠️ VITE_API_URL environment variable is not set in production!')
+      console.error('VITE_API_URL environment variable is not set in production!')
       throw new Error('API URL not configured. Please set VITE_API_URL environment variable.')
     }
     return apiUrl
@@ -24,7 +24,7 @@ const baseURL = getBaseURL()
 
 // Only log in development
 if (import.meta.env.DEV) {
-  console.log('🌐 API Base URL:', baseURL)
+  console.log('API Base URL:', baseURL)
   console.log('🏠 Current hostname:', window.location.hostname)
 }
 
@@ -163,13 +163,13 @@ export const initializeCSRF = async () => {
     clearTimeout(timeoutId)
     csrfToken = response.data.csrf_token
     if (import.meta.env.DEV) {
-      console.log('🔐 CSRF token initialized')
+      console.log('CSRF token initialized')
     }
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.warn('⚠️ CSRF token request timed out, continuing without CSRF')
+      console.warn('CSRF token request timed out, continuing without CSRF')
     } else {
-      console.warn('⚠️ CSRF token initialization failed, continuing without CSRF:', error.message)
+      console.warn('CSRF token initialization failed, continuing without CSRF:', error.message)
     }
     csrfToken = 'csrf_disabled'
   }

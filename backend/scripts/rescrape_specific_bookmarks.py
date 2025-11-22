@@ -113,7 +113,7 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         scraped = scrape_url_enhanced(bookmark.url)
 
                         if not scraped:
-                            logger.warning(f"  ❌ No result from scraper")
+                            logger.warning(f"   No result from scraper")
                             failed += 1
                             continue
 
@@ -168,18 +168,18 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                     try:
                         embedding = get_embedding(content_for_embedding)
                         bookmark.embedding = embedding
-                        logger.info(f"  ✅ Generated embedding from {len(content_for_embedding)} chars (title: {len(bookmark.title or '')} chars, text: {len(extracted_text or '')} chars)")
+                        logger.info(f"   Generated embedding from {len(content_for_embedding)} chars (title: {len(bookmark.title or '')} chars, text: {len(extracted_text or '')} chars)")
                     except Exception as embed_error:
-                        logger.error(f"  ❌ Embedding generation failed: {embed_error}")
+                        logger.error(f"   Embedding generation failed: {embed_error}")
                         # Don't leave embedding as None - use a fallback
                         try:
                             fallback_content = f"{bookmark.title or 'Unknown'} {bookmark.url or ''}".strip()
                             if fallback_content:
                                 embedding = get_embedding(fallback_content)
                                 bookmark.embedding = embedding
-                                logger.info(f"  ✅ Generated fallback embedding from {len(fallback_content)} chars")
+                                logger.info(f"   Generated fallback embedding from {len(fallback_content)} chars")
                         except Exception as fallback_error:
-                            logger.error(f"  ❌ Fallback embedding also failed: {fallback_error}")
+                            logger.error(f"   Fallback embedding also failed: {fallback_error}")
                     
                     # Commit in batches
                     if i % batch_size == 0:
@@ -187,7 +187,7 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         logger.info(f"  💾 Committed batch ({i}/{total})")
                     
                     successful += 1
-                    logger.info(f"  ✅ Quality: {quality_score}, Content: {len(extracted_text)} chars")
+                    logger.info(f"   Quality: {quality_score}, Content: {len(extracted_text)} chars")
                     
                     # Rate limiting delay
                     if delay > 0 and i < total:
@@ -195,7 +195,7 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         time.sleep(delay)
                     
                 except Exception as e:
-                    logger.error(f"  ❌ Error scraping {bookmark.url}: {e}")
+                    logger.error(f"   Error scraping {bookmark.url}: {e}")
                     failed += 1
                     db.session.rollback()
                     continue
@@ -208,9 +208,9 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
             logger.info("RE-SCRAPING SUMMARY")
             logger.info("=" * 80)
             logger.info(f"Total bookmarks: {total}")
-            logger.info(f"✅ Successful: {successful}")
-            logger.info(f"❌ Failed: {failed}")
-            logger.info(f"⏭️  Skipped: {skipped}")
+            logger.info(f" Successful: {successful}")
+            logger.info(f" Failed: {failed}")
+            logger.info(f"  Skipped: {skipped}")
             logger.info(f"Success rate: {(successful/total*100):.1f}%")
             
             # Quality statistics
@@ -297,7 +297,7 @@ def main():
         
         logger.info("")
         logger.info("=" * 80)
-        logger.info("✅ COMPLETE!")
+        logger.info(" COMPLETE!")
         logger.info("=" * 80)
         logger.info("Next steps:")
         logger.info("1. Background analysis will process the newly extracted content")

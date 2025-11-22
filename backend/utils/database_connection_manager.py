@@ -37,7 +37,7 @@ def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[st
             addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
             if addresses:
                 ipv4_address = addresses[0][4][0]
-                logger.info(f"✅ Resolved {hostname} to IPv4 (method 1): {ipv4_address}")
+                logger.info(f" Resolved {hostname} to IPv4 (method 1): {ipv4_address}")
                 return ipv4_address
         except socket.gaierror as e:
             logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 1) failed: {e}")
@@ -46,7 +46,7 @@ def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[st
             # Method 2: Use gethostbyname (legacy, but sometimes works when getaddrinfo fails)
             ipv4_address = socket.gethostbyname(hostname)
             if ipv4_address:
-                logger.info(f"✅ Resolved {hostname} to IPv4 (method 2): {ipv4_address}")
+                logger.info(f" Resolved {hostname} to IPv4 (method 2): {ipv4_address}")
                 return ipv4_address
         except socket.gaierror as e:
             logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 2) failed: {e}")
@@ -55,7 +55,7 @@ def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[st
         if attempt < max_retries - 1:
             time.sleep(1)
     
-    logger.warning(f"⚠️ Failed to resolve {hostname} to IPv4 after {max_retries} attempts")
+    logger.warning(f" Failed to resolve {hostname} to IPv4 after {max_retries} attempts")
     return None
 
 class DatabaseConnectionManager:
@@ -80,20 +80,20 @@ class DatabaseConnectionManager:
             ipv6_addresses = [addr[4][0] for addr in addresses if addr[0] == socket.AF_INET6]
             
             if ipv4_addresses:
-                logger.info(f"✅ Resolved {hostname} to IPv4: {ipv4_addresses[0]}")
+                logger.info(f" Resolved {hostname} to IPv4: {ipv4_addresses[0]}")
                 return ipv4_addresses[0]
             elif ipv6_addresses:
-                logger.info(f"✅ Resolved {hostname} to IPv6: {ipv6_addresses[0]}")
+                logger.info(f" Resolved {hostname} to IPv6: {ipv6_addresses[0]}")
                 return ipv6_addresses[0]
             else:
-                logger.warning(f"❌ Could not resolve {hostname} to any IP address")
+                logger.warning(f" Could not resolve {hostname} to any IP address")
                 return None
                 
         except socket.gaierror as e:
-            logger.error(f"❌ DNS resolution failed for {hostname}: {e}")
+            logger.error(f" DNS resolution failed for {hostname}: {e}")
             return None
         except Exception as e:
-            logger.error(f"❌ Unexpected error resolving {hostname}: {e}")
+            logger.error(f" Unexpected error resolving {hostname}: {e}")
             return None
     
     def _resolve_hostname_with_fallback(self, hostname: str) -> Optional[str]:
@@ -103,13 +103,13 @@ class DatabaseConnectionManager:
             addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
             if addresses:
                 ipv4_address = addresses[0][4][0]
-                logger.info(f"✅ Resolved {hostname} to IPv4: {ipv4_address}")
+                logger.info(f" Resolved {hostname} to IPv4: {ipv4_address}")
                 return ipv4_address
         except Exception as e:
-            logger.warning(f"⚠️ IPv4 resolution failed for {hostname}: {e}")
+            logger.warning(f" IPv4 resolution failed for {hostname}: {e}")
         
         # Don't try IPv6 - it causes "Network is unreachable" errors on Render
-        logger.warning(f"⚠️ IPv4 resolution failed, will use hostname directly instead of IPv6")
+        logger.warning(f" IPv4 resolution failed, will use hostname directly instead of IPv6")
         return None
     
     def _validate_database_url(self, url: str) -> bool:
@@ -149,7 +149,7 @@ class DatabaseConnectionManager:
             return True
             
         except Exception as e:
-            logger.warning(f"⚠️ URL validation error: {e}")
+            logger.warning(f" URL validation error: {e}")
             return False
     
     def _get_database_url(self) -> str:
@@ -169,7 +169,7 @@ class DatabaseConnectionManager:
                 # netloc format: user:password@host:port
                 netloc = parsed.netloc
                 if not netloc:
-                    logger.warning("⚠️ Could not extract netloc from DATABASE_URL, skipping IPv4 resolution")
+                    logger.warning(" Could not extract netloc from DATABASE_URL, skipping IPv4 resolution")
                     return database_url
                 
                 # Split credentials and host:port
@@ -229,7 +229,7 @@ class DatabaseConnectionManager:
                             hostname = host_port_part[1:bracket_end]
                             port_part = host_port_part[bracket_end + 1:]  # Includes the ':'
                         else:
-                            logger.warning("⚠️ Malformed IPv6 address in URL, skipping IPv4 resolution")
+                            logger.warning(" Malformed IPv6 address in URL, skipping IPv4 resolution")
                             return database_url
                     else:
                         # Regular hostname:port format - split from right
@@ -246,7 +246,7 @@ class DatabaseConnectionManager:
                 
                 # Validate hostname - should not contain @, :, or be empty
                 if '@' in hostname or ':' in hostname or hostname.strip() == '':
-                    logger.warning(f"⚠️ Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
+                    logger.warning(f" Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
                     logger.debug(f"   Original netloc: {netloc}, host_port_part: {host_port_part}")
                     return database_url
                 
@@ -268,20 +268,20 @@ class DatabaseConnectionManager:
                     
                     # Validate the new URL
                     if self._validate_database_url(new_url):
-                        logger.info(f"✅ Updated DATABASE_URL to use IPv4 address: {ip_address}")
+                        logger.info(f" Updated DATABASE_URL to use IPv4 address: {ip_address}")
                         return new_url
                     else:
-                        logger.warning(f"⚠️ Generated IPv4 URL is malformed, using original")
+                        logger.warning(f" Generated IPv4 URL is malformed, using original")
                 else:
                     # IPv4 resolution failed - log warning but continue with hostname
-                    logger.warning(f"⚠️ IPv4 resolution failed for {hostname} - connection may fail on Render.com")
+                    logger.warning(f" IPv4 resolution failed for {hostname} - connection may fail on Render.com")
                     logger.warning(f"   This is likely due to network configuration issues")
                 
                 # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
                 logger.info(f"ℹ️ Using hostname directly: {hostname} (IPv4 resolution failed)")
                         
             except Exception as e:
-                logger.warning(f"⚠️ Error processing DATABASE_URL: {e}")
+                logger.warning(f" Error processing DATABASE_URL: {e}")
                 logger.debug(f"   Exception details: {type(e).__name__}: {str(e)}")
                 import traceback
                 logger.debug(f"   Traceback: {traceback.format_exc()}")
@@ -301,7 +301,7 @@ class DatabaseConnectionManager:
         
         # Check if the URL contains IPv6 addresses (shouldn't happen with our new logic, but safety check)
         if '[' in database_url and ']' in database_url:
-            logger.error("❌ IPv6 address detected in database URL - this will cause connection failures")
+            logger.error(" IPv6 address detected in database URL - this will cause connection failures")
             logger.error("   IPv6 connections are not supported. Please use hostname or IPv4 address.")
             # Extract hostname from original URL and use that instead
             try:
@@ -318,7 +318,7 @@ class DatabaseConnectionManager:
                         # Unfortunately we can't recover it, so we'll let it fail and log the error
                         logger.error("   Cannot recover hostname from IPv6 URL. Connection will likely fail.")
             except Exception as e:
-                logger.warning(f"⚠️ Error processing IPv6 address: {e}")
+                logger.warning(f" Error processing IPv6 address: {e}")
         
         # Update SSL mode in connection string (only for PostgreSQL)
         if not is_sqlite:
@@ -438,7 +438,7 @@ class DatabaseConnectionManager:
                 test_engine = self._create_engine(ssl_mode)
                 
                 if self._test_connection(test_engine):
-                    logger.info(f"✅ SSL mode '{ssl_mode}' works")
+                    logger.info(f" SSL mode '{ssl_mode}' works")
                     test_engine.dispose()
                     return ssl_mode
                 
@@ -490,7 +490,7 @@ class DatabaseConnectionManager:
             )
             
             if self._test_connection(test_engine):
-                logger.info("✅ SSL mode 'allow' works")
+                logger.info(" SSL mode 'allow' works")
                 test_engine.dispose()
                 return 'allow'
             
@@ -644,7 +644,7 @@ class DatabaseConnectionManager:
                 raise Exception("Created engine but connection test failed")
             
             self._last_connection_test = current_time
-            logger.info(f"✅ Database engine created successfully with SSL mode: {working_ssl_mode}")
+            logger.info(f" Database engine created successfully with SSL mode: {working_ssl_mode}")
             
             return self._engine
     
@@ -758,13 +758,13 @@ if __name__ == "__main__":
     try:
         # Test connection
         if test_database_connection():
-            print("✅ Database connection successful")
+            print(" Database connection successful")
             
             # Get connection info
             info = get_database_info()
             print(f"Connection info: {info}")
         else:
-            print("❌ Database connection failed")
+            print(" Database connection failed")
             
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")

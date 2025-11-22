@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome, Home } from 'lucide-react';
+import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome, Home, AlertTriangle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/Button';
@@ -161,7 +161,7 @@ export default function FuzeAuth() {
         const identifier = formData.email || formData.username;
         const result = await login(identifier, formData.password);
         if (result.success) {
-          setSuccess('✅ Logged in successfully! Redirecting to dashboard...');
+          setSuccess('Logged in successfully! Redirecting to dashboard...');
           // Wait a bit for auth state to update, then navigate
           setTimeout(() => {
             navigate('/dashboard');
@@ -210,7 +210,7 @@ export default function FuzeAuth() {
 
         const result = await register(formData.username, formData.email, formData.password, formData.name);
         if (result.success) {
-          setSuccess('✅ Sign up complete! Please log in to continue.');
+          setSuccess('Sign up complete! Please log in to continue.');
           // Clear form
           setFormData({
             name: '',
@@ -486,7 +486,7 @@ export default function FuzeAuth() {
                 animation: 'fadeIn 0.3s ease-in'
               }}>
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-lg">⚠️</span>
+                  <AlertTriangle className="w-5 h-5" />
                   <span>{error}</span>
                 </div>
               </div>

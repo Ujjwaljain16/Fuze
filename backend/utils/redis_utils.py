@@ -34,9 +34,9 @@ class RedisCache:
                 self.redis_client.ping()
                 self.connected = True
                 ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
-                print(f"✅ Redis connected successfully via REDIS_URL ({ssl_status})")
+                print(f"Redis connected successfully via REDIS_URL ({ssl_status})")
             except Exception as e:
-                print(f"⚠️ Redis connection via REDIS_URL failed: {e}")
+                print(f"Redis connection via REDIS_URL failed: {e}")
                 self.connected = False
                 self.redis_client = None
         else:
@@ -51,7 +51,7 @@ class RedisCache:
             # Auto-detect TLS for common cloud providers
             if not use_ssl and any(provider in self.redis_host for provider in ['upstash.io', 'redislabs.com', 'redis.cache']):
                 use_ssl = True
-                print("🔒 Auto-detected TLS requirement for cloud Redis provider")
+                print("Auto-detected TLS requirement for cloud Redis provider")
             
             try:
                 connection_params = {
@@ -75,9 +75,9 @@ class RedisCache:
                 self.redis_client.ping()
                 self.connected = True
                 ssl_status = "with TLS" if use_ssl else "without TLS"
-                print(f"✅ Redis connected successfully {ssl_status}")
+                print(f"Redis connected successfully {ssl_status}")
             except Exception as e:
-                print(f"⚠️ Redis connection failed: {e}")
+                print(f"Redis connection failed: {e}")
                 self.connected = False
                 self.redis_client = None
     

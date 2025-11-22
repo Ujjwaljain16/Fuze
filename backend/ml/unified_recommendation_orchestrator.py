@@ -218,7 +218,7 @@ class UnifiedDataLayer:
                 from utils.embedding_utils import get_embedding_model
                 self._embedding_model = get_embedding_model()
                 if self._embedding_model is not None:
-                    logger.info("✅ Using global embedding model from embedding_utils (lazy-loaded)")
+                    logger.info("Using global embedding model from embedding_utils (lazy-loaded)")
                     return
             except ImportError:
                 logger.info("Global embedding model not available, using local initialization")
@@ -232,7 +232,7 @@ class UnifiedDataLayer:
                 self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
                 # Don't manually handle device placement - SentenceTransformer handles this internally
-                logger.info("✅ Embedding model loaded - SentenceTransformer handles device placement automatically")
+                logger.info("Embedding model loaded - SentenceTransformer handles device placement automatically")
 
                 logger.info("Γ£à Local embedding model loaded successfully")
             except Exception as network_error:
@@ -426,8 +426,8 @@ class UnifiedDataLayer:
             
             # Count how many have content analysis
             analyzed_count = sum(1 for c, a in user_content if a is not None)
-            logger.info(f"✅ Using ContentAnalysis for {analyzed_count}/{len(user_content)} items from DB")
-            logger.info(f"📊 Content pool: {len(user_content)} total items (quality_score >= 1, using ALL saved content)")
+            logger.info(f"Using ContentAnalysis for {analyzed_count}/{len(user_content)} items from DB")
+            logger.info(f"Content pool: {len(user_content)} total items (quality_score >= 1, using ALL saved content)")
             
             # OPTIMIZATION 5: Batch process content normalization
             content_list = []
@@ -1357,7 +1357,7 @@ class ContextAwareEngine:
                             semantic_scores[content['id']] = similarity
                         else:
                             semantic_scores[content['id']] = 0.5
-                    logger.info(f"✅ Semantic similarities calculated using DB embeddings for {len(semantic_scores)} items")
+                    logger.info(f"Semantic similarities calculated using DB embeddings for {len(semantic_scores)} items")
                 else:
                     logger.warning("Query embedding generation failed, using fallback")
             except Exception as e:
@@ -1387,7 +1387,7 @@ class ContextAwareEngine:
                     content_text = f"{content['title']} {content.get('extracted_text', '')[:500]} {' '.join(content.get('technologies', []))}"
                     ml_score = calculate_tfidf_similarity(query_text, content_text)
                     ml_scores[content['id']] = ml_score
-                logger.info(f"✅ ML (TF-IDF) scores calculated for {len(ml_scores)} items")
+                logger.info(f"ML (TF-IDF) scores calculated for {len(ml_scores)} items")
             except Exception as e:
                 logger.debug(f"ML scoring skipped: {e}")
 
@@ -1472,7 +1472,7 @@ class ContextAwareEngine:
                         if best_similarity > 0:
                             context_enhanced_scores[content_id] = best_similarity
 
-                    logger.info(f"✅ Context-enhanced semantic similarity calculated for {len(context_enhanced_scores)} items")
+                    logger.info(f"Context-enhanced semantic similarity calculated for {len(context_enhanced_scores)} items")
             except Exception as e:
                 logger.warning(f"Context-enhanced semantic similarity failed: {e}")
 
@@ -2417,7 +2417,7 @@ class UnifiedRecommendationOrchestrator:
             try:
                 intent = analyze_user_intent(user_input, request.project_id)
             except Exception as e:
-                logger.warning(f"⚠️ Intent analysis failed (likely quota): {e}, using fallback")
+                logger.warning(f"Intent analysis failed (likely quota): {e}, using fallback")
                 from intent_analysis_engine import get_fallback_intent
                 intent = get_fallback_intent(user_input, request.project_id)
             

@@ -44,11 +44,11 @@ def main():
             if current_key:
                 print(f"Current API key (first 10 chars): {current_key[:10]}...")
                 if current_key == api_key:
-                    print("✅ API key matches! No update needed.")
+                    print("API key matches! No update needed.")
                     # Still update to ensure it's fresh in cache
                     print("Refreshing cache...")
                 else:
-                    print("⚠️  API key differs. Updating...")
+                    print("API key differs. Updating...")
             else:
                 print("No API key found. Adding new one...")
             
@@ -89,7 +89,7 @@ def main():
                             print("Directly updated database to ensure key is saved")
             
             if success:
-                print(f"✅ Successfully added API key for user {user_id}")
+                print(f"Successfully added API key for user {user_id}")
                 
                 # Force flush and commit to ensure database is updated
                 db.session.flush()
@@ -139,24 +139,24 @@ def main():
                                     print(f"   Decrypted key (first 15): {decrypted_test[:15]}...")
                                     print(f"   Decrypted key hash (first 10): {test_hash[:10]}...")
                                     if test_hash == expected_hash:
-                                        print("   ✅ Decryption works! Encrypted key is correct.")
+                                        print("   Decryption works! Encrypted key is correct.")
                                     else:
-                                        print("   ⚠️  Decryption gives wrong key! Encrypted value might be old.")
+                                        print("   Decryption gives wrong key! Encrypted value might be old.")
                             
                             if db_hash == expected_hash:
-                                print("   ✅ Hash matches! Database has correct key.")
+                                print("   Hash matches! Database has correct key.")
                             else:
-                                print("   ⚠️  Hash mismatch! Database might have old key.")
+                                print("   Hash mismatch! Database might have old key.")
                                 print(f"   Full DB hash: {db_hash}")
                                 print(f"   Full expected: {expected_hash}")
                 
                 print("\nVerifying saved API key (fresh from database)...")
                 saved_key = get_user_api_key(user_id)
                 if saved_key == api_key:
-                    print("✅ Verification successful! API key is correctly stored.")
+                    print("Verification successful! API key is correctly stored.")
                     print(f"   Key (first 15 chars): {saved_key[:15]}...")
                 else:
-                    print(f"⚠️  Warning: Saved key doesn't match!")
+                    print(f"Warning: Saved key doesn't match!")
                     print(f"   Expected (first 15): {api_key[:15]}...")
                     print(f"   Got (first 15): {saved_key[:15] if saved_key else 'None'}...")
                     print(f"\n   This might indicate:")
@@ -164,11 +164,11 @@ def main():
                     print(f"   2. Encryption/decryption issue")
                     print(f"   3. Cache not cleared properly")
             else:
-                print(f"❌ Failed to add API key for user {user_id}")
+                print(f"Failed to add API key for user {user_id}")
                 sys.exit(1)
                 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

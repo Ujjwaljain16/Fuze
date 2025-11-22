@@ -101,7 +101,7 @@ def create_indexes(db, use_concurrent: bool = False):
         db: SQLAlchemy database instance
         use_concurrent: Use CONCURRENTLY for PostgreSQL (requires autocommit mode)
     """
-    logger.info("🔧 Creating production database indexes...")
+    logger.info(" Creating production database indexes...")
     
     inspector = inspect(db.engine)
     existing_indexes = set()
@@ -124,7 +124,7 @@ def create_indexes(db, use_concurrent: bool = False):
     for table_name, index_sqls in PRODUCTION_INDEXES.items():
         # Check if table exists
         if table_name not in inspector.get_table_names():
-            logger.warning(f"⚠️ Table {table_name} does not exist, skipping indexes")
+            logger.warning(f" Table {table_name} does not exist, skipping indexes")
             continue
         
         for index_sql in index_sqls:
@@ -133,7 +133,7 @@ def create_indexes(db, use_concurrent: bool = False):
                 index_name = index_sql.split('idx_')[1].split()[0] if 'idx_' in index_sql else None
                 
                 if index_name and index_name in existing_indexes:
-                    logger.debug(f"⏭️ Index {index_name} already exists, skipping")
+                    logger.debug(f" Index {index_name} already exists, skipping")
                     skipped_count += 1
                     continue
                 
@@ -147,7 +147,7 @@ def create_indexes(db, use_concurrent: bool = False):
                     final_sql = final_sql.replace('IF NOT EXISTS', '')
                     
                     # CONCURRENTLY requires autocommit - use raw psycopg2 connection
-                    logger.info(f"📝 Creating index (CONCURRENTLY): {index_name or 'unnamed'}")
+                    logger.info(f" Creating index (CONCURRENTLY): {index_name or 'unnamed'}")
                     try:
                         # Get raw psycopg2 connection directly
                         raw_conn = db.engine.raw_connection()
@@ -175,7 +175,7 @@ def create_indexes(db, use_concurrent: bool = False):
                         raise conn_error
                 else:
                     # Regular index creation (can use transaction)
-                    logger.info(f"📝 Creating index: {index_name or 'unnamed'}")
+                    logger.info(f" Creating index: {index_name or 'unnamed'}")
                     db.session.execute(text(final_sql))
                     db.session.commit()
                 
@@ -190,11 +190,11 @@ def create_indexes(db, use_concurrent: bool = False):
                 
                 # Ignore "already exists" errors
                 if 'already exists' in error_msg or 'duplicate' in error_msg:
-                    logger.debug(f"⏭️ Index already exists (error: {e})")
+                    logger.debug(f" Index already exists (error: {e})")
                     skipped_count += 1
                     error_count -= 1  # Don't count as error
                 elif 'concurrent' in error_msg and ('transaction' in error_msg or 'cannot run' in error_msg):
-                    logger.warning(f"⚠️ CONCURRENTLY failed (transaction issue), retrying without CONCURRENTLY: {e}")
+                    logger.warning(f" CONCURRENTLY failed (transaction issue), retrying without CONCURRENTLY: {e}")
                     # Retry without CONCURRENTLY
                     try:
                         retry_sql = index_sql.replace('CONCURRENTLY', '').replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX IF NOT EXISTS')
@@ -207,17 +207,17 @@ def create_indexes(db, use_concurrent: bool = False):
                     except Exception as retry_error:
                         retry_error_msg = str(retry_error).lower()
                         if 'already exists' in retry_error_msg:
-                            logger.debug(f"⏭️ Index already exists: {retry_error}")
+                            logger.debug(f" Index already exists: {retry_error}")
                             skipped_count += 1
                             error_count -= 1
                         else:
-                            logger.error(f"❌ Failed to create index even without CONCURRENTLY: {retry_error}")
+                            logger.error(f" Failed to create index even without CONCURRENTLY: {retry_error}")
                 else:
-                    logger.error(f"❌ Failed to create index: {e}")
+                    logger.error(f" Failed to create index: {e}")
                     if not needs_concurrent:
                         db.session.rollback()
     
-    logger.info(f"✅ Index creation complete:")
+    logger.info(f" Index creation complete:")
     logger.info(f"   Created: {created_count}")
     logger.info(f"   Skipped: {skipped_count}")
     logger.info(f"   Errors: {error_count}")
@@ -230,7 +230,7 @@ def create_indexes(db, use_concurrent: bool = False):
 
 def verify_indexes(db):
     """Verify that critical indexes exist"""
-    logger.info("🔍 Verifying critical indexes...")
+    logger.info(" Verifying critical indexes...")
     
     inspector = inspect(db.engine)
     all_indexes = {}
@@ -249,7 +249,7 @@ def verify_indexes(db):
     missing_indexes = []
     for table, required_indexes in critical_indexes.items():
         if table not in all_indexes:
-            logger.warning(f"⚠️ Table {table} not found in database")
+            logger.warning(f" Table {table} not found in database")
             missing_indexes.extend([f"{table}.{idx}" for idx in required_indexes])
         else:
             for idx in required_indexes:
@@ -257,13 +257,13 @@ def verify_indexes(db):
                     missing_indexes.append(f"{table}.{idx}")
     
     if missing_indexes:
-        logger.warning(f"⚠️ Missing critical indexes: {missing_indexes}")
-        logger.info("💡 These indexes will be created on next run or can be created manually")
+        logger.warning(f" Missing critical indexes: {missing_indexes}")
+        logger.info(" These indexes will be created on next run or can be created manually")
         # Don't fail verification - these are important but not critical for basic operation
         # They'll be created by the index creation function
         return len(missing_indexes) == 0
     else:
-        logger.info("✅ All critical indexes verified")
+        logger.info(" All critical indexes verified")
         return True
 
 if __name__ == "__main__":
@@ -275,7 +275,7 @@ if __name__ == "__main__":
         is_postgresql = 'postgresql' in database_url or 'postgres' in database_url
         
         if not is_postgresql:
-            logger.warning("⚠️ Not using PostgreSQL - vector indexes will be skipped")
+            logger.warning(" Not using PostgreSQL - vector indexes will be skipped")
             # Remove vector index SQLs
             for table_indexes in PRODUCTION_INDEXES.values():
                 table_indexes[:] = [idx for idx in table_indexes if 'vector' not in idx.lower()]
@@ -286,5 +286,5 @@ if __name__ == "__main__":
         # Verify
         verify_indexes(db)
         
-        logger.info("🎉 Database index optimization complete!")
+        logger.info(" Database index optimization complete!")
 

@@ -24,7 +24,7 @@ const API_ENDPOINTS = [
 
 // Install event - cache static files
 self.addEventListener('install', (event) => {
-  console.log('🔄 Service Worker installing...');
+  console.log(' Service Worker installing...');
   
   event.waitUntil(
     caches.open(STATIC_CACHE)
@@ -33,18 +33,18 @@ self.addEventListener('install', (event) => {
         return cache.addAll(STATIC_FILES);
       })
       .then(() => {
-        console.log('✅ Static files cached');
+        console.log('Static files cached');
         return self.skipWaiting();
       })
       .catch((error) => {
-        console.error('❌ Cache installation failed:', error);
+        console.error(' Cache installation failed:', error);
       })
   );
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('🚀 Service Worker activating...');
+  console.log(' Service Worker activating...');
   
   event.waitUntil(
     caches.keys()
@@ -52,14 +52,14 @@ self.addEventListener('activate', (event) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
-              console.log('🗑️ Deleting old cache:', cacheName);
+              console.log(' Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
           })
         );
       })
       .then(() => {
-        console.log('✅ Service Worker activated');
+        console.log('Service Worker activated');
         return self.clients.claim();
       })
   );
@@ -123,7 +123,7 @@ async function handleLinkedInExtraction(request) {
     
     throw new Error('Network request failed');
   } catch (error) {
-    console.log('📱 LinkedIn extraction failed, trying offline cache...');
+    console.log(' LinkedIn extraction failed, trying offline cache...');
     
     // Try to get from cache
     const cachedResponse = await caches.match(request);
@@ -164,7 +164,7 @@ async function handleLinkedInAnalysis(request) {
     
     throw new Error('Analysis request failed');
   } catch (error) {
-    console.log('📱 LinkedIn analysis failed, trying offline cache...');
+    console.log(' LinkedIn analysis failed, trying offline cache...');
     
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
@@ -200,7 +200,7 @@ async function handleRecommendations(request) {
     
     throw new Error('Recommendations request failed');
   } catch (error) {
-    console.log('📱 Recommendations failed, trying offline cache...');
+    console.log(' Recommendations failed, trying offline cache...');
     
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
@@ -237,7 +237,7 @@ async function handleStaticFiles(request) {
     
     return response;
   } catch (error) {
-    console.error('❌ Static file handling failed:', error);
+    console.error(' Static file handling failed:', error);
     return new Response('Offline mode: File not available', { status: 503 });
   }
 }
@@ -255,7 +255,7 @@ async function handleAPIRequests(request) {
     
     return response;
   } catch (error) {
-    console.log('📱 API request failed, trying offline cache...');
+    console.log(' API request failed, trying offline cache...');
     
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
@@ -282,7 +282,7 @@ async function handleDefaultRequest(request) {
     const response = await fetch(request);
     return response;
   } catch (error) {
-    console.log('📱 Network failed, trying cache...');
+    console.log(' Network failed, trying cache...');
     
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {
@@ -312,7 +312,7 @@ async function storeLinkedInData(request, response) {
     
     console.log('💾 LinkedIn data stored offline');
   } catch (error) {
-    console.error('❌ Failed to store LinkedIn data:', error);
+    console.error(' Failed to store LinkedIn data:', error);
   }
 }
 
@@ -334,7 +334,7 @@ async function storeAnalysisData(request, response) {
     
     console.log('💾 Analysis data stored offline');
   } catch (error) {
-    console.error('❌ Failed to store analysis data:', error);
+    console.error(' Failed to store analysis data:', error);
   }
 }
 
@@ -364,7 +364,7 @@ async function openIndexedDB() {
 // Background sync for LinkedIn content analysis
 self.addEventListener('sync', (event) => {
   if (event.tag === 'linkedin-analysis-sync') {
-    console.log('🔄 Background sync for LinkedIn analysis...');
+    console.log(' Background sync for LinkedIn analysis...');
     
     event.waitUntil(
       performBackgroundLinkedInAnalysis()
@@ -396,20 +396,20 @@ async function performBackgroundLinkedInAnalysis() {
           const deleteStore = deleteTransaction.objectStore('pendingAnalysis');
           await deleteStore.delete(item.id);
           
-          console.log('✅ Background analysis completed for:', item.id);
+          console.log('Background analysis completed for:', item.id);
         }
       } catch (error) {
-        console.error('❌ Background analysis failed for:', item.id, error);
+        console.error(' Background analysis failed for:', item.id, error);
       }
     }
   } catch (error) {
-    console.error('❌ Background sync failed:', error);
+    console.error(' Background sync failed:', error);
   }
 }
 
 // Push notification handling
 self.addEventListener('push', (event) => {
-  console.log('📱 Push notification received');
+  console.log(' Push notification received');
   
   const options = {
     body: event.data ? event.data.text() : 'New content analysis ready!',
@@ -441,7 +441,7 @@ self.addEventListener('push', (event) => {
 
 // Notification click handling
 self.addEventListener('notificationclick', (event) => {
-  console.log('📱 Notification clicked:', event.action);
+  console.log(' Notification clicked:', event.action);
   
   event.notification.close();
   
@@ -452,4 +452,4 @@ self.addEventListener('notificationclick', (event) => {
   }
 });
 
-console.log('🚀 Fuze Service Worker loaded successfully!');
+console.log(' Fuze Service Worker loaded successfully!');

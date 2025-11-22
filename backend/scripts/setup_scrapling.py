@@ -26,16 +26,16 @@ def run_command(cmd, description):
             capture_output=True,
             text=True
         )
-        logger.info(f"✅ {description} completed successfully")
+        logger.info(f" {description} completed successfully")
         if result.stdout:
             logger.info(f"Output: {result.stdout[:500]}")
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"❌ {description} failed")
+        logger.error(f" {description} failed")
         logger.error(f"Error: {e.stderr}")
         return False
     except Exception as e:
-        logger.error(f"❌ Unexpected error during {description}: {e}")
+        logger.error(f" Unexpected error during {description}: {e}")
         return False
 
 def main():
@@ -52,7 +52,7 @@ def main():
     # Check if we're in a virtual environment
     in_venv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
     if not in_venv:
-        logger.warning("⚠️  Not in a virtual environment. Consider using one.")
+        logger.warning("  Not in a virtual environment. Consider using one.")
         response = input("Continue anyway? (y/n): ")
         if response.lower() != 'y':
             logger.info("Setup cancelled.")
@@ -63,9 +63,9 @@ def main():
     try:
         import scrapling
         import camoufox
-        logger.info("✅ Scrapling and Camoufox packages are installed")
+        logger.info(" Scrapling and Camoufox packages are installed")
     except ImportError as e:
-        logger.error(f"❌ Missing packages: {e}")
+        logger.error(f" Missing packages: {e}")
         logger.error("Please install with: pip install 'scrapling[all]' 'camoufox[geoip]'")
         return False
     
@@ -88,20 +88,20 @@ def main():
         )
     
     if not success:
-        logger.warning("⚠️  Could not download Camoufox browser automatically.")
+        logger.warning("  Could not download Camoufox browser automatically.")
         logger.warning("Please run manually: camoufox fetch")
         logger.warning("Or: python -m camoufox fetch")
         return False
     
     # Step 3: Verify setup
-    logger.info("\n✅ Step 3: Verifying setup...")
+    logger.info("\n Step 3: Verifying setup...")
     try:
         from scrapling.fetchers import StealthyFetcher, DynamicFetcher, Fetcher
-        logger.info("✅ Scrapling imports successfully")
-        logger.info("✅ Setup complete! Scrapling is ready to use.")
+        logger.info(" Scrapling imports successfully")
+        logger.info(" Setup complete! Scrapling is ready to use.")
         return True
     except Exception as e:
-        logger.error(f"❌ Verification failed: {e}")
+        logger.error(f" Verification failed: {e}")
         logger.error("Please check the error above and try again.")
         return False
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         logger.error("\n" + "="*60)
-        logger.error("❌ Setup Incomplete")
+        logger.error(" Setup Incomplete")
         logger.error("="*60)
         logger.error("Please fix the errors above and try again.")
         sys.exit(1)

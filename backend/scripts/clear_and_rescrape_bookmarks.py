@@ -186,13 +186,13 @@ def analyze_extraction_quality():
             logger.info(f"Total bookmarks: {total}")
             logger.info("")
             logger.info("ISSUES:")
-            logger.info(f"  ❌ Empty embeddings: {empty_embeddings} ({empty_embeddings/total*100:.1f}%)")
-            logger.info(f"  ❌ Empty extracted_text: {empty_text} ({empty_text/total*100:.1f}%)")
-            logger.info(f"  ❌ 'Unable to extract' messages: {unable_to_extract}")
-            logger.info(f"  ❌ 'extraction failed' messages: {extraction_failed}")
-            logger.info(f"  ⚠️  Short content (< 100 chars): {short_content}")
-            logger.info(f"  ⚠️  Low quality scores (< 5): {low_quality}")
-            logger.info(f"  ⚠️  Weird text patterns (CSS/JS): {weird_text_count} (from sample of {len(all_content)})")
+            logger.info(f"   Empty embeddings: {empty_embeddings} ({empty_embeddings/total*100:.1f}%)")
+            logger.info(f"   Empty extracted_text: {empty_text} ({empty_text/total*100:.1f}%)")
+            logger.info(f"   'Unable to extract' messages: {unable_to_extract}")
+            logger.info(f"   'extraction failed' messages: {extraction_failed}")
+            logger.info(f"    Short content (< 100 chars): {short_content}")
+            logger.info(f"    Low quality scores (< 5): {low_quality}")
+            logger.info(f"    Weird text patterns (CSS/JS): {weird_text_count} (from sample of {len(all_content)})")
             logger.info("")
             logger.info("CONTENT LENGTH DISTRIBUTION:")
             for range_name, count in length_ranges.items():
@@ -220,8 +220,8 @@ def analyze_extraction_quality():
             
             logger.info("")
             logger.info("SUMMARY:")
-            logger.info(f"  ✅ Good extractions: {good_content} ({success_rate:.1f}%)")
-            logger.info(f"  ❌ Failed/Empty: {empty_text + unable_to_extract + extraction_failed} ({(empty_text + unable_to_extract + extraction_failed)/total*100:.1f}%)")
+            logger.info(f"   Good extractions: {good_content} ({success_rate:.1f}%)")
+            logger.info(f"   Failed/Empty: {empty_text + unable_to_extract + extraction_failed} ({(empty_text + unable_to_extract + extraction_failed)/total*100:.1f}%)")
             logger.info("=" * 80)
             logger.info("")
             
@@ -272,14 +272,14 @@ def clear_extraction_data():
             
             db.session.commit()
             
-            logger.info(f"✅ Cleared extraction data from {updated} bookmarks")
+            logger.info(f" Cleared extraction data from {updated} bookmarks")
             
             # Also clear related ContentAnalysis records (they'll be regenerated)
             analysis_count = db.session.query(ContentAnalysis).count()
             deleted = db.session.query(ContentAnalysis).delete()
             db.session.commit()
             
-            logger.info(f"✅ Deleted {deleted} content analysis records (will be regenerated)")
+            logger.info(f" Deleted {deleted} content analysis records (will be regenerated)")
             
             return total_count
             
@@ -365,7 +365,7 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                         scraped = scrape_url_enhanced(bookmark.url)
 
                         if not scraped:
-                            logger.warning(f"  ❌ No result from scraper")
+                            logger.warning(f"   No result from scraper")
                             failed += 1
                             continue
 
@@ -422,18 +422,18 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                     try:
                         embedding = get_embedding(content_for_embedding)
                         bookmark.embedding = embedding
-                        logger.info(f"  ✅ Generated embedding from {len(content_for_embedding)} chars (title: {len(bookmark.title or '')} chars, text: {len(extracted_text or '')} chars)")
+                        logger.info(f"   Generated embedding from {len(content_for_embedding)} chars (title: {len(bookmark.title or '')} chars, text: {len(extracted_text or '')} chars)")
                     except Exception as embed_error:
-                        logger.error(f"  ❌ Embedding generation failed: {embed_error}")
+                        logger.error(f"   Embedding generation failed: {embed_error}")
                         # Don't leave embedding as None - use a fallback
                         try:
                             fallback_content = f"{bookmark.title or 'Unknown'} {bookmark.url or ''}".strip()
                             if fallback_content:
                                 embedding = get_embedding(fallback_content)
                                 bookmark.embedding = embedding
-                                logger.info(f"  ✅ Generated fallback embedding from {len(fallback_content)} chars")
+                                logger.info(f"   Generated fallback embedding from {len(fallback_content)} chars")
                         except Exception as fallback_error:
-                            logger.error(f"  ❌ Fallback embedding also failed: {fallback_error}")
+                            logger.error(f"   Fallback embedding also failed: {fallback_error}")
                     
                     # Commit in batches
                     if i % batch_size == 0:
@@ -441,7 +441,7 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                         logger.info(f"  💾 Committed batch ({i}/{total})")
                     
                     successful += 1
-                    logger.info(f"  ✅ Quality: {quality_score}, Content: {len(extracted_text)} chars")
+                    logger.info(f"   Quality: {quality_score}, Content: {len(extracted_text)} chars")
                     
                     # Rate limiting delay
                     if delay > 0 and i < total:
@@ -449,7 +449,7 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                         time.sleep(delay)
                     
                 except Exception as e:
-                    logger.error(f"  ❌ Error scraping {bookmark.url}: {e}")
+                    logger.error(f"   Error scraping {bookmark.url}: {e}")
                     failed += 1
                     db.session.rollback()
                     continue
@@ -462,9 +462,9 @@ def rescrape_bookmarks(batch_size=10, delay=2):
             logger.info("RE-SCRAPING SUMMARY")
             logger.info("=" * 80)
             logger.info(f"Total bookmarks: {total}")
-            logger.info(f"✅ Successful: {successful}")
-            logger.info(f"❌ Failed: {failed}")
-            logger.info(f"⏭️  Skipped: {skipped}")
+            logger.info(f" Successful: {successful}")
+            logger.info(f" Failed: {failed}")
+            logger.info(f"  Skipped: {skipped}")
             logger.info(f"Success rate: {(successful/total*100):.1f}%")
             
             # Quality statistics
@@ -537,7 +537,7 @@ def main():
             logger.info("=" * 80)
             analyze_extraction_quality()
             logger.info("")
-            logger.info("✅ Analysis complete!")
+            logger.info(" Analysis complete!")
             return
         
         # Analyze BEFORE clearing/re-scraping
@@ -553,7 +553,7 @@ def main():
             logger.info("STEP 1: CLEARING EXTRACTION DATA")
             logger.info("=" * 80)
             total = clear_extraction_data()
-            logger.info(f"✅ Cleared extraction data from {total} bookmarks")
+            logger.info(f" Cleared extraction data from {total} bookmarks")
         
         if not args.clear_only:
             logger.info("")
@@ -587,7 +587,7 @@ def main():
         
         logger.info("")
         logger.info("=" * 80)
-        logger.info("✅ COMPLETE!")
+        logger.info(" COMPLETE!")
         logger.info("=" * 80)
         logger.info("Next steps:")
         logger.info("1. Background analysis will process the newly extracted content")

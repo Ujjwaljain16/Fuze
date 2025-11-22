@@ -443,7 +443,7 @@ class BackgroundAnalysisService:
             except Exception as e:
                 logger.warning(f"Error invalidating recommendation caches: {e}")
             
-            logger.info(f"✅ Analysis completed and stored for content {content.id}")
+            logger.info(f"Analysis completed and stored for content {content.id}")
 
         except Exception as e:
             logger.error(f"Error analyzing content {content.id}: {e}")

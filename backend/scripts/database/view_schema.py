@@ -88,7 +88,7 @@ def view_database_schema():
         # Tasks
         tasks = Task.query.limit(3).all()
         if tasks:
-            print(f"✅ TASKS ({len(tasks)} shown):")
+            print(f" TASKS ({len(tasks)} shown):")
             for task in tasks:
                 print(f"  • ID: {task.id}, Title: {task.title}, Project: {task.project_id}")
             print()

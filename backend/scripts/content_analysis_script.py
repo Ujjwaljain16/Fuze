@@ -581,32 +581,32 @@ def main():
             print(f"CONTENT ANALYSIS RESULTS - User {args.user_id}")
             print("="*80)
 
-            print(f"\n📊 Total Content Analyzed: {results.get('total_content_analyzed', 0)}")
+            print(f"\nTotal Content Analyzed: {results.get('total_content_analyzed', 0)}")
 
             if results.get('total_content_analyzed', 0) > 0:
-                print(f"\n🛠️  Technology Expertise:")
+                print(f"\nTechnology Expertise:")
                 tech_expertise = results.get('technology_expertise', {})
                 for tech, count in tech_expertise.get('top_technologies', [])[:5]:
                     print(f"  • {tech}: {count} bookmarks")
 
-                print(f"\n📚 Learning Profile:")
+                print(f"\nLearning Profile:")
                 learning = results.get('learning_profile', {})
                 print(f"  • Primary Skill Level: {learning.get('primary_skill_level', 'unknown')}")
                 print(f"  • Target Audience: {learning.get('target_audience_level', 'unknown')}")
 
-                print(f"\n🎯 Recommendations:")
+                print(f"\nRecommendations:")
                 recs = results.get('recommendations', {})
                 for step in recs.get('next_steps', [])[:3]:
                     print(f"  • {step}")
 
-                print(f"\n📈 Engagement Metrics:")
+                print(f"\nEngagement Metrics:")
                 metrics = results.get('engagement_metrics', {})
                 print(f"  • Technologies Covered: {metrics.get('total_technologies_covered', 0)}")
                 print(f"  • Concepts Covered: {metrics.get('total_concepts_covered', 0)}")
                 print(f"  • Average Quality: {metrics.get('average_content_quality', 0)}%")
             else:
-                print("\n📝 No content analyzed yet.")
-                print("💡 Save some bookmarks to get personalized recommendations!")
+                print("\nNo content analyzed yet.")
+                print("Save some bookmarks to get personalized recommendations!")
 
             print("\n" + "="*80)
 

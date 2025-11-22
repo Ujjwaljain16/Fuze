@@ -47,28 +47,28 @@ class ProjectEmbeddingManager:
             # Generate individual embeddings
             if technologies.strip():
                 project.tech_embedding = get_embedding(technologies)
-                logger.debug(f"✅ Generated tech embedding for: {technologies}")
+                logger.debug(f" Generated tech embedding for: {technologies}")
             
             if description.strip():
                 project.description_embedding = get_embedding(description)
-                logger.debug(f"✅ Generated description embedding")
+                logger.debug(f" Generated description embedding")
             
             # Generate combined embedding (most important for matching)
             combined_text = f"{title} {description} {technologies}".strip()
             if combined_text:
                 project.combined_embedding = get_embedding(combined_text)
-                logger.debug(f"✅ Generated combined embedding")
+                logger.debug(f" Generated combined embedding")
             
             # Update timestamp
             project.embeddings_updated = datetime.utcnow()
             
             # Commit changes
             self.db_session.commit()
-            logger.info(f"✅ Successfully updated embeddings for project: {project.title}")
+            logger.info(f" Successfully updated embeddings for project: {project.title}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Failed to update project embeddings: {e}")
+            logger.error(f" Failed to update project embeddings: {e}")
             self.db_session.rollback()
             return False
     
@@ -92,7 +92,7 @@ class ProjectEmbeddingManager:
                 else:
                     failure_count += 1
             
-            logger.info(f"✅ Completed embedding updates: {success_count} success, {failure_count} failures")
+            logger.info(f" Completed embedding updates: {success_count} success, {failure_count} failures")
             return {
                 'total': len(projects),
                 'success': success_count,
@@ -100,7 +100,7 @@ class ProjectEmbeddingManager:
             }
             
         except Exception as e:
-            logger.error(f"❌ Failed to update all project embeddings: {e}")
+            logger.error(f" Failed to update all project embeddings: {e}")
             return {'total': 0, 'success': 0, 'failure': 1}
     
     def get_enhanced_recommendations(
@@ -181,7 +181,7 @@ class ProjectEmbeddingManager:
             return recommendations[:limit]
             
         except Exception as e:
-            logger.error(f"❌ Failed to get enhanced recommendations: {e}")
+            logger.error(f" Failed to get enhanced recommendations: {e}")
             return []
     
     def _calculate_tech_overlap(self, project_tech: str, content_tech: str) -> float:

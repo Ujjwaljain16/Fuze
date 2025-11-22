@@ -115,11 +115,11 @@ class UniversalSemanticMatcher:
                 self._embedding_available = is_embedding_available()
 
                 if self._embedding_available:
-                    print("✅ UniversalSemanticMatcher using proper embedding model (lazy-loaded)")
+                    print(" UniversalSemanticMatcher using proper embedding model (lazy-loaded)")
                 else:
-                    print("⚠️ UniversalSemanticMatcher using fallback embedding model")
+                    print(" UniversalSemanticMatcher using fallback embedding model")
             except Exception as e:
-                print(f"❌ Failed to initialize UniversalSemanticMatcher: {e}")
+                print(f" Failed to initialize UniversalSemanticMatcher: {e}")
                 self._embedding_model = None
                 self._embedding_available = False
             self._embedding_model_initialized = True
@@ -145,7 +145,7 @@ class UniversalSemanticMatcher:
         try:
             if not self.embedding_model:
                 if not self._fallback_logged:
-                    print("⚠️ Embedding model not available, using fallback similarity")
+                    print(" Embedding model not available, using fallback similarity")
                     self._fallback_logged = True
                 return self._fallback_similarity(text1, text2)
             
@@ -294,7 +294,7 @@ def test_universal_matcher():
     
     try:
         matcher = UniversalSemanticMatcher()
-        print("✅ UniversalSemanticMatcher initialized")
+        print(" UniversalSemanticMatcher initialized")
         
         # Test normalization
         print("\n📊 Testing text normalization...")
@@ -319,7 +319,7 @@ def test_universal_matcher():
         return True
         
     except Exception as e:
-        print(f"\n❌ Test failed: {e}")
+        print(f"\n Test failed: {e}")
         import traceback
         traceback.print_exc()
         return False

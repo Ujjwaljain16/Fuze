@@ -27,7 +27,7 @@ app = create_app()
 if os.environ.get('FLASK_ENV') == 'production':
     import logging
     logger = logging.getLogger(__name__)
-    logger.info("✅ WSGI app created and ready for Gunicorn")
+    logger.info("WSGI app created and ready for Gunicorn")
 
 if __name__ == "__main__":
     # This is for development only

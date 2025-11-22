@@ -464,11 +464,11 @@ def main():
     url = input("Enter LinkedIn post URL: ").strip()
     
     if not url:
-        print("❌ No URL provided. Exiting.")
+        print(" No URL provided. Exiting.")
         return
     
     if "linkedin.com" not in url:
-        print("❌ Please provide a valid LinkedIn URL.")
+        print(" Please provide a valid LinkedIn URL.")
         return
     
     # Initialize scraper
@@ -485,7 +485,7 @@ def main():
     print("📊 SCRAPING RESULTS")
     print("=" * 50)
     
-    print(f"✅ Success: {result.get('success', False)}")
+    print(f" Success: {result.get('success', False)}")
     print(f"📝 Title: {result.get('title', 'N/A')}")
     print(f"🔗 URL: {result.get('url', 'N/A')}")
     print(f"📄 Content Length: {len(result.get('content', ''))} characters")
@@ -497,7 +497,7 @@ def main():
         print(f"⏰ Post Time: {result.get('metadata', {}).get('post_time', 'N/A')}")
     
     if result.get('error'):
-        print(f"❌ Error: {result.get('error')}")
+        print(f" Error: {result.get('error')}")
     
     # Show content preview
     content = result.get('content', '')
@@ -527,7 +527,7 @@ def main():
         
         print(f"📄 Content saved to: {text_filename}")
     
-    print("\n✅ Scraping completed!")
+    print("\n Scraping completed!")
 
 if __name__ == "__main__":
     main() 
