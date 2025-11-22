@@ -116,6 +116,9 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
     url_fields = {'url', 'link', 'href', 'source_url', 'redirect_url'}
     # Fields that can contain large text content (no length limit)
     large_text_fields = {'extracted_text', 'content', 'description', 'notes', 'body', 'text'}
+    # Fields that are user-generated content and may contain SQL keywords naturally (titles, descriptions)
+    # These should use parameterized queries (which we do), so SQL keywords in content are safe
+    user_content_fields = {'title', 'description', 'name', 'notes', 'content', 'text', 'body', 'extracted_text'}
     
     for key, value in data.items():
         if isinstance(value, str):
@@ -138,7 +141,22 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
             # SQL injection check
             check_sql = rules.get('check_sql_injection', True)
             if check_sql:
-                if key in url_fields:
+                # Skip SQL injection checks for user content fields - they may contain SQL keywords naturally
+                # We use parameterized queries, so SQL keywords in content are safe
+                if key in user_content_fields:
+                    # Only check for actual SQL injection attempts (SQL statements, not just keywords)
+                    dangerous_patterns = [
+                        r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+.*\bFROM\b)",
+                        r"(\bUNION\s+SELECT\b)",
+                        r"(\b';?\s*(--|#|/\*))",
+                        r"(\bOR\s+1\s*=\s*1\b)",
+                        r"(\bAND\s+1\s*=\s*1\b)",
+                    ]
+                    for pattern in dangerous_patterns:
+                        if re.search(pattern, value, re.IGNORECASE):
+                            logger.warning(f"Potential SQL injection detected in user content field {key}")
+                            return False, f"Invalid characters in field {key}"
+                elif key in url_fields:
                     # Only check for obvious SQL injection patterns in URLs (more strict)
                     dangerous_patterns = [
                         r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+.*\bFROM\b)",
@@ -150,7 +168,7 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
                             logger.warning(f"Potential SQL injection detected in URL field {key}")
                             return False, f"Invalid characters in field {key}"
                 else:
-                    # For non-URL fields, use standard SQL injection checks
+                    # For other fields (like IDs, codes), use standard SQL injection checks
                     for pattern in SQL_INJECTION_PATTERNS:
                         if re.search(pattern, value, re.IGNORECASE):
                             logger.warning(f"Potential SQL injection detected in field {key}")
