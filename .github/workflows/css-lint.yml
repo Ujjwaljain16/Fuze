@@ -47,9 +47,7 @@ jobs:
       
       - name: Validate Tailwind CSS config
         working-directory: frontend
-        run: |
-          # Ensure Tailwind config is valid
-          node -e "require('./tailwind.config.js')"
+        run: node validate-tailwind.mjs
       
       - name: Build check (PostCSS validation)
         working-directory: frontend
