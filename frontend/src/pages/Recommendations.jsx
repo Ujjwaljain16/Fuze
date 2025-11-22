@@ -506,6 +506,7 @@ const Recommendations = () => {
                       key={rec.id} 
                       recommendation={rec} 
                       onFeedback={handleFeedback}
+                      selectedContext={selectedContext}
                     />
                   ))}
                 </div>
@@ -620,10 +621,13 @@ const Recommendations = () => {
   )
 }
 
-const RecommendationCard = ({ recommendation, onFeedback }) => {
+const RecommendationCard = ({ recommendation, onFeedback, selectedContext }) => {
+  const { success, error } = useToast()
   const [isExpanded, setIsExpanded] = useState(false)
   const [showContextSummary, setShowContextSummary] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
+  const [generatedContextSummary, setGeneratedContextSummary] = useState(recommendation.context_summary || null)
+  const [contextStatus, setContextStatus] = useState(recommendation.context_summary ? 'done' : 'not_started') // 'not_started', 'doing', 'done'
 
   // Check recommendation type
   const isSimpleRecommendation = recommendation.analysis && 
@@ -650,6 +654,60 @@ const RecommendationCard = ({ recommendation, onFeedback }) => {
     isEnhancedRecommendation ||
     recommendation.analysis.technologies
   )
+
+  const handleGenerateContext = async () => {
+    if (!selectedContext) {
+      error('Please select a context first')
+      return
+    }
+
+    setLoadingContext(true)
+    setContextStatus('doing')
+    
+    try {
+      // Prepare context data for API
+      const contextData = {
+        title: selectedContext.title || '',
+        description: selectedContext.description || '',
+        technologies: selectedContext.technologies || '',
+        user_interests: '',
+        project_id: selectedContext.project_id || null
+      }
+
+      // Prepare recommendation data
+      const recommendationData = {
+        id: recommendation.id,
+        title: recommendation.title,
+        url: recommendation.url,
+        description: recommendation.description || '',
+        technologies: recommendation.technologies || [],
+        content_type: recommendation.content_type || 'article',
+        difficulty: recommendation.difficulty || 'intermediate',
+        basic_summary: recommendation.basic_summary || ''
+      }
+
+      const response = await api.post('/api/recommendations/generate-context', {
+        recommendation_id: recommendation.id,
+        recommendation: recommendationData,
+        context: contextData
+      })
+
+      if (response.data.success && response.data.context_summary) {
+        setGeneratedContextSummary(response.data.context_summary)
+        setContextStatus('done')
+        setShowContextSummary(true)
+        success('Personalized context generated successfully!')
+      } else {
+        throw new Error('Failed to generate context')
+      }
+    } catch (err) {
+      console.error('Error generating personalized context:', err)
+      setContextStatus('not_started')
+      error(err.response?.data?.error || 'Failed to generate personalized context. Please try again.')
+    } finally {
+      setLoadingContext(false)
+    }
+  }
 
   return (
     <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all duration-300 hover:transform hover:scale-[1.01]">
@@ -688,41 +746,56 @@ const RecommendationCard = ({ recommendation, onFeedback }) => {
               </div>
             )}
 
-            {/* Context Summary Toggle - Only for top recommendations */}
-            {recommendation.context_summary && (
-              <div className="mb-4">
+            {/* Personalized Context Section */}
+            <div className="mb-4">
+              {contextStatus === 'not_started' ? (
                 <button
-                  onClick={() => setShowContextSummary(!showContextSummary)}
-                  className="flex items-center space-x-2 text-purple-400 hover:text-purple-300 transition-colors duration-200 group"
+                  onClick={handleGenerateContext}
+                  disabled={loadingContext || !selectedContext}
+                  className="flex items-center space-x-2 text-purple-400 hover:text-purple-300 transition-colors duration-200 group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-center space-x-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-lg px-3 py-2 hover:border-purple-400/50 transition-all duration-200">
-                    {loadingContext ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
+                    <Brain className="w-4 h-4" />
+                    <span className="font-medium text-sm">Generate Personalized Context</span>
+                  </div>
+                </button>
+              ) : contextStatus === 'doing' ? (
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 border border-yellow-500/30 rounded-lg px-3 py-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-yellow-400" />
+                  <span className="font-medium text-sm text-yellow-400">Generating personalized context...</span>
+                </div>
+              ) : contextStatus === 'done' && generatedContextSummary ? (
+                <>
+                  <button
+                    onClick={() => setShowContextSummary(!showContextSummary)}
+                    className="flex items-center space-x-2 text-purple-400 hover:text-purple-300 transition-colors duration-200 group"
+                  >
+                    <div className="flex items-center space-x-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 border border-green-500/30 rounded-lg px-3 py-2 hover:border-green-400/50 transition-all duration-200">
                       <span className={`text-sm transition-transform duration-200 ${showContextSummary ? 'rotate-90' : ''}`}>
                         ▶
                       </span>
-                    )}
-                    <span className="font-medium text-sm">
-                      {showContextSummary ? 'Hide' : 'Show'} Personalized Context
-                    </span>
-                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                  </div>
-                </button>
+                      <span className="font-medium text-sm">
+                        {showContextSummary ? 'Hide' : 'Show'} Personalized Context
+                      </span>
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                      <span className="text-xs text-green-400">Done</span>
+                    </div>
+                  </button>
 
-                {showContextSummary && (
-                  <div className="mt-3 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-500/20 rounded-lg p-4 animate-fadeIn">
-                    <div className="flex items-start space-x-3">
-                      <TargetIcon className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
-                      <div className="flex-1">
-                        <span className="text-purple-400 font-medium text-sm block mb-1">Why This Fits Your Project</span>
-                        <p className="text-gray-300 text-sm leading-relaxed">{recommendation.context_summary}</p>
+                  {showContextSummary && (
+                    <div className="mt-3 bg-gradient-to-r from-purple-600/10 to-pink-600/10 border border-purple-500/20 rounded-lg p-4 animate-fadeIn">
+                      <div className="flex items-start space-x-3">
+                        <TargetIcon className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <span className="text-purple-400 font-medium text-sm block mb-1">Why This Fits Your Project</span>
+                          <p className="text-gray-300 text-sm leading-relaxed">{generatedContextSummary}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </>
+              ) : null}
+            </div>
           </div>
           
           <div className="flex items-center space-x-3 ml-4">
