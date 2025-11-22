@@ -257,27 +257,7 @@ const Dashboard = () => {
         handleError(statsResult.reason, 'dashboard stats')
       }
       
-      // Set loading to false after processing all results
-      setLoading(false)
-
-      setRecentBookmarks(bookmarksRes.data.bookmarks || [])
-      setRecentProjects(projectsRes.data.projects?.slice(0, 3) || [])
-      setStats({
-        bookmarks: bookmarksRes.data.total || 0,
-        projects: projectsRes.data.projects?.length || 0
-      })
-
-      // Set dashboard stats with real calculated values
-      if (statsRes.data) {
-        setDashboardStats({
-          total_bookmarks: statsRes.data.total_bookmarks || { value: 0, change: '0%', change_value: 0 },
-          active_projects: statsRes.data.active_projects || { value: 0, change: '0', change_value: 0 },
-          weekly_saves: statsRes.data.weekly_saves || { value: 0, change: '0%', change_value: 0 },
-          success_rate: statsRes.data.success_rate || { value: 0, change: '0%', change_value: 0 }
-        })
-      }
-
-      // Set loading to false after main data is loaded
+      // Set loading to false after processing all results (even if some failed)
       setLoading(false)
 
       // NOTE: Recommendations are now loaded only on the Recommendations page
