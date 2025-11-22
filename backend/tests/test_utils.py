@@ -76,8 +76,9 @@ class TestSecurityMiddleware:
         """Test XSS detection"""
         from middleware.security_middleware import validate_input
         
+        # Use a field name that will be checked for XSS (not 'content', 'body', 'text', or 'extracted_text')
         is_valid, error = validate_input({
-            'content': '<script>alert("xss")</script>'
+            'title': '<script>alert("xss")</script>'
         })
         
         assert is_valid == False

@@ -242,6 +242,36 @@ class UnifiedConfig:
     
     def get_flask_config(self) -> Dict[str, Any]:
         """Get Flask-specific configuration"""
+        # Check if using SQLite (SQLite doesn't support pool parameters)
+        is_sqlite = 'sqlite' in self.database.url.lower()
+        
+        # Base engine options
+        engine_options = {
+            'echo': self.database.echo,
+        }
+        
+        # Add pool options only for non-SQLite databases
+        if not is_sqlite:
+            engine_options.update({
+                'pool_size': self.database.pool_size,
+                'pool_timeout': self.database.pool_timeout,
+                'pool_recycle': self.database.pool_recycle,
+                'pool_pre_ping': self.database.pool_pre_ping,
+                'max_overflow': self.database.max_overflow,
+                'connect_args': {
+                    'connect_timeout': self.database.connect_timeout,
+                    'sslmode': self.database.ssl_mode,
+                    'keepalives': 1,
+                    'keepalives_idle': 30,
+                    'keepalives_interval': 10,
+                    'keepalives_count': 5,
+                    'application_name': f'fuze_{self.environment}',
+                }
+            })
+        else:
+            # SQLite-specific options
+            engine_options['connect_args'] = {'check_same_thread': False}
+        
         return {
             # Application
             'SECRET_KEY': self.security.secret_key,
@@ -261,23 +291,7 @@ class UnifiedConfig:
             # Database
             'SQLALCHEMY_DATABASE_URI': self.database.url,
             'SQLALCHEMY_TRACK_MODIFICATIONS': False,
-            'SQLALCHEMY_ENGINE_OPTIONS': {
-                'pool_size': self.database.pool_size,
-                'pool_timeout': self.database.pool_timeout,
-                'pool_recycle': self.database.pool_recycle,
-                'pool_pre_ping': self.database.pool_pre_ping,
-                'max_overflow': self.database.max_overflow,
-                'echo': self.database.echo,
-                'connect_args': {
-                    'connect_timeout': self.database.connect_timeout,
-                    'sslmode': self.database.ssl_mode,
-                    'keepalives': 1,
-                    'keepalives_idle': 30,
-                    'keepalives_interval': 10,
-                    'keepalives_count': 5,
-                    'application_name': f'fuze_{self.environment}',
-                }
-            },
+            'SQLALCHEMY_ENGINE_OPTIONS': engine_options,
             
             # CORS
             'CORS_ORIGINS': self.cors.origins,

@@ -242,19 +242,25 @@ class BackgroundAnalysisService:
                     else:
                         raise
                 
-                # Find content without corresponding analysis using proper select() construct
+                # Find content without corresponding analysis
+                # Use a simpler query that works with both PostgreSQL and SQLite
                 from sqlalchemy import select, text
-                analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
                 
-                # Use select() explicitly to avoid SQLAlchemy warning
-                analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
+                # Get all analyzed content IDs
+                analyzed_ids = db.session.query(ContentAnalysis.content_id).distinct().all()
+                analyzed_ids_set = {row[0] for row in analyzed_ids} if analyzed_ids else set()
                 
-                # Also exclude content that has no extracted_text to avoid repeated failures
-                unanalyzed = db.session.query(SavedContent).filter(
-                    ~SavedContent.id.in_(analyzed_content_ids_select),
+                # Query unanalyzed content
+                query = db.session.query(SavedContent).filter(
                     SavedContent.extracted_text.isnot(None),
                     SavedContent.extracted_text != ''
-                ).limit(10).all()  # Process 10 at a time
+                )
+                
+                # Filter out analyzed content
+                if analyzed_ids_set:
+                    query = query.filter(~SavedContent.id.in_(analyzed_ids_set))
+                
+                unanalyzed = query.limit(10).all()  # Process 10 at a time
                 
                 # Filter out previously failed analyses
                 unanalyzed = [content for content in unanalyzed if content.id not in self.failed_analyses]

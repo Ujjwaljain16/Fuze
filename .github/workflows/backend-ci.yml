@@ -60,12 +60,14 @@ jobs:
       
       - name: Upload coverage reports
         if: always()
+        continue-on-error: true
         uses: codecov/codecov-action@v4
         with:
           file: ./backend/coverage.xml
           flags: backend
           name: backend-coverage
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       
       - name: Upload coverage HTML
         if: always()

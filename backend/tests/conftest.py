@@ -38,6 +38,15 @@ def app():
     app.config['JWT_COOKIE_SECURE'] = False  # Allow cookies in test environment
     app.config['JWT_TOKEN_LOCATION'] = ['headers', 'cookies']  # Allow tokens in both headers and cookies
     
+    # Explicitly set database URI for SQLite (SQLite doesn't support pool parameters)
+    app.config['SQLALCHEMY_DATABASE_URI'] = TEST_DATABASE_URL
+    # Remove pool parameters for SQLite
+    if 'sqlite' in TEST_DATABASE_URL.lower():
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': False,
+            'connect_args': {'check_same_thread': False}
+        }
+    
     # Disable rate limiting in tests
     app.limiter = None
     
