@@ -848,9 +848,13 @@ def stream_import_progress():
     def generate():
         last_status = None
         start_time = time.time()
-        max_connection_time = 1800  # 30 minutes maximum connection time
-        heartbeat_interval = 30  # Send heartbeat every 30 seconds
+        max_connection_time = 1800  # 30 minutes maximum (for long imports)
+        idle_timeout = 30  # Close connection after 30 seconds of no activity
+        last_activity = time.time()
+        heartbeat_interval = 15  # Send heartbeat every 15 seconds
         last_heartbeat = time.time()
+        consecutive_errors = 0
+        max_errors = 5
         
         while True:
             try:
@@ -860,33 +864,53 @@ def stream_import_progress():
                     yield f"data: {json.dumps({'status': 'timeout', 'message': 'Connection timeout - please refresh'})}\n\n"
                     break
                 
-                # Send heartbeat to keep connection alive
-                if time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
-                    last_heartbeat = time.time()
-                
                 progress = redis_cache.get(import_key)
                 
                 if not progress:
+                    # No import in progress - send idle status once, then close after timeout
                     if last_status != 'no_import':
                         yield f"data: {json.dumps({'status': 'no_import', 'message': 'No import in progress'})}\n\n"
                         last_status = 'no_import'
+                        last_activity = time.time()
+                    else:
+                        # Already sent no_import - check if we should close
+                        idle_elapsed = time.time() - last_activity
+                        if idle_elapsed > idle_timeout:
+                            # No activity for 30 seconds, close connection
+                            yield f"data: {json.dumps({'status': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
+                            break
                 else:
+                    # Import in progress - update status
                     current_status = progress.get('status', 'unknown')
                     if progress != last_status:
                         yield f"data: {json.dumps(progress)}\n\n"
                         last_status = progress
+                        last_activity = time.time()  # Reset idle timer
                         
                         # If import is completed, send final update and close
                         if current_status == 'completed':
                             time.sleep(1)  # Give client time to process
                             break
                 
+                # Send heartbeat periodically to keep connection alive during active imports
+                if progress and time.time() - last_heartbeat > heartbeat_interval:
+                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    last_heartbeat = time.time()
+                    consecutive_errors = 0  # Reset error count on successful heartbeat
+                
                 time.sleep(1)  # Check every second
             except Exception as e:
-                logger.error(f"Error in import progress stream: {e}")
+                consecutive_errors += 1
+                logger.error(f"Error in import progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, close connection
+                if consecutive_errors >= max_errors:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Too many errors - connection closed'})}\n\n"
+                    break
+                
+                # Send error but continue
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
-                break
+                time.sleep(2)  # Wait longer before retrying after error
     
     return Response(
         stream_with_context(generate()),

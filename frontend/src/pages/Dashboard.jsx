@@ -115,7 +115,20 @@ const Dashboard = () => {
 
     analysisEventSource.onmessage = (event) => {
       try {
+        // Skip heartbeat comments
+        if (event.data.trim().startsWith(':')) {
+          return
+        }
+        
         const data = JSON.parse(event.data)
+        
+        // If status is 'idle' with closing message, close the connection
+        if (data.status === 'idle' && data.message?.includes('Closing connection')) {
+          analysisEventSource.close()
+          setAnalysisProgress(null)
+          return
+        }
+        
         setAnalysisProgress(data)
       } catch (error) {
         console.error('Error parsing analysis progress:', error)
@@ -123,8 +136,13 @@ const Dashboard = () => {
     }
 
     analysisEventSource.onerror = (error) => {
-      console.error('Analysis progress SSE error:', error)
+      // If connection closes due to idle timeout, don't reconnect
+      if (analysisEventSource.readyState === EventSource.CLOSED) {
+        console.log('Analysis progress SSE closed (idle timeout)')
+        return
+      }
       // EventSource will automatically reconnect on error
+      console.warn('Analysis progress SSE error:', error)
     }
 
     // Cleanup on unmount or when auth changes

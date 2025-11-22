@@ -43,5 +43,6 @@ EXPOSE 7860
 # Use app.py as entry point for Hugging Face Spaces compatibility
 # Use gevent worker for better handling of SSE streams and long-running connections
 # Gevent handles concurrent connections efficiently without blocking
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "600", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-"]
+# Increased timeout to 2000s (33 minutes) to handle SSE streams with 30-minute max connection time
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "2000", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-"]
 
