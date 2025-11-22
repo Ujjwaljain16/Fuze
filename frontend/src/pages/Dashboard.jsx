@@ -59,7 +59,7 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  // Use Server-Sent Events for progress updates instead of polling
+  // Use Server-Sent Events for progress updates - prevent reconnection when idle
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return
 
@@ -78,13 +78,13 @@ const Dashboard = () => {
     }
 
     const baseURL = getBaseURL()
+    let importEventSource = null
+    let analysisEventSource = null
+    let importClosedByIdle = false
+    let analysisClosedByIdle = false
 
-    // EventSource doesn't support custom headers, so we'll use query param or cookie
-    // Since we're using JWT in localStorage, we need to pass it as query param
-    // Note: In production, consider using cookies for SSE auth instead
-    
     // Import progress SSE
-    const importEventSource = new EventSource(
+    importEventSource = new EventSource(
       `${baseURL}/api/bookmarks/import/progress/stream?token=${encodeURIComponent(token)}`,
       { withCredentials: true }
     )
@@ -92,23 +92,52 @@ const Dashboard = () => {
     importEventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        if (data.status !== 'no_import') {
-          setImportProgress(data)
-        } else {
+        
+        // If status is 'idle' with closing message, close the connection and prevent reconnection
+        if (data.status === 'idle' && data.message?.includes('Closing connection')) {
+          importClosedByIdle = true
+          importEventSource.close()
           setImportProgress(null)
+          return
         }
+        
+        // If status is 'no_import', clear progress
+        if (data.status === 'no_import') {
+          setImportProgress(null)
+          return
+        }
+        
+        // Import is active - reset idle flag and update progress
+        importClosedByIdle = false
+        setImportProgress(data)
       } catch (error) {
         console.error('Error parsing import progress:', error)
       }
     }
 
     importEventSource.onerror = (error) => {
-      console.error('Import progress SSE error:', error)
-      // EventSource will automatically reconnect on error
+      // If connection was closed due to idle timeout, prevent automatic reconnection
+      if (importEventSource.readyState === EventSource.CLOSED && importClosedByIdle) {
+        console.log('Import progress SSE closed (idle timeout) - not reconnecting')
+        return
+      }
+      
+      // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
+      if (importEventSource.readyState === EventSource.CLOSED && !importClosedByIdle) {
+        console.log('Import progress SSE closed (will reconnect if needed)')
+        return
+      }
+      
+      // Log other errors
+      if (importEventSource.readyState === EventSource.CONNECTING) {
+        console.warn('Import progress SSE reconnecting...')
+      } else {
+        console.error('Import progress SSE error:', error)
+      }
     }
 
     // Analysis progress SSE
-    const analysisEventSource = new EventSource(
+    analysisEventSource = new EventSource(
       `${baseURL}/api/bookmarks/analysis/progress/stream?token=${encodeURIComponent(token)}`,
       { withCredentials: true }
     )
@@ -122,13 +151,16 @@ const Dashboard = () => {
         
         const data = JSON.parse(event.data)
         
-        // If status is 'idle' with closing message, close the connection
+        // If status is 'idle' with closing message, close the connection and prevent reconnection
         if (data.status === 'idle' && data.message?.includes('Closing connection')) {
+          analysisClosedByIdle = true
           analysisEventSource.close()
           setAnalysisProgress(null)
           return
         }
         
+        // Analysis is active - reset idle flag and update progress
+        analysisClosedByIdle = false
         setAnalysisProgress(data)
       } catch (error) {
         console.error('Error parsing analysis progress:', error)
@@ -136,19 +168,25 @@ const Dashboard = () => {
     }
 
     analysisEventSource.onerror = (error) => {
-      // If connection closes due to idle timeout, don't reconnect
-      if (analysisEventSource.readyState === EventSource.CLOSED) {
-        console.log('Analysis progress SSE closed (idle timeout)')
+      // If connection was closed due to idle timeout, prevent automatic reconnection
+      if (analysisEventSource.readyState === EventSource.CLOSED && analysisClosedByIdle) {
+        console.log('Analysis progress SSE closed (idle timeout) - not reconnecting')
         return
       }
-      // EventSource will automatically reconnect on error
+      
+      // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
+      if (analysisEventSource.readyState === EventSource.CLOSED && !analysisClosedByIdle) {
+        console.log('Analysis progress SSE closed (will reconnect if needed)')
+        return
+      }
+      
       console.warn('Analysis progress SSE error:', error)
     }
 
     // Cleanup on unmount or when auth changes
     return () => {
-      importEventSource.close()
-      analysisEventSource.close()
+      if (importEventSource) importEventSource.close()
+      if (analysisEventSource) analysisEventSource.close()
     }
   }, [isAuthenticated, user?.id])
 
