@@ -970,6 +970,122 @@ def get_analysis_progress():
 
     return jsonify(progress), 200
 
+@bookmarks_bp.route('/progress/stream', methods=['GET'])
+def stream_combined_progress():
+    """Combined Server-Sent Events stream for both import and analysis progress"""
+    from flask import Response, stream_with_context, request
+    from flask_jwt_extended import decode_token
+    import json
+    import time
+    
+    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]  # Remove 'Bearer ' prefix
+    else:
+        token = request.args.get('token')
+    
+    if not token:
+        return Response('Token required', status=401, mimetype='text/plain')
+    
+    try:
+        decoded = decode_token(token)
+        user_id = int(decoded['sub'])
+    except Exception as e:
+        logger.error(f"Error decoding token for SSE: {e}")
+        return Response('Invalid token', status=401, mimetype='text/plain')
+    
+    import_key = f"import_progress:{user_id}"
+    analysis_key = f"analysis_progress:{user_id}"
+    
+    def generate():
+        last_import_status = None
+        last_analysis_status = None
+        start_time = time.time()
+        max_connection_time = 1800  # 30 minutes maximum
+        idle_timeout = 10  # Close connection after 10 seconds of no activity (reduced from 30s)
+        last_activity = time.time()
+        heartbeat_interval = 15  # Send heartbeat every 15 seconds
+        last_heartbeat = time.time()
+        consecutive_errors = 0
+        max_errors = 5
+        
+        while True:
+            try:
+                # Check if connection has been open too long
+                elapsed = time.time() - start_time
+                if elapsed > max_connection_time:
+                    yield f"data: {json.dumps({'type': 'timeout', 'message': 'Connection timeout - please refresh'})}\n\n"
+                    break
+                
+                import_progress = redis_cache.get(import_key)
+                analysis_progress = redis_cache.get(analysis_key)
+                
+                # Check if we have any active progress
+                has_activity = import_progress is not None or analysis_progress is not None
+                
+                if not has_activity:
+                    # No activity - check if we should close
+                    idle_elapsed = time.time() - last_activity
+                    if idle_elapsed > idle_timeout:
+                        # No activity for 10 seconds, close connection
+                        yield f"data: {json.dumps({'type': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
+                        break
+                    # Send heartbeat to keep connection alive
+                    if time.time() - last_heartbeat > heartbeat_interval:
+                        yield f": heartbeat\n\n"
+                        last_heartbeat = time.time()
+                else:
+                    # We have activity - reset idle timer
+                    last_activity = time.time()
+                    consecutive_errors = 0
+                    
+                    # Send import progress if changed
+                    if import_progress != last_import_status:
+                        yield f"data: {json.dumps({'type': 'import', 'data': import_progress})}\n\n"
+                        last_import_status = import_progress
+                        
+                        # If import completed, wait a bit then continue
+                        if import_progress and import_progress.get('status') == 'completed':
+                            time.sleep(1)
+                    
+                    # Send analysis progress if changed
+                    if analysis_progress != last_analysis_status:
+                        yield f"data: {json.dumps({'type': 'analysis', 'data': analysis_progress})}\n\n"
+                        last_analysis_status = analysis_progress
+                
+                time.sleep(1)  # Check every second
+            except Exception as e:
+                consecutive_errors += 1
+                logger.error(f"Error in combined progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                
+                if consecutive_errors >= max_errors:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Too many errors - connection closed'})}\n\n"
+                    break
+                
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                time.sleep(2)
+    
+    # SSE headers
+    import os
+    headers = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Transfer-Encoding': 'chunked',
+    }
+    
+    if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
+        headers['X-Content-Type-Options'] = 'nosniff'
+        headers['X-No-Buffering'] = '1'
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers=headers
+    )
+
 @bookmarks_bp.route('/analysis/progress/stream', methods=['GET'])
 def stream_analysis_progress():
     """Server-Sent Events stream for analysis progress"""
