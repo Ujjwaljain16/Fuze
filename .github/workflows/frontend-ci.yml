@@ -6,11 +6,17 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
+      - 'frontend/eslint.config.js'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
+      - 'frontend/eslint.config.js'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
   workflow_dispatch:
 
 jobs:
