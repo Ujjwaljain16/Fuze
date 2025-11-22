@@ -94,7 +94,7 @@ const SaveContent = () => {
 
     setExtracting(true)
     try {
-      const response = await api.post('/api/extract-url', { url: formData.url })
+      const response = await api.post('/api/bookmarks/extract-url', { url: formData.url })
       
       if (response.data) {
         setFormData(prev => ({
