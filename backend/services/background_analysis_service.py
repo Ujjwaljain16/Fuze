@@ -103,6 +103,18 @@ class BackgroundAnalysisService:
     def _process_unanalyzed_content(self):
         """Process content that hasn't been analyzed yet"""
         try:
+            # Refresh database connection before processing
+            try:
+                db.session.execute(db.text('SELECT 1'))
+            except Exception as conn_error:
+                logger.warning(f"Database connection check failed, refreshing: {conn_error}")
+                try:
+                    db.session.close()
+                    db.session.remove()
+                except Exception:
+                    pass
+                return  # Skip this cycle if connection is bad
+            
             # Find content without analysis
             unanalyzed_content = self._get_unanalyzed_content()
 
@@ -117,84 +129,214 @@ class BackgroundAnalysisService:
 
             for content in unanalyzed_content:
                 try:
+                    # Verify connection is still alive before each analysis
+                    try:
+                        db.session.execute(db.text('SELECT 1'))
+                    except Exception as conn_error:
+                        logger.warning(f"Connection lost during processing, refreshing: {conn_error}")
+                        try:
+                            db.session.close()
+                            db.session.remove()
+                        except Exception:
+                            pass
+                        break  # Exit loop and retry next cycle
+                    
                     # Update progress for this user's content
                     if hasattr(content, 'user_id'):
                         progress_key = f"analysis_progress:{content.user_id}"
-                        self.redis_cache.set(progress_key, {
+                        self.redis_cache.set_cache(progress_key, {
                             'status': 'analyzing',
                             'total': total_items,
                             'processed': processed,
                             'current_item': content.title[:50] if hasattr(content, 'title') else 'Unknown',
                             'last_updated': datetime.now().isoformat()
-                        }, expire=3600)
+                        }, ttl=3600)
 
                     # Analyze the content (SQLAlchemy handles transactions automatically)
                     self._analyze_single_content(content)
 
                     processed += 1
-                    time.sleep(2)  # Rate limiting between analyses
+                    
+                    # Rate limiting between analyses (same as content_analysis_script.py default delay)
+                    # Use 3 seconds default delay like the script, with adaptive delays for errors
+                    delay = 3.0  # Base delay (same as script default)
+                    if hasattr(self, '_last_api_error') and self._last_api_error:
+                        delay = 5.0  # Longer delay after errors
+                        self._last_api_error = False
+                    time.sleep(delay)  # Rate limiting between analyses
 
                 except Exception as e:
                     logger.error(f"Error analyzing content {content.id}: {e}")
-                    db.session.rollback()  # Rollback on error
-                    # Add to failed analyses to prevent infinite retries
-                    self.failed_analyses.add(content.id)
+                    # Check if it's a connection error
+                    error_str = str(e).lower()
+                    is_connection_error = any(keyword in error_str for keyword in [
+                        'connection', 'closed', 'terminated', 'operationalerror',
+                        'server closed', 'connection unexpectedly'
+                    ])
+                    
+                    if is_connection_error:
+                        logger.warning("Connection error detected, will retry next cycle")
+                        try:
+                            db.session.close()
+                            db.session.remove()
+                        except Exception:
+                            pass
+                        break  # Exit loop to retry next cycle
+                    else:
+                        db.session.rollback()  # Rollback on error
+                        # Add to failed analyses to prevent infinite retries
+                        self.failed_analyses.add(content.id)
 
             # Mark analysis as completed for this batch
-            if unanalyzed_content and hasattr(unanalyzed_content[0], 'user_id'):
+            if unanalyzed_content and processed > 0 and hasattr(unanalyzed_content[0], 'user_id'):
                 progress_key = f"analysis_progress:{unanalyzed_content[0].user_id}"
-                self.redis_cache.set(progress_key, {
+                self.redis_cache.set_cache(progress_key, {
                     'status': 'completed',
                     'total': total_items,
                     'processed': processed,
                     'completed_at': datetime.now().isoformat()
-                }, expire=3600)
+                }, ttl=3600)
 
         except Exception as e:
             logger.error(f"Error processing unanalyzed content: {e}")
-            db.session.rollback()  # Rollback on error
+            # Check if it's a connection error
+            error_str = str(e).lower()
+            is_connection_error = any(keyword in error_str for keyword in [
+                'connection', 'closed', 'terminated', 'operationalerror',
+                'server closed', 'connection unexpectedly'
+            ])
+            
+            if is_connection_error:
+                logger.warning("Connection error in _process_unanalyzed_content, will retry next cycle")
+            else:
+                db.session.rollback()  # Rollback on error
+            
+            # Always try to close/remove session on error
+            try:
+                db.session.close()
+                db.session.remove()
+            except Exception:
+                pass
     
     def _get_unanalyzed_content(self) -> List[SavedContent]:
         """Get content that hasn't been analyzed yet"""
-        try:
-            # Find content without corresponding analysis using proper select() construct
-            from sqlalchemy import select
-            analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
-            
-            # Use select() explicitly to avoid SQLAlchemy warning
-            analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
-            
-            # Also exclude content that has no extracted_text to avoid repeated failures
-            unanalyzed = db.session.query(SavedContent).filter(
-                ~SavedContent.id.in_(analyzed_content_ids_select),
-                SavedContent.extracted_text.isnot(None),
-                SavedContent.extracted_text != ''
-            ).limit(10).all()  # Process 10 at a time
-            
-            # Filter out previously failed analyses
-            unanalyzed = [content for content in unanalyzed if content.id not in self.failed_analyses]
-            
-            return unanalyzed
-        except Exception as e:
-            logger.error(f"Error getting unanalyzed content: {e}")
-            return []
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                # Refresh database connection before query
+                try:
+                    db.session.close()  # Close any stale connections
+                except Exception:
+                    pass
+                
+                # Verify connection is alive
+                try:
+                    db.session.execute(db.text('SELECT 1'))
+                except Exception as conn_error:
+                    logger.warning(f"Database connection check failed (attempt {attempt + 1}): {conn_error}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        raise
+                
+                # Find content without corresponding analysis using proper select() construct
+                from sqlalchemy import select, text
+                analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
+                
+                # Use select() explicitly to avoid SQLAlchemy warning
+                analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
+                
+                # Also exclude content that has no extracted_text to avoid repeated failures
+                unanalyzed = db.session.query(SavedContent).filter(
+                    ~SavedContent.id.in_(analyzed_content_ids_select),
+                    SavedContent.extracted_text.isnot(None),
+                    SavedContent.extracted_text != ''
+                ).limit(10).all()  # Process 10 at a time
+                
+                # Filter out previously failed analyses
+                unanalyzed = [content for content in unanalyzed if content.id not in self.failed_analyses]
+                
+                # OPTIMIZATION: Group by user_id for batch processing
+                # This allows us to use user-specific API keys more efficiently
+                user_groups = {}
+                for content in unanalyzed:
+                    user_id = content.user_id
+                    if user_id not in user_groups:
+                        user_groups[user_id] = []
+                    user_groups[user_id].append(content)
+                
+                # Return content grouped by user (process all of one user's content together)
+                # This improves API key caching and reduces context switching
+                if user_groups:
+                    # Return first user's content batch
+                    first_user_id = list(user_groups.keys())[0]
+                    return user_groups[first_user_id]
+                
+                return unanalyzed
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                is_connection_error = any(keyword in error_str for keyword in [
+                    'connection', 'closed', 'terminated', 'operationalerror', 
+                    'server closed', 'connection unexpectedly'
+                ])
+                
+                if is_connection_error and attempt < max_retries - 1:
+                    logger.warning(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    
+                    # Close session and wait before retry
+                    try:
+                        db.session.close()
+                        db.session.remove()
+                    except Exception:
+                        pass
+                    
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"Error getting unanalyzed content: {e}")
+                    # Close session on final failure
+                    try:
+                        db.session.rollback()
+                        db.session.close()
+                    except Exception:
+                        pass
+                    return []
+        
+        return []
     
     def _analyze_single_content(self, content: SavedContent, user_id: int = None):
         """Analyze a single content item and store the result"""
         try:
             logger.info(f"Analyzing content: {content.title} for user {content.user_id}")
             
-            # Check if we have the required fields
+            # Check if we have the required fields - analyze even if empty
+            # (We want to analyze all content regardless of quality or emptiness)
             if not content.extracted_text:
-                logger.warning(f"Content {content.id} has no extracted_text, skipping")
-                return
+                # Use minimal fallback content for analysis
+                content.extracted_text = content.title or content.url or "Untitled content"
             
-            # Get user's API key and create analyzer
+            # Get user's API key and create analyzer (same as content_analysis_script.py)
             user_id = user_id or content.user_id
             api_key = None
             if user_id:
                 try:
-                    from services.multi_user_api_manager import get_user_api_key
+                    from services.multi_user_api_manager import get_user_api_key, check_user_rate_limit, record_user_request
+                    
+                    # Check rate limit before processing (same as content_analysis_script.py)
+                    rate_limit_status = check_user_rate_limit(user_id)
+                    if not rate_limit_status.get('can_make_request', True):
+                        wait_time = rate_limit_status.get('wait_time_seconds', 60)
+                        logger.warning(f"Rate limit exceeded for user {user_id}. Waiting {wait_time} seconds...")
+                        import time
+                        time.sleep(min(wait_time, 60))  # Wait up to 60 seconds
+                        return  # Skip this item and try again later
+                    
                     api_key = get_user_api_key(user_id)
                 except Exception as e:
                     logger.warning(f"Could not get user API key for user {user_id}: {e}")
@@ -202,13 +344,21 @@ class BackgroundAnalysisService:
             # Create analyzer with user's key
             gemini_analyzer = GeminiAnalyzer(api_key=api_key)
             
-            # Analyze with Gemini
+            # Analyze with Gemini (same as content_analysis_script.py)
             analysis_result = gemini_analyzer.analyze_bookmark_content(
-                title=content.title,
-                description=content.notes or content.tags or "",
+                title=content.title or "Untitled",
+                description=content.notes or "",
                 content=content.extracted_text,
                 url=content.url
             )
+            
+            # Record API usage for rate limiting (same as content_analysis_script.py)
+            if user_id and api_key:
+                try:
+                    from services.multi_user_api_manager import record_user_request
+                    record_user_request(user_id)
+                except Exception as record_error:
+                    logger.warning(f"Could not record API usage: {record_error}")
 
             # Generate basic summary for instant display
             if analysis_result:
@@ -219,13 +369,20 @@ class BackgroundAnalysisService:
                 logger.warning(f"No analysis result for content {content.id}")
                 return
             
-            # Extract key information from analysis
+            # Extract key information from analysis (same as content_analysis_script.py)
             key_concepts = analysis_result.get('key_concepts', [])
-            content_type = analysis_result.get('content_type', 'unknown')
-            difficulty_level = analysis_result.get('difficulty', 'unknown')  # Note: field name is 'difficulty' not 'difficulty_level'
+            content_type = analysis_result.get('content_type', 'article')  # Default to 'article' like script
+            difficulty_level = analysis_result.get('difficulty', 'intermediate')  # Default to 'intermediate' like script
             technology_tags = analysis_result.get('technologies', [])
+            relevance_score = analysis_result.get('relevance_score', 50)  # Default to 50 like script
             
-            # Create analysis record
+            # Check if analysis already exists (prevent duplicates from race conditions)
+            existing_analysis = db.session.query(ContentAnalysis).filter_by(content_id=content.id).first()
+            if existing_analysis:
+                logger.debug(f"Analysis already exists for content {content.id}, skipping duplicate")
+                return
+            
+            # Create analysis record (same format as content_analysis_script.py)
             analysis = ContentAnalysis(
                 content_id=content.id,
                 analysis_data=analysis_result,
@@ -233,12 +390,23 @@ class BackgroundAnalysisService:
                 content_type=content_type,
                 difficulty_level=difficulty_level,
                 technology_tags=', '.join(technology_tags) if isinstance(technology_tags, list) else str(technology_tags),
-                relevance_score=analysis_result.get('relevance_score', 0)
+                relevance_score=relevance_score
             )
             
             # Save to database
-            db.session.add(analysis)
-            db.session.commit()
+            try:
+                db.session.add(analysis)
+                db.session.commit()
+            except Exception as db_error:
+                # Handle race condition - if another thread already created analysis
+                error_str = str(db_error).lower()
+                if 'unique' in error_str or 'duplicate' in error_str:
+                    logger.debug(f"Analysis already exists for content {content.id} (race condition), skipping")
+                    db.session.rollback()
+                    return
+                else:
+                    # Re-raise if it's a different error
+                    raise
             
             # Cache in Redis
             cache_key = f"content_analysis:{content.id}"
@@ -251,23 +419,9 @@ class BackgroundAnalysisService:
             # Also invalidate recommendation caches for this user
             try:
                 from utils.redis_utils import redis_cache
-                # Clear user's recommendation caches
-                cache_patterns = [
-                    f"unified_recommendations:*:{content.user_id}:*",
-                    f"ensemble_recommendations:*:{content.user_id}:*",
-                    f"gemini_recommendations:*:{content.user_id}:*",
-                    f"opt_recommendations:{content.user_id}",
-                    f"fast_recommendations:{content.user_id}",
-                    f"*_project_recommendations:{content.user_id}:*"
-                ]
-                for pattern in cache_patterns:
-                    try:
-                        # Use the correct method for pattern deletion
-                        redis_cache.delete_by_pattern(pattern)
-                    except AttributeError:
-                        # Fallback: try to delete individual keys if pattern deletion not available
-                        logger.warning(f"Pattern deletion not available for: {pattern}")
-                logger.info(f"Invalidated recommendation caches for user {content.user_id}")
+                # Use the dedicated method for invalidating user recommendations
+                redis_cache.invalidate_user_recommendations(content.user_id)
+                logger.debug(f"Invalidated recommendation caches for user {content.user_id}")
             except Exception as e:
                 logger.warning(f"Error invalidating recommendation caches: {e}")
             
@@ -299,7 +453,7 @@ class BackgroundAnalysisService:
             - Suitable for quick scanning in recommendation lists
             """
 
-            summary = gemini_analyzer.analyze_text(summary_prompt)
+            summary = gemini_analyzer._make_gemini_request(summary_prompt)
             if summary and len(summary.strip()) > 10:
                 return summary.strip()
             else:
