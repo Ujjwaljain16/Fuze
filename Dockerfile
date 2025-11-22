@@ -41,8 +41,19 @@ EXPOSE 7860
 
 # Run the application
 # Use app.py as entry point for Hugging Face Spaces compatibility
-# Use gevent worker for better handling of SSE streams and long-running connections
-# Gevent handles concurrent connections efficiently without blocking
-# Increased timeout to 2000s (33 minutes) to handle SSE streams with 30-minute max connection time
+# 
+# Gunicorn Configuration with Gevent Worker:
+# - worker-class: gevent - Async worker that handles concurrent connections without blocking
+#   Gevent automatically monkey-patches standard library for async I/O
+# - workers: 1 - With gevent, 1 worker can handle 1000+ concurrent connections efficiently
+# - worker-connections: 1000 - Max concurrent connections per worker (gevent can handle this)
+# - timeout: 2000s - Long timeout for SSE streams (33 minutes max connection time)
+# - keep-alive: 5s - Keep connections alive for better performance
+#
+# This configuration allows:
+# ✅ Concurrent SSE streams + API calls without blocking
+# ✅ Multiple users with simultaneous requests
+# ✅ Long-lived SSE connections for real-time progress updates
+# ✅ Efficient resource usage (1 worker handles many connections)
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "2000", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-"]
 
