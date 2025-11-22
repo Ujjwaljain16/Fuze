@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist', 'public/sw.js'] },
+  { ignores: ['dist', 'public/sw.js', 'validate-tailwind.mjs'] },
   js.configs.recommended,
   reactHooks.configs['recommended-latest'],
   reactRefresh.configs.vite,
