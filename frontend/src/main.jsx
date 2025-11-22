@@ -7,8 +7,6 @@ import { ToastProvider } from './contexts/ToastContext'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 // PWA Service Worker Registration
-// TEMPORARILY DISABLED FOR TESTING - Re-enable after verifying normal functionality
-/*
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     // Check if service worker file exists before registering
@@ -44,20 +42,6 @@ if ('serviceWorker' in navigator) {
           console.warn('Service Worker not available:', error.message);
         }
       });
-  });
-}
-*/
-
-// TEMPORARY: Unregister any existing service workers
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-      registration.unregister().then((success) => {
-        if (success && import.meta.env.DEV) {
-          console.log('Service Worker unregistered for testing');
-        }
-      });
-    }
   });
 }
 
