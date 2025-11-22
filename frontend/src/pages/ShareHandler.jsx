@@ -26,21 +26,35 @@ const ShareHandler = () => {
     // Try to find URL in text using regex
     // Updated regex to handle:
     // - Standard URLs (http://, https://)
-    // - LinkedIn URLs with special characters and encoding
-    // - URLs with query parameters and fragments
+    // - LinkedIn URLs with special characters (urn:li:activity) and encoding
+    // - URLs with query parameters, fragments, and encoded characters (%3A, %28, etc.)
     // - URLs at end of text (no trailing space)
-    const urlRegex = /(https?:\/\/[^\s\)]+)/g
+    // - URLs with colons in path (like urn:li:activity)
+    // Match until we hit whitespace, closing paren without opening, or end of string
+    const urlRegex = /(https?:\/\/[^\s\)]+(?:\?[^\s\)]*)?(?:&[^\s\)]*)*)/g
     const matches = text.match(urlRegex)
     
     if (matches && matches.length > 0) {
       // Return the first URL found, but clean it up
       let url = matches[0]
       
-      // Remove trailing punctuation that might have been captured
-      url = url.replace(/[.,;:!?]+$/, '')
+      // For LinkedIn feed/update URLs, they can be very long with encoded params
+      // Make sure we capture the full URL including all query parameters
+      if (url.includes('linkedin.com') && url.includes('urn:li:activity')) {
+        // For LinkedIn activity URLs, try to get the complete URL
+        // They can have very long encoded query strings
+        const linkedInFullMatch = text.match(/https?:\/\/[^\s\)]+urn:li:activity[^\s\)]*/)
+        if (linkedInFullMatch && linkedInFullMatch[0].length > url.length) {
+          url = linkedInFullMatch[0]
+        }
+      }
       
-      // Remove closing parentheses if URL was in parentheses
-      if (url.endsWith(')') && !url.includes('(')) {
+      // Remove trailing punctuation that might have been captured (but keep URL-encoded chars)
+      // Only remove if it's actual punctuation, not part of the URL encoding
+      url = url.replace(/[.,;!?]+$/, '')
+      
+      // Remove closing parentheses if URL was in parentheses (but not if it's part of encoding like %29)
+      if (url.endsWith(')') && !url.includes('(') && !url.includes('%29')) {
         url = url.slice(0, -1)
       }
       
@@ -54,6 +68,19 @@ const ShareHandler = () => {
       return linkedInMatches[0].replace(/[.,;:!?)]+$/, '')
     }
     
+    // Special handling for LinkedIn feed/update URLs that might be split across lines or have special formatting
+    const linkedInFeedRegex = /https?:\/\/www\.linkedin\.com\/feed\/update\/[^\s\)]+/
+    const linkedInFeedMatch = text.match(linkedInFeedRegex)
+    if (linkedInFeedMatch && linkedInFeedMatch.length > 0) {
+      let feedUrl = linkedInFeedMatch[0]
+      // Try to extend the match to include the full query string
+      const extendedMatch = text.match(new RegExp(feedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\s\)]*'))
+      if (extendedMatch) {
+        feedUrl = extendedMatch[0].replace(/[.,;!?)]+$/, '')
+      }
+      return feedUrl
+    }
+    
     return ''
   }
 
@@ -65,7 +92,14 @@ const ShareHandler = () => {
 
     // Debug: Log what we're receiving (only in dev)
     if (import.meta.env.DEV) {
-      console.log('ShareHandler - Received params:', { url, title, text })
+      console.log('ShareHandler - Received params:', { 
+        url, 
+        title, 
+        text,
+        urlLength: url.length,
+        textLength: text.length,
+        titleLength: title.length
+      })
     }
 
     // If no URL in url parameter, try to extract from text
@@ -76,6 +110,7 @@ const ShareHandler = () => {
         url = extractedUrl
         if (import.meta.env.DEV) {
           console.log('ShareHandler - Extracted URL from text:', url)
+          console.log('ShareHandler - Extracted URL length:', url.length)
         }
       }
     }
@@ -83,13 +118,19 @@ const ShareHandler = () => {
     // If still no URL, check if text itself is a URL
     if (!url && text && (text.startsWith('http://') || text.startsWith('https://'))) {
       url = text.trim()
-      // Remove trailing punctuation
-      url = url.replace(/[.,;:!?)]+$/, '')
+      // For LinkedIn feed URLs, they can be very long - don't truncate
+      // Only remove trailing punctuation if it's clearly not part of the URL
+      if (!url.includes('urn:li:activity') && !url.includes('%3A')) {
+        url = url.replace(/[.,;:!?)]+$/, '')
+      }
     }
 
     // Additional check: Sometimes LinkedIn sends the URL as the title
     if (!url && title && (title.startsWith('http://') || title.startsWith('https://'))) {
-      url = title.trim().replace(/[.,;:!?)]+$/, '')
+      url = title.trim()
+      if (!url.includes('urn:li:activity') && !url.includes('%3A')) {
+        url = url.replace(/[.,;:!?)]+$/, '')
+      }
     }
 
     // Final check: Try to extract from title if it contains a URL
@@ -97,6 +138,28 @@ const ShareHandler = () => {
       const extractedFromTitle = extractUrlFromText(title)
       if (extractedFromTitle) {
         url = extractedFromTitle
+        if (import.meta.env.DEV) {
+          console.log('ShareHandler - Extracted URL from title:', url)
+        }
+      }
+    }
+
+    // Special handling: Check if any parameter contains a LinkedIn feed URL pattern
+    // LinkedIn saved posts sometimes send the URL in unexpected places
+    if (!url) {
+      const allParams = [url, title, text].join(' ')
+      const linkedInPattern = /https?:\/\/www\.linkedin\.com\/feed\/update\/urn:li:activity[^\s\)]+/
+      const linkedInMatch = allParams.match(linkedInPattern)
+      if (linkedInMatch) {
+        url = linkedInMatch[0]
+        // Try to get the full URL including all query parameters
+        const fullMatch = allParams.match(new RegExp(linkedInMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\s\)]*'))
+        if (fullMatch && fullMatch[0].length > url.length) {
+          url = fullMatch[0]
+        }
+        if (import.meta.env.DEV) {
+          console.log('ShareHandler - Found LinkedIn feed URL via pattern matching:', url)
+        }
       }
     }
 
@@ -113,7 +176,12 @@ const ShareHandler = () => {
         quality_score: 0
       })
     } else if (import.meta.env.DEV) {
-      console.warn('ShareHandler - No URL found in any parameter:', { url, title, text })
+      console.warn('ShareHandler - No URL found in any parameter:', { 
+        url, 
+        title, 
+        text,
+        'Try extracting manually': extractUrlFromText(text || title || '')
+      })
     }
   }, [searchParams])
 
