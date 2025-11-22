@@ -19,11 +19,41 @@ const ShareHandler = () => {
   const [previewData, setPreviewData] = useState(null)
   const [extracting, setExtracting] = useState(false)
 
+  // Extract URL from text if it contains a URL
+  const extractUrlFromText = (text) => {
+    if (!text) return ''
+    
+    // Try to find URL in text using regex
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    const matches = text.match(urlRegex)
+    
+    if (matches && matches.length > 0) {
+      // Return the first URL found
+      return matches[0]
+    }
+    
+    return ''
+  }
+
   // Extract shared data from URL parameters
   useEffect(() => {
-    const url = searchParams.get('url') || ''
+    let url = searchParams.get('url') || ''
     const title = searchParams.get('title') || ''
     const text = searchParams.get('text') || ''
+
+    // If no URL in url parameter, try to extract from text
+    // This handles cases where LinkedIn sends URL in text field
+    if (!url && text) {
+      const extractedUrl = extractUrlFromText(text)
+      if (extractedUrl) {
+        url = extractedUrl
+      }
+    }
+
+    // If still no URL, check if text itself is a URL
+    if (!url && text && (text.startsWith('http://') || text.startsWith('https://'))) {
+      url = text.trim()
+    }
 
     setSharedUrl(url)
     setSharedTitle(title)
