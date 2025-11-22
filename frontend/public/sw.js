@@ -82,12 +82,17 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   
-  // CRITICAL: Don't intercept external API requests (Hugging Face Spaces backend)
+  // CRITICAL: Don't intercept ANY external requests (Hugging Face Spaces backend)
   // This prevents service worker from interfering with cross-origin API calls
-  if (url.hostname.includes('hf.space') || 
-      url.hostname.includes('huggingface.co') ||
-      url.hostname !== self.location.hostname) {
-    // Let all external requests pass through without service worker interception
+  // Check this FIRST before any other logic
+  if (url.hostname !== self.location.hostname) {
+    // Let ALL external requests pass through without service worker interception
+    return;
+  }
+  
+  // Don't intercept ANY API requests (same-origin or external)
+  // All API calls should go directly to the backend without SW interference
+  if (url.pathname.startsWith('/api/')) {
     return;
   }
   
@@ -99,9 +104,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Don't intercept XHR/fetch requests to APIs (they're handled by axios directly)
-  if (request.mode === 'cors' || url.pathname.startsWith('/api/')) {
-    // Let API requests pass through - they're handled by the backend directly
+  // Don't intercept XHR/fetch requests (they're handled by axios directly)
+  if (request.mode === 'cors') {
     return;
   }
   

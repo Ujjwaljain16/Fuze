@@ -8,16 +8,35 @@ profile_bp = Blueprint('profile', __name__, url_prefix='/api')
 @profile_bp.route('/profile', methods=['GET'])
 @jwt_required()
 def get_profile():
+    """Get user profile - optimized with caching"""
+    from utils.redis_utils import redis_cache
+    
     user_id = int(get_jwt_identity())
+    
+    # PRODUCTION OPTIMIZATION: Cache profile data (changes infrequently)
+    cache_key = f"profile:{user_id}"
+    cached_profile = redis_cache.get(cache_key) if redis_cache else None
+    
+    if cached_profile:
+        return jsonify(cached_profile), 200
+    
+    # Fast database query (primary key lookup - very fast)
     user = User.query.get(user_id)
     if not user:
         return jsonify({'message': 'User not found'}), 404
-    return jsonify({
+    
+    profile_data = {
         'id': user.id, 
         'username': user.username, 
         'technology_interests': user.technology_interests,
         'created_at': user.created_at.isoformat() if user.created_at else None
-    }), 200
+    }
+    
+    # Cache for 5 minutes (profile doesn't change often)
+    if redis_cache:
+        redis_cache.set(cache_key, profile_data, ttl=300)
+    
+    return jsonify(profile_data), 200
 
 @profile_bp.route('/profile', methods=['PUT'])
 @jwt_required()
@@ -36,6 +55,13 @@ def update_profile():
     
     try:
         db.session.commit()
+        
+        # PRODUCTION OPTIMIZATION: Invalidate profile cache after update
+        from utils.redis_utils import redis_cache
+        if redis_cache:
+            cache_key = f"profile:{user.id}"
+            redis_cache.delete(cache_key)
+        
         return jsonify({
             'message': 'Profile updated successfully',
             'user': {
@@ -72,6 +98,13 @@ def update_user(user_id):
     
     try:
         db.session.commit()
+        
+        # PRODUCTION OPTIMIZATION: Invalidate profile cache after update
+        from utils.redis_utils import redis_cache
+        if redis_cache:
+            cache_key = f"profile:{user.id}"
+            redis_cache.delete(cache_key)
+        
         return jsonify({
             'message': 'Profile updated successfully',
             'user': {
