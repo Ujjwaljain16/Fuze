@@ -85,6 +85,10 @@ class TestBookmarks:
         from models import db, SavedContent
         
         with app.app_context():
+            # Clean up any existing bookmarks for this user first
+            SavedContent.query.filter_by(user_id=test_user['id']).delete()
+            db.session.commit()
+            
             # Create 15 bookmarks
             for i in range(15):
                 bookmark = SavedContent(
@@ -95,13 +99,17 @@ class TestBookmarks:
                 )
                 db.session.add(bookmark)
             db.session.commit()
+            
+            # Verify all 15 were created
+            count = SavedContent.query.filter_by(user_id=test_user['id']).count()
+            assert count == 15, f"Expected 15 bookmarks, but found {count}"
         
         # First page
         response = client.get('/api/bookmarks?page=1&per_page=10', headers=auth_headers)
         assert response.status_code == 200
         data = response.json
-        assert len(data['bookmarks']) == 10
-        assert data['total'] == 15
+        assert len(data['bookmarks']) == 10, f"Expected 10 bookmarks on first page, got {len(data['bookmarks'])}"
+        assert data['total'] == 15, f"Expected total of 15, got {data['total']}"
         
         # Second page
         response = client.get('/api/bookmarks?page=2&per_page=10', headers=auth_headers)

@@ -245,10 +245,17 @@ class BackgroundAnalysisService:
                 # Find content without corresponding analysis
                 # Use a simpler query that works with both PostgreSQL and SQLite
                 from sqlalchemy import select, text
+                from sqlalchemy.exc import OperationalError
                 
-                # Get all analyzed content IDs
-                analyzed_ids = db.session.query(ContentAnalysis.content_id).distinct().all()
-                analyzed_ids_set = {row[0] for row in analyzed_ids} if analyzed_ids else set()
+                # Get all analyzed content IDs (handle case where table doesn't exist)
+                analyzed_ids_set = set()
+                try:
+                    analyzed_ids = db.session.query(ContentAnalysis.content_id).distinct().all()
+                    analyzed_ids_set = {row[0] for row in analyzed_ids} if analyzed_ids else set()
+                except (OperationalError, Exception) as e:
+                    # Table doesn't exist or other error - assume no analyzed content
+                    logger.debug(f"Could not query ContentAnalysis table: {e}")
+                    analyzed_ids_set = set()
                 
                 # Query unanalyzed content
                 query = db.session.query(SavedContent).filter(

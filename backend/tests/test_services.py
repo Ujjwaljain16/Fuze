@@ -41,6 +41,7 @@ class TestBackgroundAnalysisService:
             
             assert len(unanalyzed) >= 1
             # Check if our content is in the results (may be filtered by user grouping)
+            # Access id while still in app context to avoid DetachedInstanceError
             content_ids = [c.id for c in unanalyzed]
             assert content.id in content_ids
     
