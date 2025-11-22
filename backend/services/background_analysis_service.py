@@ -250,11 +250,16 @@ class BackgroundAnalysisService:
                 # Get all analyzed content IDs (handle case where table doesn't exist)
                 analyzed_ids_set = set()
                 try:
+                    # Check if ContentAnalysis table exists by trying to query it
                     analyzed_ids = db.session.query(ContentAnalysis.content_id).distinct().all()
                     analyzed_ids_set = {row[0] for row in analyzed_ids} if analyzed_ids else set()
-                except (OperationalError, Exception) as e:
-                    # Table doesn't exist or other error - assume no analyzed content
-                    logger.debug(f"Could not query ContentAnalysis table: {e}")
+                except OperationalError as e:
+                    # Table doesn't exist (common in tests) - assume no analyzed content
+                    logger.debug(f"ContentAnalysis table not available: {e}")
+                    analyzed_ids_set = set()
+                except Exception as e:
+                    # Other database errors - log and assume no analyzed content
+                    logger.warning(f"Error querying ContentAnalysis table: {e}")
                     analyzed_ids_set = set()
                 
                 # Query unanalyzed content
