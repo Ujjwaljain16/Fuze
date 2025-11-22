@@ -84,108 +84,153 @@ const Dashboard = () => {
     let importClosedByIdle = false
     let analysisClosedByIdle = false
 
-    // Import progress SSE
-    importEventSource = new EventSource(
-      `${baseURL}/api/bookmarks/import/progress/stream?token=${encodeURIComponent(token)}`,
-      { withCredentials: true }
-    )
+    const openImportStream = () => {
+      // Close existing stream if open
+      if (importEventSource && importEventSource.readyState !== EventSource.CLOSED) {
+        importEventSource.close()
+      }
 
-    importEventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        
-        // If status is 'idle' with closing message, close the connection and prevent reconnection
-        if (data.status === 'idle' && data.message?.includes('Closing connection')) {
-          importClosedByIdle = true
-          importEventSource.close()
-          setImportProgress(null)
+      importEventSource = new EventSource(
+        `${baseURL}/api/bookmarks/import/progress/stream?token=${encodeURIComponent(token)}`,
+        { withCredentials: true }
+      )
+
+      importEventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          
+          // If status is 'idle' with closing message, close the connection and prevent reconnection
+          if (data.status === 'idle' && data.message?.includes('Closing connection')) {
+            importClosedByIdle = true
+            importEventSource.close()
+            setImportProgress(null)
+            return
+          }
+          
+          // If status is 'no_import', clear progress but keep stream open (backend will close after timeout)
+          if (data.status === 'no_import') {
+            setImportProgress(null)
+            return
+          }
+          
+          // Import is active - reset idle flag and update progress
+          importClosedByIdle = false
+          setImportProgress(data)
+        } catch (error) {
+          console.error('Error parsing import progress:', error)
+        }
+      }
+
+      importEventSource.onerror = (error) => {
+        // If connection was closed due to idle timeout, prevent automatic reconnection
+        if (importEventSource.readyState === EventSource.CLOSED && importClosedByIdle) {
+          console.log('Import progress SSE closed (idle timeout) - not reconnecting')
           return
         }
         
-        // If status is 'no_import', clear progress
-        if (data.status === 'no_import') {
-          setImportProgress(null)
+        // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
+        if (importEventSource.readyState === EventSource.CLOSED && !importClosedByIdle) {
+          console.log('Import progress SSE closed (will reconnect if needed)')
+          // Reopen after a short delay if not closed by idle
+          setTimeout(() => {
+            if (!importClosedByIdle) {
+              openImportStream()
+            }
+          }, 2000)
           return
         }
         
-        // Import is active - reset idle flag and update progress
-        importClosedByIdle = false
-        setImportProgress(data)
-      } catch (error) {
-        console.error('Error parsing import progress:', error)
+        // Log other errors
+        if (importEventSource.readyState === EventSource.CONNECTING) {
+          console.warn('Import progress SSE reconnecting...')
+        } else {
+          console.error('Import progress SSE error:', error)
+        }
       }
     }
 
-    importEventSource.onerror = (error) => {
-      // If connection was closed due to idle timeout, prevent automatic reconnection
-      if (importEventSource.readyState === EventSource.CLOSED && importClosedByIdle) {
-        console.log('Import progress SSE closed (idle timeout) - not reconnecting')
-        return
+    const openAnalysisStream = () => {
+      // Close existing stream if open
+      if (analysisEventSource && analysisEventSource.readyState !== EventSource.CLOSED) {
+        analysisEventSource.close()
       }
-      
-      // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
-      if (importEventSource.readyState === EventSource.CLOSED && !importClosedByIdle) {
-        console.log('Import progress SSE closed (will reconnect if needed)')
-        return
-      }
-      
-      // Log other errors
-      if (importEventSource.readyState === EventSource.CONNECTING) {
-        console.warn('Import progress SSE reconnecting...')
-      } else {
-        console.error('Import progress SSE error:', error)
-      }
-    }
 
-    // Analysis progress SSE
-    analysisEventSource = new EventSource(
-      `${baseURL}/api/bookmarks/analysis/progress/stream?token=${encodeURIComponent(token)}`,
-      { withCredentials: true }
-    )
+      analysisEventSource = new EventSource(
+        `${baseURL}/api/bookmarks/analysis/progress/stream?token=${encodeURIComponent(token)}`,
+        { withCredentials: true }
+      )
 
-    analysisEventSource.onmessage = (event) => {
-      try {
-        // Skip heartbeat comments
-        if (event.data.trim().startsWith(':')) {
+      analysisEventSource.onmessage = (event) => {
+        try {
+          // Skip heartbeat comments
+          if (event.data.trim().startsWith(':')) {
+            return
+          }
+          
+          const data = JSON.parse(event.data)
+          
+          // If status is 'idle' with closing message, close the connection and prevent reconnection
+          if (data.status === 'idle' && data.message?.includes('Closing connection')) {
+            analysisClosedByIdle = true
+            analysisEventSource.close()
+            setAnalysisProgress(null)
+            return
+          }
+          
+          // Analysis is active - reset idle flag and update progress
+          analysisClosedByIdle = false
+          setAnalysisProgress(data)
+        } catch (error) {
+          console.error('Error parsing analysis progress:', error)
+        }
+      }
+
+      analysisEventSource.onerror = (error) => {
+        // If connection was closed due to idle timeout, prevent automatic reconnection
+        if (analysisEventSource.readyState === EventSource.CLOSED && analysisClosedByIdle) {
+          console.log('Analysis progress SSE closed (idle timeout) - not reconnecting')
           return
         }
         
-        const data = JSON.parse(event.data)
-        
-        // If status is 'idle' with closing message, close the connection and prevent reconnection
-        if (data.status === 'idle' && data.message?.includes('Closing connection')) {
-          analysisClosedByIdle = true
-          analysisEventSource.close()
-          setAnalysisProgress(null)
+        // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
+        if (analysisEventSource.readyState === EventSource.CLOSED && !analysisClosedByIdle) {
+          console.log('Analysis progress SSE closed (will reconnect if needed)')
+          // Reopen after a short delay if not closed by idle
+          setTimeout(() => {
+            if (!analysisClosedByIdle) {
+              openAnalysisStream()
+            }
+          }, 2000)
           return
         }
         
-        // Analysis is active - reset idle flag and update progress
-        analysisClosedByIdle = false
-        setAnalysisProgress(data)
-      } catch (error) {
-        console.error('Error parsing analysis progress:', error)
+        console.warn('Analysis progress SSE error:', error)
       }
     }
 
-    analysisEventSource.onerror = (error) => {
-      // If connection was closed due to idle timeout, prevent automatic reconnection
-      if (analysisEventSource.readyState === EventSource.CLOSED && analysisClosedByIdle) {
-        console.log('Analysis progress SSE closed (idle timeout) - not reconnecting')
-        return
+    // Open streams initially (after dashboard loads)
+    openImportStream()
+    openAnalysisStream()
+
+    // Poll to check if streams need to be reopened (e.g., if import starts after idle closure)
+    // Check every 5 seconds if streams are closed and reopen if needed
+    const checkAndReopenStreams = setInterval(() => {
+      // If import stream is closed but not due to idle, try to reopen
+      if (importEventSource && importEventSource.readyState === EventSource.CLOSED && !importClosedByIdle) {
+        console.log('Reopening import progress SSE stream...')
+        openImportStream()
       }
       
-      // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
-      if (analysisEventSource.readyState === EventSource.CLOSED && !analysisClosedByIdle) {
-        console.log('Analysis progress SSE closed (will reconnect if needed)')
-        return
+      // If analysis stream is closed but not due to idle, try to reopen
+      if (analysisEventSource && analysisEventSource.readyState === EventSource.CLOSED && !analysisClosedByIdle) {
+        console.log('Reopening analysis progress SSE stream...')
+        openAnalysisStream()
       }
-      
-      console.warn('Analysis progress SSE error:', error)
-    }
+    }, 5000) // Check every 5 seconds
 
     // Cleanup on unmount or when auth changes
     return () => {
+      clearInterval(checkAndReopenStreams)
       if (importEventSource) importEventSource.close()
       if (analysisEventSource) analysisEventSource.close()
     }
