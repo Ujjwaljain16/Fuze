@@ -49,8 +49,20 @@ class UserIntent:
 
 class IntentAnalysisEngine:
     def __init__(self):
-        self.gemini_client = GeminiAnalyzer()
+        # Lazy initialization - only create Gemini client if API key is available
+        self._gemini_client = None
         self.cache_duration = timedelta(hours=24)  # Cache for 24 hours
+    
+    @property
+    def gemini_client(self):
+        """Lazy load Gemini client only when needed"""
+        if self._gemini_client is None:
+            try:
+                self._gemini_client = GeminiAnalyzer()
+            except ValueError:
+                # If API key is missing, return None (tests can mock this)
+                self._gemini_client = None
+        return self._gemini_client
         
     def _generate_input_hash(self, user_input: str, project_id: Optional[int] = None) -> str:
         """Generate hash for input to enable caching"""
@@ -154,6 +166,10 @@ class IntentAnalysisEngine:
             Be specific and practical. Extract real intent from the input and project context.
             """
             
+            if not self.gemini_client:
+                # Fallback if Gemini is not available (e.g., in tests)
+                logger.warning("Gemini client not available, using fallback analysis")
+                return self._fallback_intent_analysis(user_input, project_id)
             result = self.gemini_client._make_gemini_request(context)
             
             if result:
@@ -305,12 +321,19 @@ class IntentAnalysisEngine:
                 context_hash=''
             )
 
-# Global instance
-intent_engine = IntentAnalysisEngine()
+# Global instance (lazy initialization)
+_intent_engine = None
+
+def _get_intent_engine():
+    """Get or create the global intent engine instance"""
+    global _intent_engine
+    if _intent_engine is None:
+        _intent_engine = IntentAnalysisEngine()
+    return _intent_engine
 
 def analyze_user_intent(user_input: str, project_id: Optional[int] = None, force_analysis: bool = False) -> UserIntent:
     """Convenience function to analyze user intent"""
-    return intent_engine.analyze_intent(user_input, project_id, force_analysis)
+    return _get_intent_engine().analyze_intent(user_input, project_id, force_analysis)
 
 # ============================================================================
 # FALLBACK SYSTEM - Added for reliability when AI analysis fails
