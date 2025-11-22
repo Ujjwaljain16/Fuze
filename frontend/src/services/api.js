@@ -34,6 +34,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Important for cookies and CSRF
+  timeout: 30000, // 30 second timeout for all requests
 })
 
 // CSRF token management - optimized for performance
@@ -151,13 +152,14 @@ export const refreshTokenIfNeeded = async () => {
 // Initialize CSRF token on app startup - optimized for performance
 export const initializeCSRF = async () => {
   try {
-    // Use a timeout to prevent blocking the UI
+    // Increased timeout for Hugging Face Spaces (may have higher latency)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 2000) // 2 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
     
     const response = await axios.get(`${baseURL}/api/auth/csrf-token`, {
       withCredentials: true,
-      signal: controller.signal
+      signal: controller.signal,
+      timeout: 10000 // Also set axios timeout
     })
     
     clearTimeout(timeoutId)
@@ -166,7 +168,7 @@ export const initializeCSRF = async () => {
       console.log('CSRF token initialized')
     }
   } catch (error) {
-    if (error.name === 'AbortError') {
+    if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
       console.warn('CSRF token request timed out, continuing without CSRF')
     } else {
       console.warn('CSRF token initialization failed, continuing without CSRF:', error.message)
