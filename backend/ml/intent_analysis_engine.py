@@ -169,7 +169,7 @@ class IntentAnalysisEngine:
             if not self.gemini_client:
                 # Fallback if Gemini is not available (e.g., in tests)
                 logger.warning("Gemini client not available, using fallback analysis")
-                return self._fallback_intent_analysis(user_input, project_id)
+                return self._fallback_analysis(user_input)
             result = self.gemini_client._make_gemini_request(context)
             
             if result:
