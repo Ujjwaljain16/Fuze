@@ -61,10 +61,6 @@ except ImportError:
     GEMINI_AVAILABLE = False
     logger.warning("ΓÜá∩╕Å Gemini not available, AI features will be disabled")
 
-# Configure logging first
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # Import our universal semantic matcher
 try:
     from universal_semantic_matcher import UniversalSemanticMatcher
@@ -3061,8 +3057,9 @@ def get_unified_recommendations(user_id: int, request_data: Dict[str, Any]) -> L
         # Get recommendations
         results = orchestrator.get_recommendations(request)
 
-        # Generate context-specific summaries for top recommendations
-        results = orchestrator.generate_context_summaries(results, request, user_id)
+        # NOTE: Context summaries are generated on-demand via /generate-context endpoint
+        # This allows recommendations to be shown instantly without waiting for Gemini analysis
+        # Users can click "Generate Personalized Context" to get AI-powered explanations later
 
         # Convert to dictionary format for API response
         return [asdict(result) for result in results]

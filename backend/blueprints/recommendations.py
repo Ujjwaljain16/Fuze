@@ -130,7 +130,7 @@ def cache_recommendations(cache_key, data, ttl=3600):
 def invalidate_user_recommendations(user_id):
     """Invalidate all cached recommendations for a user"""
     try:
-        from cache_invalidation_service import cache_invalidator
+        from services.cache_invalidation_service import cache_invalidator
         return cache_invalidator.invalidate_recommendation_cache(user_id)
     except Exception as e:
         logger.error(f"Error invalidating user recommendations: {e}")
@@ -220,8 +220,9 @@ def get_unified_orchestrator_recommendations():
         orchestrator = get_unified_orchestrator()
         recommendations = orchestrator.get_recommendations(unified_request)
 
-        # Generate contextual summaries for better recommendations (TOGGLE FEATURE!)
-        recommendations = orchestrator.generate_context_summaries(recommendations, unified_request, user_id)
+        # NOTE: Context summaries are generated on-demand via /generate-context endpoint
+        # This allows recommendations to be shown instantly without waiting for Gemini analysis
+        # Users can click "Generate Personalized Context" to get AI-powered explanations later
 
         # Convert to dictionary format
         result = [asdict(rec) for rec in recommendations]
@@ -246,6 +247,92 @@ def get_unified_orchestrator_recommendations():
         
     except Exception as e:
         logger.error(f"Error in recommendations: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@recommendations_bp.route('/generate-context', methods=['POST'])
+@jwt_required()
+def generate_personalized_context():
+    """Generate personalized context summary for a specific recommendation"""
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        recommendation_id = data.get('recommendation_id')
+        recommendation_data = data.get('recommendation')
+        context_data = data.get('context')
+        
+        if not recommendation_data or not context_data:
+            return jsonify({'error': 'Missing recommendation or context data'}), 400
+        
+        # Import required classes
+        from ml.unified_recommendation_orchestrator import (
+            UnifiedRecommendationRequest, 
+            UnifiedRecommendationResult,
+            get_unified_orchestrator
+        )
+        
+        # Get orchestrator
+        orchestrator = get_unified_orchestrator()
+        
+        if not orchestrator:
+            return jsonify({'error': 'Recommendation engine not available'}), 500
+        
+        # Get user's API key for Gemini
+        from services.multi_user_api_manager import get_user_api_key
+        user_api_key = get_user_api_key(user_id)
+        
+        if not user_api_key:
+            return jsonify({'error': 'User API key not found. Please add your Gemini API key in settings.'}), 400
+        
+        # Initialize Gemini analyzer with user's API key
+        from utils.gemini_utils import GeminiAnalyzer
+        gemini_analyzer = GeminiAnalyzer(api_key=user_api_key)
+        
+        # Create UnifiedRecommendationRequest from context data
+        unified_request = UnifiedRecommendationRequest(
+            user_id=user_id,
+            title=context_data.get('title', ''),
+            description=context_data.get('description', ''),
+            technologies=context_data.get('technologies', ''),
+            user_interests=context_data.get('user_interests', ''),
+            project_id=context_data.get('project_id'),
+            max_recommendations=10
+        )
+        
+        # Create UnifiedRecommendationResult from recommendation data
+        recommendation_result = UnifiedRecommendationResult(
+            id=recommendation_data.get('id'),
+            title=recommendation_data.get('title', ''),
+            url=recommendation_data.get('url', ''),
+            description=recommendation_data.get('description', ''),
+            technologies=recommendation_data.get('technologies', []),
+            content_type=recommendation_data.get('content_type', 'article'),
+            difficulty=recommendation_data.get('difficulty', 'intermediate'),
+            basic_summary=recommendation_data.get('basic_summary', ''),
+            match_score=recommendation_data.get('match_score', 0),
+            context_summary=''
+        )
+        
+        # Generate context summary
+        context_summary = orchestrator._generate_context_summary(
+            gemini_analyzer=gemini_analyzer,
+            recommendation=recommendation_result,
+            request=unified_request,
+            rank=1  # Assume it's a top recommendation
+        )
+        
+        return jsonify({
+            'success': True,
+            'context_summary': context_summary
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating personalized context: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
