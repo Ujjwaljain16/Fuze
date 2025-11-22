@@ -305,16 +305,23 @@ def generate_personalized_context():
         )
         
         # Create UnifiedRecommendationResult from recommendation data
+        # Note: UnifiedRecommendationResult doesn't have 'description' or 'match_score' fields
+        # Use 'basic_summary' for description-like content and 'score' for match_score
         recommendation_result = UnifiedRecommendationResult(
             id=recommendation_data.get('id'),
             title=recommendation_data.get('title', ''),
             url=recommendation_data.get('url', ''),
-            description=recommendation_data.get('description', ''),
+            score=recommendation_data.get('match_score', recommendation_data.get('score', 0)),
+            reason=recommendation_data.get('reason', ''),
             technologies=recommendation_data.get('technologies', []),
             content_type=recommendation_data.get('content_type', 'article'),
             difficulty=recommendation_data.get('difficulty', 'intermediate'),
+            key_concepts=recommendation_data.get('key_concepts', []),
+            quality_score=recommendation_data.get('quality_score', 6),
+            engine_used=recommendation_data.get('engine_used', 'unified'),
+            confidence=recommendation_data.get('confidence', 0.5),
+            metadata=recommendation_data.get('metadata', {}),
             basic_summary=recommendation_data.get('basic_summary', ''),
-            match_score=recommendation_data.get('match_score', 0),
             context_summary=''
         )
         
