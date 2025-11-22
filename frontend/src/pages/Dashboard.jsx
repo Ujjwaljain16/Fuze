@@ -201,15 +201,15 @@ const Dashboard = () => {
       const results = await Promise.allSettled([
         api.get('/api/bookmarks?per_page=5', { 
           signal: abortController.signal,
-          timeout: 45000 // 45 seconds for slow network
+          timeout: 15000 // 15 seconds - should be fast with caching
         }),
         api.get('/api/projects', { 
           signal: abortController.signal,
-          timeout: 45000
+          timeout: 15000
         }),
         api.get('/api/bookmarks/dashboard/stats', { 
           signal: abortController.signal,
-          timeout: 45000
+          timeout: 15000
         })
       ])
       
