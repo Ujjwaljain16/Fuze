@@ -10,7 +10,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import Recommendations from './pages/Recommendations';
 import Bookmarks from './pages/Bookmarks';
 import SaveContent from './pages/SaveContent';
-import ShareHandler from './pages/ShareHandler';
+import ShareHandler from './pages/ShareHandler.jsx';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
