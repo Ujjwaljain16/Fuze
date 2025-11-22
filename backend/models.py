@@ -91,11 +91,16 @@ class User(Base):
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)  # Indexed for performance
     title = Column(String(100), nullable=False)
     description = Column(TEXT)
     technologies = Column(TEXT)
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=func.now(), index=True)  # Indexed for sorting
+    
+    # Production indexes
+    __table_args__ = (
+        db.Index('idx_projects_user_created', 'user_id', 'created_at'),
+    )
 
     # Intent analysis caching fields
     intent_analysis = Column(JSON)  # Store intent analysis results
@@ -109,17 +114,23 @@ class Project(Base):
 class SavedContent(Base):
     __tablename__ = 'saved_content'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)  # Indexed for performance
     url = Column(TEXT, nullable=False)
     title = Column(String(200), nullable=False)
     source = Column(String(50))
-    saved_at = Column(DateTime, default=func.now())
+    saved_at = Column(DateTime, default=func.now(), index=True)  # Indexed for sorting
     extracted_text = Column(TEXT)
     embedding = Column(Vector(384))
     tags = Column(TEXT)
     category = Column(String(100))
     notes = Column(TEXT)
-    quality_score = Column(Integer, default=10)
+    quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
+    
+    # Production indexes (will be created by database_indexes.py script)
+    __table_args__ = (
+        db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
+        db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
+    )
 
 class ContentAnalysis(Base):
     __tablename__ = 'content_analysis'

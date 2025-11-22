@@ -6,9 +6,7 @@ Unified Configuration System for Fuze
 Single source of truth for all configuration values.
 NO hardcoded values in code - everything comes from here.
 Supports environment variables, defaults, and runtime updates.
-
-Author: Fuze AI System
-Date: November 2024
+Date: November 2025
 """
 
 import os
@@ -124,7 +122,7 @@ class CORSConfig:
     """CORS configuration"""
     origins: list = field(default_factory=lambda: [
         origin.strip() 
-        for origin in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,chrome-extension://*').split(',')
+        for origin in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,chrome-extension://*').split(',')
         if origin.strip()
     ])
     supports_credentials: bool = field(default_factory=lambda: os.getenv('CORS_SUPPORTS_CREDENTIALS', 'true').lower() == 'true')

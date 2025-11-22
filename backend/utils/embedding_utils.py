@@ -19,6 +19,8 @@ def get_embedding_model():
 
     Model is lazy-loaded to prevent OOM at startup.
     Set EAGER_LOAD_EMBEDDING_MODEL=true to load at import time (not recommended for free tier).
+    
+    PRODUCTION OPTIMIZATION: Uses production_optimizations for better caching
     """
     global _embedding_model, _embedding_model_initialized
 
@@ -26,6 +28,17 @@ def get_embedding_model():
         with _embedding_lock:
             # Double-check pattern
             if not _embedding_model_initialized:
+                # Try to use production-optimized model loader first
+                try:
+                    from utils.production_optimizations import get_cached_embedding_model
+                    _embedding_model = get_cached_embedding_model()
+                    _embedding_model_initialized = True
+                    logger.info("✅ Using production-optimized embedding model cache")
+                    return _embedding_model
+                except ImportError:
+                    # Fallback to standard initialization
+                    logger.debug("Production optimizations not available, using standard initialization")
+                
                 _embedding_model = _initialize_embedding_model_robust()
                 _embedding_model_initialized = True
 

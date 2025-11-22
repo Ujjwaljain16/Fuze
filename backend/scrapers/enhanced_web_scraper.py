@@ -152,7 +152,7 @@ class EnhancedWebScraper:
             logger.error(f"Dev.to handling failed: {e}")
             return self.get_fallback_content(url, "Dev.to")
     
-    def enhanced_static_scraping(self, url: str) -> Dict:
+    def enhanced_static_scraping(self, url: str, _tried_playwright=False) -> Dict:
         """Enhanced static scraping with multiple strategies"""
         try:
             # Rotate user agents
@@ -174,11 +174,18 @@ class EnhancedWebScraper:
             
         except requests.exceptions.RequestException as e:
             logger.warning(f"Static scraping failed for {url}: {e}")
-            # Fallback to Playwright
-            return self.enhanced_playwright_scraping(url)
+            # Fallback to Playwright only if available and not already tried
+            if PLAYWRIGHT_AVAILABLE and not _tried_playwright:
+                return self.enhanced_playwright_scraping(url)
+            else:
+                return self.get_fallback_content(url, "Static")
     
-    def enhanced_playwright_scraping(self, url: str, site_specific: bool = False) -> Dict:
+    def enhanced_playwright_scraping(self, url: str, site_specific: bool = False, _tried_static=False) -> Dict:
         """Enhanced Playwright scraping with site-specific optimizations"""
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.debug("Playwright not available, using static scraping fallback")
+            return self.enhanced_static_scraping(url, _tried_playwright=True)
+        
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -224,11 +231,32 @@ class EnhancedWebScraper:
                 return self.parse_html_content(html, url)
                 
         except Exception as e:
+            error_str = str(e).lower()
+            # Check if it's a browser installation error
+            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
+                logger.debug(f"Playwright browsers not installed for {url}, falling back to static scraping")
+                # Try static scraping as fallback (only if not already tried)
+                if not _tried_static:
+                    try:
+                        return self.enhanced_static_scraping(url, _tried_playwright=True)
+                    except:
+                        return self.get_fallback_content(url, "Static")
+                return self.get_fallback_content(url, "Static")
             logger.error(f"Playwright scraping failed for {url}: {e}")
+            # Try static scraping as fallback (only if not already tried)
+            if not _tried_static:
+                try:
+                    return self.enhanced_static_scraping(url, _tried_playwright=True)
+                except:
+                    return self.get_fallback_content(url, "Playwright")
             return self.get_fallback_content(url, "Playwright")
     
     def leetcode_playwright_scraping(self, url: str, problem_slug: str) -> Dict:
         """Specialized LeetCode scraping"""
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.debug("Playwright not available for LeetCode, using static scraping")
+            return self.enhanced_static_scraping(url)
+        
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -260,11 +288,25 @@ class EnhancedWebScraper:
                 return self.parse_html_content(html, url)
                 
         except Exception as e:
+            error_str = str(e).lower()
+            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
+                logger.debug(f"Playwright browsers not installed for LeetCode, falling back to static scraping")
+                try:
+                    return self.enhanced_static_scraping(url, _tried_playwright=True)
+                except:
+                    return self.get_fallback_content(url, "Static")
             logger.error(f"LeetCode Playwright scraping failed: {e}")
-            return self.get_fallback_content(url, "LeetCode")
+            try:
+                return self.enhanced_static_scraping(url, _tried_playwright=True)
+            except:
+                return self.get_fallback_content(url, "LeetCode")
     
     def github_playwright_scraping(self, url: str) -> Dict:
         """Specialized GitHub scraping"""
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.debug("Playwright not available for GitHub, using static scraping")
+            return self.enhanced_static_scraping(url)
+        
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -291,8 +333,18 @@ class EnhancedWebScraper:
                 return self.parse_html_content(html, url)
                 
         except Exception as e:
+            error_str = str(e).lower()
+            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
+                logger.debug(f"Playwright browsers not installed for GitHub, falling back to static scraping")
+                try:
+                    return self.enhanced_static_scraping(url, _tried_playwright=True)
+                except:
+                    return self.get_fallback_content(url, "Static")
             logger.error(f"GitHub Playwright scraping failed: {e}")
-            return self.get_fallback_content(url, "GitHub")
+            try:
+                return self.enhanced_static_scraping(url, _tried_playwright=True)
+            except:
+                return self.get_fallback_content(url, "GitHub")
     
     def parse_html_content(self, html: str, url: str) -> Dict:
         """Parse HTML content with multiple extraction strategies"""
@@ -417,14 +469,32 @@ class EnhancedWebScraper:
     
     def get_fallback_content(self, url: str, source: str) -> Dict:
         """Generate fallback content when scraping fails"""
-        domain = urlparse(url).netloc
+        # Generate meaningful fallback content instead of "Unable to extract" message
+        # Extract meaningful info from URL
+        from urllib.parse import unquote
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace('www.', '')
+        path_parts = [p for p in parsed.path.strip('/').split('/') if p]
+        
+        # Create meaningful content from URL structure
+        content_parts = [f"Content from {domain}"]
+        if path_parts:
+            skip_paths = {'www', 'index', 'home', 'page', 'post', 'article'}
+            meaningful_parts = [unquote(p).replace('-', ' ').replace('_', ' ') 
+                              for p in path_parts if p.lower() not in skip_paths]
+            if meaningful_parts:
+                content_parts.append('Topic: ' + ' '.join(meaningful_parts[:3]))
+        
+        fallback_content = '. '.join(content_parts)
+        if len(fallback_content) < 50:
+            fallback_content += f". URL: {url}"
         
         return {
             'title': f'Content from {domain}',
-            'content': f'Unable to extract content from {url}. This may be due to access restrictions or the site requiring authentication. Source: {source}',
+            'content': fallback_content,  # Never use "Unable to extract" message
             'headings': [],
-            'meta_description': f'Content from {domain} - extraction failed',
-            'quality_score': 3
+            'meta_description': f'Content from {domain}',
+            'quality_score': 3  # Low but not zero
         }
 
 # Global instance

@@ -233,6 +233,91 @@ class RedisCache:
             print(f"Error getting cached session: {e}")
         return None
     
+    # Query Result Cache (Enhanced)
+    def cache_query_result(self, cache_key: str, result: Any, ttl: int = 300) -> bool:
+        """Cache database query result"""
+        if not self.connected:
+            return False
+        
+        try:
+            key = self._get_key("query", cache_key)
+            result_json = json.dumps(result, default=str)
+            return self.redis_client.setex(key, ttl, result_json.encode())
+        except Exception as e:
+            print(f"Error caching query result: {e}")
+            return False
+    
+    def get_cached_query_result(self, cache_key: str) -> Optional[Any]:
+        """Get cached query result"""
+        if not self.connected:
+            return None
+        
+        try:
+            key = self._get_key("query", cache_key)
+            result_json = self.redis_client.get(key)
+            if result_json:
+                return json.loads(result_json.decode())
+        except Exception as e:
+            print(f"Error getting cached query result: {e}")
+        return None
+    
+    def invalidate_query_cache(self, pattern: str = None) -> int:
+        """Invalidate query cache by pattern"""
+        if not self.connected:
+            return 0
+        
+        try:
+            if pattern:
+                keys = self.redis_client.keys(self._get_key("query", f"*{pattern}*"))
+            else:
+                keys = self.redis_client.keys(self._get_key("query", "*"))
+            
+            if keys:
+                return self.redis_client.delete(*keys)
+            return 0
+        except Exception as e:
+            print(f"Error invalidating query cache: {e}")
+            return 0
+    
+    # API Response Cache
+    def cache_api_response(self, endpoint: str, params: Dict, response: Any, ttl: int = 60) -> bool:
+        """Cache API response"""
+        if not self.connected:
+            return False
+        
+        try:
+            # Create cache key from endpoint and params
+            import hashlib
+            params_str = json.dumps(params, sort_keys=True)
+            params_hash = hashlib.md5(params_str.encode()).hexdigest()
+            cache_key = f"{endpoint}:{params_hash}"
+            
+            key = self._get_key("api", cache_key)
+            response_json = json.dumps(response, default=str)
+            return self.redis_client.setex(key, ttl, response_json.encode())
+        except Exception as e:
+            print(f"Error caching API response: {e}")
+            return False
+    
+    def get_cached_api_response(self, endpoint: str, params: Dict) -> Optional[Any]:
+        """Get cached API response"""
+        if not self.connected:
+            return None
+        
+        try:
+            import hashlib
+            params_str = json.dumps(params, sort_keys=True)
+            params_hash = hashlib.md5(params_str.encode()).hexdigest()
+            cache_key = f"{endpoint}:{params_hash}"
+            
+            key = self._get_key("api", cache_key)
+            response_json = self.redis_client.get(key)
+            if response_json:
+                return json.loads(response_json.decode())
+        except Exception as e:
+            print(f"Error getting cached API response: {e}")
+        return None
+    
     # Cache Statistics
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
@@ -241,12 +326,23 @@ class RedisCache:
         
         try:
             info = self.redis_client.info()
+            # Count keys by prefix
+            query_keys = len(self.redis_client.keys(self._get_key("query", "*")))
+            api_keys = len(self.redis_client.keys(self._get_key("api", "*")))
+            embedding_keys = len(self.redis_client.keys(self._get_key("embedding", "*")))
+            
             return {
                 "connected": True,
                 "used_memory": info.get("used_memory_human", "N/A"),
                 "connected_clients": info.get("connected_clients", 0),
                 "total_commands_processed": info.get("total_commands_processed", 0),
                 "keyspace_hits": info.get("keyspace_hits", 0),
+                "keyspace_misses": info.get("keyspace_misses", 0),
+                "cache_keys": {
+                    "queries": query_keys,
+                    "api_responses": api_keys,
+                    "embeddings": embedding_keys,
+                },
                 "keyspace_misses": info.get("keyspace_misses", 0)
             }
         except Exception as e:

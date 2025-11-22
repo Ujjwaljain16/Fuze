@@ -80,6 +80,8 @@ class ScraplingEnhancedScraper:
             'www.npci.org.in': 'stealthy',
             'learnxinyminutes.com': 'stealthy',
             'decentro.tech': 'stealthy',
+            'newline.co': 'stealthy',  # Added
+            'willendless.github.io': 'stealthy',  # Added
             # JavaScript-heavy/SPA sites
             'andreasbm.github.io': 'dynamic',
             'devdocs.io': 'dynamic',
@@ -105,6 +107,192 @@ class ScraplingEnhancedScraper:
             'learning.edx.org',
             'app.expense.fyi',
         }
+    
+    def _intelligent_content_extraction(self, page, url: str) -> str:
+        """
+        Intelligent content extraction that tries multiple strategies and picks the best result
+        Uses heuristics to find the main content area automatically
+        """
+        candidates = []
+        
+        try:
+            # Strategy 1: Semantic HTML5 elements (highest priority)
+            semantic_selectors = [
+                'article',
+                'main',
+                '[role="main"]',
+                '[role="article"]',
+                'section[role="main"]',
+            ]
+            
+            for selector in semantic_selectors:
+                try:
+                    elem = page.css_first(selector)
+                    if elem:
+                        text = elem.get_all_text(separator=' ', strip=True,
+                                                ignore_tags=('script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside'),
+                                                valid_values=True)
+                        if text:
+                            text_str = str(text).strip()
+                            if len(text_str) > 100:
+                                # Score based on length and content quality
+                                score = self._score_content_quality(text_str)
+                                candidates.append((text_str, score, 'semantic'))
+                except:
+                    continue
+            
+            # Strategy 2: Common content class patterns (intelligent detection)
+            content_patterns = [
+                # High confidence patterns
+                '.content', '.post-content', '.article-content', '.entry-content',
+                '.post-body', '.article-body', '.main-content', '.page-content',
+                '.markdown-body', '.repository-content', '.documentation-content',
+                # Medium confidence
+                '.post', '.article', '.entry', '.text', '.body', '.description',
+                # Lower confidence but common
+                '[class*="content"]', '[class*="article"]', '[class*="post"]',
+                '[class*="main"]', '[id*="content"]', '[id*="article"]',
+            ]
+            
+            for pattern in content_patterns:
+                try:
+                    elems = page.css(pattern)
+                    for elem in elems[:5]:  # Check first 5 matches
+                        try:
+                            text = elem.get_all_text(separator=' ', strip=True,
+                                                    ignore_tags=('script', 'style', 'noscript', 'nav', 'header', 'footer'),
+                                                    valid_values=True)
+                            if text:
+                                text_str = str(text).strip()
+                                if len(text_str) > 200:
+                                    score = self._score_content_quality(text_str)
+                                    candidates.append((text_str, score, 'pattern'))
+                        except:
+                            continue
+                except:
+                    continue
+            
+            # Strategy 3: Find largest text block (heuristic approach)
+            try:
+                # Get all divs and find the one with most text
+                all_divs = page.css('div')
+                for div in all_divs[:20]:  # Check first 20 divs
+                    try:
+                        text = div.get_all_text(separator=' ', strip=True,
+                                               ignore_tags=('script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside'),
+                                               valid_values=True)
+                        if text:
+                            text_str = str(text).strip()
+                            # Only consider substantial content
+                            if len(text_str) > 300:
+                                score = self._score_content_quality(text_str)
+                                candidates.append((text_str, score, 'largest'))
+                    except:
+                        continue
+            except:
+                pass
+            
+            # Strategy 4: Body text as fallback
+            try:
+                body = page.css_first('body')
+                if body:
+                    text = body.get_all_text(separator=' ', strip=True,
+                                            ignore_tags=('script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside'),
+                                            valid_values=True)
+                    if text:
+                        text_str = str(text).strip()
+                        if len(text_str) > 200:
+                            score = self._score_content_quality(text_str)
+                            candidates.append((text_str, score, 'body'))
+            except:
+                pass
+            
+            # Strategy 5: Full page text (last resort)
+            try:
+                text = page.get_all_text(separator=' ', strip=True,
+                                        ignore_tags=('script', 'style', 'noscript'),
+                                        valid_values=True)
+                if text:
+                    text_str = str(text).strip()
+                    if len(text_str) > 200:
+                        score = self._score_content_quality(text_str)
+                        candidates.append((text_str, score, 'full'))
+            except:
+                pass
+            
+            # Pick the best candidate based on score
+            if candidates:
+                # Sort by score (higher is better), then by length
+                candidates.sort(key=lambda x: (x[1], len(x[0])), reverse=True)
+                best_content = candidates[0][0]
+                logger.debug(f"Selected content from strategy '{candidates[0][2]}' with score {candidates[0][1]}")
+                return best_content
+            
+        except Exception as e:
+            logger.debug(f"Intelligent extraction failed: {e}")
+        
+        return ""
+    
+    def _score_content_quality(self, content: str) -> float:
+        """
+        Score content quality based on heuristics
+        Higher score = better content
+        """
+        if not content or len(content) < 50:
+            return 0.0
+        
+        score = 0.0
+        content_lower = content.lower()
+        
+        # Length scoring (longer is generally better, but not too long)
+        length = len(content)
+        if 200 <= length <= 50000:
+            score += min(length / 1000, 10.0)  # Up to 10 points for length
+        elif length > 50000:
+            score += 5.0  # Very long might be noise
+        
+        # Penalize CSS/JS patterns
+        special_chars = sum(1 for c in content if c in '{}(),;:[]=+-*/%<>!&|')
+        special_ratio = special_chars / length if length > 0 else 0
+        if special_ratio > 0.3:  # More than 30% special chars = likely CSS/JS
+            score -= 20.0  # Heavy penalty
+        
+        # Reward meaningful content indicators
+        meaningful_indicators = [
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has',
+            'this', 'that', 'with', 'from', 'about', 'into', 'through'
+        ]
+        word_count = len(content.split())
+        meaningful_word_ratio = sum(1 for word in content_lower.split() if word in meaningful_indicators) / word_count if word_count > 0 else 0
+        if meaningful_word_ratio > 0.1:  # At least 10% common words
+            score += 5.0
+        
+        # Reward paragraph structure (newlines indicate structure)
+        newline_count = content.count('\n')
+        if newline_count > 5:
+            score += 2.0
+        
+        # Reward sentence structure (periods indicate sentences)
+        sentence_count = content.count('.')
+        if sentence_count > 5:
+            score += 3.0
+        
+        # Penalize repetitive content
+        words = content_lower.split()
+        if len(words) > 0:
+            unique_ratio = len(set(words)) / len(words)
+            if unique_ratio < 0.3:  # Less than 30% unique words = repetitive
+                score -= 5.0
+        
+        # Reward technical/content keywords
+        tech_keywords = ['tutorial', 'guide', 'documentation', 'example', 'code',
+                        'function', 'class', 'method', 'api', 'how', 'what', 'why',
+                        'learn', 'understand', 'explain', 'introduction', 'overview']
+        keyword_count = sum(1 for keyword in tech_keywords if keyword in content_lower)
+        score += min(keyword_count * 0.5, 5.0)  # Up to 5 points
+        
+        return max(0.0, score)  # Ensure non-negative
     
     def _extract_from_scrapling_page(self, page, url: str) -> Dict:
         """Extract content from Scrapling Response/Selector using native API"""
@@ -149,49 +337,8 @@ class ScraplingEnhancedScraper:
             except Exception as e:
                 logger.debug(f"Heading extraction failed: {e}")
             
-            # Extract main content using Scrapling's get_all_text()
-            content = ""
-            try:
-                content_selectors = [
-                    'article', 'main', '[role="main"]', '.content', '.post-content',
-                    '.article-content', '.entry-content', '.post-body', '.article-body',
-                    '.markdown-body', '.repository-content',
-                ]
-                
-                for selector in content_selectors:
-                    try:
-                        elem = page.css_first(selector)
-                        if elem:
-                            text = elem.get_all_text(separator=' ', strip=True, 
-                                                    ignore_tags=('script', 'style', 'noscript'), 
-                                                    valid_values=True)
-                            if text and len(str(text)) > 200:
-                                content = str(text)
-                                break
-                    except:
-                        continue
-                
-                if not content or len(content.strip()) < 200:
-                    try:
-                        body = page.css_first('body')
-                        if body:
-                            content = body.get_all_text(separator=' ', strip=True, 
-                                                        ignore_tags=('script', 'style', 'noscript'), 
-                                                        valid_values=True)
-                            content = str(content) if content else ""
-                    except:
-                        pass
-                
-                if not content or len(content.strip()) < 200:
-                    try:
-                        content = page.get_all_text(separator=' ', strip=True, 
-                                                   ignore_tags=('script', 'style', 'noscript'), 
-                                                   valid_values=True)
-                        content = str(content) if content else ""
-                    except:
-                        pass
-            except Exception as e:
-                logger.debug(f"Content extraction failed: {e}")
+            # Intelligent content extraction - try multiple strategies and pick the best
+            content = self._intelligent_content_extraction(page, url)
             
             # Clean content
             content = self._clean_and_optimize_content(content)
@@ -201,6 +348,16 @@ class ScraplingEnhancedScraper:
                 github_content = self._extract_github_content(url, page)
                 if github_content and len(github_content) > len(content):
                     content = github_content
+            
+            # Try domain-specific extractors for better content
+            if not content or len(content.strip()) < 50:
+                try:
+                    from scrapers.domain_specific_extractors import DomainSpecificExtractors
+                    domain_content = DomainSpecificExtractors.extract_domain_specific_content(url)
+                    if domain_content and len(domain_content) > len(content or ''):
+                        content = domain_content
+                except Exception as e:
+                    logger.debug(f"Domain-specific extraction failed: {e}")
             
             # Fallback content generation
             if not content or len(content.strip()) < 50:
@@ -233,78 +390,134 @@ class ScraplingEnhancedScraper:
             }
     
     def _extract_github_content(self, url: str, page=None) -> Optional[str]:
-        """Extract content from GitHub repositories (README, description, etc.)"""
+        """Extract content from GitHub repositories using API (most reliable method)"""
         content_parts = []
         
-        # Try to extract from page if available
-        if page:
+        try:
+            import requests
+            import base64
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            parts = [p for p in parsed.path.strip('/').split('/') if p]
+            
+            if len(parts) < 2:
+                return None
+            
+            owner = parts[0]
+            repo = parts[1]
+            
+            # Handle different GitHub URL types
+            url_type = None
+            file_path = None
+            branch = 'main'  # Default branch
+            
+            if len(parts) >= 3:
+                if parts[2] == 'tree':
+                    url_type = 'tree'
+                    branch = parts[3] if len(parts) > 3 else 'main'
+                elif parts[2] == 'blob':
+                    url_type = 'blob'
+                    branch = parts[3] if len(parts) > 3 else 'main'
+                    file_path = '/'.join(parts[4:]) if len(parts) > 4 else None
+                elif parts[2] == 'commit':
+                    url_type = 'commit'
+                elif parts[2] == 'issues' or parts[2] == 'pull':
+                    url_type = parts[2]
+            
+            # Get repository info from API
+            api_url = f"https://api.github.com/repos/{owner}/{repo}"
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Mozilla/5.0 (Fuze Bookmark Scraper)"
+            }
+            
             try:
-                # Try to get README content
+                response = requests.get(api_url, timeout=15, headers=headers)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Add repository name and description
+                    repo_name = data.get('full_name', f"{owner}/{repo}")
+                    description = data.get('description', '')
+                    if description:
+                        content_parts.append(f"Repository: {repo_name}\nDescription: {description}")
+                    else:
+                        content_parts.append(f"Repository: {repo_name}")
+                    
+                    # Add topics/tags
+                    topics = data.get('topics', [])
+                    if topics:
+                        content_parts.append(f"Topics: {', '.join(topics[:10])}")
+                    
+                    # Add language
+                    language = data.get('language', '')
+                    if language:
+                        content_parts.append(f"Primary Language: {language}")
+                    
+                    # Add stars, forks, etc.
+                    stars = data.get('stargazers_count', 0)
+                    forks = data.get('forks_count', 0)
+                    if stars > 0 or forks > 0:
+                        content_parts.append(f"Stars: {stars}, Forks: {forks}")
+                    
+                    # Try to get README content from API (highest priority)
+                    readme_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+                    try:
+                        readme_response = requests.get(readme_url, timeout=15, headers=headers)
+                        if readme_response.status_code == 200:
+                            readme_data = readme_response.json()
+                            readme_content = base64.b64decode(readme_data.get('content', '')).decode('utf-8', errors='ignore')
+                            if readme_content and len(readme_content) > 50:
+                                # Limit README to first 8000 chars (keep more content)
+                                if len(readme_content) > 8000:
+                                    readme_content = readme_content[:8000] + "\n\n... (truncated)"
+                                content_parts.append(f"\nREADME:\n{readme_content}")
+                        elif readme_response.status_code == 404:
+                            # No README, try to get default branch content
+                            logger.debug(f"No README found for {owner}/{repo}")
+                    except Exception as e:
+                        logger.debug(f"GitHub README API failed: {e}")
+                    
+                    # For specific files (blob URLs), try to get file content
+                    if url_type == 'blob' and file_path:
+                        try:
+                            # Try to get file content from raw URL (simpler than API)
+                            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+                            file_response = requests.get(raw_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                            if file_response.status_code == 200:
+                                file_content = file_response.text
+                                # Limit file content to 5000 chars
+                                if len(file_content) > 5000:
+                                    file_content = file_content[:5000] + "\n... (truncated)"
+                                content_parts.append(f"\nFile Content ({file_path}):\n{file_content}")
+                        except Exception as e:
+                            logger.debug(f"Failed to get file content: {e}")
+                    
+                elif response.status_code == 404:
+                    logger.debug(f"Repository {owner}/{repo} not found or private")
+                else:
+                    logger.debug(f"GitHub API returned status {response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"GitHub API timeout for {url}")
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"GitHub API request failed: {e}")
+                
+        except Exception as e:
+            logger.debug(f"GitHub API extraction error: {e}")
+        
+        # Try to extract from page if available (fallback)
+        if page and len(content_parts) == 0:
+            try:
+                # Try to get README content from page
                 readme = page.css_first('.markdown-body')
                 if readme:
                     content = readme.get_all_text(separator=' ', strip=True, ignore_tags=('script', 'style'), valid_values=True)
                     if content and len(str(content)) > 100:
                         content_parts.append(str(content))
-                
-                # Try repository description from page
-                desc = page.css_first('.repository-content .f4::text')
-                if desc:
-                    desc_text = str(desc).strip()
-                    if desc_text and len(desc_text) > 50:
-                        content_parts.append(desc_text)
             except Exception as e:
                 logger.debug(f"GitHub page extraction failed: {e}")
-        
-        # Always try GitHub API for repository info (works even if page extraction fails)
-        try:
-            import requests
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            parts = parsed.path.strip('/').split('/')
-            
-            if len(parts) >= 2:
-                owner, repo = parts[0], parts[1]
-                
-                # Get repository info
-                api_url = f"https://api.github.com/repos/{owner}/{repo}"
-                response = requests.get(api_url, timeout=10, headers={
-                    "Accept": "application/vnd.github.v3+json",
-                    "User-Agent": "Mozilla/5.0"
-                })
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Add description
-                    description = data.get('description', '')
-                    if description:
-                        content_parts.append(description)
-                    
-                    # Add topics
-                    topics = data.get('topics', [])
-                    if topics:
-                        content_parts.append(f"Topics: {', '.join(topics[:5])}")
-                    
-                    # Try to get README content from API
-                    readme_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-                    try:
-                        readme_response = requests.get(readme_url, timeout=10, headers={
-                            "Accept": "application/vnd.github.v3+json",
-                            "User-Agent": "Mozilla/5.0"
-                        })
-                        if readme_response.status_code == 200:
-                            import base64
-                            readme_data = readme_response.json()
-                            readme_content = base64.b64decode(readme_data.get('content', '')).decode('utf-8', errors='ignore')
-                            if readme_content and len(readme_content) > 100:
-                                # Limit README to first 5000 chars
-                                if len(readme_content) > 5000:
-                                    readme_content = readme_content[:5000] + "..."
-                                content_parts.append(f"README:\n{readme_content}")
-                    except Exception as e:
-                        logger.debug(f"GitHub README API failed: {e}")
-        except Exception as e:
-            logger.debug(f"GitHub API extraction failed: {e}")
         
         if content_parts:
             return '\n\n'.join(content_parts)
@@ -481,6 +694,52 @@ class ScraplingEnhancedScraper:
             if any(auth_domain in domain for auth_domain in self.auth_required_domains):
                 return self._get_auth_required_content(url, domain)
             
+            # For LinkedIn URLs, ALWAYS use enhanced LinkedIn scraper first (best method)
+            if 'linkedin.com' in domain:
+                try:
+                    from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
+                    linkedin_scraper = EasyLinkedInScraper()
+                    linkedin_result = linkedin_scraper.scrape_post(url)
+                    
+                    if linkedin_result and linkedin_result.get('success') and len(linkedin_result.get('content', '')) > 100:
+                        # Convert LinkedIn scraper format to our standard format
+                        result = {
+                            'title': linkedin_result.get('title', 'LinkedIn Post'),
+                            'content': linkedin_result.get('content', ''),
+                            'headings': [],
+                            'meta_description': linkedin_result.get('meta_description', ''),
+                            'quality_score': linkedin_result.get('quality_score', 7)
+                        }
+                        logger.info(f"✅ LinkedIn scraper extraction successful: {len(result['content'])} chars, quality={result['quality_score']}")
+                        return result
+                    else:
+                        logger.warning(f"LinkedIn scraper returned low quality result, trying fallback")
+                except Exception as linkedin_error:
+                    logger.warning(f"LinkedIn scraper failed: {linkedin_error}, trying fallback")
+            
+            # For GitHub URLs, ALWAYS try API first (most reliable method)
+            # This ensures we get README, description, topics even if Scrapling fails
+            github_api_result = None
+            if 'github.com' in url:
+                github_content = self._extract_github_content(url, page=None)
+                if github_content and len(github_content) > 100:
+                    # Got good content from GitHub API
+                    parsed = urlparse(url)
+                    parts = [p for p in parsed.path.strip('/').split('/') if p]
+                    title = f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else "GitHub Repository"
+                    
+                    github_api_result = {
+                        'title': title,
+                        'content': github_content,
+                        'headings': [],
+                        'meta_description': github_content[:200] if len(github_content) > 200 else github_content,
+                        'quality_score': 8  # High quality for GitHub API content
+                    }
+                    # For GitHub, prefer API result - return immediately
+                    logger.info(f"✅ GitHub API extraction successful: {len(github_content)} chars")
+                    return github_api_result
+                # If GitHub API failed, continue with Scrapling (might get better content)
+            
             # Check if Scrapling should be used
             if SCRAPLING_AVAILABLE:
                 strategy = self._get_scrapling_strategy(domain)
@@ -519,6 +778,23 @@ class ScraplingEnhancedScraper:
             except Exception as fallback_error:
                 logger.warning(f"Fallback scraper failed: {fallback_error}")
 
+            # Try domain-specific extractors before ultimate fallback
+            try:
+                from scrapers.domain_specific_extractors import DomainSpecificExtractors
+                domain_content = DomainSpecificExtractors.extract_domain_specific_content(url)
+                if domain_content:
+                    parsed = urlparse(url)
+                    domain = parsed.netloc.replace('www.', '')
+                    return {
+                        'title': f"Content from {domain}",
+                        'content': domain_content,
+                        'headings': [],
+                        'meta_description': domain_content[:200] if len(domain_content) > 200 else domain_content,
+                        'quality_score': 4  # Better than basic fallback
+                    }
+            except Exception as e:
+                logger.debug(f"Domain-specific extraction failed: {e}")
+            
             # Ultimate fallback - generate basic content from URL
             return self._generate_basic_fallback(url)
             

@@ -64,10 +64,20 @@ def analyze_extraction_quality():
                 SavedContent.extracted_text.like('%Unable to extract%')
             ).count()
             
+            # Get actual bookmarks with "Unable to extract"
+            unable_to_extract_bookmarks = db.session.query(SavedContent).filter(
+                SavedContent.extracted_text.like('%Unable to extract%')
+            ).limit(20).all()
+            
             # "extraction failed" messages
             extraction_failed = db.session.query(SavedContent).filter(
                 SavedContent.extracted_text.like('%extraction failed%')
             ).count()
+            
+            # Get actual bookmarks with "extraction failed"
+            extraction_failed_bookmarks = db.session.query(SavedContent).filter(
+                SavedContent.extracted_text.like('%extraction failed%')
+            ).limit(20).all()
             
             # Very short content (< 100 chars) but not empty
             short_content = db.session.query(SavedContent).filter(
