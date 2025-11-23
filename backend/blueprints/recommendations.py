@@ -2073,6 +2073,7 @@ def init_recommendations_blueprint():
         init_engines()
     except Exception as e:
         logger.error(f"Error initializing engines: {e}")
+        # Engine initialization failed, but blueprint can still function with fallbacks
     
     return recommendations_bp
 
