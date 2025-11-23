@@ -48,5 +48,9 @@ jobs:
           cd hf-space
           git add .
           git diff --staged --quiet || git commit -m "chore: auto-sync from main repo [skip ci]"
-          git push
+          # Set remote URL with token for push
+          git remote set-url origin https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend
+          # Get current branch name (HF Spaces might use 'main' or 'master')
+          BRANCH=$(git branch --show-current || echo "main")
+          git push origin $BRANCH
 
