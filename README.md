@@ -320,7 +320,7 @@ Fuze/
 
 ## 🚀 Future Enhancements
 
-### Short Term (Q1 2025)
+### Short Term
 - [ ] **Platform Integrations**: Link with other professional and educational platforms
   - GitHub integration for code repositories and documentation
   - Medium/Dev.to for technical articles
@@ -334,7 +334,7 @@ Fuze/
 - [ ] **Mobile App**: Native iOS and Android applications
 - [ ] **Export/Import**: Backup and restore functionality
 
-### Medium Term (Q2-Q3 2025)
+### Medium Term
 - [ ] **AI Chat Assistant**: Conversational interface for finding content
 - [ ] **Content Summarization**: Auto-generate summaries for saved content
 - [ ] **Smart Collections**: AI-curated collections based on topics
@@ -342,7 +342,7 @@ Fuze/
 - [ ] **Advanced Search Filters**: Date ranges, content types, relevance scores
 - [ ] **Cross-Platform Sync**: Sync bookmarks across devices and platforms
 
-### Long Term (Q4 2025+)
+### Long Term 
 - [ ] **Multi-Modal Search**: Search by images, code snippets, and more
 - [ ] **Learning Paths**: AI-generated learning paths from your bookmarks
 - [ ] **Knowledge Graph**: Visual representation of content relationships

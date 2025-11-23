@@ -23,6 +23,7 @@ Write-Host ""
 # Files to sync - include all backend changes
 $FilesToSync = @(
     @{Source = "backend\blueprints\bookmarks.py"; Target = "backend\blueprints\bookmarks.py"},
+    @{Source = "backend\blueprints\profile.py"; Target = "backend\blueprints\profile.py"},
     @{Source = "backend\blueprints\linkedin.py"; Target = "backend\blueprints\linkedin.py"},
     @{Source = "backend\clear_database.py"; Target = "backend\clear_database.py"},
     @{Source = "backend\tests\conftest.py"; Target = "backend\tests\conftest.py"},
@@ -90,12 +91,15 @@ if ($commit -eq 'y' -or $commit -eq 'Y') {
         
         Write-Host ""
         Write-Host "✅ Successfully synced and pushed to Hugging Face Space!" -ForegroundColor Green
-    } catch {
+    }
+    catch {
         Write-Host "❌ Error: $_" -ForegroundColor Red
-    } finally {
+    }
+    finally {
         Pop-Location
     }
-} else {
+}
+else {
     Write-Host "📝 Files synced. Run these commands in $HFSpacePath to commit:" -ForegroundColor Yellow
     Write-Host "   git add ." -ForegroundColor Cyan
     Write-Host '   git commit -m "chore: sync backend files"' -ForegroundColor Cyan
