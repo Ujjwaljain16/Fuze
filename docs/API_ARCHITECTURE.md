@@ -380,6 +380,61 @@ X-Request-ID: {unique_request_id}  # For request tracking
 }
 ```
 
+### Comprehensive Error Handling System
+
+Fuze has a robust, user-friendly error handling system that provides consistent error display, proper logging, and actionable user feedback.
+
+#### Error Categories
+
+| Type | Icon | Description | User Message |
+|------|------|-------------|--------------|
+| `NETWORK` | 📶 | Connection issues | "Network connection failed. Please check your internet and try again." |
+| `AUTH` | 🛡️ | Authentication problems | "Your session has expired. Please log in again." |
+| `VALIDATION` | ⚠️ | Input validation errors | "Please check your input and try again." |
+| `SERVER` | 🖥️ | Server-side issues | "Server error occurred. Please try again later." |
+| `RATE_LIMIT` | ⏱️ | Rate limiting | "Too many requests. Please wait a moment before trying again." |
+| `UNKNOWN` | ❓ | Unexpected errors | "An unexpected error occurred. Please try again." |
+
+#### HTTP Status Code Mapping
+
+- **400**: Validation Error
+- **401/403**: Authentication Error
+- **404**: Not Found (treated as generic error)
+- **409**: Conflict (Validation Error)
+- **422**: Unprocessable Entity (Validation Error)
+- **429**: Too Many Requests (Rate Limit)
+- **5xx**: Server Error
+
+#### Frontend Error Handling
+
+**Components:**
+1. **API Error Handler** (`services/api.js`)
+   - Central error processing and categorization
+   - User-friendly message mapping
+   - Retry logic with exponential backoff
+
+2. **Error Handler Hook** (`hooks/useErrorHandler.js`)
+   - React hook for consistent error handling in components
+   - Automatic toast notifications
+   - Context-aware error messages
+
+3. **Error Display Component** (`components/ErrorDisplay.jsx`)
+   - Reusable error UI component
+   - Different variants (compact, full, card)
+   - Visual error categorization
+
+4. **Enhanced Toast System** (`contexts/ToastContext.jsx`)
+   - Beautiful, animated notifications
+   - Multiple notification types
+   - Responsive design
+
+#### Error Logging
+
+- Detailed error information in development console
+- Stack traces for debugging
+- Context information for error identification
+- Full traceback and context in error logs
+
 ---
 
 ## Rate Limiting

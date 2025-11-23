@@ -768,11 +768,64 @@ graph TB
    - Uses: ThreadPoolExecutor for parallel processing
    - Progress: Tracked via SSE streams
 
+4. **RQ (Redis Queue) Worker**
+   - Location: `backend/worker.py` and `backend/services/task_queue.py`
+   - Processes: Bookmark content extraction, embedding generation, analysis
+   - Queue System: Redis-based task queue
+   - Runs: Automatically alongside web server (via `start.sh`)
+
+### RQ Worker Architecture
+
+**How It Works:**
+
+```
+User Action → API Endpoint → Enqueue Job → Immediate Response
+                                      ↓
+                              RQ Worker → Process Content → Update Database
+```
+
+**Components:**
+
+1. **Task Queue Service** (`backend/services/task_queue.py`)
+   - Manages RQ queues and job enqueueing
+   - Handles Redis connection
+   - Provides job status checking
+   - Automatic fallback to threading if Redis unavailable
+
+2. **Bookmark Processing Task** (`backend/blueprints/bookmarks.py`)
+   - `process_bookmark_content_task()`: The actual task function that RQ workers execute
+   - Handles content extraction, embedding generation, and analysis
+   - Updates bookmark with full data after processing
+
+3. **RQ Worker** (`backend/worker.py`)
+   - Background process that listens to queues and executes tasks
+   - Can run multiple workers for parallel processing
+   - Automatic retry logic (up to 2 retries with exponential backoff)
+   - Job timeout: 10 minutes per job
+
+**Queue Configuration:**
+
+- **Default Queue**: Normal priority bookmark processing
+- **High Priority Queue**: Urgent tasks (optional)
+- **Retry Logic**: 2 attempts (after 1min, then 5min)
+- **Job Timeout**: 10 minutes per job
+
+**Deployment:**
+
+For Hugging Face Spaces, the RQ worker runs automatically:
+- `start.sh` script starts both RQ worker and Gunicorn
+- Both processes run in the same Docker container
+- Worker uses same Redis connection as web server
+- No manual configuration needed
+
 **Benefits:**
 - Non-blocking user requests
 - Parallel processing
 - User-specific API key usage
 - Progress tracking for long operations
+- Jobs survive server restarts (persistent queue)
+- Automatic retries on failure
+- Better scalability (can run workers on separate machines)
 
 ---
 

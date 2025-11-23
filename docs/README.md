@@ -49,9 +49,24 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
 
 ### Additional Documentation
 
+- **[Deployment](DEPLOYMENT.md)** - Complete deployment guide
+  - Platform comparison (Hugging Face Spaces, Railway, Fly.io)
+  - Hugging Face Spaces deployment (step-by-step)
+  - Environment variables setup
+  - RQ worker configuration
+  - Frontend-backend connection
+  - Troubleshooting
+
+- **[PWA](PWA.md)** - Progressive Web App guide
+  - PWA installation and features
+  - Share target functionality
+  - Testing guide
+  - Troubleshooting
+
 - **[Scraping Integration Guide](SCRAPLING_INTEGRATION_GUIDE.md)** - Web scraping integration
-- **[Deployment Guide](../docs/DEPLOYMENT_GUIDE.md)** - Production deployment (if exists)
-- **[Analysis Caching System](../docs/ANALYSIS_CACHING_SYSTEM.md)** - Caching system details (if exists)
+  - Scrapling library integration
+  - Optional setup guide
+  - Domain-specific strategies
 
 ## 🚀 Quick Links
 
@@ -64,7 +79,8 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
 - See [User Flows](USERFLOW.md) for feature walkthroughs
 
 ### For DevOps
-- Review [Architecture](ARCHITECTURE.md) for deployment
+- Start with [Deployment](DEPLOYMENT.md) for deployment guide
+- Review [Architecture](ARCHITECTURE.md) for system design
 - Check [Optimizations](OPTIMIZATIONS.md) for performance tuning
 
 ## 📖 Documentation Structure
@@ -77,6 +93,8 @@ docs/
 ├── USERFLOW.md                  # User flows
 ├── OPTIMIZATIONS.md             # Performance optimizations
 ├── TESTING.md                   # Testing guide
+├── DEPLOYMENT.md                # Deployment guide
+├── PWA.md                       # PWA guide
 └── SCRAPLING_INTEGRATION_GUIDE.md  # Scraping integration
 ```
 
@@ -89,6 +107,8 @@ docs/
 | User Flows | ✅ Complete | 2024 |
 | Optimizations | ✅ Complete | 2024 |
 | Testing | ✅ Complete | 2024 |
+| Deployment | ✅ Complete | 2024 |
+| PWA | ✅ Complete | 2024 |
 | Scraping Guide | ✅ Complete | 2024 |
 
 ## 📝 Contributing
