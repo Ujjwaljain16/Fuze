@@ -23,18 +23,24 @@ if ('serviceWorker' in navigator) {
           console.log('Service Worker registered successfully:', registration.scope);
         }
         
-        // Check for updates
+        // Check for updates and force reload if new version available
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               if (import.meta.env.DEV) {
-                console.log('New version available!');
+                console.log('New version available! Reloading...');
               }
-              // You can show a notification to the user here
+              // Force reload to get new service worker and fresh files
+              window.location.reload();
             }
           });
         });
+        
+        // Check for updates on interval (every 60 seconds)
+        setInterval(() => {
+          registration.update();
+        }, 60000);
       })
       .catch((error) => {
         // Don't show error for missing service worker - it's optional

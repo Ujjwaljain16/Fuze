@@ -1,14 +1,15 @@
 // Service Worker for Fuze PWA
-const CACHE_NAME = 'fuze-v1.0.0';
-const STATIC_CACHE = 'fuze-static-v1';
-const DYNAMIC_CACHE = 'fuze-dynamic-v1';
+// Update version to force cache invalidation on new deployments
+const CACHE_NAME = 'fuze-v1.1.0';
+const STATIC_CACHE = 'fuze-static-v1.1';
+const DYNAMIC_CACHE = 'fuze-dynamic-v1.1';
 
 // Files to cache for offline functionality
 // Note: Only cache same-origin files, not external API responses
+// IMPORTANT: Don't cache index.html - it changes with each build (new JS file hashes)
 const STATIC_FILES = [
-  '/',
-  '/index.html',
   '/manifest.json'
+  // Don't cache index.html - use network-first strategy
   // Don't cache JS/CSS - they're versioned and handled by Vite
   // '/static/js/bundle.js',
   // '/static/css/main.css',
@@ -63,6 +64,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
+            // Delete all old caches (force fresh start)
             if (cacheName !== STATIC_CACHE && cacheName !== DYNAMIC_CACHE) {
               console.log(' Deleting old cache:', cacheName);
               return caches.delete(cacheName);
@@ -71,7 +73,8 @@ self.addEventListener('activate', (event) => {
         );
       })
       .then(() => {
-        console.log('Service Worker activated');
+        console.log('Service Worker activated - all old caches cleared');
+        // Force immediate activation and claim all clients
         return self.clients.claim();
       })
   );
@@ -127,7 +130,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Handle static files (offline support) - only for same-origin
+  // Handle index.html with network-first strategy (always get latest version)
+  if (request.method === 'GET' && 
+      request.destination === 'document' && 
+      (url.pathname === '/' || url.pathname === '/index.html') &&
+      url.origin === self.location.origin) {
+    event.respondWith(handleIndexHtml(request));
+    return;
+  }
+  
+  // Handle other static files (offline support) - only for same-origin
   if (request.method === 'GET' && 
       request.destination === 'document' && 
       url.origin === self.location.origin) {
