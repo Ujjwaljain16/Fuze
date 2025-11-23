@@ -13,15 +13,48 @@ export default defineConfig({
     // Production optimizations
     minify: 'esbuild',
     sourcemap: false,
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'axios-vendor': ['axios'],
+        manualChunks: (id) => {
+          // React vendor chunk
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'react-vendor'
+          }
+          // Router chunk
+          if (id.includes('node_modules/react-router')) {
+            return 'router-vendor'
+          }
+          // Axios chunk
+          if (id.includes('node_modules/axios')) {
+            return 'axios-vendor'
+          }
+          // Lucide icons chunk (can be large)
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons-vendor'
+          }
+          // Large page components
+          if (id.includes('/pages/Dashboard')) {
+            return 'dashboard'
+          }
+          if (id.includes('/pages/ProjectDetail')) {
+            return 'project-detail'
+          }
+          if (id.includes('/pages/Recommendations')) {
+            return 'recommendations'
+          }
         },
+        // Optimize chunk file names
+        chunkFileNames: 'assets/js/[name]-[hash].js',
+        entryFileNames: 'assets/js/[name]-[hash].js',
+        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
       },
     },
     chunkSizeWarningLimit: 1000,
+    // Enable tree shaking
+    treeshake: {
+      moduleSideEffects: false,
+    },
   },
   define: {
     // Define environment variables for the frontend
