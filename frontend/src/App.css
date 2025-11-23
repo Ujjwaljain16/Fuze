@@ -36,8 +36,8 @@ html, body {
   flex: 1;
   margin-left: 0; /* Remove hardcoded sidebar margin */
   transition: margin-left 0.4s cubic-bezier(0.23, 1, 0.32, 1);
-  min-height: calc(100vh - 80px);
-  background: transparent;
+  min-height: 100vh;
+  background: #0F0F1E !important; /* Consistent background color */
   width: 100vw; /* Full width by default */
   overflow-x: hidden;
   overflow-y: auto;
