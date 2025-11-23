@@ -22,10 +22,39 @@ TEST_DATABASE_URL = os.getenv('TEST_DATABASE_URL', 'sqlite:///:memory:')
 @pytest.fixture(scope='session')
 def app():
     """Create Flask app for testing"""
-    from run_production import create_app
+    # CRITICAL: Save original DATABASE_URL to restore later
+    original_db_url = os.environ.get('DATABASE_URL', '')
     
-    # Override database URL for testing
-    os.environ['DATABASE_URL'] = TEST_DATABASE_URL
+    # CRITICAL SAFETY CHECK: Prevent tests from using production database
+    production_db_url = original_db_url
+    test_db_url = os.getenv('TEST_DATABASE_URL', 'sqlite:///:memory:')
+    
+    # ALWAYS use in-memory SQLite for tests unless explicitly overridden
+    # This ensures tests NEVER touch production database
+    if not test_db_url or test_db_url == original_db_url:
+        test_db_url = 'sqlite:///:memory:'
+    
+    if production_db_url:
+        # Check for production database indicators
+        production_indicators = ['supabase.co', 'amazonaws.com', 'azure.com', 'gcp.com', 'heroku.com', 'postgresql://', 'postgres://']
+        is_production = any(indicator in production_db_url.lower() for indicator in production_indicators)
+        
+        if is_production and 'sqlite' not in production_db_url.lower():
+            # This looks like a production database!
+            # Force test database to prevent accidental data loss
+            print("\n" + "="*70)
+            print("⚠️  WARNING: Production database detected in DATABASE_URL!")
+            print(f"   Found: {production_db_url[:50]}...")
+            print("   Forcing in-memory SQLite test database to prevent data loss.")
+            print("="*70 + "\n")
+            test_db_url = 'sqlite:///:memory:'
+    
+    # CRITICAL: Override database URL BEFORE importing create_app
+    # This ensures create_app() and all its imports use the test database
+    os.environ['DATABASE_URL'] = test_db_url
+    os.environ['TESTING'] = 'true'  # Additional flag to indicate testing
+    
+    from run_production import create_app
     os.environ['FLASK_ENV'] = 'testing'
     os.environ['JWT_SECRET_KEY'] = 'test-secret-key'
     os.environ['SECRET_KEY'] = 'test-secret-key'
@@ -39,9 +68,9 @@ def app():
     app.config['JWT_TOKEN_LOCATION'] = ['headers', 'cookies']  # Allow tokens in both headers and cookies
     
     # Explicitly set database URI for SQLite (SQLite doesn't support pool parameters)
-    app.config['SQLALCHEMY_DATABASE_URI'] = TEST_DATABASE_URL
+    app.config['SQLALCHEMY_DATABASE_URI'] = test_db_url
     # Remove pool parameters for SQLite
-    if 'sqlite' in TEST_DATABASE_URL.lower():
+    if 'sqlite' in test_db_url.lower():
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
             'pool_pre_ping': False,
             'connect_args': {'check_same_thread': False}
@@ -52,9 +81,48 @@ def app():
     
     with app.app_context():
         from models import db
+        
+        # CRITICAL: Verify we're using test database before any operations
+        current_db_url = app.config.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL', '')
+        
+        # Must be SQLite in-memory database for tests
+        if not current_db_url or 'sqlite' not in current_db_url.lower():
+            # Check for production indicators
+            production_indicators = ['supabase.co', 'amazonaws.com', 'azure.com', 'gcp.com', 'heroku.com', 'postgresql://', 'postgres://']
+            is_production = any(indicator in current_db_url.lower() for indicator in production_indicators) if current_db_url else False
+            
+            if is_production or not current_db_url:
+                # Force in-memory SQLite
+                print("\n" + "="*70)
+                print("⚠️  CRITICAL: Forcing in-memory SQLite database for tests!")
+                if current_db_url:
+                    print(f"   Detected: {current_db_url[:100]}...")
+                else:
+                    print("   No database URL set - using in-memory SQLite")
+                print("="*70 + "\n")
+                
+                # Force SQLite in-memory
+                test_db_url = 'sqlite:///:memory:'
+                os.environ['DATABASE_URL'] = test_db_url
+                app.config['SQLALCHEMY_DATABASE_URI'] = test_db_url
+                # Re-initialize database connection
+                db.init_app(app)
+        
         db.create_all()
         yield app
         try:
+            # Double-check before dropping
+            final_db_url = app.config.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL', '')
+            if final_db_url and 'sqlite' not in final_db_url.lower():
+                production_indicators = ['supabase.co', 'amazonaws.com', 'azure.com', 'gcp.com', 'heroku.com']
+                is_production = any(indicator in final_db_url.lower() for indicator in production_indicators)
+                if is_production:
+                    print("\n" + "="*70)
+                    print("⚠️  CRITICAL: Refusing to drop production database!")
+                    print("   Skipping db.drop_all() to prevent data loss.")
+                    print("="*70 + "\n")
+                    return  # Don't drop production database!
+            
             db.drop_all()
         except Exception as e:
             # Ignore teardown errors (like database timeouts) - tests already passed

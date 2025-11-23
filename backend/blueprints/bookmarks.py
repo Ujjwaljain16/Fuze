@@ -531,6 +531,7 @@ def save_bookmark():
 def bulk_import_bookmarks():
     """Bulk import bookmarks from Chrome extension (optimized with Redis and progress tracking)"""
     user_id = int(get_jwt_identity())
+    logger.info(f"[IMPORT] Starting bulk import for user {user_id} - received {len(request.get_json()) if isinstance(request.get_json(), list) else 0} bookmarks")
     data = request.get_json()
 
     if not isinstance(data, list):
@@ -749,6 +750,10 @@ def bulk_import_bookmarks():
                 embedding=embedding,
                 quality_score=quality_score
             )
+            # CRITICAL: Verify user_id is set correctly before returning
+            if new_bm.user_id != user_id:
+                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark user_id mismatch! Expected {user_id}, got {new_bm.user_id}")
+                return ('error', url, f'Security error: user_id mismatch', 'security_error')
             return ('add', url, new_bm, None)
         except Exception as e:
             return ('error', bookmark_data.get('url', ''), str(e), 'exception')
@@ -812,9 +817,21 @@ def bulk_import_bookmarks():
                 }, ttl=3600)
 
     try:
+        # CRITICAL: Verify all bookmarks have correct user_id before committing
+        for bm in new_bookmarks:
+            if bm.user_id != user_id:
+                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark has wrong user_id! Expected {user_id}, got {bm.user_id}. URL: {bm.url[:50]}")
+                db.session.rollback()
+                return jsonify({
+                    'message': 'Security error: Bookmark user_id mismatch detected',
+                    'error': 'Data integrity check failed'
+                }), 500
+        
+        logger.info(f"[IMPORT] Committing {len(new_bookmarks)} bookmarks for user {user_id}")
         for bm in new_bookmarks:
             db.session.add(bm)
         db.session.commit()
+        logger.info(f"[IMPORT] Successfully committed {len(new_bookmarks)} bookmarks for user {user_id}")
         
         # Invalidate caches after adding new bookmarks
         if new_bookmarks:
@@ -826,14 +843,23 @@ def bulk_import_bookmarks():
             # Trigger background analysis for newly imported content
             try:
                 import threading
+                from flask import current_app
+                
                 def analyze_bulk_async():
+                    # CRITICAL: Create app context in the thread
+                    # Threads don't inherit Flask application context
                     try:
-                        from services.background_analysis_service import batch_analyze_content
-                        content_ids = [bm.id for bm in new_bookmarks]
-                        result = batch_analyze_content(content_ids, user_id)
-                        logger.info(f"Bulk analysis completed: {result}")
+                        # Get the Flask app instance
+                        from run_production import create_app
+                        flask_app = create_app()
+                        
+                        with flask_app.app_context():
+                            from services.background_analysis_service import batch_analyze_content
+                            content_ids = [bm.id for bm in new_bookmarks]
+                            result = batch_analyze_content(content_ids, user_id)
+                            logger.info(f"Bulk analysis completed: {result}")
                     except Exception as e:
-                        logger.error(f"Error triggering bulk background analysis: {e}")
+                        logger.error(f"Error triggering bulk background analysis: {e}", exc_info=True)
 
                 analysis_thread = threading.Thread(target=analyze_bulk_async, daemon=True)
                 analysis_thread.start()
@@ -864,6 +890,7 @@ def bulk_import_bookmarks():
             'cache_used': cached_bookmarks is not None
         }), 200
     except Exception as e:
+        logger.error(f"[IMPORT] Error during bulk import for user {user_id}: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'message': f'Bulk import failed: {str(e)}'}), 500
 

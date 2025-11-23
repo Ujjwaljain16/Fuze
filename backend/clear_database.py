@@ -122,10 +122,50 @@ def clear_all_data(dry_run=False):
 
             if remaining == 0:
                 print(" VERIFICATION: All data successfully cleared!")
+                
+                # Reset sequences to start from 1
+                print("\n🔄 Resetting ID sequences to start from 1...")
+                try:
+                    from sqlalchemy import text
+                    
+                    # List of sequences to reset
+                    sequences = [
+                        'users_id_seq',
+                        'projects_id_seq',
+                        'saved_content_id_seq',
+                        'content_analysis_id_seq',
+                        'tasks_id_seq',
+                        'subtasks_id_seq',
+                        'feedback_id_seq',
+                        'user_feedback_id_seq',
+                    ]
+                    
+                    for seq_name in sequences:
+                        try:
+                            # Check if sequence exists
+                            result = db.session.execute(text(f"""
+                                SELECT EXISTS (
+                                    SELECT 1 FROM pg_sequences WHERE sequencename = '{seq_name}'
+                                );
+                            """))
+                            if result.scalar():
+                                db.session.execute(text(f"ALTER SEQUENCE {seq_name} RESTART WITH 1;"))
+                                print(f"    ✅ Reset {seq_name}")
+                        except Exception as e:
+                            # Sequence might not exist or have different name - that's okay
+                            pass
+                    
+                    db.session.commit()
+                    print("   ✅ All sequences reset to start from 1")
+                except Exception as seq_error:
+                    print(f"   ⚠️  Could not reset sequences: {seq_error}")
+                    print("   (IDs will continue from previous values)")
+                
                 print("\n🎉 Database is now ready for fresh user testing!")
                 print("   - All user accounts removed")
                 print("   - All projects, tasks, and content cleared")
                 print("   - All feedback and analysis data removed")
+                print("   - ID sequences reset to start from 1")
                 print("   - Schema preserved for new data")
                 return True
             else:

@@ -1,0 +1,52 @@
+name: Sync Backend to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - 'app.py'
+      - 'wsgi.py'
+      - 'start.sh'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Hugging Face CLI
+        run: |
+          pip install huggingface_hub
+          huggingface-cli login --token ${{ secrets.HF_TOKEN }}
+
+      - name: Clone HF Space
+        run: |
+          git clone https://huggingface.co/spaces/Ujjwaljain16/fuze-backend hf-space
+          cd hf-space
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Sync Backend Files
+        run: |
+          # Copy backend files
+          cp -r backend hf-space/
+          cp requirements.txt hf-space/
+          cp Dockerfile hf-space/
+          cp app.py hf-space/
+          cp wsgi.py hf-space/
+          cp start.sh hf-space/
+
+      - name: Commit and Push to HF Space
+        run: |
+          cd hf-space
+          git add .
+          git diff --staged --quiet || git commit -m "chore: auto-sync from main repo [skip ci]"
+          git push
+

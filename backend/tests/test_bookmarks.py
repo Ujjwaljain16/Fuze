@@ -2,6 +2,7 @@
 Unit tests for bookmarks blueprint
 """
 import pytest
+import os
 from unittest.mock import patch, MagicMock
 
 @pytest.mark.unit
@@ -85,10 +86,28 @@ class TestBookmarks:
         from models import db, SavedContent
         
         with app.app_context():
+            # CRITICAL SAFETY: Verify we're using test database before deleting
+            db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '') or os.environ.get('DATABASE_URL', '')
+            if db_url and 'sqlite' not in db_url.lower():
+                production_indicators = ['supabase.co', 'amazonaws.com', 'azure.com', 'gcp.com', 'heroku.com']
+                if any(indicator in db_url.lower() for indicator in production_indicators):
+                    pytest.skip("Skipping test that deletes data - production database detected!")
+            
             # Clean up any existing bookmarks for this user first
             # Use delete() with synchronize_session=False for better performance
-            deleted = SavedContent.query.filter_by(user_id=test_user['id']).delete(synchronize_session=False)
+            # CRITICAL: Double-check user_id before deleting
+            user_id_to_delete = test_user['id']
+            assert user_id_to_delete is not None, "test_user['id'] is None - cannot safely delete"
+            
+            # Verify we're only deleting test user's bookmarks
+            count_before = SavedContent.query.filter_by(user_id=user_id_to_delete).count()
+            deleted = SavedContent.query.filter_by(user_id=user_id_to_delete).delete(synchronize_session=False)
             db.session.commit()
+            
+            # Safety check: verify we didn't delete more than expected
+            if deleted > count_before + 10:  # Allow some margin for race conditions
+                db.session.rollback()
+                pytest.fail(f"SAFETY CHECK FAILED: Attempted to delete {deleted} bookmarks, but only {count_before} existed for user {user_id_to_delete}. This might indicate a query bug!")
             
             # Flush to ensure cleanup is complete
             db.session.flush()
