@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
@@ -18,6 +18,7 @@ const ShareHandler = () => {
   const [error, setError] = useState('')
   const [previewData, setPreviewData] = useState(null)
   const [extracting, setExtracting] = useState(false)
+  const extractedUrlRef = useRef(null) // Track which URL we've already extracted
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
   const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
 
@@ -198,12 +199,18 @@ const ShareHandler = () => {
 
   // Extract detailed preview once authenticated
   useEffect(() => {
-    if (isAuthenticated && sharedUrl && !extracting) {
+    // Only extract if:
+    // 1. User is authenticated
+    // 2. We have a URL
+    // 3. We're not currently extracting
+    // 4. We haven't already extracted this URL
+    if (isAuthenticated && sharedUrl && !extracting && extractedUrlRef.current !== sharedUrl) {
+      extractedUrlRef.current = sharedUrl // Mark this URL as being extracted
       extractPreview(sharedUrl)
     }
-    // extractPreview is stable and extracting is already checked in condition
+    // Note: We intentionally don't include extracting in deps to prevent re-triggering
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, sharedUrl, extracting])
+  }, [isAuthenticated, sharedUrl])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -213,7 +220,13 @@ const ShareHandler = () => {
   }, [isAuthenticated, authLoading, navigate, sharedUrl])
 
   const extractPreview = async (url) => {
-    if (!url || !isAuthenticated) return
+    if (!url || !isAuthenticated) {
+      // Reset ref if extraction can't proceed
+      if (extractedUrlRef.current === url) {
+        extractedUrlRef.current = null
+      }
+      return
+    }
 
     setExtracting(true)
     setError('')
@@ -249,6 +262,7 @@ const ShareHandler = () => {
       })
     } finally {
       setExtracting(false)
+      // Keep the ref set so we don't extract again for the same URL
     }
   }
 
