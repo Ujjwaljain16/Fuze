@@ -143,11 +143,6 @@ const Profile = () => {
     }
   }
 
-  const handleLogout = () => {
-    logout()
-    success('Logged out successfully!')
-  }
-
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
