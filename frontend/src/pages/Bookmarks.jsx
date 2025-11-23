@@ -730,10 +730,10 @@ const Bookmarks = () => {
 
       <style jsx>{`
         .logo-container {
-          width: 120px;
-          height: 120px;
-          border-radius: 50%;
-          overflow: hidden;
+          width: auto;
+          height: auto;
+          max-width: 200px;
+          max-height: 80px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -742,8 +742,6 @@ const Bookmarks = () => {
           box-shadow: none;
           transition: transform 0.3s ease;
           padding: 0;
-          clip-path: circle(50% at 50% 50%);
-          -webkit-clip-path: circle(50% at 50% 50%);
           position: relative;
         }
         
@@ -752,27 +750,37 @@ const Bookmarks = () => {
         }
         
         .logo-container img {
-          width: 100%;
-          height: 100%;
+          width: auto;
+          height: auto;
+          max-width: 200px;
+          max-height: 80px;
           object-fit: contain;
-          clip-path: circle(50% at 50% 50%);
-          -webkit-clip-path: circle(50% at 50% 50%);
           mix-blend-mode: normal;
         }
         
         @media (max-width: 768px) {
           .logo-container {
-            width: 90px;
-            height: 90px;
+            max-width: 150px;
+            max-height: 60px;
             padding: 0;
+          }
+          
+          .logo-container img {
+            max-width: 150px;
+            max-height: 60px;
           }
         }
         
         @media (max-width: 480px) {
           .logo-container {
-            width: 70px;
-            height: 70px;
+            max-width: 120px;
+            max-height: 50px;
             padding: 0;
+          }
+          
+          .logo-container img {
+            max-width: 120px;
+            max-height: 50px;
           }
         }
         

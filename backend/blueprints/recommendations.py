@@ -2073,16 +2073,6 @@ def init_recommendations_blueprint():
     except Exception as e:
         logger.error(f"Error initializing engines: {e}")
     
-    # Log engine availability
-    logger.info(f"Unified Engine: {'Available' if UNIFIED_ENGINE_AVAILABLE else 'Not Available'}")
-    logger.info(f"Smart Engine: {'Available' if SMART_ENGINE_AVAILABLE else 'Not Available'}")
-    logger.info(f"Enhanced Engine: {'Available' if ENHANCED_ENGINE_AVAILABLE else 'Not Available'}")
-    logger.info(f"Phase 3 Engine: {'Available' if PHASE3_ENGINE_AVAILABLE else 'Not Available'}")
-    logger.info(f"Fast Gemini Engine: {'Available' if FAST_GEMINI_AVAILABLE else 'Not Available'}")
-    logger.info(f"Enhanced Modules: {'Available' if ENHANCED_MODULES_AVAILABLE else 'Not Available'}")
-    
-    logger.info(f"Total engines available: {sum([UNIFIED_ENGINE_AVAILABLE, SMART_ENGINE_AVAILABLE, ENHANCED_ENGINE_AVAILABLE, PHASE3_ENGINE_AVAILABLE, FAST_GEMINI_AVAILABLE])}")
-    
     return recommendations_bp
 
 # Initialize the blueprint when this module is imported
