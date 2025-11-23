@@ -34,6 +34,8 @@ const Bookmarks = () => {
   const [semanticError, setSemanticError] = useState('')
   const [viewMode, setViewMode] = useState('grid')
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -42,6 +44,15 @@ const Bookmarks = () => {
     
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setIsSmallMobile(window.innerWidth <= 480)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, []);
 
   // Debounce search term
@@ -138,13 +149,13 @@ const Bookmarks = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      <div className="min-h-screen text-white relative overflow-hidden" style={{ backgroundColor: '#0F0F1E' }}>
         {/* Animated Background */}
         <div className="fixed inset-0 opacity-10">
           <div 
             className="absolute w-96 h-96 rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
               left: mousePos.x - 192,
               top: mousePos.y - 192,
               transition: 'all 0.3s ease-out'
@@ -158,7 +169,7 @@ const Bookmarks = () => {
             {Array.from({ length: 576 }).map((_, i) => (
               <div
                 key={i}
-                className="border border-blue-500/10 animate-pulse"
+                className="border border-cyan-500/10 animate-pulse"
                 style={{
                   animationDelay: `${Math.random() * 5}s`,
                   animationDuration: `${4 + Math.random() * 3}s`
@@ -173,10 +184,10 @@ const Bookmarks = () => {
             <div className="mb-8">
               <div className="flex items-center justify-center space-x-3 mb-4">
                 <div className="relative">
-                  <Bookmark className="w-12 h-12 text-blue-400" />
-                  <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+                  <Bookmark className="w-12 h-12 text-cyan-400" />
+                  <div className="absolute inset-0 blur-lg bg-cyan-400 opacity-50 animate-pulse" />
                 </div>
-                <span className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                <span className="text-4xl font-bold bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">
                   Authentication Required
                 </span>
               </div>
@@ -192,13 +203,13 @@ const Bookmarks = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+      <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
         {/* Animated Background */}
         <div className="fixed inset-0 opacity-10">
           <div 
             className="absolute w-96 h-96 rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
               left: mousePos.x - 192,
               top: mousePos.y - 192,
               transition: 'all 0.3s ease-out'
@@ -208,8 +219,8 @@ const Bookmarks = () => {
 
         <div className="text-center relative z-10">
           <div className="relative mb-4">
-            <Bookmark className="w-12 h-12 text-blue-400 mx-auto animate-spin" />
-            <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+            <Bookmark className="w-12 h-12 text-cyan-400 mx-auto animate-spin" />
+            <div className="absolute inset-0 blur-lg bg-cyan-400 opacity-50 animate-pulse" />
           </div>
           <p className="text-xl text-gray-300">Loading your bookmarks...</p>
         </div>
@@ -218,13 +229,13 @@ const Bookmarks = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+    <div className="min-h-screen text-white relative overflow-hidden" style={{ backgroundColor: '#0F0F1E' }}>
       {/* Animated Background */}
       <div className="fixed inset-0 opacity-10">
         <div 
           className="absolute w-96 h-96 rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
             left: mousePos.x - 192,
             top: mousePos.y - 192,
             transition: 'all 0.3s ease-out'
@@ -238,7 +249,7 @@ const Bookmarks = () => {
           {Array.from({ length: 576 }).map((_, i) => (
             <div
               key={i}
-              className="border border-blue-500/10 animate-pulse"
+              className="border border-cyan-500/10 animate-pulse"
               style={{
                 animationDelay: `${Math.random() * 5}s`,
                 animationDuration: `${4 + Math.random() * 3}s`
@@ -251,9 +262,9 @@ const Bookmarks = () => {
       <div className="relative z-10">
         {/* Main Content */}
         <div className="w-full">
-          <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+          <main className={`${isMobile ? 'p-4' : 'p-4 md:p-6 lg:p-8'} max-w-[1600px] mx-auto`} style={{ backgroundColor: '#0F0F1E' }}>
             {/* Header with Logo and Logout */}
-            <div className="flex items-center justify-between mb-8 pt-6">
+            <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isSmallMobile ? 'flex-col gap-4' : ''} ${isMobile ? 'mt-12' : ''}`}>
               {/* Logo - Top Left (Home Link) */}
               <Link
                 to="/"
@@ -278,7 +289,7 @@ const Bookmarks = () => {
                   logout()
                   navigate('/login')
                 }}
-                className="flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+                className={`flex items-center gap-2.5 ${isMobile ? 'px-4 py-2' : 'px-5 py-3'} rounded-xl transition-all duration-300 group`}
                 style={{
                   background: 'rgba(20, 20, 20, 0.6)',
                   border: '1px solid rgba(239, 68, 68, 0.2)',
@@ -300,27 +311,27 @@ const Bookmarks = () => {
                   e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
-                <span className="text-base font-medium">Logout</span>
+                <LogOut className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} group-hover:translate-x-1 transition-transform duration-300`} />
+                {!isSmallMobile && <span className={`${isMobile ? 'text-sm' : 'text-base'} font-medium`}>Logout</span>}
               </button>
             </div>
           {/* Header Section */}
-          <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl overflow-visible">
-            <div className="flex items-center justify-between min-w-0">
-              <div className="flex items-center space-x-4 flex-1 min-w-0">
+          <div className={`${isMobile ? 'mt-0 mb-6 p-4' : 'mt-0 mb-8 p-6 md:p-8'} bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl border border-gray-800 shadow-2xl`}>
+            <div className={`flex ${isSmallMobile ? 'flex-col gap-3' : 'items-center justify-between'} min-w-0`}>
+              <div className={`flex items-center ${isSmallMobile ? 'gap-2' : 'space-x-4'} flex-1 min-w-0`}>
                 <div className="relative flex-shrink-0">
-                  <Bookmark className="w-8 h-8 text-blue-400" />
-                  <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+                  <Bookmark className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} text-cyan-400`} />
+                  <div className="absolute inset-0 blur-lg bg-cyan-400 opacity-50 animate-pulse" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-4xl font-bold break-words" style={{ 
+                  <h1 className={`${isSmallMobile ? 'text-2xl' : isMobile ? 'text-3xl' : 'text-3xl md:text-4xl'} font-bold break-words`} style={{ 
                     wordBreak: 'break-word', 
                     overflowWrap: 'anywhere',
-                    background: 'linear-gradient(to right, #60a5fa, #a855f7)',
+                    background: 'linear-gradient(to right, #4DD0E1, #14B8A6, #10B981)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
-                    color: '#60a5fa',
+                    color: '#4DD0E1',
                     width: '100%',
                     maxWidth: '100%',
                     display: 'block'
@@ -329,10 +340,10 @@ const Bookmarks = () => {
                   </h1>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
+              <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-2 w-full' : 'space-x-4'}`}>
                 <button 
                   onClick={() => navigate('/save-content')}
-                  className="px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2 group relative overflow-hidden whitespace-nowrap"
+                  className={`${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center ${isSmallMobile ? 'w-full' : 'space-x-2'} group relative overflow-hidden whitespace-nowrap`}
                   style={{
                     background: 'rgba(20, 20, 20, 0.6)',
                     border: '1px solid rgba(77, 208, 225, 0.2)',
@@ -354,49 +365,49 @@ const Bookmarks = () => {
                     e.currentTarget.style.boxShadow = 'none'
                   }}
                 >
-                  <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
-                  <span>Add Bookmark</span>
+                  <Plus className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} group-hover:rotate-90 transition-transform duration-300`} />
+                  <span>{isSmallMobile ? 'Add' : 'Add Bookmark'}</span>
                 </button>
                 <button
                   onClick={handleDeleteAll}
                   disabled={bookmarks.length === 0}
-                  className="px-6 py-3 border border-red-700 rounded-xl hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  className={`${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} ${isSmallMobile ? 'w-full' : ''} border border-red-700 rounded-xl hover:border-red-500/50 hover:bg-red-500/10 transition-all duration-300 transform hover:scale-105 flex items-center ${isSmallMobile ? 'justify-center' : 'space-x-2'} group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-red-600/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                  <Trash2 className="w-5 h-5 group-hover:text-red-400 transition-colors duration-300" />
-                  <span className="group-hover:text-red-400 transition-colors duration-300">Delete All</span>
+                  <Trash2 className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} group-hover:text-red-400 transition-colors duration-300`} />
+                  <span className="group-hover:text-red-400 transition-colors duration-300">{isSmallMobile ? 'Delete All' : 'Delete All'}</span>
                 </button>
               </div>
             </div>
           </div>
 
           {/* Semantic Search Section */}
-          <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-purple-500/30 transition-all duration-300">
-            <div className="flex items-center space-x-3 mb-4">
-              <Sparkles className="w-6 h-6 text-purple-400" />
-              <h2 className="text-xl font-semibold text-white">AI-Powered Semantic Search</h2>
+          <div className={`${isMobile ? 'mb-6 p-4' : 'mb-8 p-6'} bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl hover:border-cyan-500/30 transition-all duration-300`}>
+            <div className={`flex items-center ${isSmallMobile ? 'gap-2' : 'space-x-3'} mb-4`}>
+              <Sparkles className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-cyan-400`} />
+              <h2 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold text-white`}>AI-Powered Semantic Search</h2>
             </div>
-            <p className="text-gray-400 mb-6">Find bookmarks by meaning and context, not just keywords</p>
+            <p className={`text-gray-400 ${isMobile ? 'mb-4 text-sm' : 'mb-6'}`}>Find bookmarks by meaning and context, not just keywords</p>
             
-            <form onSubmit={handleSemanticSearch} className="flex items-center space-x-4 mb-6">
-              <div className="flex-1 relative">
+            <form onSubmit={handleSemanticSearch} className={`flex ${isSmallMobile ? 'flex-col' : 'items-center'} ${isSmallMobile ? 'gap-3' : 'space-x-4'} ${isMobile ? 'mb-4' : 'mb-6'}`}>
+              <div className="flex-1 relative w-full">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  <Sparkles className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-cyan-400`} />
                 </div>
                 <input
                   type="text"
                   placeholder="e.g., 'OAuth2 login flow', 'React hooks best practices'..."
                   value={semanticQuery}
                   onChange={e => setSemanticQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all duration-300"
+                  className={`w-full ${isMobile ? 'pl-10 pr-3 py-2 text-sm' : 'pl-12 pr-4 py-3'} bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300`}
                 />
               </div>
               <button 
                 type="submit" 
                 disabled={semanticLoading || !semanticQuery.trim()}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center space-x-2"
+                className={`bg-gradient-to-r from-cyan-600 to-teal-600 ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center ${isSmallMobile ? 'justify-center w-full' : 'space-x-2'}`}
               >
-                <Sparkles className="w-5 h-5" />
+                <Sparkles className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                 <span>{semanticLoading ? 'Searching...' : 'Semantic Search'}</span>
               </button>
             </form>
@@ -412,41 +423,41 @@ const Bookmarks = () => {
             )}
 
             {semanticLoading && (
-              <div className="text-center py-8">
+              <div className={`text-center ${isMobile ? 'py-6' : 'py-8'}`}>
                 <div className="relative mb-4">
-                  <Sparkles className="w-8 h-8 text-purple-400 mx-auto animate-spin" />
-                  <div className="absolute inset-0 blur-lg bg-purple-400 opacity-50 animate-pulse" />
+                  <Sparkles className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} text-cyan-400 mx-auto animate-spin`} />
+                  <div className="absolute inset-0 blur-lg bg-cyan-400 opacity-50 animate-pulse" />
                 </div>
-                <p className="text-purple-400">Finding the most relevant bookmarks...</p>
+                <p className={`text-cyan-400 ${isMobile ? 'text-sm' : ''}`}>Finding the most relevant bookmarks...</p>
               </div>
             )}
 
             {!semanticLoading && semanticResults.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className={`grid grid-cols-1 ${isMobile ? 'gap-4' : 'md:grid-cols-2 gap-6'}`}>
                 {semanticResults.map((result, idx) => (
-                  <div key={result.id || idx} className="bg-gradient-to-br from-gray-800/50 to-black/50 border border-gray-700 rounded-xl p-6 hover:border-purple-500/30 transition-all duration-300">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="p-2 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
+                  <div key={result.id || idx} className={`bg-gradient-to-br from-gray-800/50 to-black/50 border border-gray-700 rounded-xl ${isMobile ? 'p-4' : 'p-6'} hover:border-cyan-500/30 transition-all duration-300`}>
+                    <div className={`flex items-center justify-between ${isMobile ? 'mb-2' : 'mb-3'}`}>
+                      <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'}`}>
+                        <div className={`${isMobile ? 'p-1.5' : 'p-2'} bg-gradient-to-r from-cyan-600/20 to-teal-600/20 rounded-lg`}>
+                          <Sparkles className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-cyan-400`} />
                         </div>
-                                                 <span className="text-sm text-purple-400 font-medium">
-                           Relevance: {result.similarity_percentage ? `${Math.round(result.similarity_percentage)}%` : result.relevance_score ? `${Math.round(result.relevance_score)}%` : 'High'}
-                         </span>
+                        <span className={`${isMobile ? 'text-xs' : 'text-sm'} text-cyan-400 font-medium`}>
+                          Relevance: {result.similarity_percentage ? `${Math.round(result.similarity_percentage)}%` : result.relevance_score ? `${Math.round(result.relevance_score)}%` : 'High'}
+                        </span>
                       </div>
                     </div>
-                    <h3 className="text-lg font-semibold text-white mb-2">{result.title}</h3>
-                    <p className="text-blue-400 text-sm mb-3">{result.url}</p>
+                    <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-white ${isMobile ? 'mb-1' : 'mb-2'}`}>{result.title}</h3>
+                    <p className={`text-cyan-400 ${isMobile ? 'text-xs mb-2' : 'text-sm mb-3'}`}>{result.url}</p>
                     {result.content_snippet && (
-                      <p className="text-gray-400 text-sm mb-4">{result.content_snippet}</p>
+                      <p className={`text-gray-400 ${isMobile ? 'text-xs mb-3' : 'text-sm mb-4'}`}>{result.content_snippet}</p>
                     )}
                     <a 
                       href={result.url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="flex items-center space-x-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg transition-colors duration-300 inline-flex"
+                      className={`flex items-center ${isSmallMobile ? 'justify-center' : 'space-x-2'} ${isMobile ? 'px-3 py-1.5 text-xs' : 'px-4 py-2'} bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg transition-colors duration-300 inline-flex`}
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <ExternalLink className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
                       <span>View Content</span>
                     </a>
                   </div>
@@ -462,35 +473,35 @@ const Bookmarks = () => {
           </div>
 
                      {/* Controls Section */}
-           <div className="mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
+           <div className={`${isMobile ? 'mb-6 p-4' : 'mb-8 p-6'} bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl`}>
              {debouncedSearchTerm && (
-               <div className="mb-4 p-3 bg-blue-600/10 border border-blue-500/20 rounded-xl">
-                 <div className="flex items-center justify-between">
-                   <div className="flex items-center space-x-2">
-                     <Search className="w-4 h-4 text-blue-400" />
-                     <span className="text-blue-400 text-sm">
+               <div className={`${isMobile ? 'mb-3 p-2' : 'mb-4 p-3'} bg-cyan-600/10 border border-cyan-500/20 rounded-xl`}>
+                 <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-2' : 'justify-between'}`}>
+                   <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'}`}>
+                     <Search className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-cyan-400`} />
+                     <span className={`text-cyan-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>
                        Searching for: <span className="font-semibold">"{debouncedSearchTerm}"</span>
                      </span>
                    </div>
-                   <span className="text-blue-400 text-sm">
+                   <span className={`text-cyan-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>
                      {bookmarks.length} result{bookmarks.length !== 1 ? 's' : ''}
                    </span>
                  </div>
                </div>
              )}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0 lg:space-x-6">
+            <div className={`flex flex-col ${isMobile ? 'gap-3' : 'lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0 lg:space-x-6'}`}>
                              {/* Search Form */}
-               <div className="flex items-center space-x-4 flex-1">
-                 <div className="flex-1 relative">
+               <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-2' : 'space-x-4'} flex-1`}>
+                 <div className="flex-1 relative w-full">
                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                      {searchLoading ? (
                        <div className="animate-spin">
-                         <Search className="w-5 h-5 text-blue-400" />
+                         <Search className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-cyan-400`} />
                        </div>
                      ) : searchTerm && searchTerm !== debouncedSearchTerm ? (
-                       <Search className="w-5 h-5 text-yellow-400" />
+                       <Search className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-yellow-400`} />
                      ) : (
-                       <Search className="w-5 h-5 text-gray-400" />
+                       <Search className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400`} />
                      )}
                    </div>
                    <input
@@ -498,39 +509,39 @@ const Bookmarks = () => {
                      placeholder="Search bookmarks... (auto-searches as you type)"
                      value={searchTerm}
                      onChange={(e) => setSearchTerm(e.target.value)}
-                     className={`w-full pl-12 pr-4 py-3 bg-gray-800/50 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 transition-all duration-300 ${
+                     className={`w-full ${isMobile ? 'pl-10 pr-3 py-2 text-sm' : 'pl-12 pr-4 py-3'} bg-gray-800/50 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 transition-all duration-300 ${
                        searchLoading 
-                         ? 'border-blue-500/50 focus:border-blue-500/50 focus:ring-blue-500/20' 
+                         ? 'border-cyan-500/50 focus:border-cyan-500/50 focus:ring-cyan-500/20' 
                          : searchTerm && searchTerm !== debouncedSearchTerm
                          ? 'border-yellow-500/50 focus:border-yellow-500/50 focus:ring-yellow-500/20'
-                         : 'border-gray-700 focus:border-blue-500/50 focus:ring-blue-500/20'
+                         : 'border-gray-700 focus:border-cyan-500/50 focus:ring-cyan-500/20'
                      }`}
                    />
                    {searchLoading && (
                      <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-                       <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                       <div className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} border-2 border-cyan-400 border-t-transparent rounded-full animate-spin`}></div>
                      </div>
                    )}
                  </div>
                  {searchTerm && (
                    <button 
                      onClick={() => setSearchTerm('')}
-                     className="bg-gradient-to-r from-gray-600 to-gray-700 px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-gray-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+                     className={`bg-gradient-to-r from-gray-600 to-gray-700 ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} ${isSmallMobile ? 'w-full' : ''} rounded-xl font-semibold hover:shadow-lg hover:shadow-gray-500/25 transition-all duration-300 transform hover:scale-105 flex items-center ${isSmallMobile ? 'justify-center' : 'space-x-2'}`}
                    >
-                     <X className="w-5 h-5" />
+                     <X className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                      <span>Clear</span>
                    </button>
                  )}
                </div>
 
               {/* Filter and View Controls */}
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <Filter className="w-5 h-5 text-gray-400" />
+              <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-3 w-full' : 'space-x-4'}`}>
+                <div className={`flex items-center ${isSmallMobile ? 'w-full gap-2' : 'space-x-2'}`}>
+                  <Filter className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400`} />
                   <select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    className="bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all duration-300"
+                    className={`bg-gray-800/50 border border-gray-700 rounded-xl ${isMobile ? 'px-3 py-2 text-sm flex-1' : 'px-4 py-3'} text-white focus:outline-none focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300 ${isSmallMobile ? 'w-full' : ''}`}
                   >
                     {categoryOptions.map(option => (
                       <option key={option.value} value={option.value} className="bg-gray-800">
@@ -540,18 +551,18 @@ const Bookmarks = () => {
                   </select>
                 </div>
 
-                <div className="flex items-center space-x-2 bg-gray-800/50 rounded-xl p-1">
+                <div className={`flex items-center ${isSmallMobile ? 'w-full justify-center' : 'space-x-2'} bg-gray-800/50 rounded-xl p-1`}>
                   <button
                     onClick={() => setViewMode('grid')}
-                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'grid' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
                   >
-                    <Grid3X3 className="w-5 h-5" />
+                    <Grid3X3 className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                   </button>
                   <button
                     onClick={() => setViewMode('list')}
-                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                    className={`p-2 rounded-lg transition-all duration-300 ${viewMode === 'list' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
                   >
-                    <List className="w-5 h-5" />
+                    <List className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                   </button>
                 </div>
               </div>
@@ -562,42 +573,42 @@ const Bookmarks = () => {
           {bookmarks.length > 0 ? (
             <>
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <div className={`grid grid-cols-1 ${isMobile ? 'sm:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} ${isMobile ? 'gap-4' : 'gap-6'} ${isMobile ? 'mb-6' : 'mb-8'}`}>
                   {bookmarks.map((bookmark) => (
-                    <div key={bookmark.id} className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-blue-500/30 transition-all duration-300 hover:transform hover:scale-[1.02]">
+                    <div key={bookmark.id} className="group bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl overflow-hidden hover:border-cyan-500/30 transition-all duration-300 hover:transform hover:scale-[1.02]">
                       <div className="aspect-video bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-                        <Globe className="w-12 h-12 text-gray-600" />
+                        <Globe className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} text-gray-600`} />
                       </div>
                       
-                      <div className="p-6">
-                        <div className="flex items-start justify-between mb-3">
-                          <h3 className="font-semibold text-white group-hover:text-blue-400 transition-colors duration-300 line-clamp-2">
+                      <div className={`${isMobile ? 'p-4' : 'p-6'}`}>
+                        <div className={`flex items-start justify-between ${isMobile ? 'mb-2' : 'mb-3'}`}>
+                          <h3 className={`font-semibold text-white group-hover:text-cyan-400 transition-colors duration-300 line-clamp-2 ${isMobile ? 'text-sm' : ''}`}>
                             {bookmark.title}
                           </h3>
-                          <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}>
                             <button className="p-1">
-                              <Star className="w-4 h-4 text-gray-400 hover:text-yellow-500" />
+                              <Star className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-gray-400 hover:text-yellow-500`} />
                             </button>
                             <button onClick={() => handleDelete(bookmark.id)} className="p-1">
-                              <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                              <Trash2 className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-gray-400 hover:text-red-500`} />
                             </button>
                           </div>
                         </div>
                         
-                        <p className="text-blue-400 text-sm mb-2 truncate">{bookmark.url}</p>
+                        <p className={`text-cyan-400 ${isMobile ? 'text-xs mb-1' : 'text-sm mb-2'} truncate`}>{bookmark.url}</p>
                         {bookmark.description && (
-                          <p className="text-gray-400 text-sm mb-4 line-clamp-2">{bookmark.description}</p>
+                          <p className={`text-gray-400 ${isMobile ? 'text-xs mb-3' : 'text-sm mb-4'} line-clamp-2`}>{bookmark.description}</p>
                         )}
                         
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
+                        <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-2' : 'justify-between'}`}>
+                          <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'}`}>
                             {bookmark.category && (
-                              <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                              <span className={`${isMobile ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs'} bg-cyan-600/20 text-cyan-400 rounded-lg`}>
                                 {bookmark.category}
                               </span>
                             )}
-                            <div className="text-xs text-gray-500 flex items-center">
-                              <Clock className="w-3 h-3 mr-1" />
+                            <div className={`${isMobile ? 'text-xs' : 'text-xs'} text-gray-500 flex items-center`}>
+                              <Clock className={`${isMobile ? 'w-2.5 h-2.5' : 'w-3 h-3'} mr-1`} />
                               {new Date(bookmark.saved_at).toLocaleDateString()}
                             </div>
                           </div>
@@ -605,9 +616,9 @@ const Bookmarks = () => {
                             href={bookmark.url} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors duration-300"
+                            className={`${isMobile ? 'p-1.5' : 'p-2'} bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg transition-colors duration-300`}
                           >
-                            <ExternalLink className="w-4 h-4" />
+                            <ExternalLink className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
                           </a>
                         </div>
                       </div>
@@ -615,47 +626,47 @@ const Bookmarks = () => {
                   ))}
                 </div>
               ) : (
-                <div className="space-y-4 mb-8">
+                <div className={`${isMobile ? 'space-y-3 mb-6' : 'space-y-4 mb-8'}`}>
                   {bookmarks.map((bookmark) => (
-                    <div key={bookmark.id} className="flex items-center space-x-4 p-6 bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-blue-500/30 transition-all duration-300">
-                      <div className="w-12 h-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex items-center justify-center">
-                        <Globe className="w-6 h-6 text-gray-600" />
+                    <div key={bookmark.id} className={`flex items-center ${isSmallMobile ? 'flex-col gap-3' : 'space-x-4'} ${isMobile ? 'p-4' : 'p-6'} bg-gradient-to-r from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl hover:border-cyan-500/30 transition-all duration-300`}>
+                      <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex items-center justify-center ${isSmallMobile ? 'w-full' : ''}`}>
+                        <Globe className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-gray-600`} />
                       </div>
                       
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-white mb-1">{bookmark.title}</h3>
-                        <p className="text-blue-400 text-sm mb-1 truncate">{bookmark.url}</p>
+                      <div className={`flex-1 ${isSmallMobile ? 'w-full' : ''}`}>
+                        <h3 className={`font-semibold text-white ${isMobile ? 'text-sm mb-1' : 'mb-1'}`}>{bookmark.title}</h3>
+                        <p className={`text-cyan-400 ${isMobile ? 'text-xs mb-1' : 'text-sm mb-1'} truncate`}>{bookmark.url}</p>
                         {bookmark.description && (
-                          <p className="text-gray-400 text-sm line-clamp-1">{bookmark.description}</p>
+                          <p className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} line-clamp-1`}>{bookmark.description}</p>
                         )}
-                        <div className="flex items-center space-x-2 mt-2">
+                        <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-1 items-start' : 'space-x-2'} ${isMobile ? 'mt-1' : 'mt-2'}`}>
                           {bookmark.category && (
-                            <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                            <span className={`${isMobile ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs'} bg-cyan-600/20 text-cyan-400 rounded-lg`}>
                               {bookmark.category}
                             </span>
                           )}
-                          <span className="text-xs text-gray-500">
+                          <span className={`${isMobile ? 'text-xs' : 'text-xs'} text-gray-500`}>
                             {new Date(bookmark.saved_at).toLocaleDateString()}
                           </span>
                         </div>
                       </div>
                       
-                      <div className="flex items-center space-x-2">
+                      <div className={`flex items-center ${isSmallMobile ? 'w-full justify-center gap-3' : 'space-x-2'}`}>
                         <button>
-                          <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                          <Star className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-yellow-500`} />
                         </button>
                         <a 
                           href={bookmark.url} 
                           target="_blank" 
                           rel="noopener noreferrer"
                         >
-                          <ExternalLink className="w-5 h-5 text-gray-400 hover:text-blue-400" />
+                          <ExternalLink className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-cyan-400`} />
                         </a>
                         <button onClick={() => handleDelete(bookmark.id)}>
-                          <Trash2 className="w-5 h-5 text-gray-400 hover:text-red-500" />
+                          <Trash2 className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-red-500`} />
                         </button>
                         <button>
-                          <MoreHorizontal className="w-5 h-5 text-gray-400 hover:text-white" />
+                          <MoreHorizontal className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-white`} />
                         </button>
                       </div>
                     </div>
@@ -665,38 +676,38 @@ const Bookmarks = () => {
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-center space-x-4 mb-8">
+                <div className={`flex items-center justify-center ${isSmallMobile ? 'flex-col gap-3' : 'space-x-4'} ${isMobile ? 'mb-6' : 'mb-8'}`}>
                   <button 
                     onClick={() => setPage(page - 1)} 
                     disabled={page === 1}
-                    className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-gray-800/50 to-black/50 border border-gray-700 rounded-xl hover:border-blue-500/50 hover:bg-blue-500/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-700 disabled:hover:bg-transparent"
+                    className={`flex items-center ${isSmallMobile ? 'w-full justify-center' : 'space-x-2'} ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-gray-800/50 to-black/50 border border-gray-700 rounded-xl hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-700 disabled:hover:bg-transparent`}
                   >
-                    <ArrowLeft className="w-5 h-5" />
+                    <ArrowLeft className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                     <span>Previous</span>
                   </button>
                   
-                  <div className="px-6 py-3 bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-xl">
-                    <span className="text-blue-400 font-semibold">Page {page} of {totalPages}</span>
+                  <div className={`${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-cyan-600/20 to-teal-600/20 border border-cyan-500/30 rounded-xl`}>
+                    <span className={`text-cyan-400 font-semibold ${isMobile ? 'text-sm' : ''}`}>Page {page} of {totalPages}</span>
                   </div>
                   
                   <button 
                     onClick={() => setPage(page + 1)} 
                     disabled={page === totalPages}
-                    className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-gray-800/50 to-black/50 border border-gray-700 rounded-xl hover:border-blue-500/50 hover:bg-blue-500/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-700 disabled:hover:bg-transparent"
+                    className={`flex items-center ${isSmallMobile ? 'w-full justify-center' : 'space-x-2'} ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-gray-800/50 to-black/50 border border-gray-700 rounded-xl hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-700 disabled:hover:bg-transparent`}
                   >
                     <span>Next</span>
-                    <ArrowRight className="w-5 h-5" />
+                    <ArrowRight className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
                   </button>
                 </div>
               )}
             </>
           ) : (
-            <div className="text-center py-16 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
-              <div className="p-6 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-full w-24 h-24 mx-auto mb-6">
-                <Bookmark className="w-12 h-12 text-blue-400 mx-auto mt-3" />
+            <div className={`text-center ${isMobile ? 'py-12' : 'py-16'} bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800`}>
+              <div className={`${isMobile ? 'p-4' : 'p-6'} bg-gradient-to-r from-cyan-600/20 to-teal-600/20 rounded-full ${isMobile ? 'w-16 h-16' : 'w-24 h-24'} mx-auto ${isMobile ? 'mb-4' : 'mb-6'}`}>
+                <Bookmark className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} text-cyan-400 mx-auto ${isMobile ? 'mt-2' : 'mt-3'}`} />
               </div>
-              <h3 className="text-2xl font-semibold text-white mb-4">No bookmarks found</h3>
-              <p className="text-gray-400 mb-8 text-lg">
+              <h3 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-semibold text-white ${isMobile ? 'mb-3' : 'mb-4'}`}>No bookmarks found</h3>
+              <p className={`text-gray-400 ${isMobile ? 'mb-6 text-base' : 'mb-8 text-lg'}`}>
                 {searchTerm || filter !== 'all' 
                   ? 'Try adjusting your search or filter criteria.'
                   : 'Start by adding your first bookmark using the Chrome extension or the add button above.'
@@ -705,16 +716,16 @@ const Bookmarks = () => {
               {!searchTerm && filter === 'all' && (
                 <button 
                   onClick={() => navigate('/save-content')}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-4 rounded-xl font-semibold hover:shadow-lg hover:shadow-blue-500/25 hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-3 mx-auto"
+                  className={`bg-gradient-to-r from-cyan-600 to-teal-600 ${isMobile ? 'px-6 py-3 text-sm' : 'px-8 py-4'} rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 transform hover:scale-105 flex items-center ${isSmallMobile ? 'justify-center w-full' : 'space-x-3'} mx-auto`}
                 >
-                  <Plus className="w-6 h-6" />
-                  <span>Add Your First Bookmark</span>
+                  <Plus className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'}`} />
+                  <span>{isSmallMobile ? 'Add Bookmark' : 'Add Your First Bookmark'}</span>
                 </button>
               )}
             </div>
           )}
         </main>
-      </div>
+        </div>
       </div>
 
       <style jsx>{`

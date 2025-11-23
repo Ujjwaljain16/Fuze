@@ -48,6 +48,8 @@ const ProjectDetail = () => {
   const [isDeletingTask, setIsDeletingTask] = useState(false)
   const [isDeletingSubtask, setIsDeletingSubtask] = useState(false)
   const [isUpdatingSubtask, setIsUpdatingSubtask] = useState(false)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
 
   useEffect(() => {
     if (isAuthenticated && id) {
@@ -56,6 +58,15 @@ const ProjectDetail = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, id])
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setIsSmallMobile(window.innerWidth <= 480)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const fetchProjectData = async () => {
     try {
@@ -288,13 +299,13 @@ const ProjectDetail = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
-        <div className="text-center relative z-10 max-w-md mx-auto p-8">
-          <h2 className="text-3xl font-bold text-white mb-4">Authentication Required</h2>
-          <p className="text-gray-400 mb-8">Please log in to view project details.</p>
+      <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
+        <div className={`text-center relative z-10 max-w-md mx-auto ${isMobile ? 'p-6' : 'p-8'}`}>
+          <h2 className={`${isMobile ? 'text-2xl' : 'text-3xl'} font-bold text-white ${isMobile ? 'mb-3' : 'mb-4'}`}>Authentication Required</h2>
+          <p className={`text-gray-400 ${isMobile ? 'mb-6 text-sm' : 'mb-8'}`}>Please log in to view project details.</p>
           <Link 
             to="/login" 
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+            className={`inline-flex items-center gap-2 ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-cyan-600 to-teal-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 transform hover:scale-105`}
           >
             Go to Login
           </Link>
@@ -305,10 +316,10 @@ const ProjectDetail = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+      <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
         <div className="text-center relative z-10">
-          <FolderOpen className="w-16 h-16 text-green-400 mx-auto mb-4 animate-pulse" />
-          <p className="text-xl text-gray-300">Loading project details...</p>
+          <FolderOpen className={`${isMobile ? 'w-12 h-12' : 'w-16 h-16'} text-cyan-400 mx-auto ${isMobile ? 'mb-3' : 'mb-4'} animate-pulse`} />
+          <p className={`text-gray-300 ${isMobile ? 'text-base' : 'text-xl'}`}>Loading project details...</p>
         </div>
       </div>
     )
@@ -316,19 +327,19 @@ const ProjectDetail = () => {
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
-        <div className="text-center relative z-10 max-w-md mx-auto p-8">
-          <div className="mb-6">
-            <FolderOpen className="w-16 h-16 text-red-400 mx-auto mb-4" />
-            <h2 className="text-3xl font-bold text-white mb-4">Project Not Found</h2>
-            <p className="text-gray-400 mb-8">
+      <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
+        <div className={`text-center relative z-10 max-w-md mx-auto ${isMobile ? 'p-6' : 'p-8'}`}>
+          <div className={`${isMobile ? 'mb-4' : 'mb-6'}`}>
+            <FolderOpen className={`${isMobile ? 'w-12 h-12' : 'w-16 h-16'} text-red-400 mx-auto ${isMobile ? 'mb-3' : 'mb-4'}`} />
+            <h2 className={`${isMobile ? 'text-2xl' : 'text-3xl'} font-bold text-white ${isMobile ? 'mb-3' : 'mb-4'}`}>Project Not Found</h2>
+            <p className={`text-gray-400 ${isMobile ? 'mb-6 text-sm' : 'mb-8'}`}>
               The project you're looking for doesn't exist or you don't have access to it.
             </p>
             <Link 
               to="/projects" 
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105"
+              className={`inline-flex items-center gap-2 ${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-cyan-600 to-teal-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 transform hover:scale-105`}
             >
-              <FolderOpen className="w-5 h-5" />
+              <FolderOpen className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
               Back to Projects
             </Link>
           </div>
@@ -338,13 +349,13 @@ const ProjectDetail = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+    <div className="min-h-screen text-white relative overflow-hidden" style={{ backgroundColor: '#0F0F1E' }}>
       {/* Animated Background */}
       <div className="fixed inset-0 opacity-10">
         <div 
           className="absolute w-96 h-96 rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(34, 197, 94, 0.3) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
             left: mousePos.x - 192,
             top: mousePos.y - 192,
             transition: 'all 0.3s ease-out'
@@ -358,7 +369,7 @@ const ProjectDetail = () => {
           {Array.from({ length: 576 }).map((_, i) => (
             <div
               key={i}
-              className="border border-green-500/10 animate-pulse"
+              className="border border-cyan-500/10 animate-pulse"
               style={{
                 animationDelay: `${Math.random() * 5}s`,
                 animationDuration: `${4 + Math.random() * 3}s`
@@ -544,7 +555,7 @@ const ProjectDetail = () => {
                   alignItems: 'center', 
                   gap: '8px',
                   padding: '10px 20px',
-                  background: 'linear-gradient(135deg, #5C6BC0 0%, #9C27B0 100%)',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '12px',
@@ -573,7 +584,7 @@ const ProjectDetail = () => {
                   alignItems: 'center', 
                   gap: '8px',
                   padding: '10px 20px',
-                  background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '12px',
@@ -647,7 +658,7 @@ const ProjectDetail = () => {
 
                     <div className="flex flex-wrap gap-2 mb-4">
                       {taskDetails.estimated_time && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-400 text-xs rounded-lg">
+                        <span className="flex items-center gap-1 px-2 py-1 bg-cyan-600/20 text-cyan-400 text-xs rounded-lg">
                           <Clock className="w-3 h-3" />
                           {taskDetails.estimated_time}
                         </span>
@@ -667,7 +678,7 @@ const ProjectDetail = () => {
                     {taskDetails.key_technologies && taskDetails.key_technologies.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-4">
                         {taskDetails.key_technologies.map((tech, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-purple-600/20 text-purple-400 text-xs rounded-lg">
+                          <span key={idx} className="px-2 py-1 bg-cyan-600/20 text-cyan-400 text-xs rounded-lg">
                             {tech}
                           </span>
                         ))}
@@ -834,7 +845,7 @@ const ProjectDetail = () => {
                 </button>
                 <button 
                   onClick={() => setShowAITaskModal(true)}
-                  className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2"
+                  className={`${isMobile ? 'px-4 py-2 text-sm' : 'px-6 py-3'} bg-gradient-to-r from-cyan-600 to-teal-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 transform hover:scale-105 flex items-center ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}
                 >
                   <Zap className="w-5 h-5" />
                   <span>AI Generate</span>
@@ -1024,7 +1035,7 @@ const ProjectDetail = () => {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                 <div style={{
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 100%)',
                   padding: '12px',
                   borderRadius: '12px'
                 }}>
@@ -1101,7 +1112,7 @@ const ProjectDetail = () => {
                   style={{
                     flex: 1,
                     padding: '12px',
-                    background: aiGenerating ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                    background: aiGenerating ? 'rgba(77,208,225,0.5)' : 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 100%)',
                     border: 'none',
                     borderRadius: '8px',
                     color: '#fff',

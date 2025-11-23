@@ -25,6 +25,8 @@ const Profile = () => {
     new_password: '',
     confirm_password: ''
   })
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -33,6 +35,15 @@ const Profile = () => {
     
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setIsSmallMobile(window.innerWidth <= 480)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, []);
 
   useEffect(() => {
@@ -140,13 +151,13 @@ const Profile = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center">
+      <div className="min-h-screen text-white relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#0F0F1E' }}>
         {/* Animated Background */}
         <div className="fixed inset-0 opacity-10">
           <div 
             className="absolute w-96 h-96 rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
               left: mousePos.x - 192,
               top: mousePos.y - 192,
               transition: 'all 0.3s ease-out'
@@ -160,7 +171,7 @@ const Profile = () => {
             {Array.from({ length: 576 }).map((_, i) => (
               <div
                 key={i}
-                className="border border-blue-500/10 animate-pulse"
+                className="border border-cyan-500/10 animate-pulse"
                 style={{
                   animationDelay: `${Math.random() * 5}s`,
                   animationDuration: `${4 + Math.random() * 3}s`
@@ -171,30 +182,30 @@ const Profile = () => {
         </div>
 
         <div className="relative z-10 text-center">
-          <div className="flex items-center justify-center space-x-3 mb-4">
+          <div className={`flex items-center justify-center ${isSmallMobile ? 'gap-2' : 'space-x-3'} ${isMobile ? 'mb-3' : 'mb-4'}`}>
             <div className="relative">
-              <Zap className="w-12 h-12 text-blue-400" />
-              <div className="absolute inset-0 blur-lg bg-blue-400 opacity-50 animate-pulse" />
+              <Zap className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} text-cyan-400`} />
+              <div className="absolute inset-0 blur-lg bg-cyan-400 opacity-50 animate-pulse" />
             </div>
-            <span className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            <span className={`${isMobile ? 'text-2xl' : 'text-4xl'} font-bold bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent`}>
               Fuze
             </span>
           </div>
-          <h2 className="text-2xl font-bold text-white mb-4">Authentication Required</h2>
-          <p className="text-gray-300">Please log in to access your profile.</p>
+          <h2 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold text-white ${isMobile ? 'mb-3' : 'mb-4'}`}>Authentication Required</h2>
+          <p className={`text-gray-300 ${isMobile ? 'text-sm' : ''}`}>Please log in to access your profile.</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+    <div className="min-h-screen text-white relative overflow-hidden" style={{ backgroundColor: '#0F0F1E' }}>
       {/* Animated Background */}
       <div className="fixed inset-0 opacity-10">
         <div 
           className="absolute w-96 h-96 rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(77, 208, 225, 0.3) 0%, transparent 70%)',
             left: mousePos.x - 192,
             top: mousePos.y - 192,
             transition: 'all 0.3s ease-out'
@@ -208,7 +219,7 @@ const Profile = () => {
           {Array.from({ length: 576 }).map((_, i) => (
             <div
               key={i}
-              className="border border-blue-500/10 animate-pulse"
+              className="border border-cyan-500/10 animate-pulse"
               style={{
                 animationDelay: `${Math.random() * 5}s`,
                 animationDuration: `${4 + Math.random() * 3}s`
@@ -221,9 +232,9 @@ const Profile = () => {
       <div className="relative z-10">
         {/* Main Content */}
         <div className="w-full">
-          <main className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
+          <main className={`${isMobile ? 'p-4' : 'p-4 md:p-6 lg:p-8'} max-w-[1600px] mx-auto`} style={{ backgroundColor: '#0F0F1E' }}>
             {/* Header with Logo and Logout */}
-            <div className="flex items-center justify-between mb-8 pt-6">
+            <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isSmallMobile ? 'flex-col gap-4' : ''} ${isMobile ? 'mt-12' : ''}`}>
               {/* Logo - Top Left (Home Link) */}
               <Link
                 to="/"
@@ -248,7 +259,7 @@ const Profile = () => {
                   logout()
                   window.location.href = '/login'
                 }}
-                className="flex items-center gap-2.5 px-5 py-3 rounded-xl transition-all duration-300 group"
+                className={`flex items-center gap-2.5 ${isMobile ? 'px-4 py-2' : 'px-5 py-3'} rounded-xl transition-all duration-300 group`}
                 style={{
                   background: 'rgba(20, 20, 20, 0.6)',
                   border: '1px solid rgba(239, 68, 68, 0.2)',
@@ -270,8 +281,8 @@ const Profile = () => {
                   e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
-                <span className="text-base font-medium">Logout</span>
+                <LogOut className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} group-hover:translate-x-1 transition-transform duration-300`} />
+                {!isSmallMobile && <span className={`${isMobile ? 'text-sm' : 'text-base'} font-medium`}>Logout</span>}
               </button>
             </div>
           {/* Profile Header */}
@@ -281,7 +292,7 @@ const Profile = () => {
           <ProfileStats user={user} />
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div className={`grid grid-cols-1 ${isMobile ? 'gap-6' : 'lg:grid-cols-2 gap-8'} ${isMobile ? 'mb-6' : 'mb-8'}`}>
             {/* Profile Form */}
             <ProfileForm
               formData={formData}

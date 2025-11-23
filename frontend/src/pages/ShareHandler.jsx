@@ -18,6 +18,17 @@ const ShareHandler = () => {
   const [error, setError] = useState('')
   const [previewData, setPreviewData] = useState(null)
   const [extracting, setExtracting] = useState(false)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setIsSmallMobile(window.innerWidth <= 480)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // Extract URL from text if it contains a URL
   const extractUrlFromText = (text) => {
@@ -298,7 +309,7 @@ const ShareHandler = () => {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0F0F1E]">
-        <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+        <Loader2 className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} animate-spin text-cyan-400`} />
       </div>
     )
   }
@@ -306,12 +317,12 @@ const ShareHandler = () => {
   // Show error if no URL provided
   if (!sharedUrl && !authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0F0F1E] p-4">
-        <div className="max-w-md w-full bg-gradient-to-br from-[#1a1a2e] to-[#252540] rounded-2xl p-8 border border-cyan-500/20">
+      <div className={`min-h-screen flex items-center justify-center bg-[#0F0F1E] ${isMobile ? 'p-4' : 'p-4'}`}>
+        <div className={`max-w-md w-full bg-gradient-to-br from-[#1a1a2e] to-[#252540] rounded-2xl ${isMobile ? 'p-6' : 'p-8'} border border-cyan-500/20`}>
           <div className="text-center">
-            <XCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
-            <h1 className="text-2xl font-bold text-white mb-2">No Content to Share</h1>
-            <p className="text-gray-400 mb-6">
+            <XCircle className={`${isMobile ? 'w-12 h-12' : 'w-16 h-16'} mx-auto ${isMobile ? 'mb-3' : 'mb-4'} text-red-400`} />
+            <h1 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold text-white ${isMobile ? 'mb-1.5' : 'mb-2'}`}>No Content to Share</h1>
+            <p className={`text-gray-400 ${isMobile ? 'mb-4 text-sm' : 'mb-6'}`}>
               No URL was provided. Please share a link from another app.
             </p>
             <Button onClick={handleCancel} variant="primary">
@@ -324,57 +335,57 @@ const ShareHandler = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F0F1E] p-4">
+    <div className={`min-h-screen bg-[#0F0F1E] ${isMobile ? 'p-3' : 'p-4'}`}>
       <div className="max-w-2xl mx-auto">
-        <div className="bg-gradient-to-br from-[#1a1a2e] to-[#252540] rounded-2xl p-6 md:p-8 border border-cyan-500/20 shadow-2xl">
+        <div className={`bg-gradient-to-br from-[#1a1a2e] to-[#252540] rounded-2xl ${isMobile ? 'p-4' : 'p-6 md:p-8'} border border-cyan-500/20 shadow-2xl`}>
           {/* Header */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-cyan-500/20 rounded-lg">
-              <Share2 className="w-6 h-6 text-cyan-400" />
+          <div className={`flex items-center ${isSmallMobile ? 'gap-2' : 'gap-3'} ${isMobile ? 'mb-4' : 'mb-6'}`}>
+            <div className={`${isMobile ? 'p-2' : 'p-3'} bg-cyan-500/20 rounded-lg`}>
+              <Share2 className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-cyan-400`} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Share to Fuze</h1>
-              <p className="text-gray-400 text-sm">Save this content to your bookmarks</p>
+              <h1 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold text-white`}>Share to Fuze</h1>
+              <p className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>Save this content to your bookmarks</p>
             </div>
           </div>
 
           {/* Success Message */}
           {success && (
-            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
+            <div className={`${isMobile ? 'mb-4 p-3' : 'mb-6 p-4'} bg-green-500/10 border border-green-500/20 rounded-lg flex items-center ${isSmallMobile ? 'gap-2' : 'gap-3'}`}>
+              <CheckCircle2 className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-green-400 flex-shrink-0`} />
               <div>
-                <p className="text-green-400 font-medium">Bookmark saved successfully!</p>
-                <p className="text-green-400/70 text-sm">Processing content in background. Returning to previous app...</p>
+                <p className={`text-green-400 font-medium ${isMobile ? 'text-sm' : ''}`}>Bookmark saved successfully!</p>
+                <p className={`text-green-400/70 ${isMobile ? 'text-xs' : 'text-sm'}`}>Processing content in background. Returning to previous app...</p>
               </div>
             </div>
           )}
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
-              <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-              <p className="text-red-400">{error}</p>
+            <div className={`${isMobile ? 'mb-4 p-3' : 'mb-6 p-4'} bg-red-500/10 border border-red-500/20 rounded-lg flex items-center ${isSmallMobile ? 'gap-2' : 'gap-3'}`}>
+              <XCircle className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-red-400 flex-shrink-0`} />
+              <p className={`text-red-400 ${isMobile ? 'text-sm' : ''}`}>{error}</p>
             </div>
           )}
 
           {/* Preview Card */}
           {previewData && (
-            <div className="mb-6 p-5 bg-[#0F0F1E] rounded-xl border border-gray-700">
+            <div className={`${isMobile ? 'mb-4 p-3' : 'mb-6 p-5'} bg-[#0F0F1E] rounded-xl border border-gray-700`}>
               {extracting ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-cyan-400 mr-3" />
-                  <span className="text-gray-400">Extracting content...</span>
+                <div className={`flex items-center justify-center ${isMobile ? 'py-6' : 'py-8'}`}>
+                  <Loader2 className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} animate-spin text-cyan-400 ${isMobile ? 'mr-2' : 'mr-3'}`} />
+                  <span className={`text-gray-400 ${isMobile ? 'text-sm' : ''}`}>Extracting content...</span>
                 </div>
               ) : (
                 <>
-                  <div className="flex items-start gap-3 mb-4">
-                    <Globe className="w-5 h-5 text-cyan-400 mt-1 flex-shrink-0" />
+                  <div className={`flex items-start ${isSmallMobile ? 'gap-2' : 'gap-3'} ${isMobile ? 'mb-3' : 'mb-4'}`}>
+                    <Globe className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-cyan-400 mt-1 flex-shrink-0`} />
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
+                      <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-white ${isMobile ? 'mb-1.5' : 'mb-2'} line-clamp-2`}>
                         {previewData.title}
                       </h3>
                       {previewData.description && (
-                        <p className="text-gray-400 text-sm line-clamp-3 mb-3">
+                        <p className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} line-clamp-3 ${isMobile ? 'mb-2' : 'mb-3'}`}>
                           {previewData.description}
                         </p>
                       )}
@@ -382,16 +393,16 @@ const ShareHandler = () => {
                         href={previewData.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-1"
+                        className={`text-cyan-400 hover:text-cyan-300 ${isMobile ? 'text-xs' : 'text-sm'} flex items-center ${isSmallMobile ? 'gap-0.5' : 'gap-1'}`}
                       >
-                        <ExternalLink className="w-4 h-4" />
+                        <ExternalLink className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} flex-shrink-0`} />
                         <span className="truncate">{previewData.url}</span>
                       </a>
                     </div>
                   </div>
                   
                   {previewData.quality_score > 0 && (
-                    <div className="text-xs text-gray-500">
+                    <div className={`${isMobile ? 'text-xs' : 'text-xs'} text-gray-500`}>
                       Content quality: {Math.round(previewData.quality_score * 10)}/10
                     </div>
                   )}
@@ -402,18 +413,18 @@ const ShareHandler = () => {
 
           {/* URL Display (if no preview) */}
           {!previewData && !extracting && sharedUrl && (
-            <div className="mb-6 p-5 bg-[#0F0F1E] rounded-xl border border-gray-700">
-              <div className="flex items-start gap-3">
-                <Globe className="w-5 h-5 text-cyan-400 mt-1 flex-shrink-0" />
+            <div className={`${isMobile ? 'mb-4 p-3' : 'mb-6 p-5'} bg-[#0F0F1E] rounded-xl border border-gray-700`}>
+              <div className={`flex items-start ${isSmallMobile ? 'gap-2' : 'gap-3'}`}>
+                <Globe className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-cyan-400 mt-1 flex-shrink-0`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-gray-400 text-sm mb-2">URL to save:</p>
+                  <p className={`text-gray-400 ${isMobile ? 'text-xs mb-1.5' : 'text-sm mb-2'}`}>URL to save:</p>
                   <a
                     href={sharedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-cyan-400 hover:text-cyan-300 text-sm break-all flex items-center gap-1"
+                    className={`text-cyan-400 hover:text-cyan-300 ${isMobile ? 'text-xs' : 'text-sm'} break-all flex items-center ${isSmallMobile ? 'gap-0.5' : 'gap-1'}`}
                   >
-                    <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                    <ExternalLink className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} flex-shrink-0`} />
                     <span className="break-all">{sharedUrl}</span>
                   </a>
                 </div>
@@ -423,7 +434,7 @@ const ShareHandler = () => {
 
           {/* Action Buttons */}
           {!success && (
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className={`flex ${isSmallMobile ? 'flex-col' : 'flex-col sm:flex-row'} ${isMobile ? 'gap-2' : 'gap-3'}`}>
               <Button
                 onClick={handleSave}
                 disabled={saving || extracting || !sharedUrl}
@@ -432,7 +443,7 @@ const ShareHandler = () => {
               >
                 {saving ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <Loader2 className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} animate-spin ${isMobile ? 'mr-1.5' : 'mr-2'}`} />
                     Saving...
                   </>
                 ) : (
@@ -452,8 +463,8 @@ const ShareHandler = () => {
         </div>
 
         {/* Info Box */}
-        <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-          <p className="text-blue-400 text-sm text-center">
+        <div className={`${isMobile ? 'mt-4 p-3' : 'mt-6 p-4'} bg-cyan-500/10 border border-cyan-500/20 rounded-lg`}>
+          <p className={`text-cyan-400 ${isMobile ? 'text-xs' : 'text-sm'} text-center`}>
             <strong>Tip:</strong> You can share links from any app to Fuze. The content will be automatically extracted and saved to your bookmarks.
           </p>
         </div>
