@@ -6,7 +6,6 @@ import api from '../services/api'
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
-  const [checkingApiKey, setCheckingApiKey] = useState(false)
   const [hasApiKey, setHasApiKey] = useState(false)
 
   // Check API key status when user is authenticated
@@ -17,7 +16,6 @@ const ProtectedRoute = ({ children }) => {
   }, [isAuthenticated, loading])
 
   const checkApiKeyStatus = async () => {
-    setCheckingApiKey(true)
     try {
       const response = await api.get('/api/user/api-key/status')
       setHasApiKey(response.data?.has_api_key || false)
@@ -25,8 +23,6 @@ const ProtectedRoute = ({ children }) => {
       console.error('Error checking API key status:', error)
       // On error, assume no API key to be safe
       setHasApiKey(false)
-    } finally {
-      setCheckingApiKey(false)
     }
   }
 
