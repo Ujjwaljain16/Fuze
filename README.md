@@ -47,6 +47,73 @@
 - **Bulk Import**: Import existing bookmarks from Chrome
 
 ---
+## 📸 Demo
+
+### Landing Page
+<div align="center">
+<img width="1919" height="927" alt="Screenshot 2025-11-24 035836" src="https://github.com/user-attachments/assets/0ff4d2b5-3724-4913-85c0-71e18bd4fbdd" />
+
+
+*Welcome to Fuze - Your intelligent content manager*
+
+</div>
+
+### Dashboard
+<div align="center">
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 025912" src="https://github.com/user-attachments/assets/d35f995f-60a7-48f2-bb42-4d3ce8cedc39" />
+
+
+*Overview of your bookmarks, projects, and statistics*
+
+</div>
+
+### Bookmarks Management
+<div align="center">
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035358" src="https://github.com/user-attachments/assets/6c691cba-efe6-4561-b1c2-82feed461e90" />
+
+
+*Organize and search through your saved content with AI-powered semantic search*
+
+</div>
+
+### Projects & Tasks
+<div align="center">
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035415" src="https://github.com/user-attachments/assets/48d89e18-98fb-4af3-aebd-72973aa0813a" />
+
+
+*Organize projects and break them down into actionable tasks*
+
+</div>
+
+### AI Recommendations
+<div align="center">
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035434" src="https://github.com/user-attachments/assets/2796a560-bc06-4308-87a6-b51a25a5cb8b" />
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035000" src="https://github.com/user-attachments/assets/a72f7e0c-6fda-4933-95bc-d50e7067b9f1" />
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035010" src="https://github.com/user-attachments/assets/fb66fd51-2780-430a-90e4-dee25b03ab2a" />
+
+
+
+*Get personalized content recommendations based on your projects and interests*
+
+</div>
+
+### Profile & Settings
+<div align="center">
+
+<img width="1920" height="1080" alt="Screenshot 2025-11-24 035443" src="https://github.com/user-attachments/assets/341d5a7e-0458-470e-a488-cc26610f374c" />
+
+
+*Manage your profile, API keys, and preferences*
+
+</div>
+
+---
+
 
 ## 🚀 Quick Start
 
