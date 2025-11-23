@@ -49,6 +49,21 @@ nav.navbar .nav-title {
   letter-spacing: 1px;
 }
 
+/* Navbar Logo - Updated for rectangular logo */
+.navbar-logo {
+  height: 60px;
+  width: auto;
+  max-width: 200px;
+  object-fit: contain;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.navbar-logo:hover {
+  transform: scale(1.02);
+  opacity: 0.9;
+}
+
 /* Mobile Menu Button */
 .mobile-menu-btn {
   display: flex;
@@ -164,6 +179,11 @@ nav.navbar .logout-btn:hover {
     font-size: 1.25rem;
   }
   
+  .navbar-logo {
+    height: 50px;
+    max-width: 150px;
+  }
+  
   nav.navbar .nav-right {
     gap: 0.75rem;
   }
@@ -176,6 +196,11 @@ nav.navbar .logout-btn:hover {
   
   nav.navbar .nav-title {
     font-size: 1.1rem;
+  }
+  
+  .navbar-logo {
+    height: 45px;
+    max-width: 130px;
   }
   
   nav.navbar .nav-menu {
@@ -200,6 +225,11 @@ nav.navbar .logout-btn:hover {
   
   nav.navbar .nav-title {
     font-size: 1rem;
+  }
+  
+  .navbar-logo {
+    height: 40px;
+    max-width: 110px;
   }
   
   nav.navbar .nav-right {

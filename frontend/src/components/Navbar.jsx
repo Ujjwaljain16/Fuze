@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { LogOut, Menu, X } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import logo1 from '../assets/logo1.svg'
 import './navbar-styles.css'
 
 const Navbar = ({ onMenuClick, isSidebarOpen }) => {
@@ -36,7 +37,16 @@ const Navbar = ({ onMenuClick, isSidebarOpen }) => {
               {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
           )}
-          <span className="nav-title">Fuze</span>
+          <img 
+            src={logo1} 
+            alt="Fuze Logo" 
+            className="navbar-logo"
+            style={{
+              height: isMobile ? '50px' : '60px',
+              width: 'auto',
+              backgroundColor: 'transparent'
+            }}
+          />
         </div>
         <div className="nav-right">
           {isAuthenticated && (

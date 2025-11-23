@@ -252,10 +252,10 @@ export default function FuzeLanding() {
         }
         
         .logo-container {
-          width: 120px;
-          height: 120px;
-          border-radius: 50%;
-          overflow: hidden;
+          width: auto;
+          height: auto;
+          max-width: 200px;
+          max-height: 80px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -264,8 +264,6 @@ export default function FuzeLanding() {
           box-shadow: none;
           transition: transform 0.3s ease;
           padding: 0;
-          clip-path: circle(50% at 50% 50%);
-          -webkit-clip-path: circle(50% at 50% 50%);
           position: relative;
         }
         
@@ -274,27 +272,37 @@ export default function FuzeLanding() {
         }
         
         .logo-container img {
-          width: 100%;
-          height: 100%;
+          width: auto;
+          height: auto;
+          max-width: 200px;
+          max-height: 80px;
           object-fit: contain;
-          clip-path: circle(50% at 50% 50%);
-          -webkit-clip-path: circle(50% at 50% 50%);
           mix-blend-mode: normal;
         }
         
         @media (max-width: 768px) {
           .logo-container {
-            width: 90px;
-            height: 90px;
+            max-width: 150px;
+            max-height: 60px;
             padding: 0;
+          }
+          
+          .logo-container img {
+            max-width: 150px;
+            max-height: 60px;
           }
         }
         
         @media (max-width: 480px) {
           .logo-container {
-            width: 70px;
-            height: 70px;
+            max-width: 120px;
+            max-height: 50px;
             padding: 0;
+          }
+          
+          .logo-container img {
+            max-width: 120px;
+            max-height: 50px;
           }
         }
         
@@ -644,12 +652,12 @@ export default function FuzeLanding() {
         zIndex: 10, 
         paddingTop: isMobile ? '8rem' : '12rem',
         paddingBottom: isMobile ? '4rem' : '6rem',
-        paddingLeft: isMobile ? '1rem' : '1rem',
+        paddingLeft: '0',
         paddingRight: isMobile ? '1rem' : '1rem',
         minHeight: isMobile ? 'auto' : '100vh', 
         display: 'flex', 
         alignItems: 'flex-start',
-        justifyContent: 'center'
+        justifyContent: 'flex-start'
       }}>
         {/* Logo - Top Left - Only visible at top */}
         {showLogo && (
@@ -675,7 +683,7 @@ export default function FuzeLanding() {
             />
           </div>
         )}
-        <div style={{ maxWidth: '1280px', width: '100%', paddingLeft: '0', paddingRight: '0' }}>
+        <div style={{ maxWidth: '1280px', width: '100%', paddingLeft: '0', paddingRight: '0', marginLeft: isMobile ? '1rem' : '2rem' }}>
           <div style={{ 
             display: 'grid', 
             gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', 
@@ -688,7 +696,8 @@ export default function FuzeLanding() {
               transitionDelay: '0.2s',
               transform: isVisible ? 'translateY(0)' : 'translateY(5rem)',
               opacity: isVisible ? 1 : 0,
-              marginTop: '2rem'
+              marginTop: '2rem',
+              paddingLeft: '0'
             }}>
               <h1 style={{ 
                 fontSize: window.innerWidth <= 480 ? '2rem' : window.innerWidth <= 768 ? '2.5rem' : '3.75rem', 

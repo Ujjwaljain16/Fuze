@@ -187,7 +187,7 @@ function AppContent() {
           />
         )}
         <main className="main-content">
-          <Suspense fallback={<Loader fullScreen={false} message="Loading..." size="medium" />}>
+          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader fullScreen={false} message="Loading..." size="medium" /></div>}>
             <Routes>
               <Route 
                 path="/" 
