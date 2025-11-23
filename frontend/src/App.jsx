@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Profile from './pages/Profile';
-import Projects from './pages/Projects';
-import ProjectDetail from './pages/ProjectDetail';
-import Recommendations from './pages/Recommendations';
-import Bookmarks from './pages/Bookmarks';
-import SaveContent from './pages/SaveContent';
-import ShareHandler from './pages/ShareHandler';
-import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
 import './App.css';
+
+// Lazy load routes for code splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Projects = lazy(() => import('./pages/Projects'));
+const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
+const Recommendations = lazy(() => import('./pages/Recommendations'));
+const Bookmarks = lazy(() => import('./pages/Bookmarks'));
+const SaveContent = lazy(() => import('./pages/SaveContent'));
+const ShareHandler = lazy(() => import('./pages/ShareHandler'));
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -178,84 +179,87 @@ function AppContent() {
           <Sidebar
             isOpen={isMobile ? sidebarOpen : true}
             onClose={() => setSidebarOpen(false)}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
             collapsed={!isMobile && collapsed}
             setCollapsed={setCollapsed}
             isMobile={isMobile}
           />
         )}
         <main className="main-content">
-          <Routes>
-            <Route 
-              path="/" 
-              element={<Landing />} 
-            />
-            <Route 
-              path="/login" 
-              element={user ? <Navigate to="/dashboard" /> : <Login />} 
-            />
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/profile" 
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/projects" 
-              element={
-                <ProtectedRoute>
-                  <Projects />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/projects/:id" 
-              element={
-                <ProtectedRoute>
-                  <ProjectDetail />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/recommendations" 
-              element={
-                <ProtectedRoute>
-                  <Recommendations />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/bookmarks" 
-              element={
-                <ProtectedRoute>
-                  <Bookmarks />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/save-content" 
-              element={
-                <ProtectedRoute>
-                  <SaveContent />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/share" 
-              element={<ShareHandler />} 
-            />
+          <Suspense fallback={<Loader fullScreen={false} message="Loading..." size="medium" />}>
+            <Routes>
+              <Route 
+                path="/" 
+                element={<Landing />} 
+              />
+              <Route 
+                path="/login" 
+                element={user ? <Navigate to="/dashboard" /> : <Login />} 
+              />
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/profile" 
+                element={
+                  <ProtectedRoute>
+                    <Profile />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/projects" 
+                element={
+                  <ProtectedRoute>
+                    <Projects />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/projects/:id" 
+                element={
+                  <ProtectedRoute>
+                    <ProjectDetail />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/recommendations" 
+                element={
+                  <ProtectedRoute>
+                    <Recommendations />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/bookmarks" 
+                element={
+                  <ProtectedRoute>
+                    <Bookmarks />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/save-content" 
+                element={
+                  <ProtectedRoute>
+                    <SaveContent />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/share" 
+                element={<ShareHandler />} 
+              />
 
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </div>
