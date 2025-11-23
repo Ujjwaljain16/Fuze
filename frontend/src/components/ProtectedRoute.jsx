@@ -1,8 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useState, useEffect } from 'react'
-import Loader from './Loader'
-import OnboardingModal from './OnboardingModal'
 import api from '../services/api'
 
 const ProtectedRoute = ({ children }) => {
@@ -42,13 +40,19 @@ const ProtectedRoute = ({ children }) => {
     return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
   }, [])
 
-  if (loading || checkingApiKey) {
-    return <Loader fullScreen={true} message="Loading..." size="large" variant="full" />
+  // Don't show fullScreen loader here - let individual pages handle their own loading states
+  // The initial app loading is handled in App.jsx
+  if (loading) {
+    // Just return null or a minimal loader - pages will show their own loaders
+    return null
   }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
+  
+  // If checking API key, still render children - pages will show their own loaders
+  // This prevents blocking the page with a fullScreen loader
 
   // If user is authenticated but doesn't have API key
   if (!hasApiKey) {
