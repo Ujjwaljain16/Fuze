@@ -133,7 +133,7 @@ try:
         logger.error(f"Traceback: {traceback.format_exc()}")
         user_api_key_available = False
         init_user_api_key = None
-    
+
     # Import recommendations blueprint with error handling
     try:
         from blueprints.recommendations import recommendations_bp
