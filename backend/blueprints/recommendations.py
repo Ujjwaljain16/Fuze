@@ -2068,6 +2068,7 @@ def init_recommendations_blueprint():
     init_models()
     
     # Initialize engines with error handling
+    # Only Unified Orchestrator is initialized - other engines are deprecated
     try:
         init_engines()
     except Exception as e:
