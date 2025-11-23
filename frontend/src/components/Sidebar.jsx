@@ -10,11 +10,12 @@ import {
   Settings, 
   User,
   X,
-  Menu
+  Menu,
+  LogOut
 } from 'lucide-react'
 import './sidebar-styles.css'
 
-const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
+const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle }) => {
   const { isAuthenticated, user } = useAuth()
   const location = useLocation()
 
@@ -58,12 +59,33 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
 
   return (
     <>
+      {/* Mobile Menu Button - Floating */}
+      {isMobile && !isOpen && onToggle && (
+        <button
+          className="mobile-sidebar-toggle"
+          onClick={onToggle}
+          aria-label="Open menu"
+        >
+          <Menu size={24} />
+        </button>
+      )}
+
       {/* Mobile backdrop */}
       {isMobile && isOpen && (
         <div className="sidebar-backdrop" onClick={onClose} />
       )}
       
       <div className={sidebarClasses}>
+        {/* Mobile Close Button */}
+        {isMobile && isOpen && (
+          <button
+            className="mobile-close-btn"
+            onClick={onClose}
+            aria-label="Close menu"
+          >
+            <X size={24} />
+          </button>
+        )}
         {/* Logo and Brand */}
         <div className="sidebar-brand">
           {/* Sidebar Toggle Button with Fuze Icon (Desktop only) */}
@@ -124,7 +146,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile }) => {
         {/* Footer with User Info */}
         <div className="sidebar-footer">
           <div className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-gray-800/50 transition-colors duration-300 cursor-pointer">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 rounded-full flex items-center justify-center flex-shrink-0">
               <User className="w-5 h-5 text-white" />
             </div>
             {(!collapsed || isMobile) && (

@@ -41,17 +41,17 @@ const ErrorDisplay = ({
         return {
           icon: Server,
           title: 'Server Issue',
-          color: 'text-purple-400',
-          bgColor: 'bg-purple-500/10',
-          borderColor: 'border-purple-500/20'
+          color: 'text-cyan-400',
+          bgColor: 'bg-cyan-500/10',
+          borderColor: 'border-cyan-500/20'
         }
       case ERROR_TYPES.VALIDATION:
         return {
           icon: AlertCircle,
           title: 'Invalid Input',
-          color: 'text-blue-400',
-          bgColor: 'bg-blue-500/10',
-          borderColor: 'border-blue-500/20'
+          color: 'text-cyan-400',
+          bgColor: 'bg-cyan-500/10',
+          borderColor: 'border-cyan-500/20'
         }
       default:
         return {

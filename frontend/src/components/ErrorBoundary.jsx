@@ -39,7 +39,7 @@ class ErrorBoundary extends React.Component {
               <div className="space-y-3">
                 <button
                   onClick={() => window.location.reload()}
-                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white py-2 px-4 rounded-lg font-semibold hover:from-cyan-600 hover:to-blue-700 transition-all"
+                  className="w-full bg-gradient-to-r from-cyan-500 to-teal-600 text-white py-2 px-4 rounded-lg font-semibold hover:from-cyan-600 hover:to-teal-700 transition-all"
                 >
                   Refresh Page
                 </button>

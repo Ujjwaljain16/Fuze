@@ -73,7 +73,7 @@ const OnboardingBanner = () => {
   if (!hasExtension) missingItems.push('Browser Extension')
 
   return (
-    <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border-l-4 border-blue-500 rounded-lg p-4 mb-6 relative">
+    <div className="bg-gradient-to-r from-cyan-600/20 to-teal-600/20 border-l-4 border-cyan-500 rounded-lg p-4 mb-6 relative">
       <button
         onClick={handleDismiss}
         className="absolute top-2 right-2 text-gray-400 hover:text-white transition-colors"
@@ -82,8 +82,8 @@ const OnboardingBanner = () => {
       </button>
 
       <div className="flex items-start space-x-4">
-        <div className="p-2 bg-blue-500/20 rounded-lg">
-          <AlertCircle className="w-6 h-6 text-blue-400" />
+        <div className="p-2 bg-cyan-500/20 rounded-lg">
+          <AlertCircle className="w-6 h-6 text-cyan-400" />
         </div>
 
         <div className="flex-1">
@@ -98,7 +98,7 @@ const OnboardingBanner = () => {
             {!hasApiKey && (
               <button
                 onClick={() => navigate('/profile')}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm"
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm"
               >
                 <Key className="w-4 h-4" />
                 <span>Add API Key</span>
@@ -111,7 +111,7 @@ const OnboardingBanner = () => {
                 href="/extension/chrome"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm"
               >
                 <Download className="w-4 h-4" />
                 <span>Install Extension</span>

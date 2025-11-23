@@ -42,11 +42,34 @@ nav.navbar .nav-left {
 nav.navbar .nav-title {
   font-size: 1.5rem;
   font-weight: 700;
-  background: linear-gradient(90deg, #60a5fa, #a855f7);
+  background: linear-gradient(90deg, #4DD0E1, #14B8A6, #10B981);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   letter-spacing: 1px;
+}
+
+/* Mobile Menu Button */
+.mobile-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: rgba(20, 20, 20, 0.6);
+  border: 1px solid rgba(77, 208, 225, 0.2);
+  border-radius: 0.5rem;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  margin-right: 0.75rem;
+}
+
+.mobile-menu-btn:hover {
+  color: #4DD0E1;
+  border-color: rgba(77, 208, 225, 0.5);
+  background: rgba(20, 20, 20, 0.8);
+  transform: scale(1.05);
 }
 
 nav.navbar .nav-right {

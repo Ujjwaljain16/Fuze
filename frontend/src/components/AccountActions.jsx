@@ -32,7 +32,7 @@ const AccountActions = ({ onLogout }) => {
               className={`px-8 py-3 flex items-center justify-center space-x-2 ${
                 action.danger 
                   ? 'hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400' 
-                  : 'hover:border-blue-500/50'
+                  : 'hover:border-cyan-500/50'
               }`}
             >
               <action.icon className="w-5 h-5" />

@@ -260,7 +260,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
             <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{
-                background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 100%)',
                 padding: '10px',
                 borderRadius: '12px',
                 display: 'flex',
@@ -565,7 +565,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                             }}
                             style={{
                               padding: '4px 10px',
-                              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                              background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 100%)',
                               border: 'none',
                               borderRadius: '6px',
                               color: '#fff',
@@ -794,8 +794,8 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                     onClick={() => handleSelectQuickOption('general')}
                     style={{
                       padding: '16px',
-                      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%)',
-                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                      background: 'linear-gradient(135deg, rgba(77, 208, 225, 0.1) 0%, rgba(20, 184, 166, 0.1) 100%)',
+                      border: '1px solid rgba(77, 208, 225, 0.3)',
                       borderRadius: '12px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -805,11 +805,11 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                       transition: 'all 0.2s'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%)'
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(77, 208, 225, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)'
                       e.currentTarget.style.transform = 'translateY(-2px)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%)'
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(77, 208, 225, 0.1) 0%, rgba(20, 184, 166, 0.1) 100%)'
                       e.currentTarget.style.transform = 'translateY(0)'
                     }}
                   >
@@ -823,8 +823,8 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                     onClick={() => handleSelectQuickOption('surprise')}
                     style={{
                       padding: '16px',
-                      background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)',
-                      border: '1px solid rgba(168, 85, 247, 0.3)',
+                      background: 'linear-gradient(135deg, rgba(77, 208, 225, 0.1) 0%, rgba(20, 184, 166, 0.1) 100%)',
+                      border: '1px solid rgba(77, 208, 225, 0.3)',
                       borderRadius: '12px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -834,11 +834,11 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
                       transition: 'all 0.2s'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)'
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(77, 208, 225, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)'
                       e.currentTarget.style.transform = 'translateY(-2px)'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)'
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(77, 208, 225, 0.1) 0%, rgba(20, 184, 166, 0.1) 100%)'
                       e.currentTarget.style.transform = 'translateY(0)'
                     }}
                   >

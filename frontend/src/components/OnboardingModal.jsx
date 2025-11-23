@@ -111,7 +111,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
               <div
                 key={step}
                 className={`h-2 flex-1 rounded-full transition-all ${
-                  step <= currentStep ? 'bg-blue-500' : 'bg-gray-700'
+                  step <= currentStep ? 'bg-cyan-500' : 'bg-gray-700'
                 }`}
               />
             ))}
@@ -123,8 +123,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
           {currentStep === 1 && (
             <div className="space-y-6">
               <div className="flex items-center space-x-4">
-                <div className="p-3 bg-blue-500/20 rounded-lg">
-                  <Key className="w-8 h-8 text-blue-400" />
+                <div className="p-3 bg-cyan-500/20 rounded-lg">
+                  <Key className="w-8 h-8 text-cyan-400" />
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold text-white">Set Up Your Gemini API Key</h3>
@@ -132,7 +132,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                 </div>
               </div>
 
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-4">
+              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4 space-y-4">
                 <p className="text-gray-300">
                   To use Fuze's AI features (content analysis, recommendations, etc.), you need a free Gemini API key.
                 </p>
@@ -163,12 +163,12 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-blue-500/20">
+                <div className="pt-4 border-t border-cyan-500/20">
                   <a
                     href="https://makersuite.google.com/app/apikey"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-2 text-blue-400 hover:text-blue-300 transition-colors"
+                    className="inline-flex items-center space-x-2 text-cyan-400 hover:text-cyan-300 transition-colors"
                   >
                     <span>Get your free API key from Google AI Studio</span>
                     <ExternalLink className="w-4 h-4" />
@@ -191,7 +191,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                     )}
                   </p>
                   <button
-                    className={`inline-flex items-center space-x-2 ${forceApiKey ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border-red-500/20 hover:border-red-500/30' : 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/20 hover:border-blue-500/30'} transition-colors text-sm px-4 py-3 rounded-lg border transition-all font-medium`}
+                    className={`inline-flex items-center space-x-2 ${forceApiKey ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border-red-500/20 hover:border-red-500/30' : 'text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/20 hover:border-cyan-500/30'} transition-colors text-sm px-4 py-3 rounded-lg border transition-all font-medium`}
                     onClick={() => {
                       // Close modal and navigate to profile with API key required flag
                       window.location.href = '/profile?api_key_required=true'
@@ -209,8 +209,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
           {currentStep === 2 && (
             <div className="space-y-6">
               <div className="flex items-center space-x-4">
-                <div className="p-3 bg-purple-500/20 rounded-lg">
-                  <Download className="w-8 h-8 text-purple-400" />
+                <div className="p-3 bg-cyan-500/20 rounded-lg">
+                  <Download className="w-8 h-8 text-cyan-400" />
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold text-white">Install Browser Extension</h3>
@@ -218,14 +218,14 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                 </div>
               </div>
 
-              <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4 space-y-4">
+              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4 space-y-4">
                 <p className="text-gray-300">
                   The Fuze browser extension lets you save bookmarks, articles, and learning resources directly from any webpage.
                 </p>
 
                 <div className="space-y-3">
                   <div className="flex items-start space-x-3">
-                    <Sparkles className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                    <Sparkles className="w-5 h-5 text-cyan-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-white font-medium">One-Click Saving</p>
                       <p className="text-gray-400 text-sm">Save any webpage with a single click</p>
@@ -233,7 +233,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   </div>
                   
                   <div className="flex items-start space-x-3">
-                    <Sparkles className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                    <Sparkles className="w-5 h-5 text-cyan-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-white font-medium">Automatic Content Extraction</p>
                       <p className="text-gray-400 text-sm">AI extracts key information automatically</p>
@@ -241,7 +241,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   </div>
                   
                   <div className="flex items-start space-x-3">
-                    <Sparkles className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
+                    <Sparkles className="w-5 h-5 text-cyan-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-white font-medium">Smart Tagging</p>
                       <p className="text-gray-400 text-sm">Content is automatically categorized</p>
@@ -249,12 +249,12 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-purple-500/20 space-y-3">
+                <div className="pt-4 border-t border-cyan-500/20 space-y-3">
                   <p className="text-white font-medium">Download for your browser:</p>
                   <div className="flex flex-wrap gap-3">
                     <a
                       href="/extension/chrome"
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+                      className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors flex items-center space-x-2"
                     >
                       <span>Chrome Extension</span>
                       <ExternalLink className="w-4 h-4" />
@@ -327,8 +327,8 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                 </div>
               </div>
 
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                <p className="text-blue-400 text-sm">
+              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4">
+                <p className="text-cyan-400 text-sm">
                   <strong>Tip:</strong> Don't forget to add your API key in Settings → Profile if you haven't already!
                 </p>
               </div>
@@ -345,7 +345,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                 type="checkbox"
                 checked={dontShowAgain}
                 onChange={(e) => setDontShowAgain(e.target.checked)}
-                className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                className="rounded border-gray-600 bg-gray-800 text-cyan-500 focus:ring-cyan-500"
               />
               <span>Don't show this again</span>
             </label>
@@ -374,7 +374,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
               className={`px-6 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
                 forceApiKey && !hasApiKey && currentStep === 3
                   ? 'bg-gray-600 cursor-not-allowed text-gray-400'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-cyan-600 hover:bg-cyan-700 text-white'
               }`}
             >
               <span>

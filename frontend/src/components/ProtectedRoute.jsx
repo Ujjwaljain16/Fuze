@@ -62,8 +62,8 @@ const ProtectedRoute = ({ children }) => {
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl max-w-md w-full p-8 text-center">
           <div className="mb-6">
-            <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 bg-cyan-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H7l2-4-2-4h4l2.257-2.743A6 6 0 0115 7z" />
               </svg>
             </div>
@@ -71,15 +71,15 @@ const ProtectedRoute = ({ children }) => {
             <p className="text-gray-400 mb-6">
               You need to add your Gemini API key to access Fuze's AI features.
             </p>
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mb-6">
-              <p className="text-blue-400 text-sm">
+            <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4 mb-6">
+              <p className="text-cyan-400 text-sm">
                 Get your free API key from Google AI Studio - it only takes 2 minutes!
               </p>
             </div>
           </div>
           <button
             onClick={() => window.location.href = '/profile?api_key_required=true'}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center space-x-2"
+            className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center space-x-2"
           >
             <span>Add API Key Now</span>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

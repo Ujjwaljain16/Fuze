@@ -26,11 +26,11 @@
 }
 
 .react-select__option--is-focused {
-  background-color: rgba(168,85,247,0.15) !important;
+  background-color: rgba(77,208,225,0.15) !important;
 }
 
 .react-select__option--is-selected {
-  background-color: rgba(168,85,247,0.3) !important;
+  background-color: rgba(77,208,225,0.3) !important;
 }
 
 /* Ensure filter container has proper positioning */
@@ -854,7 +854,7 @@
 }
 
 .visit-btn {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #4DD0E1, #14B8A6);
   color: white;
   padding: 8px 16px;
   border-radius: 8px;
