@@ -833,6 +833,10 @@ def bulk_import_bookmarks():
         db.session.commit()
         logger.info(f"[IMPORT] Successfully committed {len(new_bookmarks)} bookmarks for user {user_id}")
         
+        # CRITICAL: Extract IDs immediately after commit, before objects become detached
+        # SQLAlchemy objects become detached after commit, so we need to extract IDs now
+        content_ids = [bm.id for bm in new_bookmarks]
+        
         # Invalidate caches after adding new bookmarks
         if new_bookmarks:
             redis_cache.invalidate_user_bookmarks(user_id)
@@ -855,7 +859,7 @@ def bulk_import_bookmarks():
                         
                         with flask_app.app_context():
                             from services.background_analysis_service import batch_analyze_content
-                            content_ids = [bm.id for bm in new_bookmarks]
+                            # Use the pre-extracted IDs instead of accessing detached objects
                             result = batch_analyze_content(content_ids, user_id)
                             logger.info(f"Bulk analysis completed: {result}")
                     except Exception as e:

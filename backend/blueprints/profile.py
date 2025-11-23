@@ -73,7 +73,7 @@ def update_profile():
             from utils.redis_utils import redis_cache
             if redis_cache:
                 cache_key = f"profile:{user.id}"
-                redis_cache.delete(cache_key)
+                redis_cache.delete_cache(cache_key)
         except Exception as cache_error:
             # Don't fail profile update if cache invalidation fails
             logger.warning(f"Failed to invalidate profile cache: {cache_error}")
@@ -123,7 +123,7 @@ def update_user(user_id):
         from utils.redis_utils import redis_cache
         if redis_cache:
             cache_key = f"profile:{user.id}"
-            redis_cache.delete(cache_key)
+            redis_cache.delete_cache(cache_key)
         
         return jsonify({
             'message': 'Profile updated successfully',
