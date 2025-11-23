@@ -133,21 +133,6 @@ try:
         logger.error(f"Traceback: {traceback.format_exc()}")
         user_api_key_available = False
         init_user_api_key = None
-
-    # Import API manager with error handling
-    api_manager_available = False
-    try:
-        from services.multi_user_api_manager import init_api_manager
-        api_manager_available = True
-        logger.info("[OK] API manager imported successfully")
-    except ImportError as e:
-        logger.warning(f"[WARNING] API manager not available: {e}")
-        api_manager_available = False
-    except Exception as e:
-        logger.error(f"[ERROR] API manager import failed: {e}")
-        import traceback
-        logger.error(f"API manager traceback: {traceback.format_exc()}")
-        api_manager_available = False
     
     # Import recommendations blueprint with error handling
     try:
@@ -196,6 +181,34 @@ if 'intent_analysis_available' not in locals():
 if 'connection_manager_available' not in locals():
     connection_manager_available = False
 
+def _validate_production_env():
+    """Validate critical environment variables for production"""
+    critical_vars = {
+        'SECRET_KEY': 'dev-secret-key-change-in-production',
+        'JWT_SECRET_KEY': 'dev-jwt-secret-change-in-production',
+        'DATABASE_URL': None,  # Optional but recommended
+    }
+    
+    warnings = []
+    errors = []
+    
+    for var, default_value in critical_vars.items():
+        value = os.environ.get(var)
+        if not value or (default_value and value == default_value):
+            if var in ['SECRET_KEY', 'JWT_SECRET_KEY']:
+                errors.append(f"{var} must be set to a secure value in production")
+            else:
+                warnings.append(f"{var} is not set (may cause issues)")
+    
+    for warning in warnings:
+        logger.warning(f"[PRODUCTION WARNING] {warning}")
+    
+    for error in errors:
+        logger.error(f"[PRODUCTION ERROR] {error}")
+    
+    if errors:
+        raise ValueError(f"Critical production configuration errors: {', '.join(errors)}")
+
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
 if os.environ.get('FLASK_ENV') != 'development' and '__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True:
@@ -212,6 +225,8 @@ def create_app():
     env = os.environ.get('FLASK_ENV', 'development')
     if env == 'production':
         app.config.from_object('config.ProductionConfig')
+        # Validate critical environment variables in production
+        _validate_production_env()
     else:
         app.config.from_object('config.DevelopmentConfig')
     
