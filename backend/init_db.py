@@ -24,15 +24,21 @@ def init_database():
             db.create_all()
             print("✅ All database tables created successfully")
             
-            # Run security migration (enable RLS, create policies)
-            try:
-                from utils.database_security_migration import run_security_migration
-                print("\n🔒 Running database security migration...")
-                results = run_security_migration(db)
-                print(f"✅ Security migration complete: {results.get('rls_enabled', 0)} tables with RLS enabled")
-            except Exception as sec_error:
-                print(f"⚠️  Security migration skipped: {sec_error}")
-                print("   You can run it manually: python utils/database_security_migration.py")
+            # Run security migration (enable RLS, create policies) - OPTIONAL
+            # Only run if RUN_SECURITY_MIGRATION env var is set to 'true'
+            # This is a one-time setup, so it's optional after initial setup
+            if os.environ.get('RUN_SECURITY_MIGRATION', 'false').lower() == 'true':
+                try:
+                    from utils.database_security_migration import run_security_migration
+                    print("\n🔒 Running database security migration...")
+                    results = run_security_migration(db)
+                    print(f"✅ Security migration complete: {results.get('rls_enabled', 0)} tables with RLS enabled")
+                except Exception as sec_error:
+                    print(f"⚠️  Security migration skipped: {sec_error}")
+                    print("   You can run it manually: python utils/database_security_migration.py")
+            else:
+                print("\nℹ️  Security migration skipped (set RUN_SECURITY_MIGRATION=true to enable)")
+                print("   Run manually if needed: python utils/database_security_migration.py")
             
             print("\n✅ Database setup complete!")
             print("Your Fuze backend is ready to use!")
