@@ -28,7 +28,7 @@ jobs:
 
       - name: Clone HF Space
         run: |
-          git clone https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend hf-space
+          git clone https://huggingface:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend hf-space
           cd hf-space
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -50,6 +50,6 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: auto-sync from main repo [skip ci]"
           # Get current branch name (HF Spaces might use 'main' or 'master')
           BRANCH=$(git branch --show-current || echo "main")
-          # Push using token directly in URL (best practice for CI)
-          git push https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend HEAD:$BRANCH
+          # Push using Hugging Face recommended format: huggingface:token@huggingface.co
+          git push https://huggingface:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend HEAD:$BRANCH
 
