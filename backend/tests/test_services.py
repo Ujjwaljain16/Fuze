@@ -42,13 +42,21 @@ class TestBackgroundAnalysisService:
             # Clean up ALL other unanalyzed content from ALL users to ensure our content is returned
             # The service groups by user and returns first user's content, so we need to clean all
             # This ensures the test is isolated from other test data
+            # Also delete associated ContentAnalysis records to avoid foreign key issues
+            from models import ContentAnalysis
             all_other_content = SavedContent.query.filter(
                 SavedContent.id != content_id,
                 SavedContent.extracted_text.isnot(None),
                 SavedContent.extracted_text != ''
             ).all()
             for oc in all_other_content:
+                # Delete associated ContentAnalysis records first
+                ContentAnalysis.query.filter_by(content_id=oc.id).delete()
                 db.session.delete(oc)
+            db.session.commit()
+            
+            # Also ensure no ContentAnalysis exists for our test content
+            ContentAnalysis.query.filter_by(content_id=content_id).delete()
             db.session.commit()
             
             # Verify only our content exists
@@ -60,15 +68,18 @@ class TestBackgroundAnalysisService:
             assert remaining[0].id == content_id, f"Expected content ID {content_id}, found {remaining[0].id}"
             
             service = BackgroundAnalysisService()
+            # Clear any failed analyses cache that might filter out our content
+            service.failed_analyses.clear()
+            
             # _get_unanalyzed_content() groups by user and returns first user's content
             # Since we cleaned up all other content, our content should be returned
             unanalyzed = service._get_unanalyzed_content()
             
-            assert len(unanalyzed) >= 1, f"Expected at least 1 unanalyzed content, got {len(unanalyzed)}"
+            assert len(unanalyzed) >= 1, f"Expected at least 1 unanalyzed content, got {len(unanalyzed)}. Remaining content IDs: {[c.id for c in remaining]}"
             # Check if our content is in the results
             # Access id while still in app context to avoid DetachedInstanceError
             content_ids = [c.id for c in unanalyzed]
-            assert content_id in content_ids, f"Content ID {content_id} not found in {content_ids}"
+            assert content_id in content_ids, f"Content ID {content_id} not found in {content_ids}. Available content: {[c.id for c in remaining]}"
     
     @patch('services.background_analysis_service.get_app')
     def test_process_content_analysis(self, mock_get_app, app):

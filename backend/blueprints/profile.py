@@ -2,6 +2,10 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy.exc import IntegrityError
+import logging
+
+logger = logging.getLogger(__name__)
 
 profile_bp = Blueprint('profile', __name__, url_prefix='/api')
 
@@ -48,7 +52,15 @@ def update_profile():
     data = request.get_json()
     
     if 'username' in data and data['username']:
-        user.username = data['username'].strip()
+        new_username = data['username'].strip()
+        # Check if username is already taken by another user
+        existing_user = User.query.filter(
+            User.username == new_username,
+            User.id != user_id
+        ).first()
+        if existing_user:
+            return jsonify({'message': 'Username already taken'}), 400
+        user.username = new_username
     
     if 'technology_interests' in data:
         user.technology_interests = data['technology_interests'].strip() if data['technology_interests'] else None
@@ -57,10 +69,14 @@ def update_profile():
         db.session.commit()
         
         # PRODUCTION OPTIMIZATION: Invalidate profile cache after update
-        from utils.redis_utils import redis_cache
-        if redis_cache:
-            cache_key = f"profile:{user.id}"
-            redis_cache.delete(cache_key)
+        try:
+            from utils.redis_utils import redis_cache
+            if redis_cache:
+                cache_key = f"profile:{user.id}"
+                redis_cache.delete(cache_key)
+        except Exception as cache_error:
+            # Don't fail profile update if cache invalidation fails
+            logger.warning(f"Failed to invalidate profile cache: {cache_error}")
         
         return jsonify({
             'message': 'Profile updated successfully',
@@ -70,8 +86,12 @@ def update_profile():
                 'technology_interests': user.technology_interests
             }
         }), 200
+    except IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'message': 'Username already taken'}), 400
     except Exception as e:
         db.session.rollback()
+        logger.error(f"Error updating profile: {e}", exc_info=True)
         return jsonify({'message': f'Error updating profile: {str(e)}'}), 500
 
 @profile_bp.route('/users/<int:user_id>', methods=['PUT'])

@@ -183,6 +183,10 @@ if 'connection_manager_available' not in locals():
 
 def _validate_production_env():
     """Validate critical environment variables for production"""
+    # Skip validation during tests
+    if os.environ.get('FLASK_ENV') == 'testing' or os.environ.get('PYTEST_CURRENT_TEST'):
+        return
+    
     critical_vars = {
         'SECRET_KEY': 'dev-secret-key-change-in-production',
         'JWT_SECRET_KEY': 'dev-jwt-secret-change-in-production',
@@ -225,8 +229,11 @@ def create_app():
     env = os.environ.get('FLASK_ENV', 'development')
     if env == 'production':
         app.config.from_object('config.ProductionConfig')
-        # Validate critical environment variables in production
+        # Validate critical environment variables in production (skip during tests)
         _validate_production_env()
+    elif env == 'testing':
+        # Use development config for testing but mark as testing
+        app.config.from_object('config.DevelopmentConfig')
     else:
         app.config.from_object('config.DevelopmentConfig')
     

@@ -31,9 +31,11 @@ class TestTasks:
         
         assert response.status_code == 201
         data = response.json
-        assert 'task' in data or 'id' in data
+        assert 'task_id' in data or 'task' in data or 'id' in data
         if 'task' in data:
             assert data['task']['title'] == 'Test Task'
+        elif 'task_id' in data:
+            assert data['task_id'] > 0
     
     def test_create_task_invalid_project(self, client, auth_headers):
         """Test creating a task with invalid project"""
@@ -152,9 +154,8 @@ class TestTasks:
             project_id = project.id
         
         with patch('blueprints.tasks.get_gemini_response') as mock_gemini:
-            mock_gemini.return_value = {
-                'response': '{"tasks": [{"title": "Task 1", "description": "Desc 1"}, {"title": "Task 2", "description": "Desc 2"}]}'
-            }
+            # Mock should return a JSON string directly, not a dict
+            mock_gemini.return_value = '[{"title": "Task 1", "description": "Desc 1", "estimated_time": "1 hour", "difficulty": "beginner", "prerequisites": [], "key_technologies": ["Python"], "success_criteria": "Task complete"}, {"title": "Task 2", "description": "Desc 2", "estimated_time": "2 hours", "difficulty": "intermediate", "prerequisites": ["Task 1"], "key_technologies": ["Flask"], "success_criteria": "Task complete"}]'
             
             response = client.post('/api/tasks/ai-breakdown', json={
                 'project_id': project_id,

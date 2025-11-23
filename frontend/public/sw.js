@@ -299,6 +299,44 @@ async function handleRecommendations(request) {
   }
 }
 
+// Handle index.html with network-first strategy (always get latest)
+async function handleIndexHtml(request) {
+  try {
+    // Always try network first to get latest index.html with correct JS file hashes
+    const response = await fetch(request);
+    if (response.ok && response.status === 200) {
+      // Update cache with latest version
+      try {
+        const cache = await caches.open(STATIC_CACHE);
+        const responseClone = response.clone();
+        if (responseClone.status === 200 && responseClone.type === 'basic') {
+          await cache.put(request, responseClone);
+        }
+      } catch (cacheError) {
+        console.warn('Failed to cache index.html:', cacheError);
+        // Continue even if caching fails
+      }
+      return response;
+    }
+    
+    // If network fails, try cache as fallback
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Index.html fetch failed, trying cache:', error);
+    // Fallback to cache if network fails
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    return new Response('Offline mode: File not available', { status: 503 });
+  }
+}
+
 // Handle static files with cache-first strategy
 async function handleStaticFiles(request) {
   try {
