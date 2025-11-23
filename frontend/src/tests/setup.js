@@ -25,6 +25,36 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 })
 
+// Mock window.innerWidth for responsive design tests
+// Default to desktop size (1024px) - tests can override if needed
+Object.defineProperty(window, 'innerWidth', {
+  writable: true,
+  configurable: true,
+  value: 1024,
+})
+
+// Mock window.innerHeight
+Object.defineProperty(window, 'innerHeight', {
+  writable: true,
+  configurable: true,
+  value: 768,
+})
+
+// Mock window resize event
+global.resizeTo = (width, height) => {
+  Object.defineProperty(window, 'innerWidth', {
+    writable: true,
+    configurable: true,
+    value: width,
+  })
+  Object.defineProperty(window, 'innerHeight', {
+    writable: true,
+    configurable: true,
+    value: height,
+  })
+  window.dispatchEvent(new Event('resize'))
+}
+
 // Mock localStorage with actual storage implementation
 const localStorageMock = (() => {
   let store = {}

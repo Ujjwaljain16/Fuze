@@ -29,7 +29,7 @@ describe('Button', () => {
     const button = container.querySelector('button')
     // Button uses Tailwind classes, check for gradient which indicates primary variant
     expect(button.className).toContain('bg-gradient-to-r')
-    expect(button.className).toContain('from-blue-600')
+    expect(button.className).toContain('from-cyan-600')
   })
 })
 

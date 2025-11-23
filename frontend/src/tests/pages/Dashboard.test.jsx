@@ -86,6 +86,16 @@ describe('Dashboard Page', () => {
           data: { has_api_key: true }
         })
       }
+      if (url.includes('/dashboard/stats')) {
+        return Promise.resolve({
+          data: {
+            total_bookmarks: { value: 10, change: '+5%', change_value: 5 },
+            active_projects: { value: 3, change: '+1', change_value: 1 },
+            weekly_saves: { value: 7, change: '+2%', change_value: 2 },
+            success_rate: { value: 95, change: '+3%', change_value: 3 }
+          }
+        })
+      }
       return Promise.reject(new Error(`Unknown endpoint: ${url}`))
     })
   })
