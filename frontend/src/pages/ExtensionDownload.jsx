@@ -4,7 +4,6 @@ import { Download, ExternalLink, CheckCircle, AlertCircle, FileArchive, Settings
 const ExtensionDownload = () => {
   const [downloadStep, setDownloadStep] = useState(1)
   const [osType, setOsType] = useState('windows')
-  const [extensionUrl, setExtensionUrl] = useState('')
 
   useEffect(() => {
     // Detect OS
@@ -16,23 +15,7 @@ const ExtensionDownload = () => {
     } else {
       setOsType('linux')
     }
-
-    // Extension download URL
-    // Users can download from GitHub releases or manually zip the BookmarkExtension folder
-    // For now, we provide manual instructions (can be updated when hosted)
-    setExtensionUrl('')
   }, [])
-
-  const handleDownload = () => {
-    // Trigger download
-    if (extensionUrl) {
-      window.open(extensionUrl, '_blank')
-      setDownloadStep(2)
-    } else {
-      // If no hosted version, show manual instructions
-      setDownloadStep(2)
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white p-4 md:p-8">
