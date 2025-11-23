@@ -31,6 +31,8 @@ export default function FuzeAuth() {
     color: ''
   });
   const [passwordsMatch, setPasswordsMatch] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480);
   const navigate = useNavigate();
   const { login, register } = useAuth();
   const submitRef = useRef(false); // Prevent duplicate submissions
@@ -40,8 +42,17 @@ export default function FuzeAuth() {
     const handleMouseMove = (e) => {
       setMousePos({ x: e.clientX, y: e.clientY });
     };
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+      setIsSmallMobile(window.innerWidth <= 480);
+    };
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Check initial size
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   // Password validation functions
@@ -298,6 +309,20 @@ export default function FuzeAuth() {
         .animate-fade-in {
           animation: fadeIn 0.3s ease-in;
         }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+          .auth-card {
+            padding: 1.5rem !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .auth-card {
+            padding: 1.25rem !important;
+            border-radius: 1.5rem !important;
+          }
+        }
       `}</style>
       <div 
         data-login-page="true"
@@ -308,15 +333,15 @@ export default function FuzeAuth() {
           width: '100vw',
           maxWidth: '100vw',
           margin: 0,
-          padding: '2rem 1rem',
+          padding: isMobile ? '1rem' : '2rem 1rem',
           paddingLeft: 0,
           boxSizing: 'border-box',
           position: 'relative',
           overflowY: 'auto',
           overflowX: 'hidden',
           alignItems: 'flex-start',
-          paddingTop: '8rem',
-          paddingBottom: '4rem'
+          paddingTop: isMobile ? '6rem' : '8rem',
+          paddingBottom: isMobile ? '2rem' : '4rem'
         }}
       >
         {/* Full Screen Black Background */}
@@ -351,7 +376,7 @@ export default function FuzeAuth() {
       <div 
         className="fixed top-0 left-0 right-0 z-50"
         style={{
-          padding: '2rem',
+          padding: isMobile ? '1rem' : '2rem',
           display: 'flex',
           alignItems: 'flex-start',
           justifyContent: 'space-between',
@@ -365,7 +390,7 @@ export default function FuzeAuth() {
           style={{
             position: 'absolute',
             left: '50%',
-            top: '2rem',
+            top: isMobile ? '1rem' : '2rem',
             transform: 'translateX(-50%)',
             pointerEvents: 'auto',
             textAlign: 'center',
@@ -375,7 +400,7 @@ export default function FuzeAuth() {
           <div style={{ lineHeight: '1.3' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.125rem' }}>
               <Zap 
-                size={24}
+                size={isMobile ? 20 : 24}
                 style={{ 
                   color: '#4DD0E1',
                   flexShrink: 0
@@ -383,10 +408,10 @@ export default function FuzeAuth() {
               />
               <div 
                 style={{
-                  fontSize: '1.875rem',
+                  fontSize: isSmallMobile ? '1.25rem' : isMobile ? '1.5rem' : '1.875rem',
                   fontWeight: '800',
                   fontFamily: "'Inter', system-ui, sans-serif",
-                  background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                   backgroundClip: 'text',
@@ -399,7 +424,7 @@ export default function FuzeAuth() {
             </div>
             <div 
               style={{
-                fontSize: '0.7rem',
+                fontSize: isSmallMobile ? '0.6rem' : '0.7rem',
                 fontWeight: '500',
                 fontFamily: "'Inter', system-ui, sans-serif",
                 color: '#6b7280',
@@ -419,12 +444,12 @@ export default function FuzeAuth() {
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.625rem 1.25rem',
+            padding: isMobile ? '0.5rem 1rem' : '0.625rem 1.25rem',
             background: 'rgba(20, 20, 20, 0.6)',
             border: '1px solid rgba(77, 208, 225, 0.2)',
             borderRadius: '9999px',
             color: '#9ca3af',
-            fontSize: '0.875rem',
+            fontSize: isMobile ? '0.75rem' : '0.875rem',
             fontWeight: '500',
             cursor: 'pointer',
             pointerEvents: 'auto',
@@ -443,16 +468,18 @@ export default function FuzeAuth() {
             e.target.style.background = 'rgba(20, 20, 20, 0.6)';
           }}
         >
-          <Home size={18} />
-          <span>Home</span>
+          <Home size={isMobile ? 16 : 18} />
+          {!isSmallMobile && <span>Home</span>}
         </button>
       </div>
 
       {/* Auth Container */}
-      <div className={`w-full max-w-md relative z-10 transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+      <div className={`w-full ${isMobile ? 'max-w-full px-4' : 'max-w-md'} relative z-10 transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
 
         {/* Auth Card */}
-        <div className="backdrop-blur-2xl border rounded-3xl p-8 relative" style={{ 
+        <div className="backdrop-blur-2xl border auth-card relative" style={{ 
+          padding: isMobile ? '1.5rem' : '2rem',
+          borderRadius: isMobile ? '1.5rem' : '1.875rem',
           background: 'rgba(20, 20, 20, 0.4)',
           borderColor: 'rgba(77, 208, 225, 0.2)',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(77, 208, 225, 0.3)',
@@ -518,7 +545,7 @@ export default function FuzeAuth() {
             )}
 
             {/* Form Fields */}
-            <form className="space-y-5" onSubmit={handleSubmit}>
+            <form className={isMobile ? 'space-y-4' : 'space-y-5'} onSubmit={handleSubmit}>
               {!isLogin && (
                 <>
                   <Input
@@ -692,12 +719,12 @@ export default function FuzeAuth() {
               )}
 
               {isLogin && (
-                <div className="flex items-center justify-between text-sm">
+                <div className={`flex ${isSmallMobile ? 'flex-col gap-2' : 'items-center justify-between'} text-sm`}>
                   <label className="flex items-center cursor-pointer group">
                     <input type="checkbox" className="w-4 h-4 rounded border-gray-600 bg-black focus:ring-2 focus:ring-cyan-400 focus:ring-offset-0 text-cyan-400" />
                     <span className="ml-2 text-gray-400 group-hover:text-gray-300 transition-colors">Remember me</span>
                   </label>
-                  <a href="#" className="text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-medium">
+                  <a href="#" className={`text-cyan-400 hover:text-cyan-300 transition-colors duration-300 font-medium ${isSmallMobile ? 'self-start' : ''}`}>
                     Forgot password?
                   </a>
                 </div>
@@ -737,14 +764,14 @@ export default function FuzeAuth() {
             </div>
 
             {/* Social Login */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid ${isSmallMobile ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
               <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
-                <Github className="w-5 h-5 mr-2" />
-                <span className="text-gray-300">GitHub</span>
+                <Github className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} ${isSmallMobile ? '' : 'mr-2'}`} />
+                {!isSmallMobile && <span className="text-gray-300">GitHub</span>}
               </button>
               <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
-                <Chrome className="w-5 h-5 mr-2" />
-                <span className="text-gray-300">Google</span>
+                <Chrome className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} ${isSmallMobile ? '' : 'mr-2'}`} />
+                {!isSmallMobile && <span className="text-gray-300">Google</span>}
               </button>
             </div>
 
@@ -794,12 +821,12 @@ export default function FuzeAuth() {
         </div>
 
         {/* Security Notice */}
-        <div className="mt-8 text-center text-xs text-gray-600">
-          <div className="flex items-center justify-center gap-2 mb-1">
+        <div className={`${isMobile ? 'mt-6' : 'mt-8'} text-center text-xs text-gray-600`}>
+          <div className={`flex items-center justify-center gap-2 ${isMobile ? 'mb-1' : 'mb-1'}`}>
             <Lock className="w-3 h-3" />
-          <p>Protected by enterprise-grade security</p>
+            <p className={isSmallMobile ? 'text-[0.7rem]' : ''}>Protected by enterprise-grade security</p>
           </div>
-          <p>Your data is encrypted and secure</p>
+          <p className={isSmallMobile ? 'text-[0.7rem]' : ''}>Your data is encrypted and secure</p>
         </div>
       </div>
     </div>

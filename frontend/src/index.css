@@ -73,7 +73,7 @@
 
 @layer components {
   .btn-primary {
-    background: linear-gradient(to right, #4DD0E1, #5C6BC0, #9C27B0);
+    background: linear-gradient(to right, #4DD0E1, #14B8A6, #10B981);
     color: #fff;
     padding: 1rem 2.5rem;
     border: none;
@@ -85,13 +85,13 @@
     transition: background 0.4s, box-shadow 0.3s, transform 0.2s;
   }
   .btn-primary:hover, .btn-primary:focus {
-    background: linear-gradient(to right, #9C27B0, #5C6BC0, #4DD0E1);
+    background: linear-gradient(to right, #10B981, #14B8A6, #4DD0E1);
     box-shadow: 0 8px 32px 0 rgba(77, 208, 225, 0.18);
     transform: translateY(-2px) scale(1.04);
   }
 
   .btn-secondary {
-    background: linear-gradient(to right, #5C6BC0, #9C27B0);
+    background: linear-gradient(to right, #14B8A6, #10B981);
     color: #fff;
     padding: 1rem 2.5rem;
     border: none;
@@ -99,11 +99,11 @@
     font-weight: 600;
     font-size: 1.125rem;
     cursor: pointer;
-    box-shadow: 0 4px 24px 0 rgba(156, 39, 176, 0.10);
+    box-shadow: 0 4px 24px 0 rgba(16, 185, 129, 0.10);
     transition: background 0.4s, box-shadow 0.3s, transform 0.2s;
   }
   .btn-secondary:hover, .btn-secondary:focus {
-    background: linear-gradient(to right, #4DD0E1, #5C6BC0);
+    background: linear-gradient(to right, #4DD0E1, #14B8A6);
     box-shadow: 0 8px 32px 0 rgba(77, 208, 225, 0.18);
     transform: translateY(-2px) scale(1.04);
   }
@@ -123,21 +123,21 @@
   }
   
   .gradient-text {
-    background: linear-gradient(to right, #4DD0E1, #5C6BC0);
+    background: linear-gradient(to right, #4DD0E1, #14B8A6);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
   
   .gradient-text-white {
-    background: linear-gradient(to right, white, #4DD0E1, #5C6BC0);
+    background: linear-gradient(to right, white, #4DD0E1, #14B8A6);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
   
   .gradient-text-multi {
-    background: linear-gradient(to right, #4DD0E1, #5C6BC0, #9C27B0);
+    background: linear-gradient(to right, #4DD0E1, #14B8A6, #10B981);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -178,7 +178,7 @@
   min-width: 320px;
   max-width: 700px;
   height: 220px;
-  background: radial-gradient(ellipse at center, rgba(96,165,250,0.25) 0%, rgba(168,85,247,0.18) 60%, transparent 100%);
+  background: radial-gradient(ellipse at center, rgba(77,208,225,0.25) 0%, rgba(20,184,166,0.18) 60%, transparent 100%);
   border-radius: 9999px;
   opacity: 0.7;
   z-index: 0;
@@ -198,11 +198,11 @@
 @keyframes gridPulse {
   0%, 100% {
     opacity: 0.1;
-    border-color: rgba(96, 165, 250, 0.1);
+    border-color: rgba(77, 208, 225, 0.1);
   }
   50% {
     opacity: 0.3;
-    border-color: rgba(96, 165, 250, 0.2);
+    border-color: rgba(77, 208, 225, 0.2);
   }
 }
 
@@ -253,8 +253,8 @@
 }
 
 .toast-info {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(37, 99, 235, 0.15));
-  border-color: rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, rgba(77, 208, 225, 0.15), rgba(20, 184, 166, 0.15));
+  border-color: rgba(77, 208, 225, 0.3);
 }
 
 .toast-content {

@@ -11,9 +11,9 @@ const Button = ({
   const baseClasses = 'font-semibold transition-all duration-300 flex items-center justify-center relative overflow-hidden';
   
   const variants = {
-    primary: 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg hover:shadow-2xl hover:shadow-blue-500/25 transform hover:scale-[1.02]',
-    secondary: 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg hover:shadow-2xl hover:shadow-purple-500/25 transform hover:scale-[1.02]',
-    fuze: 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg hover:shadow-2xl hover:shadow-blue-500/25 transform hover:scale-[1.02]',
+    primary: 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg hover:shadow-2xl hover:shadow-cyan-500/25 transform hover:scale-[1.02]',
+    secondary: 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg hover:shadow-2xl hover:shadow-cyan-500/25 transform hover:scale-[1.02]',
+    fuze: 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg hover:shadow-2xl hover:shadow-cyan-500/25 transform hover:scale-[1.02]',
     outline: 'border border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800/50 hover:border-gray-600',
     ghost: 'text-gray-400 hover:text-white hover:bg-gray-800/50'
   };

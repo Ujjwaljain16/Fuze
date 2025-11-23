@@ -20,7 +20,9 @@ import {
   Github,
   Twitter,
   Linkedin,
-  Mail
+  Mail,
+  Menu,
+  X
 } from 'lucide-react';
 import logo1 from '../assets/logo1.svg';
 
@@ -31,6 +33,9 @@ export default function FuzeLanding() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [particles, setParticles] = useState([]);
   const [showLogo, setShowLogo] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480);
 
   // Handle "Start for Free" button click - redirect to dashboard if logged in
   const handleStartForFree = () => {
@@ -53,15 +58,23 @@ export default function FuzeLanding() {
       setShowLogo(window.scrollY < 50);
     };
     
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+      setIsSmallMobile(window.innerWidth <= 480);
+    };
+    
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('scroll', handleScroll);
+    window.addEventListener('resize', handleResize);
     
-    // Check initial scroll position
+    // Check initial scroll position and screen size
     handleScroll();
+    handleResize();
     
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
     };
   }, []);
 
@@ -75,7 +88,7 @@ export default function FuzeLanding() {
         speedX: (Math.random() - 0.5) * 0.5,
         speedY: (Math.random() - 0.5) * 0.5,
         opacity: Math.random() * 0.5 + 0.1,
-        color: Math.random() > 0.5 ? '#4DD0E1' : '#9C27B0'
+        color: Math.random() > 0.5 ? '#4DD0E1' : '#10B981'
       }));
       setParticles(newParticles);
     };
@@ -195,6 +208,16 @@ export default function FuzeLanding() {
           50% { transform: translateY(-20px); }
         }
         
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.1); }
+        }
+        
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        
         .hover-lift {
           transition: all 0.3s ease;
         }
@@ -216,7 +239,7 @@ export default function FuzeLanding() {
           inset: 0;
           border-radius: 1.5rem;
           padding: 2px;
-          background: linear-gradient(135deg, #4DD0E1, #5C6BC0, #9C27B0);
+          background: linear-gradient(135deg, #4DD0E1, #14B8A6, #10B981);
           -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
           -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -272,6 +295,51 @@ export default function FuzeLanding() {
             width: 70px;
             height: 70px;
             padding: 0;
+          }
+        }
+        
+        /* Mobile Navigation */
+        @media (max-width: 768px) {
+          .mobile-nav {
+            display: flex !important;
+            flex-direction: row;
+            gap: 1rem;
+            align-items: center;
+          }
+          
+          .desktop-nav {
+            display: none !important;
+          }
+        }
+        
+        @media (min-width: 769px) {
+          .mobile-nav {
+            display: none !important;
+          }
+          
+          .desktop-nav {
+            display: flex !important;
+          }
+        }
+        
+        /* Responsive Navigation */
+        @media (max-width: 768px) {
+          nav {
+            padding: 0.5rem 1rem !important;
+            max-width: 95% !important;
+          }
+        }
+        
+        /* Responsive Hero Mockup */
+        @media (max-width: 768px) {
+          .gradient-border {
+            padding: 1.5rem !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .gradient-border {
+            padding: 1rem !important;
           }
         }
       `}</style>
@@ -354,9 +422,10 @@ export default function FuzeLanding() {
         maxWidth: '90%',
         width: 'auto'
       }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+          {/* Desktop Navigation */}
+          <div className="desktop-nav" style={{ alignItems: 'center', gap: '2rem' }}>
             <button 
-              onClick={() => scrollToSection('problems')}
+              onClick={() => { scrollToSection('problems'); setMobileMenuOpen(false); }}
               style={{ 
                 color: '#E5E7EB', 
                 background: 'none', 
@@ -372,7 +441,7 @@ export default function FuzeLanding() {
               Problems
             </button>
             <button 
-              onClick={() => scrollToSection('how-it-works')}
+              onClick={() => { scrollToSection('how-it-works'); setMobileMenuOpen(false); }}
               style={{ 
                 color: '#E5E7EB', 
                 background: 'none', 
@@ -388,7 +457,7 @@ export default function FuzeLanding() {
               How It Works
             </button>
             <button 
-              onClick={() => scrollToSection('features')}
+              onClick={() => { scrollToSection('features'); setMobileMenuOpen(false); }}
               style={{ 
                 color: '#E5E7EB', 
                 background: 'none', 
@@ -406,7 +475,7 @@ export default function FuzeLanding() {
             <button 
               onClick={handleStartForFree}
               style={{
-                background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
                 color: '#fff',
                 padding: '0.625rem 1.75rem',
                 border: 'none',
@@ -428,21 +497,159 @@ export default function FuzeLanding() {
             >
               {isAuthenticated ? 'Go to Dashboard' : 'Start for Free'}
             </button>
-        </div>
+          </div>
+          
+          {/* Mobile Navigation */}
+          <div className="mobile-nav" style={{ alignItems: 'center', gap: '1rem' }}>
+            <button 
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#E5E7EB',
+                cursor: 'pointer',
+                padding: '0.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+            <button 
+              onClick={handleStartForFree}
+              style={{
+                background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
+                color: '#fff',
+                padding: '0.5rem 1.25rem',
+                border: 'none',
+                borderRadius: '25px',
+                fontWeight: '600',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 15px rgba(77, 208, 225, 0.3)',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              {isAuthenticated ? 'Dashboard' : 'Start Free'}
+            </button>
+          </div>
+          
+          {/* Mobile Menu Dropdown */}
+          {mobileMenuOpen && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 0.5rem)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(26, 26, 46, 0.95)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(77, 208, 225, 0.2)',
+              borderRadius: '1rem',
+              padding: '1rem',
+              minWidth: '200px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+              zIndex: 1000
+            }}>
+              <button 
+                onClick={() => { scrollToSection('problems'); setMobileMenuOpen(false); }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '0.75rem 1rem',
+                  color: '#E5E7EB',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  borderRadius: '0.5rem',
+                  transition: 'all 0.3s',
+                  marginBottom: '0.5rem'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(77, 208, 225, 0.1)';
+                  e.target.style.color = '#4DD0E1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                  e.target.style.color = '#E5E7EB';
+                }}
+              >
+                Problems
+              </button>
+              <button 
+                onClick={() => { scrollToSection('how-it-works'); setMobileMenuOpen(false); }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '0.75rem 1rem',
+                  color: '#E5E7EB',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  borderRadius: '0.5rem',
+                  transition: 'all 0.3s',
+                  marginBottom: '0.5rem'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(77, 208, 225, 0.1)';
+                  e.target.style.color = '#4DD0E1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                  e.target.style.color = '#E5E7EB';
+                }}
+              >
+                How It Works
+              </button>
+              <button 
+                onClick={() => { scrollToSection('features'); setMobileMenuOpen(false); }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '0.75rem 1rem',
+                  color: '#E5E7EB',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  borderRadius: '0.5rem',
+                  transition: 'all 0.3s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(77, 208, 225, 0.1)';
+                  e.target.style.color = '#4DD0E1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                  e.target.style.color = '#E5E7EB';
+                }}
+              >
+                Features
+              </button>
+            </div>
+          )}
       </nav>
 
       {/* Hero Section */}
       <section style={{ 
         position: 'relative', 
         zIndex: 10, 
-        paddingTop: '12rem',
-        paddingBottom: '6rem',
-        paddingLeft: '0',
-        paddingRight: '1.5rem',
-        minHeight: '100vh', 
+        paddingTop: isMobile ? '8rem' : '12rem',
+        paddingBottom: isMobile ? '4rem' : '6rem',
+        paddingLeft: isMobile ? '1rem' : '1rem',
+        paddingRight: isMobile ? '1rem' : '1rem',
+        minHeight: isMobile ? 'auto' : '100vh', 
         display: 'flex', 
         alignItems: 'flex-start',
-        justifyContent: 'flex-start'
+        justifyContent: 'center'
       }}>
         {/* Logo - Top Left - Only visible at top */}
         {showLogo && (
@@ -451,9 +658,10 @@ export default function FuzeLanding() {
             style={{ 
               position: 'absolute',
               top: '1.5rem',
-              left: '6rem',
+              left: isMobile ? '1rem' : '6rem',
               zIndex: 1000,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              display: isMobile ? 'none' : 'block'
             }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
@@ -467,11 +675,11 @@ export default function FuzeLanding() {
             />
           </div>
         )}
-        <div style={{ maxWidth: '1280px', width: '100%', paddingLeft: '1rem' }}>
+        <div style={{ maxWidth: '1280px', width: '100%', paddingLeft: '0', paddingRight: '0' }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '1fr 1fr', 
-            gap: '4rem', 
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', 
+            gap: isMobile ? '2rem' : '4rem', 
             alignItems: 'center'
           }}>
             {/* Left Content */}
@@ -483,7 +691,7 @@ export default function FuzeLanding() {
               marginTop: '2rem'
             }}>
               <h1 style={{ 
-                fontSize: '3.75rem', 
+                fontSize: window.innerWidth <= 480 ? '2rem' : window.innerWidth <= 768 ? '2.5rem' : '3.75rem', 
                 fontWeight: 'bold', 
                 marginBottom: '1.5rem', 
                 lineHeight: 1.1,
@@ -496,11 +704,11 @@ export default function FuzeLanding() {
               </h1>
               
               <h1 style={{ 
-                fontSize: '3.75rem', 
+                fontSize: window.innerWidth <= 480 ? '2rem' : window.innerWidth <= 768 ? '2.5rem' : '3.75rem', 
                 fontWeight: 'bold', 
                 marginBottom: '2rem', 
                 lineHeight: 1.1,
-                background: 'linear-gradient(135deg, #4DD0E1, #5C6BC0, #9C27B0)',
+                background: 'linear-gradient(135deg, #4DD0E1, #14B8A6, #10B981)',
                 WebkitBackgroundClip: 'text',
                 backgroundClip: 'text',
                 color: 'transparent'
@@ -509,7 +717,7 @@ export default function FuzeLanding() {
               </h1>
               
               <p style={{ 
-                fontSize: '1.25rem', 
+                fontSize: isSmallMobile ? '1rem' : isMobile ? '1.125rem' : '1.25rem', 
                 color: '#d1d5db', 
                 marginBottom: '3rem', 
                 lineHeight: 1.7
@@ -517,23 +725,31 @@ export default function FuzeLanding() {
                 Fuze intelligently connects your scattered knowledge to your projects, eliminating stagnation, FOMO, and information overload.
               </p>
 
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: isSmallMobile ? 'column' : 'row',
+                gap: '1rem', 
+                alignItems: 'center',
+                width: isSmallMobile ? '100%' : 'auto'
+              }}>
                 <button 
                   onClick={handleStartForFree}
                   style={{
-                  background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
                   color: '#fff',
-                  padding: '1rem 2.5rem',
+                  padding: isSmallMobile ? '0.875rem 1.75rem' : '1rem 2.5rem',
                   border: 'none',
                   borderRadius: '50px',
                   fontWeight: '600',
-                  fontSize: '1.125rem',
+                  fontSize: isSmallMobile ? '0.95rem' : '1.125rem',
                   cursor: 'pointer',
                   boxShadow: '0 8px 24px rgba(77, 208, 225, 0.4)',
                   transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem'
+                  gap: '0.5rem',
+                  width: isSmallMobile ? '100%' : 'auto',
+                  justifyContent: 'center'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-2px)';
@@ -552,13 +768,14 @@ export default function FuzeLanding() {
                   style={{
                     background: 'transparent',
                     color: '#4DD0E1',
-                    padding: '1rem 2.5rem',
+                    padding: isSmallMobile ? '0.875rem 1.75rem' : '1rem 2.5rem',
                     border: '2px solid #4DD0E1',
                     borderRadius: '50px',
                     fontWeight: '600',
-                    fontSize: '1.125rem',
+                    fontSize: isSmallMobile ? '0.95rem' : '1.125rem',
                     cursor: 'pointer',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    width: isSmallMobile ? '100%' : 'auto'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = 'rgba(77, 208, 225, 0.1)';
@@ -583,64 +800,192 @@ export default function FuzeLanding() {
               position: 'relative'
             }}>
               <div className="gradient-border hover-lift" style={{ 
-                padding: '2rem',
+                padding: isMobile ? '1.5rem' : '2rem',
                 position: 'relative',
                 overflow: 'hidden',
-                animation: 'float 6s ease-in-out infinite'
+                animation: 'float 6s ease-in-out infinite',
+                background: 'linear-gradient(135deg, rgba(26, 26, 46, 0.95), rgba(37, 37, 64, 0.85))',
+                backdropFilter: 'blur(10px)',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(77, 208, 225, 0.1)'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.5rem', gap: '0.5rem' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#10b981' }} />
+                {/* Animated background glow */}
+                <div style={{
+                  position: 'absolute',
+                  top: '-50%',
+                  right: '-50%',
+                  width: '200%',
+                  height: '200%',
+                  background: 'radial-gradient(circle, rgba(77, 208, 225, 0.1) 0%, transparent 70%)',
+                  animation: 'pulse 4s ease-in-out infinite',
+                  pointerEvents: 'none'
+                }} />
+                
+                {/* Window controls */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  marginBottom: '1.5rem', 
+                  gap: '0.5rem',
+                  position: 'relative',
+                  zIndex: 1
+                }}>
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    backgroundColor: '#ef4444',
+                    boxShadow: '0 0 8px rgba(239, 68, 68, 0.5)'
+                  }} />
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    backgroundColor: '#f59e0b',
+                    boxShadow: '0 0 8px rgba(245, 158, 11, 0.5)'
+                  }} />
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    backgroundColor: '#10b981',
+                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)'
+                  }} />
                 </div>
                 
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ height: '12px', backgroundColor: 'rgba(77, 208, 225, 0.3)', borderRadius: '6px', marginBottom: '0.75rem', width: '60%' }} />
-                  <div style={{ height: '12px', backgroundColor: 'rgba(77, 208, 225, 0.2)', borderRadius: '6px', width: '80%' }} />
+                {/* Header placeholder */}
+                <div style={{ 
+                  marginBottom: '1.5rem',
+                  position: 'relative',
+                  zIndex: 1
+                }}>
+                  <div style={{ 
+                    height: '14px', 
+                    background: 'linear-gradient(90deg, rgba(77, 208, 225, 0.4), rgba(77, 208, 225, 0.2))', 
+                    borderRadius: '7px', 
+                    marginBottom: '0.75rem', 
+                    width: '65%',
+                    boxShadow: '0 2px 8px rgba(77, 208, 225, 0.2)'
+                  }} />
+                  <div style={{ 
+                    height: '14px', 
+                    background: 'linear-gradient(90deg, rgba(77, 208, 225, 0.3), rgba(77, 208, 225, 0.15))', 
+                    borderRadius: '7px', 
+                    width: '85%',
+                    boxShadow: '0 2px 8px rgba(77, 208, 225, 0.15)'
+                  }} />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                {/* Feature cards */}
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', 
+                  gap: '1rem', 
+                  marginBottom: '1.5rem',
+                  position: 'relative',
+                  zIndex: 1
+                }}>
                   <div style={{ 
                     padding: '1.25rem', 
-                    background: 'linear-gradient(135deg, rgba(77, 208, 225, 0.15), rgba(77, 208, 225, 0.05))', 
-                    border: '1px solid rgba(77, 208, 225, 0.3)',
+                    background: 'linear-gradient(135deg, rgba(77, 208, 225, 0.2), rgba(77, 208, 225, 0.08))', 
+                    border: '1px solid rgba(77, 208, 225, 0.4)',
                     borderRadius: '1rem',
-                    transition: 'all 0.3s'
+                    transition: 'all 0.3s',
+                    boxShadow: '0 4px 16px rgba(77, 208, 225, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}>
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: '2px',
+                      background: 'linear-gradient(90deg, transparent, #4DD0E1, transparent)',
+                      animation: 'shimmer 2s ease-in-out infinite'
+                    }} />
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem' }}>
-                      <Sparkles style={{ width: '18px', height: '18px', color: '#4DD0E1' }} />
+                      <div style={{
+                        padding: '0.25rem',
+                        background: 'rgba(77, 208, 225, 0.2)',
+                        borderRadius: '0.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <Sparkles style={{ width: '18px', height: '18px', color: '#4DD0E1' }} />
+                      </div>
                       <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#4DD0E1' }}>AI Recommendation</div>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>React Best Practices</div>
+                    <div style={{ fontSize: '0.75rem', color: '#d1d5db', lineHeight: 1.4 }}>React Best Practices</div>
                   </div>
                   <div style={{ 
                     padding: '1.25rem', 
-                    background: 'linear-gradient(135deg, rgba(156, 39, 176, 0.15), rgba(156, 39, 176, 0.05))', 
-                    border: '1px solid rgba(156, 39, 176, 0.3)',
-                    borderRadius: '1rem'
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.08))', 
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    borderRadius: '1rem',
+                    boxShadow: '0 4px 16px rgba(16, 185, 129, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}>
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: '2px',
+                      background: 'linear-gradient(90deg, transparent, #10B981, transparent)',
+                      animation: 'shimmer 2s ease-in-out infinite 0.5s'
+                    }} />
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem', gap: '0.5rem' }}>
-                      <Link style={{ width: '18px', height: '18px', color: '#9C27B0' }} />
-                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#9C27B0' }}>Connected</div>
+                      <div style={{
+                        padding: '0.25rem',
+                        background: 'rgba(16, 185, 129, 0.2)',
+                        borderRadius: '0.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <Link style={{ width: '18px', height: '18px', color: '#10B981' }} />
+                      </div>
+                      <div style={{ fontSize: '0.875rem', fontWeight: '600', color: '#10B981' }}>Connected</div>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>TypeScript Guide</div>
+                    <div style={{ fontSize: '0.75rem', color: '#d1d5db', lineHeight: 1.4 }}>TypeScript Guide</div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '1rem' }}>
+                {/* Project card */}
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between', 
+                  padding: '1.25rem', 
+                  background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.2))', 
+                  borderRadius: '1rem',
+                  border: '1px solid rgba(77, 208, 225, 0.2)',
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                  position: 'relative',
+                  zIndex: 1
+                }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <div style={{ 
-                      width: '48px', 
-                      height: '48px', 
+                      width: '52px', 
+                      height: '52px', 
                       borderRadius: '50%', 
-                      background: 'linear-gradient(135deg, #4DD0E1, #9C27B0)' 
-                    }} />
+                      background: 'linear-gradient(135deg, #4DD0E1, #10B981)',
+                      boxShadow: '0 4px 16px rgba(77, 208, 225, 0.4), 0 0 20px rgba(16, 185, 129, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      position: 'relative'
+                    }}>
+                      <Zap style={{ width: '24px', height: '24px', color: 'white' }} />
+                    </div>
                     <div>
-                      <div style={{ fontSize: '1rem', fontWeight: '600', color: 'white' }}>Project: E-commerce App</div>
+                      <div style={{ fontSize: '1rem', fontWeight: '600', color: 'white', marginBottom: '0.25rem' }}>Project: E-commerce App</div>
                       <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>3 resources connected</div>
                     </div>
                   </div>
-                  <ChevronDown style={{ color: '#4DD0E1' }} />
+                  <ChevronDown style={{ color: '#4DD0E1', opacity: 0.7 }} />
                 </div>
               </div>
             </div>
@@ -652,13 +997,13 @@ export default function FuzeLanding() {
       <section id="problems" style={{ 
         position: 'relative', 
         zIndex: 10, 
-        padding: '6rem 1.5rem',
+        padding: isMobile ? '4rem 1rem' : '6rem 1.5rem',
         background: 'transparent'
       }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: isMobile ? '2rem' : '4rem' }}>
             <h2 style={{ 
-              fontSize: '3rem', 
+              fontSize: isSmallMobile ? '1.75rem' : isMobile ? '2.25rem' : '3rem', 
               fontWeight: 'bold', 
               marginBottom: '1rem',
               color: 'white'
@@ -667,7 +1012,11 @@ export default function FuzeLanding() {
             </h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: isSmallMobile ? '1fr' : isMobile ? '1fr' : 'repeat(3, 1fr)', 
+            gap: isMobile ? '1.5rem' : '2rem' 
+          }}>
             {problems.map((problem, index) => (
               <div 
                 key={index}
@@ -677,10 +1026,19 @@ export default function FuzeLanding() {
                 <div style={{ color: '#4DD0E1', marginBottom: '1.5rem' }}>
                   {problem.icon}
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: 'white' }}>
+                <h3 style={{ 
+                  fontSize: isSmallMobile ? '1.125rem' : isMobile ? '1.25rem' : '1.5rem', 
+                  fontWeight: 'bold', 
+                  marginBottom: '1rem', 
+                  color: 'white' 
+                }}>
                   {problem.title}
                 </h3>
-                <p style={{ color: '#9ca3af', lineHeight: 1.6 }}>
+                <p style={{ 
+                  color: '#9ca3af', 
+                  lineHeight: 1.6,
+                  fontSize: isSmallMobile ? '0.875rem' : '1rem'
+                }}>
                   {problem.body}
                 </p>
               </div>
@@ -690,13 +1048,17 @@ export default function FuzeLanding() {
       </section>
 
       {/* How It Works */}
-      <section id="how-it-works" style={{ position: 'relative', zIndex: 10, padding: '6rem 1.5rem' }}>
+      <section id="how-it-works" style={{ 
+        position: 'relative', 
+        zIndex: 10, 
+        padding: isMobile ? '4rem 1rem' : '6rem 1.5rem' 
+      }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: isMobile ? '2rem' : '4rem' }}>
             <h2 style={{ 
-              fontSize: '3rem', 
+              fontSize: isSmallMobile ? '1.75rem' : isMobile ? '2.25rem' : '3rem', 
               fontWeight: 'bold',
-              background: 'linear-gradient(135deg, #4DD0E1, #5C6BC0, #9C27B0)',
+              background: 'linear-gradient(135deg, #4DD0E1, #14B8A6, #10B981)',
               WebkitBackgroundClip: 'text',
               backgroundClip: 'text',
               color: 'transparent'
@@ -705,20 +1067,33 @@ export default function FuzeLanding() {
             </h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: isSmallMobile ? '1fr' : isMobile ? '1fr' : 'repeat(3, 1fr)', 
+            gap: isMobile ? '1.5rem' : '2rem' 
+          }}>
             {steps.map((step, index) => (
               <div 
                 key={index}
                 className="gradient-border hover-lift"
-                style={{ padding: '2rem', textAlign: 'center' }}
+                style={{ padding: isMobile ? '1.5rem' : '2rem', textAlign: 'center' }}
               >
                 <div style={{ color: '#4DD0E1', marginBottom: '1.5rem', display: 'flex', justifyContent: 'center' }}>
                   {step.icon}
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: 'white' }}>
+                <h3 style={{ 
+                  fontSize: isSmallMobile ? '1.125rem' : isMobile ? '1.25rem' : '1.5rem', 
+                  fontWeight: 'bold', 
+                  marginBottom: '1rem', 
+                  color: 'white' 
+                }}>
                   {step.title}
                 </h3>
-                <p style={{ color: '#9ca3af', lineHeight: 1.6 }}>
+                <p style={{ 
+                  color: '#9ca3af', 
+                  lineHeight: 1.6,
+                  fontSize: isSmallMobile ? '0.875rem' : '1rem'
+                }}>
                   {step.body}
                 </p>
               </div>
@@ -731,17 +1106,25 @@ export default function FuzeLanding() {
       <section id="features" style={{ 
         position: 'relative', 
         zIndex: 10, 
-        padding: '6rem 1.5rem',
+        padding: isMobile ? '4rem 1rem' : '6rem 1.5rem',
         background: 'transparent'
       }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-            <h2 style={{ fontSize: '3rem', fontWeight: 'bold', color: 'white' }}>
+          <div style={{ textAlign: 'center', marginBottom: isMobile ? '2rem' : '4rem' }}>
+            <h2 style={{ 
+              fontSize: isSmallMobile ? '1.75rem' : isMobile ? '2.25rem' : '3rem', 
+              fontWeight: 'bold', 
+              color: 'white' 
+            }}>
               Features Designed for Your Success
             </h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: isSmallMobile ? '1fr' : isMobile ? '1fr' : 'repeat(3, 1fr)', 
+            gap: isMobile ? '1.5rem' : '2rem' 
+          }}>
             {features.map((feature, index) => (
               <div 
                 key={index}
@@ -751,10 +1134,19 @@ export default function FuzeLanding() {
                 <div style={{ color: '#4DD0E1', marginBottom: '1.5rem' }}>
                   {feature.icon}
                 </div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '1rem', color: 'white' }}>
+                <h3 style={{ 
+                  fontSize: isSmallMobile ? '1rem' : isMobile ? '1.125rem' : '1.25rem', 
+                  fontWeight: 'bold', 
+                  marginBottom: '1rem', 
+                  color: 'white' 
+                }}>
                   {feature.title}
                 </h3>
-                <p style={{ color: '#9ca3af', lineHeight: 1.6 }}>
+                <p style={{ 
+                  color: '#9ca3af', 
+                  lineHeight: 1.6,
+                  fontSize: isSmallMobile ? '0.875rem' : '0.95rem'
+                }}>
                   {feature.body}
                 </p>
               </div>
@@ -764,40 +1156,50 @@ export default function FuzeLanding() {
       </section>
 
       {/* CTA */}
-      <section style={{ position: 'relative', zIndex: 10, padding: '6rem 1.5rem' }}>
+      <section style={{ 
+        position: 'relative', 
+        zIndex: 10, 
+        padding: isMobile ? '4rem 1rem' : '6rem 1.5rem' 
+      }}>
         <div style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
           <h2 style={{ 
-            fontSize: '3rem', 
+            fontSize: isSmallMobile ? '1.5rem' : isMobile ? '2rem' : '3rem', 
             fontWeight: 'bold', 
             marginBottom: '1.5rem',
-            background: 'linear-gradient(135deg, #4DD0E1, #5C6BC0, #9C27B0)',
+            background: 'linear-gradient(135deg, #4DD0E1, #14B8A6, #10B981)',
             WebkitBackgroundClip: 'text',
             backgroundClip: 'text',
-            color: 'transparent'
+            color: 'transparent',
+            lineHeight: 1.2
           }}>
             Ready to Transform Your Learning & Building Process?
           </h2>
           
-          <p style={{ fontSize: '1.25rem', color: '#d1d5db', marginBottom: '3rem' }}>
+          <p style={{ 
+            fontSize: isSmallMobile ? '1rem' : isMobile ? '1.125rem' : '1.25rem', 
+            color: '#d1d5db', 
+            marginBottom: isMobile ? '2rem' : '3rem' 
+          }}>
             Join Fuze today and take control of your developer journey.
           </p>
 
           <button 
             onClick={handleStartForFree}
             style={{
-            background: 'linear-gradient(135deg, #4DD0E1 0%, #5C6BC0 50%, #9C27B0 100%)',
+            background: 'linear-gradient(135deg, #4DD0E1 0%, #14B8A6 50%, #10B981 100%)',
             color: '#fff',
-            padding: '1.25rem 3rem',
+            padding: isSmallMobile ? '1rem 2rem' : isMobile ? '1.125rem 2.5rem' : '1.25rem 3rem',
             border: 'none',
             borderRadius: '50px',
             fontWeight: '600',
-            fontSize: '1.25rem',
+            fontSize: isSmallMobile ? '1rem' : isMobile ? '1.125rem' : '1.25rem',
             cursor: 'pointer',
             boxShadow: '0 12px 40px rgba(77, 208, 225, 0.4)',
             transition: 'all 0.3s ease',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '0.75rem'
+            gap: '0.75rem',
+            width: isSmallMobile ? '100%' : 'auto'
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-4px) scale(1.05)';
@@ -812,7 +1214,11 @@ export default function FuzeLanding() {
             <ArrowRight size={24} />
           </button>
           
-          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '1.5rem' }}>
+          <p style={{ 
+            fontSize: isSmallMobile ? '0.75rem' : '0.875rem', 
+            color: '#6b7280', 
+            marginTop: '1.5rem' 
+          }}>
             No credit card required • Set up in 30 seconds
           </p>
         </div>
@@ -823,7 +1229,7 @@ export default function FuzeLanding() {
         position: 'relative', 
         zIndex: 10, 
         borderTop: '1px solid rgba(77, 208, 225, 0.1)', 
-        padding: '4rem 1.5rem 2rem',
+        padding: isMobile ? '3rem 1rem 2rem' : '4rem 1.5rem 2rem',
         background: 'transparent',
         marginTop: '4rem'
       }}>
@@ -831,9 +1237,9 @@ export default function FuzeLanding() {
           {/* Main Footer Content */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-            gap: '3rem',
-            marginBottom: '3rem'
+            gridTemplateColumns: isSmallMobile ? '1fr' : isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(200px, 1fr))', 
+            gap: isMobile ? '2rem' : '3rem',
+            marginBottom: isMobile ? '2rem' : '3rem'
           }}>
             {/* Brand Section */}
             <div>
