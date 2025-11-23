@@ -1,68 +1,312 @@
+# 🔖 Fuze - AI-Powered Intelligent Bookmark Manager
+
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
+![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
+![React](https://img.shields.io/badge/React-18-blue?logo=react)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?logo=postgresql)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
+**Transform your bookmarks into an intelligent knowledge base with AI-powered semantic search and personalized recommendations.**
+
+[Features](#-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [API](#-api-documentation) • [Contributing](#-contributing)
+
+</div>
+
 ---
-title: Fuze - Intelligent Bookmark Manager
-emoji: 🔖
-colorFrom: blue
-colorTo: purple
-sdk: docker
-pinned: false
-license: mit
-app_port: 7860
-sdk_version: 4.36.0
+
+## ✨ Features
+
+### 🧠 AI-Powered Intelligence
+- **Semantic Search**: Find content by meaning, not just keywords
+- **Smart Recommendations**: Personalized suggestions based on your projects and interests
+- **Content Analysis**: Automatic extraction and analysis using Gemini AI
+- **Intent Understanding**: Context-aware recommendations that understand what you're building
+
+### 🎯 Project Organization
+- **Project-Based Workflow**: Organize bookmarks by projects and tasks
+- **Task Management**: Break down projects into actionable tasks with AI assistance
+- **Contextual Recommendations**: Get relevant content suggestions for your active projects
+
+### 🔍 Advanced Search
+- **Multi-Modal Search**: Text, semantic, and hybrid search capabilities
+- **Vector Similarity**: pgvector-powered semantic matching
+- **Fast Queries**: Optimized database indexes for instant results
+
+### ⚡ Performance & Reliability
+- **Multi-Layer Caching**: Redis + in-memory caching for blazing-fast responses
+- **Background Processing**: Async content analysis and processing
+- **Connection Pooling**: Efficient database connection management
+- **Production-Ready**: Comprehensive error handling and logging
+
+### 🔌 Integrations
+- **Chrome Extension**: One-click bookmarking from any webpage
+- **LinkedIn Integration**: Save and analyze LinkedIn posts and articles
+- **PWA Support**: Install as a mobile app with share functionality
+- **Bulk Import**: Import existing bookmarks from Chrome
+
 ---
 
-# Fuze - Intelligent Bookmark Manager
+## 🚀 Quick Start
 
-AI-powered bookmark management with semantic search, intelligent recommendations, and seamless Chrome extension integration.
+### Prerequisites
 
-## Features
+- Python 3.11+
+- PostgreSQL 15+ (with pgvector extension)
+- Redis (Upstash or local)
+- Node.js 18+ (for frontend)
 
-- 🧠 **AI-Powered Intelligence**: Semantic search understands context, not just keywords
-- 📊 **Content Analysis**: Automatic extraction and analysis of webpage content
-- 🎯 **Smart Recommendations**: Personalized content suggestions
-- 🔍 **Multi-Modal Search**: Text, semantic, and hybrid search capabilities
-- 📁 **Project Organization**: Organize bookmarks by projects and tasks
-- ⚡ **High Performance**: Multi-layer caching and optimized queries
-- 🔌 **Chrome Extension**: Seamless one-click bookmarking
-- 📱 **PWA Support**: Install as mobile app with share functionality
+### Backend Setup
 
-## Tech Stack
+```bash
+# Clone the repository
+git clone https://github.com/Ujjwaljain16/Fuze.git
+cd Fuze
 
-- **Backend**: Flask (Python 3.11)
-- **Database**: PostgreSQL with pgvector
-- **Caching**: Redis (Upstash)
-- **ML**: Sentence Transformers (MiniLM-L6-v2)
-- **Frontend**: React + Vite
-- **Deployment**: Hugging Face Spaces (Docker)
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-## Environment Variables
+# Install dependencies
+pip install -r requirements.txt
 
-Set these in Hugging Face Spaces settings:
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
 
-   ```env
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-REDIS_URL=rediss://your-upstash-redis-url
-SECRET_KEY=your-secret-key
-JWT_SECRET_KEY=your-jwt-secret
-ENVIRONMENT=production
-DEBUG=false
-CORS_ORIGINS=https://your-frontend.vercel.app
-GEMINI_API_KEY=your-gemini-key
+# Initialize database
+cd backend
+python init_db.py
+
+# Run migrations (if any)
+python utils/database_indexes.py
+
+# Start the server
+python run_production.py
 ```
 
-## Resources
+### Frontend Setup
 
-- **CPU**: 2 vCPUs (free tier)
-- **RAM**: Up to 16GB (free tier)
-- **Storage**: Persistent storage available
+```bash
+cd frontend
 
-## API Endpoints
+# Install dependencies
+npm install
 
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/bookmarks` - List bookmarks
-- `POST /api/bookmarks` - Save bookmark
-- `POST /api/recommendations/unified-orchestrator` - Get recommendations
+# Start development server
+npm run dev
+```
 
-## License
+### Environment Variables
 
-MIT License
+Create a `.env` file in the root directory:
+
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/fuze
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Security
+SECRET_KEY=your-secret-key-here
+JWT_SECRET_KEY=your-jwt-secret-key-here
+
+# AI Services
+GEMINI_API_KEY=your-gemini-api-key
+
+# Application
+FLASK_ENV=development
+DEBUG=true
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+```
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture and design
+- **[API Documentation](docs/API_ARCHITECTURE.md)** - Complete API reference
+- **[User Flows](docs/USERFLOW.md)** - Feature walkthroughs
+- **[Testing Guide](docs/TESTING.md)** - Testing setup and examples
+- **[Optimizations](docs/OPTIMIZATIONS.md)** - Performance optimizations
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend
+- **Framework**: Flask 3.1.1
+- **Database**: PostgreSQL 15 with pgvector
+- **Caching**: Redis (Upstash)
+- **ML/AI**: 
+  - Sentence Transformers (MiniLM-L6-v2)
+  - Google Gemini API
+- **Task Queue**: RQ (Redis Queue)
+- **Authentication**: JWT (Flask-JWT-Extended)
+
+### Frontend
+- **Framework**: React 18
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS
+- **State Management**: React Context + Hooks
+- **PWA**: Service Worker + Web App Manifest
+
+### Infrastructure
+- **Deployment**: Hugging Face Spaces, Render, Vercel
+- **Containerization**: Docker
+- **CI/CD**: GitHub Actions
+
+---
+
+## 📡 API Documentation
+
+### Authentication
+
+```http
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+```
+
+### Bookmarks
+
+```http
+GET    /api/bookmarks              # List bookmarks (with pagination)
+POST   /api/bookmarks              # Save new bookmark
+DELETE /api/bookmarks/:id          # Delete bookmark
+POST   /api/bookmarks/import       # Bulk import bookmarks
+GET    /api/bookmarks/dashboard/stats  # Get statistics
+```
+
+### Projects & Tasks
+
+```http
+GET    /api/projects               # List projects
+POST   /api/projects               # Create project
+GET    /api/projects/:id           # Get project details
+PUT    /api/projects/:id           # Update project
+DELETE /api/projects/:id           # Delete project
+
+POST   /api/tasks                  # Create task
+GET    /api/tasks/project/:id      # Get tasks for project
+POST   /api/tasks/ai-breakdown     # AI-powered task breakdown
+```
+
+### Recommendations
+
+```http
+POST /api/recommendations/unified-orchestrator  # Get AI recommendations
+POST /api/recommendations/project/:id           # Project-specific recommendations
+GET  /api/recommendations/status                # Engine status
+```
+
+### Search
+
+```http
+POST /api/search/semantic  # Semantic search
+GET  /api/search/text      # Text search
+```
+
+For complete API documentation, see [API_ARCHITECTURE.md](docs/API_ARCHITECTURE.md).
+
+---
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+cd backend
+pytest --cov=. --cov-report=html -v
+
+# Frontend tests
+cd frontend
+npm test
+```
+
+**Test Coverage**: 56+ tests covering authentication, bookmarks, projects, recommendations, search, and more.
+
+---
+
+## 🏗️ Project Structure
+
+```
+Fuze/
+├── backend/                 # Flask backend
+│   ├── blueprints/         # API route handlers
+│   ├── ml/                 # Machine learning models
+│   ├── services/           # Background services
+│   ├── utils/              # Utility functions
+│   ├── tests/              # Test suite
+│   └── run_production.py   # Production server
+├── frontend/               # React frontend
+│   ├── src/
+│   │   ├── components/    # React components
+│   │   ├── pages/         # Page components
+│   │   └── utils/         # Frontend utilities
+│   └── public/            # Static assets
+├── BookmarkExtension/      # Chrome extension
+└── docs/                  # Documentation
+```
+
+---
+
+## 🚢 Deployment
+
+### Hugging Face Spaces
+
+The backend is configured for Hugging Face Spaces deployment. See [HF_SPACES_DEPLOYMENT.md](docs/HUGGINGFACE_SPACES_DEPLOYMENT.md).
+
+### Render / Railway
+
+1. Connect your GitHub repository
+2. Set environment variables
+3. Deploy!
+
+### Vercel (Frontend)
+
+```bash
+cd frontend
+vercel deploy
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Sentence Transformers](https://www.sbert.net/) for semantic embeddings
+- [pgvector](https://github.com/pgvector/pgvector) for vector similarity search
+- [Flask](https://flask.palletsprojects.com/) for the web framework
+- [React](https://react.dev/) for the frontend framework
+
+---
+
+<div align="center">
+
+**Made with ❤️ by [Ujjwal Jain](https://github.com/Ujjwaljain16)**
+
+⭐ Star this repo if you find it helpful!
+
+</div>
