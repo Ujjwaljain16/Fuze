@@ -42,7 +42,7 @@ const ShareHandler = () => {
     // - URLs at end of text (no trailing space)
     // - URLs with colons in path (like urn:li:activity)
     // Match until we hit whitespace, closing paren without opening, or end of string
-    const urlRegex = /(https?:\/\/[^\s\)]+(?:\?[^\s\)]*)?(?:&[^\s\)]*)*)/g
+    const urlRegex = /(https?:\/\/[^\s)]+(?:\?[^\s)]*)?(?:&[^\s)]*)*)/g
     const matches = text.match(urlRegex)
     
     if (matches && matches.length > 0) {
@@ -54,7 +54,7 @@ const ShareHandler = () => {
       if (url.includes('linkedin.com') && url.includes('urn:li:activity')) {
         // For LinkedIn activity URLs, try to get the complete URL
         // They can have very long encoded query strings
-        const linkedInFullMatch = text.match(/https?:\/\/[^\s\)]+urn:li:activity[^\s\)]*/)
+        const linkedInFullMatch = text.match(/https?:\/\/[^\s)]+urn:li:activity[^\s)]*/)
         if (linkedInFullMatch && linkedInFullMatch[0].length > url.length) {
           url = linkedInFullMatch[0]
         }
@@ -73,19 +73,19 @@ const ShareHandler = () => {
     }
     
     // Also check for LinkedIn shortened links (lnkd.in)
-    const linkedInShortRegex = /(https?:\/\/lnkd\.in\/[^\s\)]+)/g
+    const linkedInShortRegex = /(https?:\/\/lnkd\.in\/[^\s)]+)/g
     const linkedInMatches = text.match(linkedInShortRegex)
     if (linkedInMatches && linkedInMatches.length > 0) {
       return linkedInMatches[0].replace(/[.,;:!?)]+$/, '')
     }
     
     // Special handling for LinkedIn feed/update URLs that might be split across lines or have special formatting
-    const linkedInFeedRegex = /https?:\/\/www\.linkedin\.com\/feed\/update\/[^\s\)]+/
+    const linkedInFeedRegex = /https?:\/\/www\.linkedin\.com\/feed\/update\/[^\s)]+/
     const linkedInFeedMatch = text.match(linkedInFeedRegex)
     if (linkedInFeedMatch && linkedInFeedMatch.length > 0) {
       let feedUrl = linkedInFeedMatch[0]
       // Try to extend the match to include the full query string
-      const extendedMatch = text.match(new RegExp(feedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\s\)]*'))
+      const extendedMatch = text.match(new RegExp(feedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\s)]*'))
       if (extendedMatch) {
         feedUrl = extendedMatch[0].replace(/[.,;!?)]+$/, '')
       }
@@ -159,12 +159,12 @@ const ShareHandler = () => {
     // LinkedIn saved posts sometimes send the URL in unexpected places
     if (!url) {
       const allParams = [url, title, text].join(' ')
-      const linkedInPattern = /https?:\/\/www\.linkedin\.com\/feed\/update\/urn:li:activity[^\s\)]+/
+      const linkedInPattern = /https?:\/\/www\.linkedin\.com\/feed\/update\/urn:li:activity[^\s)]+/
       const linkedInMatch = allParams.match(linkedInPattern)
       if (linkedInMatch) {
         url = linkedInMatch[0]
         // Try to get the full URL including all query parameters
-        const fullMatch = allParams.match(new RegExp(linkedInMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\s\)]*'))
+        const fullMatch = allParams.match(new RegExp(linkedInMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\s)]*'))
         if (fullMatch && fullMatch[0].length > url.length) {
           url = fullMatch[0]
         }
@@ -201,7 +201,9 @@ const ShareHandler = () => {
     if (isAuthenticated && sharedUrl && !extracting) {
       extractPreview(sharedUrl)
     }
-  }, [isAuthenticated, sharedUrl])
+    // extractPreview is stable and extracting is already checked in condition
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, sharedUrl, extracting])
 
   // Redirect to login if not authenticated
   useEffect(() => {

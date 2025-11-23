@@ -3,7 +3,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
 import api from '../services/api'
 import { useErrorHandler } from '../hooks/useErrorHandler'
-import { optimizedApiCall } from '../utils/apiOptimization'
 import useResize from '../hooks/useResize'
 import useMousePosition from '../hooks/useMousePosition'
 import { 

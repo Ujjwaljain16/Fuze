@@ -40,7 +40,6 @@ const ProfileStats = ({ user }) => {
   };
 
   const isMobile = window.innerWidth <= 768
-  const isSmallMobile = window.innerWidth <= 480
 
   return (
     <div className={`grid grid-cols-1 ${isMobile ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-4'} ${isMobile ? 'gap-4 mb-6' : 'gap-6 mb-8'}`}>
