@@ -18,6 +18,7 @@ const Recommendations = lazy(() => import('./pages/Recommendations'));
 const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const SaveContent = lazy(() => import('./pages/SaveContent'));
 const ShareHandler = lazy(() => import('./pages/ShareHandler'));
+const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -255,6 +256,10 @@ function AppContent() {
               <Route 
                 path="/share" 
                 element={<ShareHandler />} 
+              />
+              <Route 
+                path="/extension/download" 
+                element={<ExtensionDownload />} 
               />
 
               <Route path="*" element={<Navigate to="/" />} />

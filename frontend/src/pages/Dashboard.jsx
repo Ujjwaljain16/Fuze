@@ -279,7 +279,7 @@ const Dashboard = () => {
   }
 
   const handleInstallExtension = () => {
-    window.open('https://chrome.google.com/webstore', '_blank')
+    window.location.href = '/extension/download'
   }
 
   const handleLogout = () => {

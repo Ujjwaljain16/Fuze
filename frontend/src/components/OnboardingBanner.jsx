@@ -108,14 +108,12 @@ const OnboardingBanner = () => {
 
             {!hasExtension && (
               <a
-                href="/extension/chrome"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/extension/download"
                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors flex items-center space-x-2 text-sm"
               >
                 <Download className="w-4 h-4" />
                 <span>Install Extension</span>
-                <ExternalLink className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4" />
               </a>
             )}
 

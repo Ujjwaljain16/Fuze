@@ -253,17 +253,10 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                   <p className="text-white font-medium">Download for your browser:</p>
                   <div className="flex flex-wrap gap-3">
                     <a
-                      href="/extension/chrome"
+                      href="/extension/download"
                       className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors flex items-center space-x-2"
                     >
-                      <span>Chrome Extension</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                    <a
-                      href="/extension/firefox"
-                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors flex items-center space-x-2"
-                    >
-                      <span>Firefox Extension</span>
+                      <span>Download Extension</span>
                       <ExternalLink className="w-4 h-4" />
                     </a>
                   </div>

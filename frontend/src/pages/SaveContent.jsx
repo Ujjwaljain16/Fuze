@@ -695,10 +695,13 @@ const SaveContent = () => {
                   <p className={`text-gray-300 ${isMobile ? 'text-xs mb-3' : 'text-sm mb-4'}`}>
                     Save content with one click from any webpage. Install our Chrome extension for the ultimate bookmarking experience.
                   </p>
-                  <button className={`w-full bg-gradient-to-r from-orange-600 to-red-600 ${isMobile ? 'px-3 py-2 text-sm' : 'px-4 py-3'} rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-500/25 transition-all duration-300 transform hover:scale-105 flex items-center justify-center ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}>
+                  <a
+                    href="/extension/download"
+                    className={`w-full bg-gradient-to-r from-orange-600 to-red-600 ${isMobile ? 'px-3 py-2 text-sm' : 'px-4 py-3'} rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-500/25 transition-all duration-300 transform hover:scale-105 flex items-center justify-center ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}
+                  >
                     <Plus size={isMobile ? 14 : 16} />
                     <span>Install Extension</span>
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
