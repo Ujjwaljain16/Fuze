@@ -20,8 +20,19 @@ Write-Host "   Source: $ProjectRoot" -ForegroundColor Gray
 Write-Host "   Target: $HFSpacePath" -ForegroundColor Gray
 Write-Host ""
 
-# Files to sync
+# Files to sync - include all backend changes
 $FilesToSync = @(
+    @{Source = "backend\blueprints\bookmarks.py"; Target = "backend\blueprints\bookmarks.py"},
+    @{Source = "backend\blueprints\linkedin.py"; Target = "backend\blueprints\linkedin.py"},
+    @{Source = "backend\clear_database.py"; Target = "backend\clear_database.py"},
+    @{Source = "backend\tests\conftest.py"; Target = "backend\tests\conftest.py"},
+    @{Source = "backend\tests\test_bookmarks.py"; Target = "backend\tests\test_bookmarks.py"},
+    @{Source = "backend\scripts\check_deleted_bookmarks.py"; Target = "backend\scripts\check_deleted_bookmarks.py"},
+    @{Source = "backend\scripts\diagnose_data_loss.py"; Target = "backend\scripts\diagnose_data_loss.py"},
+    @{Source = "backend\scripts\query_database.py"; Target = "backend\scripts\query_database.py"},
+    @{Source = "backend\scripts\reset_sequences.py"; Target = "backend\scripts\reset_sequences.py"},
+    @{Source = "backend\scripts\test_multi_user_flow.py"; Target = "backend\scripts\test_multi_user_flow.py"},
+    @{Source = "backend\scripts\verify_production_data.py"; Target = "backend\scripts\verify_production_data.py"},
     @{Source = "backend\init_db.py"; Target = "backend\init_db.py"},
     @{Source = "backend\run_production.py"; Target = "backend\run_production.py"},
     @{Source = "backend\services\task_queue.py"; Target = "backend\services\task_queue.py"},
@@ -69,7 +80,7 @@ if ($commit -eq 'y' -or $commit -eq 'Y') {
         
         $commitMessage = Read-Host "Enter commit message (or press Enter for default)"
         if ([string]::IsNullOrWhiteSpace($commitMessage)) {
-            $commitMessage = "chore: sync backend files from main repo"
+            $commitMessage = 'chore: sync backend files from main repo'
         }
         
         git commit -m $commitMessage
@@ -87,7 +98,6 @@ if ($commit -eq 'y' -or $commit -eq 'Y') {
 } else {
     Write-Host "📝 Files synced. Run these commands in $HFSpacePath to commit:" -ForegroundColor Yellow
     Write-Host "   git add ." -ForegroundColor Cyan
-    Write-Host "   git commit -m 'chore: sync backend files'" -ForegroundColor Cyan
+    Write-Host '   git commit -m "chore: sync backend files"' -ForegroundColor Cyan
     Write-Host "   git push" -ForegroundColor Cyan
 }
-
