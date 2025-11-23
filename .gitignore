@@ -90,3 +90,14 @@ frontend/build/
 
 # Hugging Face Spaces
 .huggingface/
+
+# SSL/TLS Certificates and Keys (NEVER commit these!)
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+certs/
+*.csr
+ssl/
