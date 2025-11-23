@@ -25,6 +25,9 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          # Prevent git from prompting for credentials
+          git config --global credential.helper store
+          echo "https://${{ secrets.HF_TOKEN }}@huggingface.co" > ~/.git-credentials
 
       - name: Clone HF Space
         run: |
@@ -44,6 +47,9 @@ jobs:
           cp start.sh hf-space/
 
       - name: Commit and Push to HF Space
+        env:
+          GIT_TERMINAL_PROMPT: 0
+          GIT_ASKPASS: echo
         run: |
           cd hf-space
           git add .
@@ -52,5 +58,8 @@ jobs:
           git remote set-url origin https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend
           # Get current branch name (HF Spaces might use 'main' or 'master')
           BRANCH=$(git branch --show-current || echo "main")
+          # Use credential helper and prevent prompts
+          git config credential.helper store
+          echo "https://${{ secrets.HF_TOKEN }}@huggingface.co" > ~/.git-credentials
           git push origin $BRANCH
 
