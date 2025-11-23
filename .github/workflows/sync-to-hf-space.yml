@@ -28,7 +28,7 @@ jobs:
 
       - name: Clone HF Space
         run: |
-          git clone https://huggingface.co/spaces/Ujjwaljain16/fuze-backend hf-space
+          git clone https://${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend hf-space
           cd hf-space
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
