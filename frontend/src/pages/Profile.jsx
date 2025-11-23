@@ -9,7 +9,6 @@ import ProfileHeader from '../components/ProfileHeader'
 import ProfileStats from '../components/ProfileStats'
 import ProfileForm from '../components/ProfileForm'
 import PasswordForm from '../components/PasswordForm'
-import AccountActions from '../components/AccountActions'
 import ApiKeyManager from '../components/ApiKeyManager'
 
 const Profile = () => {
@@ -317,8 +316,6 @@ const Profile = () => {
             <ApiKeyManager />
           </div>
 
-          {/* Account Actions */}
-          <AccountActions onLogout={handleLogout} />
         </main>
       </div>
       </div>
