@@ -50,6 +50,8 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: auto-sync from main repo [skip ci]"
           # Get current branch name (HF Spaces might use 'main' or 'master')
           BRANCH=$(git branch --show-current || echo "main")
-          # Push using Hugging Face recommended format: huggingface:token@huggingface.co
-          git push https://huggingface:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend HEAD:$BRANCH
+          # Disable credential helpers that might interfere
+          git config --global --unset credential.helper || true
+          # Push using Hugging Face recommended format with terminal prompt disabled
+          GIT_TERMINAL_PROMPT=0 git push https://huggingface:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Ujjwaljain16/fuze-backend HEAD:$BRANCH
 
