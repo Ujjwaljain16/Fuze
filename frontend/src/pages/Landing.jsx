@@ -1280,56 +1280,6 @@ export default function FuzeLanding() {
               </p>
             </div>
             
-            {/* Quick Links */}
-            <div>
-              <h3 style={{ 
-                color: '#e5e7eb', 
-                fontSize: '0.875rem', 
-                fontWeight: '600', 
-                marginBottom: '1rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
-              }}>
-                Legal
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <a href="#" style={{ 
-                color: '#9ca3af', 
-                textDecoration: 'none', 
-                fontSize: '0.875rem',
-                  transition: 'all 0.3s ease',
-                  width: 'fit-content'
-                }} 
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateX(4px)';
-                }} 
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#9ca3af';
-                  e.target.style.transform = 'translateX(0)';
-                }}>
-                Privacy Policy
-              </a>
-              <a href="#" style={{ 
-                color: '#9ca3af', 
-                textDecoration: 'none', 
-                fontSize: '0.875rem',
-                  transition: 'all 0.3s ease',
-                  width: 'fit-content'
-                }} 
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateX(4px)';
-                }} 
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#9ca3af';
-                  e.target.style.transform = 'translateX(0)';
-                }}>
-                Terms of Service
-              </a>
-              </div>
-            </div>
-
             {/* Contact Section */}
             <div>
               <h3 style={{ 
@@ -1343,26 +1293,95 @@ export default function FuzeLanding() {
                 Contact
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <a href="mailto:jainujjwal1609@gmail.com" style={{
-                color: '#9ca3af',
-                textDecoration: 'none',
-                fontSize: '0.875rem',
+                <a href="mailto:jainujjwal1609@gmail.com" style={{
+                  color: '#9ca3af',
+                  textDecoration: 'none',
+                  fontSize: '0.875rem',
                   transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
                   width: 'fit-content'
                 }}
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#9ca3af';
-                  e.target.style.transform = 'translateX(0)';
-                }}>
+                  onMouseEnter={(e) => {
+                    e.target.style.color = '#4DD0E1';
+                    e.target.style.transform = 'translateX(4px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.color = '#9ca3af';
+                    e.target.style.transform = 'translateX(0)';
+                  }}>
                   <Mail size={16} />
                   <span>jainujjwal1609@gmail.com</span>
+                </a>
+              </div>
+            </div>
+
+            {/* Connect Section */}
+            <div>
+              <h3 style={{ 
+                color: '#e5e7eb', 
+                fontSize: '0.875rem', 
+                fontWeight: '600', 
+                marginBottom: '1rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}>
+                Connect
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <a
+                  href="https://github.com/ujjwaljain16"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    fontSize: '0.875rem',
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    width: 'fit-content'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.color = '#4DD0E1';
+                    e.target.style.transform = 'translateX(4px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.color = '#9ca3af';
+                    e.target.style.transform = 'translateX(0)';
+                  }}
+                >
+                  <Github size={16} />
+                  <span>github.com/ujjwaljain16</span>
+                </a>
+
+                <a
+                  href="https://www.linkedin.com/in/ujjwal-jain-306b60323/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#9ca3af',
+                    textDecoration: 'none',
+                    fontSize: '0.875rem',
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    width: 'fit-content'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.color = '#4DD0E1';
+                    e.target.style.transform = 'translateX(4px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.color = '#9ca3af';
+                    e.target.style.transform = 'translateX(0)';
+                  }}
+                >
+                  <Linkedin size={16} />
+                  <span>LinkedIn</span>
                 </a>
               </div>
             </div>
@@ -1376,56 +1395,8 @@ export default function FuzeLanding() {
             flexDirection: 'column',
             gap: '1.5rem',
             alignItems: 'center',
-            justifyContent: 'space-between'
+            justifyContent: 'center'
           }}>
-            {/* Social Links */}
-            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-              <a
-                href="https://github.com/ujjwaljain16"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: '#6b7280',
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#6b7280';
-                  e.target.style.transform = 'translateY(0)';
-                }}
-              >
-                <Github size={20} />
-              </a>
-              <a
-                href="https://www.linkedin.com/in/ujjwal-jain-306b60323/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: '#6b7280',
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#6b7280';
-                  e.target.style.transform = 'translateY(0)';
-                }}
-              >
-                <Linkedin size={20} />
-              </a>
-            </div>
-
             {/* Copyright */}
             <div style={{ 
               color: '#6b7280', 
