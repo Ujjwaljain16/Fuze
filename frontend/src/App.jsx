@@ -32,9 +32,7 @@ function AppContent() {
   const showSidebar = user && location.pathname !== '/' && location.pathname !== '/login';
 
   // Debug: Log initial state (development only)
-  if (import.meta.env.DEV) {
-    console.log('App initial state:', { collapsed, isMobile, sidebarOpen });
-  }
+  // Logging removed for production
 
   useEffect(() => {
     const handleResize = () => {
@@ -121,14 +119,8 @@ function AppContent() {
     if (!isMobile) {
       if (collapsed) {
         document.body.classList.add('sidebar-collapsed');
-        if (import.meta.env.DEV) {
-          console.log('Added sidebar-collapsed class to body');
-        }
       } else {
         document.body.classList.add('sidebar-expanded');
-        if (import.meta.env.DEV) {
-          console.log('Added sidebar-expanded class to body');
-        }
       }
       
       // Force immediate layout recalculation
@@ -141,9 +133,7 @@ function AppContent() {
     }
     
     // Debug: log current body classes (development only)
-    if (import.meta.env.DEV) {
-      console.log('Current body classes:', document.body.className);
-    }
+    // Logging removed for production
   }, [collapsed, isMobile]);
 
   // Ensure initial body class is applied on mount
@@ -151,9 +141,6 @@ function AppContent() {
     if (!isMobile) {
       // Apply immediately without delay to fix layout
       document.body.classList.add('sidebar-collapsed'); // Start collapsed
-      if (import.meta.env.DEV) {
-        console.log('Initial body class applied on mount - collapsed');
-      }
       
       // Force layout recalculation
       document.body.offsetHeight;

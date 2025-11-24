@@ -22,11 +22,7 @@ const getBaseURL = () => {
 
 const baseURL = getBaseURL()
 
-// Only log in development
-if (import.meta.env.DEV) {
-  console.log('API Base URL:', baseURL)
-  console.log('🏠 Current hostname:', window.location.hostname)
-}
+// API configuration removed for production
 
 const api = axios.create({
   baseURL,
@@ -127,9 +123,6 @@ export const refreshTokenIfNeeded = async () => {
     
     // If token expires in less than 5 minutes, refresh it
     if (timeUntilExpiration < 5 * 60 * 1000) {
-      if (import.meta.env.DEV) {
-        console.log('Token expires soon, refreshing proactively...')
-      }
       const res = await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
@@ -140,9 +133,6 @@ export const refreshTokenIfNeeded = async () => {
       )
       const newToken = res.data.access_token
       localStorage.setItem('token', newToken)
-      if (import.meta.env.DEV) {
-        console.log('Token refreshed successfully')
-      }
     }
   } catch (error) {
     console.warn('Failed to refresh token proactively:', error)
@@ -164,9 +154,6 @@ export const initializeCSRF = async () => {
     
     clearTimeout(timeoutId)
     csrfToken = response.data.csrf_token
-    if (import.meta.env.DEV) {
-      console.log('CSRF token initialized')
-    }
   } catch (error) {
     if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
       console.warn('CSRF token request timed out, continuing without CSRF')
@@ -294,9 +281,6 @@ export const retryRequest = async (requestFn, maxRetries = 3, delay = 1000) => {
 
       // Exponential backoff
       const waitTime = delay * Math.pow(2, attempt - 1);
-      if (import.meta.env.DEV) {
-        console.log(`Retrying request (attempt ${attempt}/${maxRetries}) in ${waitTime}ms...`);
-      }
 
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
@@ -334,8 +318,6 @@ export const createErrorHandler = (toastFunctions) => {
   const handleSuccess = (message) => {
     if (showSuccessToast) {
       showSuccessToast(message);
-    } else if (import.meta.env.DEV) {
-      console.log('Success:', message);
     }
   };
 

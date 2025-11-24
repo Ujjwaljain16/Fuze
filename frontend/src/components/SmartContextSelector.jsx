@@ -59,7 +59,6 @@ window.clearAllRecommendationCaches = async () => {
 
     // Clear server-side caches (this will clear both Redis recommendation and context caches)
     const response = await api.post('/api/recommendations/cache/clear-all-recommendations')
-    console.log('All recommendation caches cleared:', response.data)
     return response.data
   } catch (error) {
     console.error('Failed to clear all recommendation caches:', error)
@@ -99,17 +98,12 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
       // Check for cached data first
       const cachedData = getCachedContextData()
       if (cachedData) {
-        console.log('📋 Using cached context data (10min TTL)')
         setSuggestedContexts(cachedData.suggestedContexts || [])
         setRecentItems(cachedData.recentItems || [])
         setAllProjects(cachedData.allProjects || [])
         setLoading(false)
         return
       }
-
-      console.log('Fetching fresh context data from server...')
-      const startTime = Date.now()
-
       let fetchedSuggestedContexts = []
       let fetchedRecentItems = []
       let fetchedProjects = []
@@ -122,7 +116,7 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
           setSuggestedContexts(fetchedSuggestedContexts)
         }
       } catch {
-        console.log('Suggested contexts not available, using fallback')
+        // Suggested contexts not available, using fallback
       }
 
       // Fetch recent items
@@ -144,9 +138,6 @@ const SmartContextSelector = ({ onSelect, onClose }) => {
         allProjects: fetchedProjects
       }
       setCachedContextData(contextData)
-
-      const fetchTime = Date.now() - startTime
-      console.log(`Context data cached (${fetchTime}ms fetch time)`)
 
     } catch (error) {
       console.error('Failed to fetch context data:', error)

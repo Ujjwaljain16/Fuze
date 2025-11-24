@@ -19,18 +19,11 @@ if ('serviceWorker' in navigator) {
         }
       })
       .then((registration) => {
-        if (import.meta.env.DEV) {
-          console.log('Service Worker registered successfully:', registration.scope);
-        }
-        
         // Check for updates and force reload if new version available
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              if (import.meta.env.DEV) {
-                console.log('New version available! Reloading...');
-              }
               // Force reload to get new service worker and fresh files
               window.location.reload();
             }
@@ -57,16 +50,10 @@ let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  if (import.meta.env.DEV) {
-    console.log('PWA install prompt ready');
-  }
 });
 
 // Handle PWA installation
 window.addEventListener('appinstalled', () => {
-  if (import.meta.env.DEV) {
-    console.log('PWA installed successfully');
-  }
   deferredPrompt = null;
 });
 

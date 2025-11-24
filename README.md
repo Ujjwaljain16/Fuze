@@ -6,6 +6,9 @@
 
 **Transform your saved scattered content into an intelligent knowledge base with AI-powered semantic search and personalized recommendations.**
 
+> [!NOTE]
+> **This project is actively under development with ongoing iterations and improvements.** Features and interfaces may evolve as we continue to enhance the user experience and add new capabilities.
+
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
 ![React](https://img.shields.io/badge/React-18-blue?logo=react)

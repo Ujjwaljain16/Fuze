@@ -48,8 +48,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
     isMobile ? (isOpen ? 'sidebar-open' : '') : (collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')
   ].filter(Boolean).join(' ')
 
-  // Debug logging
-  console.log('Sidebar state:', { isMobile, isOpen, collapsed, sidebarClasses });
+  // Debug logging removed for production
 
   const handleToggle = () => {
     setIsAnimating(true)
@@ -113,7 +112,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
                 Fuze
               </span>
               <div className="text-xs font-medium tracking-wider uppercase opacity-80 brand-tagline" style={{ lineHeight: '1.2' }}>
-                Intelligence Connected
+                strike through the chaos
               </div>
             </div>
           )}

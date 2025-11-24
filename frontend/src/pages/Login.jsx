@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Github, Chrome, Home, AlertTriangle } from 'lucide-react';
+import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Home, AlertTriangle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/Button';
@@ -432,7 +432,7 @@ export default function FuzeAuth() {
                 textTransform: 'none'
               }}
             >
-              Intelligence Connected
+              strike through the chaos
             </div>
           </div>
         </div>
@@ -753,27 +753,6 @@ export default function FuzeAuth() {
               </Button>
             </form>
 
-            {/* Divider */}
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-800"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-black bg-opacity-60 text-gray-500">Or continue with</span>
-              </div>
-            </div>
-
-            {/* Social Login */}
-            <div className={`grid ${isSmallMobile ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
-              <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
-                <Github className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} ${isSmallMobile ? '' : 'mr-2'}`} />
-                {!isSmallMobile && <span className="text-gray-300">GitHub</span>}
-              </button>
-              <button className="flex items-center justify-center py-3 px-4 rounded-xl border border-gray-800 bg-black bg-opacity-40 hover:bg-opacity-60 hover:border-gray-700 transition-all duration-300">
-                <Chrome className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} ${isSmallMobile ? '' : 'mr-2'}`} />
-                {!isSmallMobile && <span className="text-gray-300">Google</span>}
-              </button>
-            </div>
 
             {/* Footer Text */}
             <div className="mt-8 text-center text-sm text-gray-400">

@@ -103,16 +103,7 @@ const ShareHandler = () => {
     const text = searchParams.get('text') || ''
 
     // Debug: Log what we're receiving (only in dev)
-    if (import.meta.env.DEV) {
-      console.log('ShareHandler - Received params:', { 
-        url, 
-        title, 
-        text,
-        urlLength: url.length,
-        textLength: text.length,
-        titleLength: title.length
-      })
-    }
+    // Logging removed for production
 
     // If no URL in url parameter, try to extract from text
     // This handles cases where LinkedIn sends URL in text field
@@ -120,10 +111,6 @@ const ShareHandler = () => {
       const extractedUrl = extractUrlFromText(text)
       if (extractedUrl) {
         url = extractedUrl
-        if (import.meta.env.DEV) {
-          console.log('ShareHandler - Extracted URL from text:', url)
-          console.log('ShareHandler - Extracted URL length:', url.length)
-        }
       }
     }
 
@@ -150,9 +137,6 @@ const ShareHandler = () => {
       const extractedFromTitle = extractUrlFromText(title)
       if (extractedFromTitle) {
         url = extractedFromTitle
-        if (import.meta.env.DEV) {
-          console.log('ShareHandler - Extracted URL from title:', url)
-        }
       }
     }
 
@@ -168,9 +152,6 @@ const ShareHandler = () => {
         const fullMatch = allParams.match(new RegExp(linkedInMatch[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\s)]*'))
         if (fullMatch && fullMatch[0].length > url.length) {
           url = fullMatch[0]
-        }
-        if (import.meta.env.DEV) {
-          console.log('ShareHandler - Found LinkedIn feed URL via pattern matching:', url)
         }
       }
     }

@@ -142,13 +142,11 @@ const Dashboard = () => {
       combinedEventSource.onerror = (error) => {
         // If connection was closed due to idle timeout, prevent automatic reconnection
         if (combinedEventSource.readyState === EventSource.CLOSED && closedByIdle) {
-          console.log('Combined progress SSE closed (idle timeout) - not reconnecting')
           return
         }
-        
+
         // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
         if (combinedEventSource.readyState === EventSource.CLOSED && !closedByIdle) {
-          console.log('Combined progress SSE closed (will reconnect if needed)')
           // Reopen after a short delay if not closed by idle
           setTimeout(() => {
             if (!closedByIdle) {
@@ -175,7 +173,6 @@ const Dashboard = () => {
     const checkAndReopenStream = setInterval(() => {
       // If stream is closed but not due to idle, try to reopen
       if (combinedEventSource && combinedEventSource.readyState === EventSource.CLOSED && !closedByIdle) {
-        console.log('Reopening combined progress SSE stream...')
         openCombinedStream()
       }
     }, 5000) // Check every 5 seconds
@@ -332,10 +329,10 @@ const Dashboard = () => {
                 </span>
               </div>
               <div className={`text-cyan-300 font-medium tracking-wider uppercase opacity-80 ${isMobile ? 'mb-3 text-sm' : 'mb-4'}`}>
-                Strike Through the Chaos
+                strike through the chaos
               </div>
               <p className="text-xl text-gray-300 mb-8">
-                Your intelligent bookmark manager with semantic search and Chrome extension integration.
+                Your intelligent content manager with semantic search and Chrome extension integration.
               </p>
             </div>
             
