@@ -386,14 +386,14 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
 
 #### Error Categories
 
-| Type | Icon | Description | User Message |
-|------|------|-------------|--------------|
-| `NETWORK` | 📶 | Connection issues | "Network connection failed. Please check your internet and try again." |
-| `AUTH` | 🛡️ | Authentication problems | "Your session has expired. Please log in again." |
-| `VALIDATION` | ⚠️ | Input validation errors | "Please check your input and try again." |
-| `SERVER` | 🖥️ | Server-side issues | "Server error occurred. Please try again later." |
-| `RATE_LIMIT` | ⏱️ | Rate limiting | "Too many requests. Please wait a moment before trying again." |
-| `UNKNOWN` | ❓ | Unexpected errors | "An unexpected error occurred. Please try again." |
+| Type | Description | User Message |
+|------------|-------------|--------------|
+| `NETWORK` | Connection issues | "Network connection failed. Please check your internet and try again." |
+| `AUTH`  | Authentication problems | "Your session has expired. Please log in again." |
+| `VALIDATION` | Input validation errors | "Please check your input and try again." |
+| `SERVER`  | Server-side issues | "Server error occurred. Please try again later." |
+| `RATE_LIMIT` | Rate limiting | "Too many requests. Please wait a moment before trying again." |
+| `UNKNOWN`  | Unexpected errors | "An unexpected error occurred. Please try again." |
 
 #### HTTP Status Code Mapping
 
@@ -473,76 +473,85 @@ X-RateLimit-Reset: 1609459200
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        Web[Web App]
-        Ext[Chrome Extension]
+    subgraph Client["CLIENT LAYER"]
+        direction LR
+        Web["Web Application"]
+        Ext["Chrome Extension"]
     end
     
-    subgraph "API Layer"
-        AuthBP[Auth Blueprint<br/>/api/auth]
-        BookBP[Bookmarks Blueprint<br/>/api/bookmarks]
-        ProjBP[Projects Blueprint<br/>/api/projects]
-        RecBP[Recommendations Blueprint<br/>/api/recommendations]
-        SearchBP[Search Blueprint<br/>/api/search]
-        ProfBP[Profile Blueprint<br/>/api/profile]
+    subgraph API[" API GATEWAY LAYER"]
+        direction LR
+        Row1["Auth"]
+        Row2["Profile"]
+        Row3["Search"]
+        Row4["Bookmarks"]
+        Row5["Projects"]
+        Row6["Recommendations"]
     end
     
-    subgraph "Middleware"
-        JWT[JWT Validation]
-        RateLimit[Rate Limiting]
-        CORS[CORS Handler]
-        Validation[Input Validation]
+    subgraph Middleware["SECURITY & MIDDLEWARE"]
+        direction TB
+        JWT["1️⃣ JWT Validation"]
+        RateLimit["2️⃣ Rate Limiting"]
+        Validation["3️⃣ Input Validation"]
+        CORS["4️⃣ CORS Handler"]
     end
     
-    subgraph "Services"
-        DB[(PostgreSQL)]
-        Redis[(Redis Cache)]
-        Gemini[Gemini AI]
+    subgraph Services[" BACKEND SERVICES"]
+        direction LR
+        DB[(" PostgreSQL")]
+        Redis[(" Redis Cache")]
+        Gemini[" Gemini AI"]
     end
     
-    Web --> AuthBP
-    Web --> BookBP
-    Web --> ProjBP
-    Web --> RecBP
-    Web --> SearchBP
-    Web --> ProfBP
+    %% Client to API connections
+    Web --> Row1
+    Web --> Row2
+    Web --> Row3
+    Web --> Row4
+    Web --> Row5
+    Web --> Row6
+    Ext --> Row1
+    Ext --> Row4
     
-    Ext --> AuthBP
-    Ext --> BookBP
+    %% API to Middleware
+    Row1 --> JWT
+    Row2 --> JWT
+    Row3 --> JWT
+    Row4 --> JWT
+    Row5 --> JWT
+    Row6 --> JWT
     
-    AuthBP --> JWT
-    BookBP --> JWT
-    ProjBP --> JWT
-    RecBP --> JWT
-    SearchBP --> JWT
-    ProfBP --> JWT
-    
+    %% Middleware chain
     JWT --> RateLimit
     RateLimit --> Validation
     Validation --> CORS
     
-    AuthBP --> DB
-    BookBP --> DB
-    ProjBP --> DB
-    RecBP --> DB
-    SearchBP --> DB
-    ProfBP --> DB
+    %% Services connections
+    CORS --> DB
+    CORS --> Redis
+    CORS --> Gemini
     
-    BookBP --> Redis
-    RecBP --> Redis
-    ProjBP --> Redis
+    %% Specific service usage
+    Row4 -.-> Redis
+    Row5 -.-> Redis
+    Row6 -.-> Redis
+    Row6 -.-> Gemini
+    Row4 -.-> Gemini
     
-    RecBP --> Gemini
-    BookBP --> Gemini
+    classDef clientStyle fill:#667eea,stroke:#5a67d8,stroke-width:3px,color:#fff,font-weight:bold
+    classDef authStyle fill:#f093fb,stroke:#c471ed,stroke-width:2px,color:#fff,font-weight:bold
+    classDef apiStyle fill:#4facfe,stroke:#00b4d8,stroke-width:2px,color:#fff,font-weight:bold
+    classDef aiStyle fill:#fa709a,stroke:#f77089,stroke-width:2px,color:#fff,font-weight:bold
+    classDef middlewareStyle fill:#ffa726,stroke:#fb8c00,stroke-width:2px,color:#fff,font-weight:bold
+    classDef dbStyle fill:#43e97b,stroke:#38f9d7,stroke-width:3px,color:#fff,font-weight:bold
     
-    style AuthBP fill:#4a90e2
-    style BookBP fill:#50c878
-    style ProjBP fill:#50c878
-    style RecBP fill:#cd853f
-    style SearchBP fill:#50c878
-    style ProfBP fill:#50c878
-    style JWT fill:#ff6b6b
-    style RateLimit fill:#ff6b6b
+    class Web,Ext clientStyle
+    class Row1 authStyle
+    class Row2,Row3,Row4,Row5 apiStyle
+    class Row6 aiStyle
+    class JWT,RateLimit,CORS,Validation middlewareStyle
+    class DB,Redis,Gemini dbStyle
 ```
 
 ---
@@ -619,7 +628,6 @@ const recommendations = await recResponse.json();
 ```
 
 ---
-
-*Last Updated: 2024*
+Ujjwal Jain
 
 
