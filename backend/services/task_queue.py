@@ -23,13 +23,22 @@ def get_redis_connection():
     if redis_url:
         # Use REDIS_URL if available
         try:
+            # Increase timeouts for cloud Redis (Upstash, etc.)
+            # Cloud Redis can have higher latency
             return Redis.from_url(
                 redis_url,
                 decode_responses=False,
-                socket_connect_timeout=10,
-                socket_timeout=30,  # Increased timeout for long-running jobs
+                socket_connect_timeout=30,  # Increased from 10 to 30 seconds
+                socket_timeout=60,  # Increased from 30 to 60 seconds for long-running jobs
                 socket_keepalive=True,
-                health_check_interval=30  # Check connection every 30 seconds
+                socket_keepalive_options={
+                    1: 1,  # TCP_KEEPIDLE: 1 second
+                    2: 1,  # TCP_KEEPINTVL: 1 second
+                    3: 3   # TCP_KEEPCNT: 3 probes
+                },
+                health_check_interval=30,  # Check connection every 30 seconds
+                retry_on_timeout=True,  # Retry on timeout errors
+                retry_on_error=[ConnectionError, TimeoutError]  # Retry on these errors
             )
         except Exception as e:
             logger.warning(f"Failed to create Redis connection from URL: {e}")
@@ -51,15 +60,17 @@ def get_redis_connection():
         'db': redis_db,
         'password': redis_password,
         'decode_responses': False,
-        'socket_connect_timeout': 10,
-        'socket_timeout': 30,  # Increased timeout for long-running jobs
+        'socket_connect_timeout': 30,  # Increased from 10 to 30 seconds for cloud Redis
+        'socket_timeout': 60,  # Increased from 30 to 60 seconds for long-running jobs
         'socket_keepalive': True,  # Enable keepalive
         'socket_keepalive_options': {
             1: 1,  # TCP_KEEPIDLE: 1 second
             2: 1,  # TCP_KEEPINTVL: 1 second
             3: 3   # TCP_KEEPCNT: 3 probes
         },
-        'health_check_interval': 30  # Check connection every 30 seconds
+        'health_check_interval': 30,  # Check connection every 30 seconds
+        'retry_on_timeout': True,  # Retry on timeout errors
+        'retry_on_error': [ConnectionError, TimeoutError]  # Retry on these errors
     }
     
     if use_ssl:
