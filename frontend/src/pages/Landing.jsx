@@ -18,7 +18,6 @@ import {
   ArrowRight,
   ChevronDown,
   Github,
-  Twitter,
   Linkedin,
   Mail,
   Menu,
@@ -1344,26 +1343,26 @@ export default function FuzeLanding() {
                 Contact
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <a href="mailto:contact@fuze.dev" style={{ 
-                color: '#9ca3af', 
-                textDecoration: 'none', 
+              <a href="mailto:jainujjwal1609@gmail.com" style={{
+                color: '#9ca3af',
+                textDecoration: 'none',
                 fontSize: '0.875rem',
                   transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
                   width: 'fit-content'
-                }} 
+                }}
                 onMouseEnter={(e) => {
                   e.target.style.color = '#4DD0E1';
                   e.target.style.transform = 'translateX(4px)';
-                }} 
+                }}
                 onMouseLeave={(e) => {
                   e.target.style.color = '#9ca3af';
                   e.target.style.transform = 'translateX(0)';
                 }}>
                   <Mail size={16} />
-                  <span>contact@fuze.dev</span>
+                  <span>jainujjwal1609@gmail.com</span>
                 </a>
               </div>
             </div>
@@ -1381,12 +1380,12 @@ export default function FuzeLanding() {
           }}>
             {/* Social Links */}
             <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-              <a 
-                href="https://github.com" 
-                target="_blank" 
+              <a
+                href="https://github.com/ujjwaljain16"
+                target="_blank"
                 rel="noopener noreferrer"
-                style={{ 
-                  color: '#6b7280', 
+                style={{
+                  color: '#6b7280',
                   transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
@@ -1403,34 +1402,12 @@ export default function FuzeLanding() {
               >
                 <Github size={20} />
               </a>
-              <a 
-                href="https://twitter.com" 
-                target="_blank" 
+              <a
+                href="https://www.linkedin.com/in/ujjwal-jain-306b60323/"
+                target="_blank"
                 rel="noopener noreferrer"
-                style={{ 
-                  color: '#6b7280', 
-                  transition: 'all 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.color = '#4DD0E1';
-                  e.target.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.color = '#6b7280';
-                  e.target.style.transform = 'translateY(0)';
-                }}
-              >
-                <Twitter size={20} />
-              </a>
-              <a 
-                href="https://linkedin.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ 
-                  color: '#6b7280', 
+                style={{
+                  color: '#6b7280',
                   transition: 'all 0.3s ease',
                   display: 'flex',
                   alignItems: 'center',
