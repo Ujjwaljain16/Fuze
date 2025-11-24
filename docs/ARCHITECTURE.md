@@ -2,6 +2,17 @@
 
 Complete scalable architecture documentation for Fuze - Intelligent Bookmark Manager.
 
+## ⚠️ Important: Current Implementation vs Scalable Design
+
+**This document describes both:**
+- **Current Implementation**: What's actually deployed and running (simpler, single-container setup)
+- **Scalable Design**: Architecture that supports future scaling (ready for horizontal scaling)
+
+**Key Distinction:**
+- **Current**: 1 Gunicorn worker (gevent), single database, single Redis, RQ workers, no load balancer (platform handles routing)
+- **Scalable**: Architecture designed to support multiple workers, load balancers, database replicas, Redis clusters when needed
+- **Why**: Stateless design means scaling is just configuration changes, not code changes
+
 ## Table of Contents
 
 1. [System Overview](#system-overview)
@@ -35,6 +46,68 @@ Fuze is built as a scalable, multi-tenant system designed to handle thousands of
 
 ### High-Level Architecture
 
+**Current Implementation (What's Deployed):**
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        WebApp[Web Application<br/>React + Vite]
+        Extension[Chrome Extension<br/>Manifest V3]
+    end
+    
+    subgraph "Platform Layer"
+        Platform[Hugging Face Spaces<br/>Handles Routing & SSL]
+    end
+    
+    subgraph "Application Layer - Current"
+        Worker1[Gunicorn Worker 1<br/>gevent async<br/>1000+ connections]
+        RQWorker[RQ Worker<br/>Background Jobs]
+    end
+    
+    subgraph "Shared Services Layer"
+        Redis[(Redis Instance<br/>Upstash - Single)]
+        Queue[RQ Task Queue<br/>Redis-based]
+    end
+    
+    subgraph "Data Layer"
+        PostgreSQL[(PostgreSQL<br/>Supabase - Single<br/>+ pgvector)]
+    end
+    
+    subgraph "External Services"
+        Gemini[Google Gemini AI<br/>Per-User API Keys]
+        WebContent[Web Scraping<br/>Services]
+    end
+    
+    WebApp --> Platform
+    Extension --> Platform
+    
+    Platform --> Worker1
+    
+    Worker1 --> Redis
+    Worker1 --> PostgreSQL
+    
+    Worker1 --> Queue
+    Queue --> RQWorker
+    
+    RQWorker --> Redis
+    RQWorker --> PostgreSQL
+    RQWorker --> Gemini
+    RQWorker --> WebContent
+    
+    Worker1 --> WebContent
+    
+    style WebApp fill:#4a90e2
+    style Extension fill:#4a90e2
+    style Platform fill:#cd853f
+    style Worker1 fill:#50c878
+    style RQWorker fill:#50c878
+    style Redis fill:#ff6b6b
+    style PostgreSQL fill:#9b59b6
+    style Gemini fill:#9b59b6
+```
+
+**Scalable Design (Future-Ready Architecture):**
+
 ```mermaid
 graph TB
     subgraph "Client Layer"
@@ -55,7 +128,7 @@ graph TB
     
     subgraph "Shared Services Layer"
         Redis[(Redis Cluster<br/>Caching & Sessions)]
-        Queue[Task Queue<br/>Celery/Background]
+        Queue[Task Queue<br/>RQ]
     end
     
     subgraph "Data Layer"
@@ -125,45 +198,77 @@ graph TB
 
 ### Layer 2: Load Balancer Layer
 
-**Responsibilities:**
-- Request routing
-- SSL termination
-- Rate limiting (first line)
-- Health checks
-- Session affinity (if needed)
+**Current Implementation:**
+- ❌ **Not Implemented**: No custom load balancer
+- ✅ **Platform Handled**: Hugging Face Spaces handles routing, SSL termination, and health checks
+- ✅ **Design Ready**: Architecture supports load balancer when needed
 
-**Implementation:**
-- Nginx or Cloudflare
-- Round-robin or least-connections
-- Health check endpoints
+**Scalable Design (Future):**
+- **Responsibilities:**
+  - Request routing
+  - SSL termination
+  - Rate limiting (first line)
+  - Health checks
+  - Session affinity (if needed)
+- **Implementation:**
+  - Nginx or Cloudflare
+  - Round-robin or least-connections
+  - Health check endpoints
 
 ### Layer 3: Application Layer (Stateless Workers)
 
-**Design:**
-- Multiple Flask workers (Gunicorn)
-- Stateless design - no local state
-- Shared Redis for sessions/cache
-- Connection pooling to database
+**Current Implementation:**
+- ✅ **1 Gunicorn Worker**: Single worker with gevent async I/O
+- ✅ **Gevent Worker Class**: Handles 1000+ concurrent connections per worker
+- ✅ **Stateless Design**: No local state, all state in Redis/DB
+- ✅ **Connection Pooling**: 5 base, 10 overflow connections
+- ✅ **RQ Worker**: Separate background worker for async jobs
 
-**Scaling:**
-- Add/remove workers dynamically
-- Auto-scaling based on load
-- Each worker handles any request
+**Current Configuration** (`start.sh`):
+```bash
+gunicorn app:app \
+    --workers 1 \
+    --worker-class gevent \
+    --worker-connections 1000
+```
+
+**Scalable Design (Future):**
+- **Multiple Flask workers** (Gunicorn)
+- **Stateless design** - no local state
+- **Shared Redis** for sessions/cache
+- **Connection pooling** to database
+- **Scaling:**
+  - Add/remove workers dynamically
+  - Auto-scaling based on load
+  - Each worker handles any request
 
 ### Layer 4: Shared Services Layer
 
-**Components:**
-- Redis Cluster (caching, sessions, rate limiting)
-- Task Queue (Celery/Background workers)
-- Message Broker (for async tasks)
+**Current Implementation:**
+- ✅ **Single Redis Instance**: Upstash (free tier)
+- ✅ **RQ Task Queue**: Redis-based task queue (not Celery)
+- ✅ **Shared Across Workers**: All workers use same Redis
+
+**Scalable Design (Future):**
+- **Redis Cluster** (caching, sessions, rate limiting)
+- **Task Queue** (RQ/Background workers - already using RQ)
+- **Message Broker** (for async tasks)
 
 ### Layer 5: Data Layer
 
-**Components:**
-- PostgreSQL Primary (writes)
-- PostgreSQL Replicas (reads)
-- pgvector extension for vector search
-- Connection pooling
+**Current Implementation:**
+- ✅ **Single PostgreSQL**: Supabase (single database instance)
+- ✅ **pgvector Extension**: For vector search
+- ✅ **Connection Pooling**: 5 base, 10 overflow connections
+- ✅ **24 Production Indexes**: Optimized for performance
+- ❌ **No Read Replicas**: All operations to single database
+
+**Scalable Design (Future):**
+- **PostgreSQL Primary** (writes)
+- **PostgreSQL Replicas** (reads)
+- **pgvector extension** for vector search
+- **Connection pooling**
+- **Read/write splitting** (architecture supports it)
 
 ---
 
@@ -390,7 +495,7 @@ graph TB
 
 #### Layer 1: In-Memory Cache (Application Level)
 
-**Location**: `backend/utils/production_optimizations.py`
+**Location**: `backend/utils/redis_utils.py`
 
 **Cached Items:**
 - Query results (5 minutes TTL)
@@ -636,11 +741,16 @@ graph TB
     style Replica3 fill:#50c878
 ```
 
-**Read/Write Distribution:**
+**Read/Write Distribution (Scalable Design - Not Yet Implemented):**
 - **Writes**: All to Primary (single source of truth)
 - **Reads**: Distributed across Replicas (load balancing)
 - **Replication**: Async replication (low latency)
 - **Consistency**: Read-after-write uses Primary
+
+**Current Implementation:**
+- **All Operations**: Single PostgreSQL database (no replicas)
+- **Connection Pooling**: Configured for efficiency
+- **Design Ready**: Architecture supports read/write splitting when replicas are added
 
 ---
 
@@ -730,7 +840,7 @@ graph TB
     SaveData --> ReturnResponse[Return 201 Created]
     SaveData --> TriggerAsync[Trigger Background Task]
     
-    TriggerAsync --> Queue[Task Queue<br/>Redis/Celery]
+    TriggerAsync --> Queue[Task Queue<br/>Redis/RQ]
     
     Queue --> Worker1[Background Worker 1]
     Queue --> Worker2[Background Worker 2]
@@ -749,30 +859,31 @@ graph TB
     style ProcessTask fill:#cd853f
 ```
 
-**Background Services:**
+**Background Services (Current Implementation):**
 
-1. **Content Analysis Service**
+1. **RQ (Redis Queue) Worker** ⭐ **Primary Background System**
+   - Location: `backend/worker.py` and `backend/services/task_queue.py`
+   - Processes: Bookmark content extraction, embedding generation, analysis
+   - Queue System: Redis-based task queue
+   - Runs: Automatically alongside web server (via `start.sh`)
+   - Deployment: 1 RQ worker in same container as web server
+
+2. **Content Analysis Service**
    - Location: `backend/services/background_analysis_service.py`
    - Processes: Unanalyzed bookmarks
    - Uses: User's own Gemini API key
    - Runs: Continuously (every 30 seconds)
 
-2. **Cache Invalidation Service**
+3. **Cache Invalidation Service**
    - Location: `backend/services/cache_invalidation_service.py`
    - Processes: Cache invalidation on data changes
    - Runs: Synchronously (on data mutations)
 
-3. **Import Processing**
+4. **Import Processing**
    - Location: `backend/blueprints/bookmarks.py`
    - Processes: Bulk bookmark imports
    - Uses: ThreadPoolExecutor for parallel processing
    - Progress: Tracked via SSE streams
-
-4. **RQ (Redis Queue) Worker**
-   - Location: `backend/worker.py` and `backend/services/task_queue.py`
-   - Processes: Bookmark content extraction, embedding generation, analysis
-   - Queue System: Redis-based task queue
-   - Runs: Automatically alongside web server (via `start.sh`)
 
 ### RQ Worker Architecture
 
@@ -810,13 +921,19 @@ User Action → API Endpoint → Enqueue Job → Immediate Response
 - **Retry Logic**: 2 attempts (after 1min, then 5min)
 - **Job Timeout**: 10 minutes per job
 
-**Deployment:**
+**Current Deployment (Hugging Face Spaces):**
 
-For Hugging Face Spaces, the RQ worker runs automatically:
-- `start.sh` script starts both RQ worker and Gunicorn
-- Both processes run in the same Docker container
-- Worker uses same Redis connection as web server
-- No manual configuration needed
+The RQ worker runs automatically:
+- ✅ `start.sh` script starts both RQ worker and Gunicorn
+- ✅ Both processes run in the same Docker container
+- ✅ Worker uses same Redis connection as web server
+- ✅ No manual configuration needed
+- ✅ 1 RQ worker handles all background jobs
+
+**Scalable Deployment (Future):**
+- Can run RQ workers on separate machines
+- Can scale RQ workers independently
+- Multiple workers can process jobs in parallel
 
 **Benefits:**
 - Non-blocking user requests
@@ -943,7 +1060,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant Client
-    participant LB as Load Balancer
+    participant LB as Platform/Load Balancer
     participant Worker as Flask Worker
     participant Middleware as Security Middleware
     participant Cache as Redis Cache
@@ -1039,7 +1156,61 @@ graph TB
 
 ## Deployment Architecture
 
-### Production Deployment Stack
+### Current Deployment Stack (What's Actually Running)
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        WebApp[Web Application<br/>React + Vite]
+        Extension[Chrome Extension]
+    end
+    
+    subgraph "Platform Layer"
+        Platform[Hugging Face Spaces<br/>Handles Routing & SSL]
+    end
+    
+    subgraph "Application Container"
+        App1[Gunicorn Worker 1<br/>gevent async<br/>1000+ connections]
+        RQWorker[RQ Worker<br/>Background Jobs]
+    end
+    
+    subgraph "Cache Layer"
+        Redis[(Redis Instance<br/>Upstash - Single)]
+    end
+    
+    subgraph "Database Layer"
+        Primary[(PostgreSQL<br/>Supabase - Single<br/>+ pgvector)]
+    end
+    
+    subgraph "External Services"
+        Gemini[Google Gemini AI<br/>Per-User API Keys]
+    end
+    
+    WebApp --> Platform
+    Extension --> Platform
+    
+    Platform --> App1
+    
+    App1 --> Redis
+    App1 --> Primary
+    App1 --> Gemini
+    
+    App1 --> RQWorker
+    RQWorker --> Redis
+    RQWorker --> Primary
+    RQWorker --> Gemini
+    
+    style WebApp fill:#4a90e2
+    style Extension fill:#4a90e2
+    style Platform fill:#cd853f
+    style App1 fill:#50c878
+    style RQWorker fill:#50c878
+    style Redis fill:#ff6b6b
+    style Primary fill:#9b59b6
+    style Gemini fill:#9b59b6
+```
+
+### Scalable Deployment Stack (Future-Ready Design)
 
 ```mermaid
 graph TB
@@ -1068,8 +1239,8 @@ graph TB
     end
     
     subgraph "Background Workers"
-        BG1[Celery Worker 1]
-        BG2[Celery Worker 2]
+        BG1[RQ Worker 1]
+        BG2[RQ Worker 2]
     end
     
     CDN --> LB
@@ -1100,60 +1271,121 @@ graph TB
     style Primary fill:#9b59b6
 ```
 
-### Scaling Configuration
+### Current Deployment Configuration
 
-**Application Servers:**
-- **Gunicorn Workers**: 4 workers per server
-- **Threads**: 2 threads per worker (if needed)
-- **Auto-scaling**: Based on CPU/memory metrics
+**Application Servers (Current):**
+- **Gunicorn Workers**: 1 worker (gevent async)
+- **Worker Class**: gevent (handles 1000+ concurrent connections)
+- **Worker Connections**: 1000 per worker
+- **Deployment**: Hugging Face Spaces (single container)
 - **Health Checks**: `/api/health` endpoint
 
-**Database:**
-- **Connection Pool**: 5 connections per worker
+**Database (Current):**
+- **Connection Pool**: 5 base connections, 10 overflow
+- **Single Database**: All operations to one PostgreSQL instance
+- **Connection Manager**: Auto-recovery on failures
+- **Indexes**: 24 production indexes for performance
+
+**Redis (Current):**
+- **Single Instance**: Upstash (free tier)
+- **Shared**: All workers use same Redis
+- **Sufficient**: For current scale
+
+**Background Workers (Current):**
+- **RQ Workers**: 1 RQ worker (separate from web worker)
+- **Queue**: Redis as message broker
+- **Deployment**: Runs in same container as web server
+
+### Scalable Design Configuration (Future)
+
+**Application Servers (Scalable):**
+- **Gunicorn Workers**: 4+ workers per server
+- **Threads**: 2 threads per worker (if needed)
+- **Auto-scaling**: Based on CPU/memory metrics
+- **Multiple Servers**: With load balancer
+
+**Database (Scalable):**
+- **Connection Pool**: 5 base connections per worker, 10 overflow
 - **Max Overflow**: 10 additional connections
 - **Read Replicas**: Scale horizontally
-- **Connection Manager**: Auto-recovery on failures
+- **Read/Write Splitting**: Writes to primary, reads from replicas
 
-**Redis:**
+**Redis (Scalable):**
 - **Cluster Mode**: For high availability
 - **Replication**: Master-replica setup
 - **Persistence**: RDB + AOF (if needed)
 
-**Background Workers:**
-- **Celery Workers**: Separate from web workers
+**Background Workers (Scalable):**
+- **RQ Workers**: Multiple workers (separate from web workers)
 - **Queue**: Redis as message broker
 - **Scaling**: Independent of web workers
+- **Note**: Already using RQ (not Celery) - architecture is correct
 
 ---
 
 ## Scalability Metrics
 
-### Current Capacity (Per Server)
+### Current Capacity (Actual Implementation)
 
-- **Concurrent Users**: 100-200 (with 4 Gunicorn workers)
-- **Requests/Second**: 50-100 (depending on operation)
-- **Database Connections**: 20-30 (with pooling)
-- **Cache Hit Rate**: 70-80% (with Redis)
+**Current Deployment (Hugging Face Spaces):**
+- **Gunicorn**: 1 worker (gevent async, 1000+ connections per worker)
+- **Concurrent Users**: 50-100 (estimated based on typical usage)
+- **Requests/Second**: 20-50 (depending on operation complexity)
+- **Database Connections**: 5-15 (pool_size=5, max_overflow=10)
+- **Cache Hit Rate**: 70-80% (Redis + in-memory caching)
+- **Background Jobs**: RQ worker processes ~10-50 jobs/hour
+- **Memory Usage**: ~2-4GB of 16GB available (room for growth)
 
-### Horizontal Scaling Potential
-
-- **Application Layer**: Linear scaling (add more servers)
-- **Database Layer**: Read scaling (add replicas)
-- **Cache Layer**: Redis cluster (sharding)
-- **Background Workers**: Independent scaling
-
-### Performance Characteristics
-
-**Response Times:**
+**Current Performance:**
 - **Cached Requests**: 50-200ms
 - **Database Queries**: 100-500ms (indexed)
 - **Recommendations**: 200-2000ms (depending on cache)
 - **Background Tasks**: Async (non-blocking)
 
-**Throughput:**
+**Current Throughput:**
+- **Read Operations**: 50-100 req/s (single database)
+- **Write Operations**: 20-50 req/s (single database)
+- **Cache Operations**: 10,000+ req/s (Redis)
+
+### Scalable Design Capacity (Future)
+
+**Scalable Deployment (With Multiple Workers):**
+- **Gunicorn**: 4+ workers per server
+- **Concurrent Users**: 100-200 per server (with 4 workers)
+- **Requests/Second**: 50-100 per server (depending on operation)
+- **Database Connections**: 20-30 per server (with pooling)
+- **Cache Hit Rate**: 70-80% (with Redis)
+
+**Scalable Performance:**
+- **Cached Requests**: 50-200ms
+- **Database Queries**: 100-500ms (indexed, with replicas)
+- **Recommendations**: 200-2000ms (depending on cache)
+- **Background Tasks**: Async (non-blocking)
+
+**Scalable Throughput:**
 - **Read Operations**: 1000+ req/s (with replicas)
 - **Write Operations**: 100-200 req/s (primary DB)
-- **Cache Operations**: 10,000+ req/s (Redis)
+- **Cache Operations**: 10,000+ req/s (Redis cluster)
+
+### Scaling Strategy Summary
+
+**Immediate Scaling (Within Current Platform):**
+- **Vertical Scaling**: Upgrade HF Spaces hardware (CPU, RAM)
+- **Connection Optimization**: Increase gevent workers or connections per worker
+- **Database Optimization**: More aggressive caching, query optimization
+- **Background Processing**: Multiple RQ workers in same container
+
+**Horizontal Scaling (Future Architecture):**
+- **Application Layer**: Add more HF Spaces containers with load balancer
+- **Database Layer**: Add PostgreSQL read replicas for read operations
+- **Cache Layer**: Redis cluster with sharding across multiple instances
+- **Background Workers**: Distributed RQ workers across multiple containers
+
+**Key Scaling Principles:**
+- **Stateless Design**: Any worker can handle any request (no session affinity)
+- **Shared Nothing**: Redis/DB provide shared state across all instances
+- **Connection Pooling**: Efficient database connection management
+- **Circuit Breakers**: Graceful degradation when services are unavailable
 
 ---
 

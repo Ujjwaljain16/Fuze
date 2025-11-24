@@ -115,14 +115,19 @@ sequenceDiagram
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `POST` | `/api/bookmarks` | ✅ | Save bookmark |
+| `POST` | `/api/bookmarks/quick-save` | ✅ | Quick save bookmark (minimal fields) |
 | `GET` | `/api/bookmarks` | ✅ | List bookmarks (paginated) |
 | `DELETE` | `/api/bookmarks/<id>` | ✅ | Delete bookmark by ID |
 | `DELETE` | `/api/bookmarks/url/<url>` | ✅ | Delete bookmark by URL |
 | `DELETE` | `/api/bookmarks/all` | ✅ | Delete all bookmarks |
+| `GET` | `/api/bookmarks/dashboard/stats` | ✅ | Get dashboard statistics |
 | `POST` | `/api/bookmarks/import` | ✅ | Bulk import bookmarks |
 | `POST` | `/api/bookmarks/check-duplicate` | ✅ | Check if URL is duplicate |
 | `GET` | `/api/bookmarks/import/progress` | ✅ | Get import progress |
+| `GET` | `/api/bookmarks/import/progress/stream` | ✅ | Stream import progress (SSE) |
 | `GET` | `/api/bookmarks/analysis/progress` | ✅ | Get analysis progress |
+| `GET` | `/api/bookmarks/analysis/progress/stream` | ✅ | Stream analysis progress (SSE) |
+| `GET` | `/api/bookmarks/progress/stream` | ✅ | Stream general progress (SSE) |
 | `POST` | `/api/bookmarks/extract-url` | ✅ | Extract content from URL |
 
 **Save Bookmark Request**:
@@ -189,18 +194,44 @@ sequenceDiagram
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/recommendations/unified-orchestrator` | ✅ | **Primary** - Get recommendations |
+| `POST` | `/api/recommendations/unified-orchestrator` | ✅ | **Primary** - Get unified orchestrator recommendations |
+| `POST` | `/api/recommendations/generate-context` | ✅ | Generate recommendation context |
 | `POST` | `/api/recommendations/unified` | ✅ | Unified recommendations |
-| `POST` | `/api/recommendations/unified-project/<id>` | ✅ | Project-based recommendations |
+| `POST` | `/api/recommendations/unified-project/<id>` | ✅ | Project-based unified recommendations |
 | `GET` | `/api/recommendations/project/<id>` | ✅ | Get project recommendations |
 | `POST` | `/api/recommendations/task/<id>` | ✅ | Task-based recommendations |
 | `POST` | `/api/recommendations/subtask/<id>` | ✅ | Subtask-based recommendations |
-| `GET` | `/api/recommendations/status` | ❌ | Get engine status |
+| `POST` | `/api/recommendations/smart-recommendations` | ✅ | Smart recommendations |
+| `POST` | `/api/recommendations/enhanced` | ✅ | Enhanced recommendations |
+| `POST` | `/api/recommendations/enhanced-project/<id>` | ✅ | Enhanced project recommendations |
+| `GET` | `/api/recommendations/enhanced-status` | ✅ | Get enhanced engine status |
+| `POST` | `/api/recommendations/phase3/recommendations` | ✅ | Phase 3 recommendations |
+| `POST` | `/api/recommendations/phase3/feedback` | ✅ | Phase 3 feedback |
+| `GET` | `/api/recommendations/phase3/insights` | ✅ | Phase 3 insights |
+| `GET` | `/api/recommendations/phase3/health` | ✅ | Phase 3 health status |
+| `GET` | `/api/recommendations/status` | ✅ | Get engine status |
+| `GET` | `/api/recommendations/phase-status` | ✅ | Get phase status |
 | `GET` | `/api/recommendations/performance-metrics` | ✅ | Get performance metrics |
 | `POST` | `/api/recommendations/cache/clear` | ✅ | Clear recommendation cache |
+| `POST` | `/api/recommendations/cache/clear-context` | ✅ | Clear context cache |
+| `POST` | `/api/recommendations/cache/clear-all-recommendations` | ✅ | Clear all recommendation cache |
 | `GET` | `/api/recommendations/analysis/stats` | ✅ | Get analysis statistics |
-| `GET` | `/api/recommendations/suggested-contexts` | ❌ | Get suggested contexts |
-| `GET` | `/api/recommendations/recent-contexts` | ❌ | Get recent contexts |
+| `GET` | `/api/recommendations/analysis/analyze-content/<id>` | ✅ | Analyze specific content |
+| `POST` | `/api/recommendations/analysis/start-background` | ✅ | Start background analysis |
+| `POST` | `/api/recommendations/analysis/batch-analyze` | ✅ | Batch analyze content |
+| `POST` | `/api/recommendations/feedback` | ✅ | Submit recommendation feedback |
+| `GET` | `/api/recommendations/user-preferences` | ✅ | Get user preferences |
+| `GET` | `/api/recommendations/learning-insights` | ✅ | Get learning insights |
+| `POST` | `/api/recommendations/discover` | ✅ | Discover recommendations |
+| `GET` | `/api/recommendations/similar/<id>` | ✅ | Get similar content |
+| `POST` | `/api/recommendations/ultra-fast` | ✅ | Ultra-fast recommendations |
+| `POST` | `/api/recommendations/ultra-fast-project/<id>` | ✅ | Ultra-fast project recommendations |
+| `GET` | `/api/recommendations/gemini-status` | ✅ | Get Gemini AI status |
+| `GET` | `/api/recommendations/suggested-contexts` | ✅ | Get suggested contexts |
+| `GET` | `/api/recommendations/recent-contexts` | ✅ | Get recent contexts |
+| `POST` | `/api/recommendations/learning-path-recommendations` | ✅ | Learning path recommendations |
+| `POST` | `/api/recommendations/project-recommendations` | ✅ | Project recommendations |
+| `POST` | `/api/recommendations/phase3/contextual` | ✅ | Phase 3 contextual recommendations |
 
 **Unified Orchestrator Request**:
 ```json
@@ -268,6 +299,49 @@ sequenceDiagram
 | `PUT` | `/api/profile` | ✅ | Update profile |
 | `PUT` | `/api/users/<id>` | ✅ | Update user (compatibility) |
 | `PUT` | `/api/users/<id>/password` | ✅ | Change password |
+
+### User API Key (`/api/user`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/user/api-key` | ✅ | Add/update user's API key |
+| `GET` | `/api/user/api-key` | ✅ | Get user's API key info |
+| `DELETE` | `/api/user/api-key` | ✅ | Delete user's API key |
+| `GET` | `/api/user/api-key/status` | ✅ | Get API key status |
+| `POST` | `/api/user/api-key/test` | ✅ | Test API key validity |
+| `GET` | `/api/user/api-key/usage` | ✅ | Get API key usage statistics |
+
+### Tasks (`/api/tasks`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/tasks` | ✅ | Create task |
+| `GET` | `/api/tasks/project/<id>` | ✅ | Get project tasks |
+| `POST` | `/api/tasks/ai-breakdown` | ✅ | AI-powered task breakdown |
+| `PUT` | `/api/tasks/<id>` | ✅ | Update task |
+| `DELETE` | `/api/tasks/<id>` | ✅ | Delete task |
+| `POST` | `/api/tasks/<id>/subtasks` | ✅ | Create subtask |
+| `GET` | `/api/tasks/<id>/subtasks` | ✅ | Get task subtasks |
+| `PUT` | `/api/tasks/subtasks/<id>` | ✅ | Update subtask |
+| `DELETE` | `/api/tasks/subtasks/<id>` | ✅ | Delete subtask |
+
+### LinkedIn (`/api/linkedin`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/linkedin/extract` | ✅ | Extract LinkedIn post content |
+| `POST` | `/api/linkedin/analyze` | ✅ | Analyze LinkedIn content |
+| `POST` | `/api/linkedin/batch-extract` | ✅ | Batch extract LinkedIn posts |
+| `GET` | `/api/linkedin/history` | ✅ | Get extraction history |
+| `POST` | `/api/linkedin/save-to-bookmarks` | ✅ | Save LinkedIn content to bookmarks |
+| `DELETE` | `/api/linkedin/extract/<id>` | ✅ | Delete extraction |
+| `GET` | `/api/linkedin/status` | ✅ | Get LinkedIn service status |
+
+### Feedback (`/api/feedback`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/feedback` | ✅ | Submit user feedback |
 
 **Update Profile Request**:
 ```json
@@ -439,14 +513,16 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
 
 ## Rate Limiting
 
-### Rate Limits
+### Rate Limits (Flask-Limiter)
 
-| Endpoint | Limit | Window |
-|----------|-------|--------|
-| `/api/auth/login` | 5 requests | 15 minutes (per IP) |
-| `/api/auth/register` | 5 requests | 15 minutes (per IP) |
-| `/api/recommendations/*` | 20 requests | 1 minute (per user) |
-| All other endpoints | 100 requests | 1 minute (per user) |
+| Endpoint Pattern | Limit | Window | Scope |
+|------------------|-------|--------|-------|
+| `/api/auth/login` | 5 requests | 15 minutes | Per IP |
+| `/api/auth/register` | 5 requests | 15 minutes | Per IP |
+| `/api/recommendations/*` | 20 requests | 1 minute | Per User |
+| All other endpoints | 100 requests | 1 minute | Per User |
+
+**Note**: Rate limits use Redis backend for production, falls back to in-memory storage if Redis unavailable. Limits are configurable via environment variables.
 
 ### Rate Limit Headers
 
@@ -479,34 +555,18 @@ graph TB
         Ext["Chrome Extension"]
     end
     
-    subgraph API[" API GATEWAY LAYER"]
-        direction LR
-        Row1["Auth"]
-        Row2["Profile"]
-        Row3["Search"]
-        Row4["Bookmarks"]
-        Row5["Projects"]
-        Row6["Recommendations"]
+    subgraph "API Layer"
+        AuthBP[Auth Blueprint<br/>/api/auth]
+        BookBP[Bookmarks Blueprint<br/>/api/bookmarks]
+        ProjBP[Projects Blueprint<br/>/api/projects]
+        RecBP[Recommendations Blueprint<br/>/api/recommendations]
+        SearchBP[Search Blueprint<br/>/api/search]
+        ProfBP[Profile Blueprint<br/>/api/profile]
+        UserBP[User API Key Blueprint<br/>/api/user]
+        TaskBP[Tasks Blueprint<br/>/api/tasks]
+        LinkedBP[LinkedIn Blueprint<br/>/api/linkedin]
+        FeedBP[Feedback Blueprint<br/>/api/feedback]
     end
-    
-    subgraph Middleware["SECURITY & MIDDLEWARE"]
-        direction TB
-        JWT["1️⃣ JWT Validation"]
-        RateLimit["2️⃣ Rate Limiting"]
-        Validation["3️⃣ Input Validation"]
-        CORS["4️⃣ CORS Handler"]
-    end
-    
-    subgraph Services[" BACKEND SERVICES"]
-        direction LR
-        DB[(" PostgreSQL")]
-        Redis[(" Redis Cache")]
-        Gemini[" Gemini AI"]
-    end
-    
-    %% Client to API connections
-    Web --> Row1
-    Web --> Row2
     Web --> Row3
     Web --> Row4
     Web --> Row5
@@ -514,30 +574,50 @@ graph TB
     Ext --> Row1
     Ext --> Row4
     
-    %% API to Middleware
-    Row1 --> JWT
-    Row2 --> JWT
-    Row3 --> JWT
-    Row4 --> JWT
-    Row5 --> JWT
-    Row6 --> JWT
+    AuthBP --> JWT
+    BookBP --> JWT
+    ProjBP --> JWT
+    RecBP --> JWT
+    SearchBP --> JWT
+    ProfBP --> JWT
     
     %% Middleware chain
     JWT --> RateLimit
     RateLimit --> Validation
     Validation --> CORS
     
-    %% Services connections
-    CORS --> DB
-    CORS --> Redis
-    CORS --> Gemini
-    
-    %% Specific service usage
-    Row4 -.-> Redis
-    Row5 -.-> Redis
-    Row6 -.-> Redis
-    Row6 -.-> Gemini
-    Row4 -.-> Gemini
+    AuthBP --> JWT
+    BookBP --> JWT
+    ProjBP --> JWT
+    RecBP --> JWT
+    SearchBP --> JWT
+    ProfBP --> JWT
+    UserBP --> JWT
+    TaskBP --> JWT
+    LinkedBP --> JWT
+    FeedBP --> JWT
+
+    JWT --> RateLimit
+    RateLimit --> Validation
+    Validation --> CORS
+
+    AuthBP --> DB
+    BookBP --> DB
+    ProjBP --> DB
+    RecBP --> DB
+    SearchBP --> DB
+    ProfBP --> DB
+    UserBP --> DB
+    TaskBP --> DB
+    LinkedBP --> DB
+    FeedBP --> DB
+
+    BookBP --> Redis
+    RecBP --> Redis
+    ProjBP --> Redis
+
+    RecBP --> Gemini
+    BookBP --> Gemini
     
     classDef clientStyle fill:#667eea,stroke:#5a67d8,stroke-width:3px,color:#fff,font-weight:bold
     classDef authStyle fill:#f093fb,stroke:#c471ed,stroke-width:2px,color:#fff,font-weight:bold
