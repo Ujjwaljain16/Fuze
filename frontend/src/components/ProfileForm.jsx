@@ -25,7 +25,7 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
         const res = await checkUsernameAvailability(username)
         if (!mounted) return
         setUsernameStatus({ checking: false, available: !!res.available, suggestions: res.suggestions || [], error: res.error || null })
-      } catch (err) {
+      } catch {
         if (!mounted) return
         setUsernameStatus({ checking: false, available: null, suggestions: [], error: 'Failed to check username' })
       }
