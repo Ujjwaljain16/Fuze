@@ -1,10 +1,43 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Save, User, Tag } from 'lucide-react';
 import Input from './Input';
+import { checkUsernameAvailability } from '../services/api';
 
 const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
   const isMobile = window.innerWidth <= 768
   const isSmallMobile = window.innerWidth <= 480
+  const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: null, suggestions: [], error: null })
+
+  useEffect(() => {
+    let mounted = true
+    const username = (formData.username || '').trim()
+
+    // don't check empty usernames
+    if (!username) {
+      setUsernameStatus({ checking: false, available: null, suggestions: [], error: null })
+      return
+    }
+
+    setUsernameStatus(prev => ({ ...prev, checking: true, error: null }))
+
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await checkUsernameAvailability(username)
+        if (!mounted) return
+        setUsernameStatus({ checking: false, available: !!res.available, suggestions: res.suggestions || [], error: res.error || null })
+      } catch (err) {
+        if (!mounted) return
+        setUsernameStatus({ checking: false, available: null, suggestions: [], error: 'Failed to check username' })
+      }
+    }, 450) // debounce
+
+    return () => {
+      mounted = false
+      clearTimeout(timeout)
+    }
+  }, [formData.username])
+
+  const isUsernameTaken = usernameStatus.available === false
 
   return (
     <div className={`bg-gradient-to-br from-gray-900/60 to-black/60 backdrop-blur-xl border border-gray-700/50 rounded-2xl ${isMobile ? 'p-4' : 'p-6 md:p-8'} hover:border-cyan-500/30 transition-all duration-300`}>
@@ -49,7 +82,7 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isUsernameTaken}
             className="px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center justify-center space-x-2 group relative overflow-hidden whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             style={{
               background: 'rgba(20, 20, 20, 0.6)',

@@ -19,6 +19,7 @@ const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const SaveContent = lazy(() => import('./pages/SaveContent'));
 const ShareHandler = lazy(() => import('./pages/ShareHandler'));
 const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
+const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -247,6 +248,10 @@ function AppContent() {
               <Route 
                 path="/extension/download" 
                 element={<ExtensionDownload />} 
+              />
+              <Route 
+                path="/oauth/callback" 
+                element={<OAuthCallback />} 
               />
 
               <Route path="*" element={<Navigate to="/" />} />

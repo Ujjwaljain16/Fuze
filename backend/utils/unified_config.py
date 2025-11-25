@@ -287,6 +287,10 @@ class UnifiedConfig:
             'JWT_COOKIE_HTTPONLY': True,  # Prevent XSS attacks
             'JWT_COOKIE_SAMESITE': 'Lax',  # CSRF protection
             'JWT_COOKIE_CSRF_PROTECT': True,  # Enable CSRF protection for cookies
+            # Session cookie security for Flask sessions (keep in sync with JWT cookie settings)
+            'SESSION_COOKIE_SECURE': not self.is_development(),
+            'SESSION_COOKIE_HTTPONLY': True,
+            'SESSION_COOKIE_SAMESITE': 'Lax',
             
             # Database
             'SQLALCHEMY_DATABASE_URI': self.database.url,
@@ -392,6 +396,14 @@ REDIS_DB=0
 REDIS_PASSWORD=
 REDIS_DEFAULT_TTL=3600
 REDIS_MAX_CONNECTIONS=50
+
+# ==============================================================================
+# SUPABASE (Optional - required for Supabase integration and OAuth)
+# ==============================================================================
+# Set your Supabase project URL and a service role key (keep service role key secret)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+VITE_SUPABASE_URL=https://your-project.supabase.co
 
 # ==============================================================================
 # SECURITY CONFIGURATION

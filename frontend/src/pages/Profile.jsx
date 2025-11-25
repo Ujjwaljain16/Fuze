@@ -78,7 +78,8 @@ const Profile = () => {
         technology_interests: formData.technology_interests.trim()
       }
 
-      const response = await api.put(`/api/users/${user.id}`, updateData)
+      // Use dedicated endpoint to update username (handles availability and suggestions)
+      const response = await api.post('/api/auth/update-username', { new_username: updateData.username })
       
       if (response.data) {
         success('Profile updated successfully!')
@@ -120,7 +121,8 @@ const Profile = () => {
         new_password: formData.new_password
       }
 
-      const response = await api.put(`/api/users/${user.id}/password`, passwordData)
+      // Use auth endpoint to set/change password (works for OAuth users without current password)
+      const response = await api.post('/api/auth/set-password', passwordData)
       
       if (response.data) {
         success('Password changed successfully!')

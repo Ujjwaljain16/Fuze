@@ -751,6 +751,38 @@ export default function FuzeAuth() {
                   )}
                 </span>
               </Button>
+
+            {/* OR - Social Login */}
+            {/* Divider + Full-width Google button */}
+            <div className="mt-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex-1 h-[1px] bg-gray-700" />
+                <div className="text-xs text-gray-400 uppercase tracking-wider">or continue with</div>
+                <div className="flex-1 h-[1px] bg-gray-700" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || window.__env?.VITE_SUPABASE_URL
+                  if (!supabaseUrl) {
+                    setError('Supabase is not configured for OAuth')
+                    return
+                  }
+                  const redirectTo = encodeURIComponent(window.location.origin + '/oauth/callback')
+                  // Redirect to Supabase OAuth authorize endpoint
+                  window.location.href = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}`
+                }}
+                className="group w-full mt-1 py-3 rounded-xl border border-gray-600 bg-transparent text-white font-medium flex items-center justify-center gap-3 hover:bg-white/5 transition-colors"
+                disabled={loading || isSubmitting}
+                aria-label="Continue with Google"
+                title="Continue with Google"
+                style={{boxShadow: '0 1px 1px rgba(0,0,0,0.05)'}}
+              >
+                <i className="fab fa-google" aria-hidden="true" style={{fontSize: 18}} />
+                <span>Continue with Google</span>
+              </button>
+            </div>
             </form>
 
 

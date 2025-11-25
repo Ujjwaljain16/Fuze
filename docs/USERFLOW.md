@@ -5,13 +5,16 @@ Complete user journey and system flows for Fuze - Intelligent Bookmark Manager.
 ## Table of Contents
 
 1. [Complete User Onboarding Flow](#complete-user-onboarding-flow)
-2. [Bookmark Saving Flow](#bookmark-saving-flow)
-3. [Chrome Extension Import Flow](#chrome-extension-import-flow)
-4. [Content Analysis Flow](#content-analysis-flow)
-5. [Recommendation Generation Flow](#recommendation-generation-flow)
-6. [Project-Based Recommendations Flow](#project-based-recommendations-flow)
-7. [Search Flow](#search-flow)
-8. [Extension Authentication Flow](#extension-authentication-flow)
+2. [API Key Setup Flow](#api-key-setup-flow)
+3. [Bookmark Saving Flow](#bookmark-saving-flow)
+4. [Chrome Extension Import Flow](#chrome-extension-import-flow)
+5. [Content Analysis Flow](#content-analysis-flow)
+6. [Recommendation Generation Flow](#recommendation-generation-flow)
+7. [Project-Based Recommendations Flow](#project-based-recommendations-flow)
+8. [Search Flow](#search-flow)
+9. [LinkedIn Integration Flow](#linkedin-integration-flow)
+10. [Extension Authentication Flow](#extension-authentication-flow)
+11. [Task Management Flow](#task-management-flow)
 
 ---
 
@@ -75,6 +78,53 @@ flowchart TD
     style OnboardingStep2 fill:#cd853f
     style OnboardingStep3 fill:#cd853f
 ```
+
+---
+
+## API Key Setup Flow
+
+This shows how users set up their Gemini API key for AI-powered features.
+
+```mermaid
+flowchart TD
+    Start([User needs AI features]) --> CheckAPIKey{API Key Set?}
+
+    CheckAPIKey -->|No| VisitProfile[Visit Profile Settings]
+    VisitProfile --> ClickAddKey[Click 'Add API Key']
+    ClickAddKey --> ShowInstructions[Show Gemini API Setup Instructions]
+    ShowInstructions --> UserGetsKey[User gets API key from Google AI Studio]
+    UserGetsKey --> EnterKey[User enters API key in form]
+    EnterKey --> ValidateKey{Valid Format?}
+
+    ValidateKey -->|No| ShowError[Show format error]
+    ShowError --> EnterKey
+
+    ValidateKey -->|Yes| SubmitKey[POST /api/user/api-key]
+    SubmitKey --> TestKey[Test key with Gemini API]
+    TestKey --> TestSuccess{Success?}
+
+    TestSuccess -->|No| ShowTestError[Show test error message]
+    ShowTestError --> EnterKey
+
+    TestSuccess -->|Yes| SaveKey[Save encrypted key to database]
+    SaveKey --> MarkOnboarding[Mark API key onboarding complete]
+    MarkOnboarding --> EnableFeatures[Enable AI features in UI]
+
+    CheckAPIKey -->|Yes| EnableFeatures
+
+    EnableFeatures --> End([User can use AI features])
+
+    style Start fill:#4a90e2
+    style EnableFeatures fill:#50c878
+    style ShowInstructions fill:#cd853f
+```
+
+**Key Features**:
+- API key encryption at rest
+- Per-user key isolation
+- Rate limiting per user
+- Automatic key validation
+- Fallback to demo mode if no key
 
 ---
 
@@ -401,6 +451,105 @@ flowchart TD
     style GenerateQueryEmbedding fill:#cd853f
     style VectorSearch fill:#cd853f
 ```
+
+---
+
+## LinkedIn Integration Flow
+
+This shows how users extract and analyze LinkedIn content.
+
+```mermaid
+flowchart TD
+    Start([User wants to analyze LinkedIn content]) --> CheckAuth{Authenticated?}
+
+    CheckAuth -->|No| AuthRequired[Show authentication required]
+    AuthRequired --> End1([Cannot proceed])
+
+    CheckAuth -->|Yes| ChooseMethod{Extraction Method}
+
+    ChooseMethod -->|Single Post| EnterURL[Enter LinkedIn post URL]
+    ChooseMethod -->|Batch Extract| SelectProfile[Select LinkedIn profile]
+
+    EnterURL --> ExtractSingle[POST /api/linkedin/extract]
+    SelectProfile --> ExtractBatch[POST /api/linkedin/batch-extract]
+
+    ExtractSingle --> Processing[Content processing and analysis]
+    ExtractBatch --> Processing
+
+    Processing --> ShowResults[Display extracted content and analysis]
+    ShowResults --> SaveOption{Save to Bookmarks?}
+
+    SaveOption -->|Yes| SaveBookmark[POST /api/linkedin/save-to-bookmarks]
+    SaveOption -->|No| ViewOnly[View extracted content only]
+
+    SaveBookmark --> BookmarkCreated[Bookmark created with analysis]
+    BookmarkCreated --> End2([Content saved])
+
+    ViewOnly --> End3([Content viewed])
+
+    style Start fill:#4a90e2
+    style ShowResults fill:#50c878
+    style Processing fill:#cd853f
+```
+
+**Features**:
+- Single post extraction
+- Batch profile extraction
+- Content analysis with AI
+- Save to bookmarks integration
+- Extraction history tracking
+
+---
+
+## Task Management Flow
+
+This shows how users create and manage project tasks with AI assistance.
+
+```mermaid
+flowchart TD
+    Start([User needs to break down project]) --> ChooseProject[Select existing project]
+
+    ChooseProject --> DescribeTask[Describe task in natural language]
+    DescribeTask --> UseAIBreakdown{Use AI Breakdown?}
+
+    UseAIBreakdown -->|Yes| SubmitToAI[POST /api/tasks/ai-breakdown]
+    UseAIBreakdown -->|No| ManualBreakdown[Manually create subtasks]
+
+    SubmitToAI --> AIProcessing[AI analyzes and breaks down task]
+    AIProcessing --> ShowSuggestions[Show AI-generated subtasks]
+    ShowSuggestions --> ReviewEdit{Review and Edit?}
+
+    ReviewEdit -->|Yes| ModifyTasks[Modify suggested tasks]
+    ReviewEdit -->|No| AcceptTasks[Accept AI suggestions]
+
+    ModifyTasks --> CreateTasks[Create tasks and subtasks]
+    AcceptTasks --> CreateTasks
+
+    ManualBreakdown --> CreateTasks
+
+    CreateTasks --> TaskCreated[Tasks created in database]
+    TaskCreated --> ManageTasks[User can update, complete tasks]
+    ManageTasks --> GetRecommendations{Get Task Recommendations?}
+
+    GetRecommendations -->|Yes| TaskRecs[POST /api/recommendations/task/<id>]
+    GetRecommendations -->|No| ContinueWork[Continue working]
+
+    TaskRecs --> ShowTaskRecs[Show relevant content recommendations]
+    ShowTaskRecs --> End1([Task completed with recommendations])
+
+    ContinueWork --> End2([Task management complete])
+
+    style Start fill:#4a90e2
+    style TaskCreated fill:#50c878
+    style AIProcessing fill:#cd853f
+```
+
+**Features**:
+- AI-powered task breakdown
+- Manual task creation
+- Subtask management
+- Task-based recommendations
+- Progress tracking
 
 ---
 

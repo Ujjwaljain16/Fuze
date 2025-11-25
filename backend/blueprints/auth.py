@@ -1,4 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
+import os
+import requests
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
     set_refresh_cookies, unset_jwt_cookies
@@ -499,6 +501,98 @@ def login_with_retry(identifier, password):
         logger.error(f"Login retry failed: {str(e)}", exc_info=True)
         return jsonify({'message': 'Login failed. Please try again.'}), 500
 
+
+@auth_bp.route('/set-password', methods=['POST'])
+@jwt_required()
+def set_password():
+    """Allow logged-in users (including those created via OAuth) to set or change their password.
+
+    Request JSON: { "current_password": "..." (optional if no password set), "new_password": "..." }
+    """
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'message': 'User not found'}), 404
+
+        data = request.get_json() or {}
+        new_password = data.get('new_password')
+        current_password = data.get('current_password')
+
+        if not new_password:
+            return jsonify({'message': 'New password is required'}), 400
+
+        # If user has a password hash, require current_password to match
+        if user.password_hash:
+            if not current_password:
+                return jsonify({'message': 'Current password required'}), 400
+            if not check_password_hash(user.password_hash, current_password):
+                return jsonify({'message': 'Current password is incorrect'}), 401
+
+        # Validate new password strength
+        is_valid, error_msg = validate_password_strength(new_password)
+        if not is_valid:
+            return jsonify({'message': error_msg}), 400
+
+        user.password_hash = generate_password_hash(new_password)
+        db.session.add(user)
+        db.session.commit()
+        return jsonify({'message': 'Password updated successfully'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Set password error: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to update password'}), 500
+
+
+@auth_bp.route('/update-username', methods=['POST'])
+@jwt_required()
+def update_username():
+    """Allow logged-in users to change their username with uniqueness checks.
+
+    Request JSON: { "new_username": "..." }
+    """
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'message': 'User not found'}), 404
+
+        data = request.get_json() or {}
+        new_username = data.get('new_username', '').strip()
+        if not new_username:
+            return jsonify({'message': 'New username is required'}), 400
+
+        # Validate format
+        if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', new_username):
+            return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
+
+        # Check availability
+        is_available, exact_match, case_insensitive_match = check_username_availability(new_username)
+        if not is_available:
+            suggestions = generate_username_suggestions(new_username, 3)
+            response = {'message': 'Username already exists', 'suggestions': suggestions}
+            if case_insensitive_match and case_insensitive_match != new_username:
+                response['case_insensitive_conflict'] = case_insensitive_match
+            return jsonify(response), 409
+
+        # Update username
+        try:
+            user.username = new_username
+            db.session.add(user)
+            db.session.commit()
+            return jsonify({'message': 'Username updated successfully', 'username': new_username}), 200
+        except IntegrityError as e:
+            db.session.rollback()
+            # Race condition - someone took it; return suggestion
+            suggestions = generate_username_suggestions(new_username, 3)
+            return jsonify({'message': 'Username already exists', 'suggestions': suggestions}), 409
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Update username error: {e}", exc_info=True)
+        return jsonify({'message': 'Failed to update username'}), 500
+
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
@@ -545,6 +639,140 @@ def verify_token_status():
             'email': user.email
         }
     }), 200
+
+@auth_bp.route('/supabase-oauth', methods=['POST'])
+@retry_on_connection_error(max_retries=1, delay=1.0)
+def supabase_oauth():
+    """Exchange a Supabase OAuth access token for a local application session.
+
+    Frontend should POST JSON: { "access_token": "..." }
+    The endpoint verifies the token with Supabase's `/auth/v1/user` endpoint,
+    then creates or finds a local `User` and issues local JWT tokens.
+    """
+    try:
+        data = request.get_json() or {}
+        access_token = data.get('access_token')
+        if not access_token:
+            return jsonify({'message': 'access_token is required'}), 400
+
+        SUPABASE_URL = os.environ.get('SUPABASE_URL')
+        if not SUPABASE_URL:
+            return jsonify({'message': 'Supabase not configured'}), 503
+
+        # Call Supabase to get user info
+        user_info_url = SUPABASE_URL.rstrip('/') + '/auth/v1/user'
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'apikey': os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+        }
+
+        resp = requests.get(user_info_url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(f"Supabase token verification failed: {resp.status_code} {resp.text}")
+            return jsonify({'message': 'Invalid Supabase token'}), 401
+
+        supa_user = resp.json()
+        email = supa_user.get('email') or supa_user.get('user', {}).get('email')
+        name = supa_user.get('user', {}).get('user_metadata', {}).get('full_name') if isinstance(supa_user.get('user'), dict) else None
+
+        if not email:
+            return jsonify({'message': 'Unable to determine user email from Supabase'}), 400
+
+        # Find or create local user
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            # generate a username from email
+            base_username = email.split('@')[0]
+            username = base_username
+            # Ensure username uniqueness
+            i = 1
+            while User.query.filter_by(username=username).first():
+                username = f"{base_username}{i}"
+                i += 1
+
+            # Create a random password hash placeholder
+            random_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=24))
+            pw_hash = generate_password_hash(random_pw)
+
+            provider_id = supa_user.get('id') or (supa_user.get('user') or {}).get('id')
+            user = User(
+                username=username,
+                email=email,
+                password_hash=pw_hash,
+                user_metadata={'supabase_user_id': provider_id},
+                provider_name='google',
+                provider_user_id=provider_id
+            )
+            try:
+                db.session.add(user)
+                db.session.commit()
+            except IntegrityError as e:
+                # Handle race condition where another request created the user concurrently
+                db.session.rollback()
+                err_text = str(e).lower()
+                logger.warning(f"IntegrityError creating user for supabase oauth: {e}")
+                # If email already exists, fetch that user and continue
+                try:
+                    existing = User.query.filter_by(email=email).first()
+                    if existing:
+                        user = existing
+                    else:
+                        # As a fallback try by provider_user_id if available
+                        prov_id = supa_user.get('id') or (supa_user.get('user') or {}).get('id')
+                        if prov_id:
+                            existing = User.query.filter_by(provider_user_id=prov_id).first()
+                            if existing:
+                                user = existing
+                            else:
+                                logger.error("IntegrityError but could not find existing user to recover")
+                                return jsonify({'message': 'Failed to create user account'}), 500
+                        else:
+                            logger.error("IntegrityError and no provider id to recover user")
+                            return jsonify({'message': 'Failed to create user account'}), 500
+                except Exception as qerr:
+                    db.session.rollback()
+                    logger.error(f"Error recovering from IntegrityError: {qerr}")
+                    return jsonify({'message': 'Failed to create user account'}), 500
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Failed to create user for supabase oauth: {e}")
+                return jsonify({'message': 'Failed to create user account'}), 500
+
+        else:
+            # If user exists but provider info missing, update it
+            try:
+                provider_id = supa_user.get('id') or (supa_user.get('user') or {}).get('id')
+                updated = False
+                if not getattr(user, 'provider_user_id', None) and provider_id:
+                    user.provider_user_id = provider_id
+                    updated = True
+                if not getattr(user, 'provider_name', None):
+                    user.provider_name = 'google'
+                    updated = True
+                if updated:
+                    db.session.add(user)
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # Issue local JWT tokens and set refresh cookie
+        access = create_access_token(identity=str(user.id))
+        refresh = create_refresh_token(identity=str(user.id))
+
+        response = jsonify({
+            'access_token': access,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email
+            }
+        })
+        set_refresh_cookies(response, refresh)
+        return response, 200
+
+    except Exception as e:
+        logger.error(f"Supabase OAuth error: {e}", exc_info=True)
+        return jsonify({'message': 'OAuth sign-in failed'}), 500
 
 # Note: OPTIONS requests are automatically handled by flask-cors
 # No manual OPTIONS handlers needed - they can cause conflicts 

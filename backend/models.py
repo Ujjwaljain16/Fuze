@@ -22,6 +22,7 @@ def configure_database():
         
         # Ensure user_metadata column exists (migration helper)
         ensure_user_metadata_column()
+        ensure_provider_columns()
         
         return True
     except Exception as e:
@@ -61,6 +62,37 @@ def ensure_user_metadata_column():
         except:
             pass
 
+    def ensure_provider_columns():
+        """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(db.engine)
+            columns = [col['name'] for col in inspector.get_columns('users')]
+            # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
+            stmts = []
+            if 'provider_name' not in columns:
+                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
+            if 'provider_user_id' not in columns:
+                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
+
+            for s in stmts:
+                try:
+                    db.session.execute(text(s))
+                    db.session.commit()
+                except Exception as e:
+                    # If column was added by a concurrent process, ignore
+                    err = str(e).lower()
+                    if 'already exists' in err or 'duplicate' in err:
+                        db.session.rollback()
+                    else:
+                        raise
+        except Exception as e:
+            print(f"Note: Could not ensure provider columns: {e}")
+            try:
+                db.session.rollback()
+            except:
+                pass
+
 class Base(db.Model):
     __abstract__ = True
     def to_dict(self):
@@ -76,6 +108,9 @@ class User(Base):
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
     user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted) - renamed from 'metadata' to avoid SQLAlchemy conflict
+    # OAuth provider info
+    provider_name = Column(String(50), nullable=True, index=True)
+    provider_user_id = Column(String(200), nullable=True, index=True)
     created_at = Column(DateTime, default=func.now())
 
     # Additional indexes for optimized username queries

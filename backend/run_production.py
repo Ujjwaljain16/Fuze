@@ -47,7 +47,6 @@ except ImportError:
 # Configure production logging first with UTC timezone
 import logging.handlers
 from logging import Formatter
-import time
 
 class UTCFormatter(Formatter):
     """Formatter that converts timestamps to UTC"""
