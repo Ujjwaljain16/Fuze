@@ -201,17 +201,9 @@ sequenceDiagram
 | `GET` | `/api/recommendations/project/<id>` | ✅ | Get project recommendations |
 | `POST` | `/api/recommendations/task/<id>` | ✅ | Task-based recommendations |
 | `POST` | `/api/recommendations/subtask/<id>` | ✅ | Subtask-based recommendations |
-| `POST` | `/api/recommendations/smart-recommendations` | ✅ | Smart recommendations |
 | `POST` | `/api/recommendations/enhanced` | ✅ | Enhanced recommendations |
-| `POST` | `/api/recommendations/enhanced-project/<id>` | ✅ | Enhanced project recommendations |
-| `GET` | `/api/recommendations/enhanced-status` | ✅ | Get enhanced engine status |
-| `POST` | `/api/recommendations/phase3/recommendations` | ✅ | Phase 3 recommendations |
-| `POST` | `/api/recommendations/phase3/feedback` | ✅ | Phase 3 feedback |
-| `GET` | `/api/recommendations/phase3/insights` | ✅ | Phase 3 insights |
-| `GET` | `/api/recommendations/phase3/health` | ✅ | Phase 3 health status |
 | `GET` | `/api/recommendations/status` | ✅ | Get engine status |
 | `GET` | `/api/recommendations/phase-status` | ✅ | Get phase status |
-| `GET` | `/api/recommendations/performance-metrics` | ✅ | Get performance metrics |
 | `POST` | `/api/recommendations/cache/clear` | ✅ | Clear recommendation cache |
 | `POST` | `/api/recommendations/cache/clear-context` | ✅ | Clear context cache |
 | `POST` | `/api/recommendations/cache/clear-all-recommendations` | ✅ | Clear all recommendation cache |
@@ -220,18 +212,6 @@ sequenceDiagram
 | `POST` | `/api/recommendations/analysis/start-background` | ✅ | Start background analysis |
 | `POST` | `/api/recommendations/analysis/batch-analyze` | ✅ | Batch analyze content |
 | `POST` | `/api/recommendations/feedback` | ✅ | Submit recommendation feedback |
-| `GET` | `/api/recommendations/user-preferences` | ✅ | Get user preferences |
-| `GET` | `/api/recommendations/learning-insights` | ✅ | Get learning insights |
-| `POST` | `/api/recommendations/discover` | ✅ | Discover recommendations |
-| `GET` | `/api/recommendations/similar/<id>` | ✅ | Get similar content |
-| `POST` | `/api/recommendations/ultra-fast` | ✅ | Ultra-fast recommendations |
-| `POST` | `/api/recommendations/ultra-fast-project/<id>` | ✅ | Ultra-fast project recommendations |
-| `GET` | `/api/recommendations/gemini-status` | ✅ | Get Gemini AI status |
-| `GET` | `/api/recommendations/suggested-contexts` | ✅ | Get suggested contexts |
-| `GET` | `/api/recommendations/recent-contexts` | ✅ | Get recent contexts |
-| `POST` | `/api/recommendations/learning-path-recommendations` | ✅ | Learning path recommendations |
-| `POST` | `/api/recommendations/project-recommendations` | ✅ | Project recommendations |
-| `POST` | `/api/recommendations/phase3/contextual` | ✅ | Phase 3 contextual recommendations |
 
 **Unified Orchestrator Request**:
 ```json
@@ -275,7 +255,6 @@ sequenceDiagram
 |--------|----------|------|-------------|
 | `POST` | `/api/search/semantic` | ✅ | Semantic search (vector similarity) |
 | `GET` | `/api/search/text` | ✅ | Text search (keyword-based) |
-| `POST` | `/api/search/supabase-semantic` | ✅ | Supabase semantic search |
 
 **Semantic Search Request**:
 ```json
@@ -636,76 +615,6 @@ graph TB
 
 ---
 
-## Best Practices
-
-### 1. Authentication
-- Always include `Authorization: Bearer {token}` header
-- Refresh token before expiration
-- Handle 401 errors gracefully (redirect to login)
-
-### 2. Error Handling
-- Check status codes before processing response
-- Display user-friendly error messages
-- Log errors for debugging
-
-### 3. Rate Limiting
-- Implement exponential backoff on 429 errors
-- Cache responses when possible
-- Batch requests when applicable
-
-### 4. Performance
-- Use pagination for large datasets
-- Cache responses on client side
-- Use semantic search for better results
-
-### 5. Security
-- Never expose tokens in URLs
-- Use HTTPS in production
-- Validate all user inputs
-
----
-
-## Example Usage
-
-### Complete Flow: Save Bookmark → Get Recommendations
-
-```javascript
-// 1. Login
-const loginResponse = await fetch('/api/auth/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ username: 'user', password: 'pass' })
-});
-const { access_token } = await loginResponse.json();
-
-// 2. Save Bookmark
-const bookmarkResponse = await fetch('/api/bookmarks', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${access_token}`
-  },
-  body: JSON.stringify({
-    url: 'https://example.com/article',
-    title: 'Article Title'
-  })
-});
-
-// 3. Get Recommendations
-const recResponse = await fetch('/api/recommendations/unified-orchestrator', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${access_token}`
-  },
-  body: JSON.stringify({
-    user_input: 'I want to learn React',
-    context: 'general',
-    limit: 10
-  })
-});
-const recommendations = await recResponse.json();
-```
 
 ---
 Ujjwal Jain
