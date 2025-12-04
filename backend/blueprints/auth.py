@@ -14,10 +14,40 @@ import random
 import string
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
+import bcrypt
 
 logger = logging.getLogger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+# Optimized password hashing using bcrypt
+# Work factor 12 = ~300ms (perfect balance of security and performance)
+# bcrypt is memory-hard and industry standard
+BCRYPT_WORK_FACTOR = 12
+
+def hash_password(password):
+    """Generate bcrypt password hash - ~300ms, memory-hard, industry standard"""
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+    salt = bcrypt.gensalt(rounds=BCRYPT_WORK_FACTOR)
+    hashed = bcrypt.hashpw(password, salt)
+    return hashed.decode('utf-8')  # Store as string in database
+
+def verify_password(password_hash, password):
+    """Verify password against bcrypt hash - supports both bcrypt and old werkzeug hashes"""
+    if isinstance(password, str):
+        password = password.encode('utf-8')
+    
+    # Check if it's a bcrypt hash (starts with $2b$)
+    if password_hash.startswith('$2b$') or password_hash.startswith('$2a$') or password_hash.startswith('$2y$'):
+        # bcrypt hash - fast verification (~300ms)
+        if isinstance(password_hash, str):
+            password_hash = password_hash.encode('utf-8')
+        return bcrypt.checkpw(password, password_hash)
+    else:
+        # Legacy werkzeug hash - slow but maintain backward compatibility
+        # Users will be automatically migrated to bcrypt on next login
+        return check_password_hash(password_hash, password.decode('utf-8') if isinstance(password, bytes) else password)
 
 def validate_password_strength(password):
     """Validate password strength - production grade requirements"""
@@ -317,7 +347,7 @@ def register():
         
         # Create user with race condition protection
         try:
-            user = User(username=username, email=email, password_hash=generate_password_hash(password))
+            user = User(username=username, email=email, password_hash=hash_password(password))
             db.session.add(user)
             db.session.commit()
 
@@ -380,6 +410,9 @@ def verify_token():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     """Production-grade login endpoint with rate limiting and security"""
+    import time
+    start_time = time.time()
+    
     try:
         # Apply rate limiting (stricter for login)
         if hasattr(current_app, 'limiter') and current_app.limiter:
@@ -411,22 +444,34 @@ def login():
         if not identifier:
             return jsonify({'message': 'Invalid input format'}), 400
         
-        # Direct database query (SQLAlchemy connection pool handles connection management)
-        # Removed ensure_database_connection() call - it was causing worker timeouts
-        # The connection pool with pool_pre_ping=True already handles connection health checks
+        # Query user
         try:
             user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
         except Exception as db_error:
-            # Handle database connection errors immediately
             error_str = str(db_error).lower()
             if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
                 logger.error(f"Database connection error during login: {db_error}")
                 return jsonify({'message': 'Database connection failed. Please try again.'}), 503
-            raise  # Re-raise if it's not a connection error
-        if not user or not check_password_hash(user.password_hash, password):
-            # Log failed login attempt (but don't reveal which field was wrong)
-            logger.warning(f"Failed login attempt for identifier: {identifier[:3]}***")
+            raise
+        
+        if not user:
+            logger.warning(f"Failed login attempt - user not found: {identifier[:3]}***")
             return jsonify({'message': 'Invalid credentials'}), 401
+        
+        # Password verification
+        if not verify_password(user.password_hash, password):
+            logger.warning(f"Failed login attempt - invalid password for: {identifier[:3]}***")
+            return jsonify({'message': 'Invalid credentials'}), 401
+        
+        # Auto-migrate legacy passwords to bcrypt
+        if not user.password_hash.startswith('$2b$'):
+            try:
+                user.password_hash = hash_password(password)
+                db.session.commit()
+                logger.info(f"Password migrated to bcrypt for user {user.username}")
+            except Exception as migrate_error:
+                logger.warning(f"Password migration failed for {user.username}: {migrate_error}")
+                db.session.rollback()
         
         access_token = create_access_token(identity=str(user.id))
         refresh_token = create_refresh_token(identity=str(user.id))
@@ -443,7 +488,8 @@ def login():
         # Set refresh token in HTTP-only, secure cookie
         set_refresh_cookies(response, refresh_token)
         
-        logger.info(f"User logged in successfully: {user.username}")
+        total_time = (time.time() - start_time) * 1000
+        logger.info(f"User logged in successfully: {user.username} ({total_time:.0f}ms)")
         return response, 200
         
     except Exception as e:
@@ -473,7 +519,7 @@ def login_with_retry(identifier, password):
     def _login():
         # SQLAlchemy connection pool handles connection management
         user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
-        if not user or not check_password_hash(user.password_hash, password):
+        if not user or not verify_password(user.password_hash, password):
             return None
         return user
     

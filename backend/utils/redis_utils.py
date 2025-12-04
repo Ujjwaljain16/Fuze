@@ -11,30 +11,46 @@ import numpy as np
 from dotenv import load_dotenv
 load_dotenv()
 
+# Global connection pool (shared across instances)
+_redis_connection_pool = None
+_pool_lock = __import__('threading').Lock()
+
 class RedisCache:
-    """Redis cache utility for Fuze application"""
+    """Redis cache utility for Fuze application with connection pooling"""
     
     def __init__(self):
+        global _redis_connection_pool
+        
         # Check if REDIS_URL is provided (supports both redis:// and rediss:// for TLS)
         redis_url = os.environ.get('REDIS_URL')
         
         if redis_url:
             # Use REDIS_URL (supports TLS with rediss://)
             try:
-                # Create connection from URL
-                # Note: redis-py 5.0+ handles SSL automatically via rediss:// scheme
-                # No need to pass ssl parameters explicitly
-                self.redis_client = redis.from_url(
-                    redis_url,
-                    decode_responses=False,  # Keep binary for embeddings
-                    socket_connect_timeout=10,
-                    socket_timeout=10
-                )
+                # Create or reuse connection pool (thread-safe)
+                with _pool_lock:
+                    if _redis_connection_pool is None:
+                        _redis_connection_pool = redis.ConnectionPool.from_url(
+                            redis_url,
+                            decode_responses=False,  # Keep binary for embeddings
+                            socket_connect_timeout=10,
+                            socket_timeout=10,
+                            max_connections=20,  # Connection pool size
+                            socket_keepalive=True,
+                            socket_keepalive_options={
+                                1: 1,  # TCP_KEEPIDLE
+                                2: 1,  # TCP_KEEPINTVL  
+                                3: 3   # TCP_KEEPCNT
+                            }
+                        )
+                        ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
+                        print(f"Redis connection pool created ({ssl_status})")
+                
+                # Use connection from pool
+                self.redis_client = redis.Redis(connection_pool=_redis_connection_pool)
                 # Test connection
                 self.redis_client.ping()
                 self.connected = True
-                ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
-                print(f"Redis connected successfully via REDIS_URL ({ssl_status})")
             except Exception as e:
                 print(f"Redis connection via REDIS_URL failed: {e}")
                 self.connected = False
