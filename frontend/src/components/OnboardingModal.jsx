@@ -9,9 +9,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
   const [dontShowAgain, setDontShowAgain] = useState(false)
 
   useEffect(() => {
-    checkApiKeyStatus()
-    
-    // Listen for API key added event
+    // Listen for API key status from dashboard and API key added events
     const handleApiKeyAdded = () => {
       setHasApiKey(true)
       if (currentStep === 1) {
@@ -19,29 +17,23 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
       }
     }
     
-    window.addEventListener('apiKeyAdded', handleApiKeyAdded)
-    return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep])
-
-  const checkApiKeyStatus = async () => {
-    try {
-      // Use shorter timeout for non-critical status check
-      const response = await api.get('/api/user/api-key/status', { timeout: 10000 })
-      if (response.data?.has_api_key) {
-        setHasApiKey(true)
-        // Skip to extension step if API key is already set
-        if (currentStep === 1) {
-          setCurrentStep(2)
-        }
+    const handleApiKeyStatus = (event) => {
+      const hasKey = event.detail?.has_api_key || false
+      setHasApiKey(hasKey)
+      if (hasKey && currentStep === 1) {
+        setCurrentStep(2)
       }
-    } catch (error) {
-      // Silently fail - this is a non-critical check
-      console.warn('Error checking API key status (non-critical):', error.message)
-    } finally {
       setLoading(false)
     }
-  }
+    
+    window.addEventListener('apiKeyAdded', handleApiKeyAdded)
+    window.addEventListener('apiKeyStatus', handleApiKeyStatus)
+    return () => {
+      window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+      window.removeEventListener('apiKeyStatus', handleApiKeyStatus)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep])
 
   const handleSkip = () => {
     // If API key is required and not set, prevent skipping
@@ -64,9 +56,10 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
   }
 
   useEffect(() => {
-    // Re-check API key status when step changes
+    // API key status is received via event from dashboard
+    // No need to fetch again
     if (currentStep === 1) {
-      checkApiKeyStatus()
+      // Status will be updated via apiKeyStatus event
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep])
@@ -191,7 +184,7 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
                     )}
                   </p>
                   <button
-                    className={`inline-flex items-center space-x-2 ${forceApiKey ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border-red-500/20 hover:border-red-500/30' : 'text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/20 hover:border-cyan-500/30'} transition-colors text-sm px-4 py-3 rounded-lg border transition-all font-medium`}
+                    className={`inline-flex items-center space-x-2 ${forceApiKey ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border-red-500/20 hover:border-red-500/30' : 'text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/20 hover:border-cyan-500/30'} text-sm px-4 py-3 rounded-lg border transition-all font-medium`}
                     onClick={() => {
                       // Close modal and navigate to profile with API key required flag
                       window.location.href = '/profile?api_key_required=true'

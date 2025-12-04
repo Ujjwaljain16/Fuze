@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate, Link } from 'react-router-dom'
 import api from '../services/api'
@@ -43,18 +43,21 @@ const Dashboard = () => {
   // Use optimized hooks for resize and mouse tracking
   const { isMobile, isSmallMobile } = useResize({ mobile: 768, smallMobile: 480 })
   const mousePos = useMousePosition(true, 16) // Throttle to 16ms (60fps)
+  const fetchedRef = useRef(false) // Prevent double fetch in StrictMode
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !fetchedRef.current) {
+      fetchedRef.current = true
       fetchDashboardData()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  // Use Server-Sent Events for progress updates - LAZY INITIALIZATION
-  // Only open SSE streams AFTER dashboard data has loaded to avoid blocking
+  // Use Server-Sent Events for progress updates - ON-DEMAND ONLY
+  // SSE opens when bulk import/analysis is triggered, not on dashboard mount
+  // This is more efficient than polling - the import/analysis trigger will handle SSE
   useEffect(() => {
-    if (!isAuthenticated || !user?.id || loading) return // Wait for dashboard to load first
+    if (!isAuthenticated || !user?.id || loading) return
 
     const token = localStorage.getItem('token')
     if (!token) return
@@ -80,6 +83,8 @@ const Dashboard = () => {
         combinedEventSource.close()
       }
 
+      console.log('📡 Opening SSE stream - active work detected')
+
       // Use combined SSE endpoint - single connection for both import and analysis
       combinedEventSource = new EventSource(
         `${baseURL}/api/bookmarks/progress/stream?token=${encodeURIComponent(token)}`,
@@ -96,17 +101,12 @@ const Dashboard = () => {
           const message = JSON.parse(event.data)
           
           // Handle different message types
-          if (message.type === 'idle' && message.message?.includes('Closing connection')) {
+          if (message.type === 'idle_close' || message.type === 'timeout') {
+            console.log('🔌 SSE closed:', message.message)
             closedByIdle = true
             combinedEventSource.close()
             setImportProgress(null)
             setAnalysisProgress(null)
-            return
-          }
-          
-          if (message.type === 'timeout') {
-            console.warn('SSE stream timeout:', message.message)
-            combinedEventSource.close()
             return
           }
           
@@ -140,19 +140,15 @@ const Dashboard = () => {
       }
 
       combinedEventSource.onerror = (error) => {
-        // If connection was closed due to idle timeout, prevent automatic reconnection
+        // If connection was closed due to idle timeout, don't reconnect
         if (combinedEventSource.readyState === EventSource.CLOSED && closedByIdle) {
+          console.log('🔌 SSE closed by server (idle) - no reconnection')
           return
         }
 
-        // If connection closes but wasn't closed by idle, allow reconnection (might be network issue)
-        if (combinedEventSource.readyState === EventSource.CLOSED && !closedByIdle) {
-          // Reopen after a short delay if not closed by idle
-          setTimeout(() => {
-            if (!closedByIdle) {
-              openCombinedStream()
-            }
-          }, 2000)
+        // Network error - don't auto-reconnect, let polling handle it
+        if (combinedEventSource.readyState === EventSource.CLOSED) {
+          console.log('🔌 SSE connection closed')
           return
         }
         
@@ -165,24 +161,16 @@ const Dashboard = () => {
       }
     }
 
-    // Open combined stream initially (after dashboard loads)
-    openCombinedStream()
-
-    // Poll to check if stream needs to be reopened (e.g., if import starts after idle closure)
-    // Check every 5 seconds if stream is closed and reopen if needed
-    const checkAndReopenStream = setInterval(() => {
-      // If stream is closed but not due to idle, try to reopen
-      if (combinedEventSource && combinedEventSource.readyState === EventSource.CLOSED && !closedByIdle) {
-        openCombinedStream()
-      }
-    }, 5000) // Check every 5 seconds
+    // NOTE: SSE is NOT opened on mount anymore - it will be opened by:
+    // 1. Bulk import trigger (when user clicks "Import Bookmarks")
+    // 2. Analysis trigger (when background analysis starts)
+    // This prevents unnecessary polling and connections when idle
 
     // Cleanup on unmount or when auth changes
     return () => {
-      clearInterval(checkAndReopenStream)
       if (combinedEventSource) combinedEventSource.close()
     }
-  }, [isAuthenticated, user?.id, loading]) // Also depend on loading to delay until dashboard loads
+  }, [isAuthenticated, user?.id, loading])
 
   const fetchDashboardData = async () => {
     // Use AbortController to cancel requests if component unmounts
@@ -190,73 +178,38 @@ const Dashboard = () => {
     
     try {
       // Use Promise.allSettled to handle partial failures gracefully
-      // This prevents one slow request from blocking others
-      const results = await Promise.allSettled([
-        api.get('/api/bookmarks?per_page=5', { 
-          signal: abortController.signal,
-          timeout: 15000 // 15 seconds - should be fast with caching
-        }),
-        api.get('/api/projects', { 
-          signal: abortController.signal,
-          timeout: 15000
-        }),
-        api.get('/api/bookmarks/dashboard/stats', { 
-          signal: abortController.signal,
-          timeout: 15000
+      // REPLACED WITH: Single aggregated endpoint for faster loading
+      const response = await api.get('/api/dashboard/summary', {
+        signal: abortController.signal,
+        timeout: 15000
+      })
+      
+      if (response.data) {
+        const { recentBookmarks, recentProjects, stats, totalBookmarks, totalProjects } = response.data
+        setRecentBookmarks(recentBookmarks || [])
+        setRecentProjects(recentProjects || [])
+        setDashboardStats(stats || {
+          total_bookmarks: { value: 0, change: '0%', change_value: 0 },
+          active_projects: { value: 0, change: '0', change_value: 0 },
+          weekly_saves: { value: 0, change: '0%', change_value: 0 },
+          success_rate: { value: 0, change: '0%', change_value: 0 }
         })
-      ])
-      
-      // Handle each result independently
-      const [bookmarksResult, projectsResult, statsResult] = results
-      
-      // Process bookmarks
-      if (bookmarksResult.status === 'fulfilled') {
-        const bookmarksRes = bookmarksResult.value
-        setRecentBookmarks(bookmarksRes.data.bookmarks || [])
-        setStats(prev => ({
-          ...prev,
-          bookmarks: bookmarksRes.data.total || 0
-        }))
-      } else {
-        console.error('Failed to fetch bookmarks:', bookmarksResult.reason)
-        handleError(bookmarksResult.reason, 'bookmarks')
+        setStats({
+          bookmarks: totalBookmarks || 0,
+          projects: totalProjects || 0
+        })
       }
       
-      // Process projects
-      if (projectsResult.status === 'fulfilled') {
-        const projectsRes = projectsResult.value
-        setRecentProjects(projectsRes.data.projects?.slice(0, 3) || [])
-        setStats(prev => ({
-          ...prev,
-          projects: projectsRes.data.projects?.length || 0
-        }))
-      } else {
-        console.error('Failed to fetch projects:', projectsResult.reason)
-        handleError(projectsResult.reason, 'projects')
+      // Emit API key status event for other components (ProtectedRoute, App.jsx)
+      if (response.data?.apiKeyStatus) {
+        const apiKeyStatusEvent = new CustomEvent('apiKeyStatus', {
+          detail: { has_api_key: response.data.apiKeyStatus.has_api_key || false }
+        })
+        window.dispatchEvent(apiKeyStatusEvent)
       }
       
-      // Process stats
-      if (statsResult.status === 'fulfilled') {
-        const statsRes = statsResult.value
-        if (statsRes.data) {
-          setDashboardStats({
-            total_bookmarks: statsRes.data.total_bookmarks || { value: 0, change: '0%', change_value: 0 },
-            active_projects: statsRes.data.active_projects || { value: 0, change: '0', change_value: 0 },
-            weekly_saves: statsRes.data.weekly_saves || { value: 0, change: '0%', change_value: 0 },
-            success_rate: statsRes.data.success_rate || { value: 0, change: '0%', change_value: 0 }
-          })
-        }
-      } else {
-        console.error('Failed to fetch stats:', statsResult.reason)
-        handleError(statsResult.reason, 'dashboard stats')
-      }
-      
-      // Set loading to false after processing all results (even if some failed)
       setLoading(false)
-
-      // NOTE: Recommendations are now loaded only on the Recommendations page
-      // to avoid unnecessary API calls and rate limiting
-      // Users can navigate to /recommendations to see personalized suggestions
+      
     } catch (error) {
       // Handle main data loading error with user notification
       handleError(error, 'dashboard data')

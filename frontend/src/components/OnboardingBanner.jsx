@@ -12,41 +12,34 @@ const OnboardingBanner = () => {
   const [loading, setLoading] = useState(true)
   const [dismissed, setDismissed] = useState(false)
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      checkSetupStatus()
-    }
-  }, [isAuthenticated])
-
-  // Listen for API key added event to update status
+  // Listen for API key status from dashboard and API key added events
   useEffect(() => {
     if (!isAuthenticated) return
     
     const handleApiKeyAdded = () => {
-      checkSetupStatus()
+      setHasApiKey(true)
+      checkExtensionStatus()
+    }
+    
+    const handleApiKeyStatus = (event) => {
+      setHasApiKey(event.detail?.has_api_key || false)
+      checkExtensionStatus()
+      setLoading(false)
     }
     
     window.addEventListener('apiKeyAdded', handleApiKeyAdded)
-    return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+    window.addEventListener('apiKeyStatus', handleApiKeyStatus)
+    return () => {
+      window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+      window.removeEventListener('apiKeyStatus', handleApiKeyStatus)
+    }
   }, [isAuthenticated])
 
-  const checkSetupStatus = async () => {
-    try {
-      // Use shorter timeout for non-critical status check
-      const response = await api.get('/api/user/api-key/status', { timeout: 10000 })
-      setHasApiKey(response.data?.has_api_key || false)
-      
-      // Check if extension is installed (this would need to be implemented)
-      // For now, we'll check localStorage or a flag
-      const extensionInstalled = localStorage.getItem('extension_installed') === 'true'
-      setHasExtension(extensionInstalled)
-    } catch (error) {
-      // Silently fail - this is a non-critical check
-      console.warn('Error checking setup status (non-critical):', error.message)
-      setHasApiKey(false) // Default to false on error
-    } finally {
-      setLoading(false)
-    }
+  const checkExtensionStatus = () => {
+    // Check if extension is installed (this would need to be implemented)
+    // For now, we'll check localStorage or a flag
+    const extensionInstalled = localStorage.getItem('extension_installed') === 'true'
+    setHasExtension(extensionInstalled)
   }
 
   const handleDismiss = () => {

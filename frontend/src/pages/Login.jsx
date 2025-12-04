@@ -170,13 +170,13 @@ export default function FuzeAuth() {
           return;
         }
         const identifier = formData.email || formData.username;
+        
         const result = await login(identifier, formData.password);
+        
         if (result.success) {
           setSuccess('Logged in successfully! Redirecting to dashboard...');
-          // Wait a bit for auth state to update, then navigate
-          setTimeout(() => {
-            navigate('/dashboard');
-          }, 1000);
+          // Navigate immediately - no artificial delay
+          navigate('/dashboard');
         } else {
           setError(result.error || 'Login failed. Please try again.');
           setIsSubmitting(false);

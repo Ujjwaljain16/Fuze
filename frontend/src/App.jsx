@@ -47,39 +47,38 @@ function AppContent() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Check if onboarding should be shown
+  // Check if onboarding should be shown - listen for API key status from dashboard
   useEffect(() => {
     if (isAuthenticated && !loading) {
-      const checkAndShowOnboarding = async () => {
-        try {
-          // Check if user has API key (non-critical, use shorter timeout)
-          const api = (await import('./services/api')).default;
-          const response = await api.get('/api/user/api-key/status', { timeout: 10000 });
-          const hasApiKey = response.data?.has_api_key || false;
-          
-          // Show onboarding if:
-          // 1. User explicitly requested it (show_onboarding flag), OR
-          // 2. User doesn't have API key (regardless of completion status - they need to set it up)
-          const explicitRequest = localStorage.getItem('show_onboarding') === 'true';
-          const notCompleted = localStorage.getItem('onboarding_completed') !== 'true';
-          
-          // If user doesn't have API key, always show onboarding (reset completion if needed)
-          if (!hasApiKey && localStorage.getItem('onboarding_completed') === 'true') {
-            localStorage.removeItem('onboarding_completed');
-          }
-          
-          const shouldShow = explicitRequest || (!hasApiKey && notCompleted);
-          
-          setShowOnboarding(shouldShow);
-        } catch {
-          // If API check fails, fall back to explicit flag
-          const shouldShow = localStorage.getItem('show_onboarding') === 'true' && 
-                            localStorage.getItem('onboarding_completed') !== 'true';
-          setShowOnboarding(shouldShow);
+      const handleApiKeyStatus = (event) => {
+        const hasApiKey = event.detail?.has_api_key || false;
+        
+        // Show onboarding if:
+        // 1. User explicitly requested it (show_onboarding flag), OR
+        // 2. User doesn't have API key (regardless of completion status - they need to set it up)
+        const explicitRequest = localStorage.getItem('show_onboarding') === 'true';
+        const notCompleted = localStorage.getItem('onboarding_completed') !== 'true';
+        
+        // If user doesn't have API key, always show onboarding (reset completion if needed)
+        if (!hasApiKey && localStorage.getItem('onboarding_completed') === 'true') {
+          localStorage.removeItem('onboarding_completed');
         }
+        
+        const shouldShow = explicitRequest || (!hasApiKey && notCompleted);
+        setShowOnboarding(shouldShow);
       };
       
-      checkAndShowOnboarding();
+      // Listen for API key status event from dashboard
+      window.addEventListener('apiKeyStatus', handleApiKeyStatus);
+      
+      // Also check initial state from localStorage
+      const explicitRequest = localStorage.getItem('show_onboarding') === 'true';
+      const notCompleted = localStorage.getItem('onboarding_completed') !== 'true';
+      if (explicitRequest && notCompleted) {
+        setShowOnboarding(true);
+      }
+      
+      return () => window.removeEventListener('apiKeyStatus', handleApiKeyStatus);
     }
   }, [isAuthenticated, loading]);
 

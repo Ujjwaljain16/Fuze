@@ -6,34 +6,24 @@ import api from '../services/api'
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
-  const [hasApiKey, setHasApiKey] = useState(false)
+  const [hasApiKey, setHasApiKey] = useState(null)
 
-  // Check API key status when user is authenticated
-  useEffect(() => {
-    if (isAuthenticated && !loading) {
-      checkApiKeyStatus()
-    }
-  }, [isAuthenticated, loading])
-
-  const checkApiKeyStatus = async () => {
-    try {
-      const response = await api.get('/api/user/api-key/status')
-      setHasApiKey(response.data?.has_api_key || false)
-    } catch (error) {
-      console.error('Error checking API key status:', error)
-      // On error, assume no API key to be safe
-      setHasApiKey(false)
-    }
-  }
-
-  // Listen for API key added event
+  // Listen for API key status from dashboard or API key added event
   useEffect(() => {
     const handleApiKeyAdded = () => {
       setHasApiKey(true)
     }
 
+    const handleApiKeyStatus = (event) => {
+      setHasApiKey(event.detail?.has_api_key || false)
+    }
+
     window.addEventListener('apiKeyAdded', handleApiKeyAdded)
-    return () => window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+    window.addEventListener('apiKeyStatus', handleApiKeyStatus)
+    return () => {
+      window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
+      window.removeEventListener('apiKeyStatus', handleApiKeyStatus)
+    }
   }, [])
 
   // Don't show fullScreen loader here - let individual pages handle their own loading states
@@ -47,11 +37,14 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />
   }
   
-  // If checking API key, still render children - pages will show their own loaders
-  // This prevents blocking the page with a fullScreen loader
+  // If we haven't checked API key status yet (null), render children
+  // Dashboard will emit apiKeyStatus event after loading
+  if (hasApiKey === null) {
+    return children
+  }
 
   // If user is authenticated but doesn't have API key
-  if (!hasApiKey) {
+  if (hasApiKey === false) {
     // Allow access to profile page so they can set up API key
     if (location.pathname === '/profile') {
       return children
