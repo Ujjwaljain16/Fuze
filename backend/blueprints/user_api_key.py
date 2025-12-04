@@ -56,6 +56,17 @@ def add_api_key():
                 # Don't delete, just reload to get fresh encrypted key
                 api_manager.load_user_api_keys()
             
+            # CRITICAL: Clear cached API key status when key is added/updated
+            try:
+                from utils.redis_utils import RedisCache
+                redis_cache = RedisCache()
+                if redis_cache.connected:
+                    cache_key = f"api_key_status:{user_id}"
+                    redis_cache.redis_client.delete(cache_key)
+            except Exception as cache_error:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to clear cache: {cache_error}")
+            
             return jsonify({
                 'message': 'API key added successfully',
                 'user_id': user_id,
@@ -108,7 +119,7 @@ def remove_api_key():
     """Remove user's API key"""
     try:
         # Lazy import
-        _, _, _, _, api_manager = get_multi_user_api_manager()
+        _, _, _, get_user_api_key, api_manager = get_multi_user_api_manager()
 
         user_id = int(get_jwt_identity())
 
@@ -121,6 +132,22 @@ def remove_api_key():
         metadata = dict(user.user_metadata) if user.user_metadata else {}
 
         if 'api_key' in metadata:
+            # CRITICAL: Get the actual API key BEFORE deleting it
+            # so we can add it to the revocation list
+            try:
+                api_key = get_user_api_key(user_id)
+                
+                # Add to revocation list for immediate invalidation
+                if api_key:
+                    from services.api_key_revocation_manager import get_revocation_manager
+                    revocation_manager = get_revocation_manager()
+                    revocation_manager.revoke_api_key(api_key, user_id=user_id)
+            except Exception as e:
+                # Log but continue with deletion
+                import logging
+                logging.getLogger(__name__).warning(f"Could not revoke API key for user {user_id}: {e}")
+            
+            # Now delete from database
             del metadata['api_key']
             user.user_metadata = metadata
             
@@ -137,9 +164,20 @@ def remove_api_key():
             # Also remove from memory cache
             if user_id in api_manager.user_api_keys:
                 del api_manager.user_api_keys[user_id]
+            
+            # CRITICAL: Clear cached API key status when key is deleted
+            try:
+                from utils.redis_utils import RedisCache
+                redis_cache = RedisCache()
+                if redis_cache.connected:
+                    cache_key = f"api_key_status:{user_id}"
+                    redis_cache.redis_client.delete(cache_key)
+            except Exception as cache_error:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to clear cache: {cache_error}")
 
             return jsonify({
-                'message': 'API key removed successfully'
+                'message': 'API key removed and revoked successfully'
             }), 200
         else:
             return jsonify({
@@ -152,18 +190,39 @@ def remove_api_key():
 @user_api_key_bp.route('/api-key/status', methods=['GET'])
 @jwt_required()
 def get_api_key_status():
-    """Get user's API key status and usage statistics"""
+    """Get user's API key status and usage statistics (CACHED)"""
     try:
         # Lazy import
         _, get_user_api_stats, _, _, _ = get_multi_user_api_manager()
 
         user_id = int(get_jwt_identity())
 
-        # Get comprehensive API stats
+        # CRITICAL: Cache API key status to reduce DB hits
+        # Cache key: api_key_status:<user_id>
+        # TTL: 5 minutes (balance between freshness and performance)
+        from utils.redis_utils import RedisCache
+        redis_cache = RedisCache()
+        
+        cache_key = f"api_key_status:{user_id}"
+        
+        # Try to get from cache first
+        if redis_cache.connected:
+            try:
+                import json
+                cached_stats = redis_cache.redis_client.get(cache_key)
+                if cached_stats:
+                    # Return cached response
+                    return jsonify(json.loads(cached_stats)), 200
+            except Exception as cache_error:
+                # If cache fails, continue to DB
+                import logging
+                logging.getLogger(__name__).warning(f"Cache read failed: {cache_error}")
+
+        # Get comprehensive API stats from DB
         stats = get_user_api_stats(user_id)
 
         if not stats:
-            return jsonify({
+            response_data = {
                 'has_api_key': False,
                 'api_key_status': 'none',
                 'requests_today': 0,
@@ -172,9 +231,25 @@ def get_api_key_status():
                 'monthly_limit': 45000,
                 'can_make_request': False,
                 'message': 'No API key configured'
-            }), 200
+            }
+        else:
+            response_data = stats
+        
+        # Cache the response for 5 minutes (300 seconds)
+        if redis_cache.connected:
+            try:
+                import json
+                redis_cache.redis_client.setex(
+                    cache_key,
+                    300,  # 5 minutes TTL
+                    json.dumps(response_data)
+                )
+            except Exception as cache_error:
+                # Log but don't fail the request
+                import logging
+                logging.getLogger(__name__).warning(f"Cache write failed: {cache_error}")
 
-        return jsonify(stats), 200
+        return jsonify(response_data), 200
 
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500

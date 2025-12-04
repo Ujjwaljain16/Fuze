@@ -115,6 +115,14 @@ class MultiUserAPIManager:
                 self.logger.error(f"Invalid API key format for user {user_id}")
                 return False
             
+            # If user is re-adding a key, remove it from revocation list
+            try:
+                from services.api_key_revocation_manager import get_revocation_manager
+                revocation_manager = get_revocation_manager()
+                revocation_manager.remove_from_revocation_list(api_key)
+            except Exception as e:
+                self.logger.warning(f"Could not remove from revocation list: {e}")
+            
             # Encrypt the API key for storage
             encrypted_key = self.encrypt_api_key(api_key)
             # Also hash for verification
@@ -147,15 +155,27 @@ class MultiUserAPIManager:
     def get_user_api_key(self, user_id: int) -> Optional[str]:
         """Get user's API key (decrypted, returns None if not found)"""
         try:
+            # Import revocation manager
+            from services.api_key_revocation_manager import get_revocation_manager
+            revocation_manager = get_revocation_manager()
+            
             # Check if user has API key in memory
             if user_id in self.user_api_keys:
                 user_api_key = self.user_api_keys[user_id]
                 if user_api_key.status == APIKeyStatus.ACTIVE:
-                    # Decrypt and return the key
+                    # Decrypt the key
                     if hasattr(user_api_key, 'encrypted_key'):
                         decrypted = self.decrypt_api_key(user_api_key.encrypted_key)
                         if decrypted:
-                            return decrypted
+                            # CRITICAL: Check revocation list BEFORE returning cached key
+                            if revocation_manager.is_api_key_revoked(decrypted):
+                                self.logger.warning(f"Cached API key for user {user_id} is revoked")
+                                # Remove from cache
+                                del self.user_api_keys[user_id]
+                                # Fall through to DB check
+                            else:
+                                # Key is valid and not revoked
+                                return decrypted
             
             # Try loading from database (refresh to get latest data)
             user = db.session.query(User).filter_by(id=user_id).first()
@@ -167,6 +187,12 @@ class MultiUserAPIManager:
                     if api_key_info and api_key_info.get('encrypted'):
                         decrypted = self.decrypt_api_key(api_key_info['encrypted'])
                         if decrypted:
+                            # CRITICAL: Check revocation list BEFORE caching/returning
+                            if revocation_manager.is_api_key_revoked(decrypted):
+                                self.logger.warning(f"DB API key for user {user_id} is revoked but not yet removed")
+                                # Don't cache or return it
+                                return os.environ.get('GEMINI_API_KEY')
+                            
                             # Cache in memory (update or create)
                             if user_id not in self.user_api_keys:
                                 self.user_api_keys[user_id] = UserAPIKey(
