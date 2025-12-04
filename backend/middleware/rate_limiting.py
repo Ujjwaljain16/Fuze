@@ -19,10 +19,10 @@ def init_rate_limiter(app):
         is_development = os.environ.get('FLASK_ENV', 'development') == 'development'
         
         if is_development:
-            # Development: Higher limits to avoid hitting rate limits during testing
-            default_limits = ["1000 per day", "200 per hour", "50 per minute"]
+            # Development: DISABLE rate limiting for testing/debugging
+            default_limits = ["100000 per day", "10000 per hour", "1000 per minute"]
         else:
-            # Production: Increased limits for better user experience
+            # Production: Reasonable limits for better user experience
             default_limits = ["1000 per day", "200 per hour", "50 per minute"]
         
         # Try Redis first, fallback to memory if Redis is unavailable
