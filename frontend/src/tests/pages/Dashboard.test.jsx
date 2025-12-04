@@ -86,6 +86,31 @@ describe('Dashboard Page', () => {
           data: { has_api_key: true }
         })
       }
+      if (url.includes('/dashboard/summary')) {
+        return Promise.resolve({
+          data: {
+            profile: {
+              id: 1,
+              username: 'testuser',
+              email: 'test@example.com'
+            },
+            apiKeyStatus: {
+              has_api_key: true,
+              api_key_status: 'active'
+            },
+            stats: {
+              total_bookmarks: { value: 10, change: '+5%', change_value: 5 },
+              active_projects: { value: 3, change: '+1', change_value: 1 },
+              weekly_saves: { value: 7, change: '+2%', change_value: 2 },
+              success_rate: { value: 95, change: '+3%', change_value: 3 }
+            },
+            recentBookmarks: [],
+            recentProjects: [],
+            totalBookmarks: 10,
+            totalProjects: 3
+          }
+        })
+      }
       if (url.includes('/dashboard/stats')) {
         return Promise.resolve({
           data: {
@@ -118,45 +143,39 @@ describe('Dashboard Page', () => {
   it('renders dashboard with user data', async () => {
     renderDashboard()
     
-    // Wait for any API calls to be made (profile, bookmarks, or projects)
-    // The profile call should happen first during auth initialization
+    // Wait for dashboard summary API call
     await waitFor(() => {
       const apiCalls = api.get.mock.calls
-      const hasProfileCall = apiCalls.some(call => call[0] === '/api/profile')
-      const hasDashboardCalls = apiCalls.some(call => 
-        call && call[0] && (
-          call[0].includes('/bookmarks') || 
-          call[0].includes('/projects') ||
-          call[0].includes('/api/bookmarks') ||
-          call[0].includes('/api/projects')
-        )
+      const hasDashboardSummaryCall = apiCalls.some(call => 
+        call && call[0] && call[0].includes('/dashboard/summary')
       )
-      // Either profile was called (auth initialized) or dashboard calls were made
-      expect(hasProfileCall || hasDashboardCalls || apiCalls.length > 0).toBe(true)
+      const hasProfileCall = apiCalls.some(call => call[0] === '/api/profile')
+      // Either dashboard summary or profile was called
+      expect(hasDashboardSummaryCall || hasProfileCall || apiCalls.length > 0).toBe(true)
     }, { timeout: 15000 })
   })
 
   it('displays bookmarks stats', async () => {
     renderDashboard()
     
-    // Wait for bookmarks API call (will happen after auth initializes)
+    // Wait for dashboard summary API call which includes bookmarks data
     await waitFor(() => {
-      const hasBookmarksCall = api.get.mock.calls.some(call => 
-        call && call[0] && (call[0].includes('/bookmarks') || call[0].includes('/api/bookmarks'))
+      const hasDashboardCall = api.get.mock.calls.some(call => 
+        call && call[0] && call[0].includes('/dashboard/summary')
       )
-      expect(hasBookmarksCall).toBe(true)
+      expect(hasDashboardCall).toBe(true)
     }, { timeout: 15000 })
   })
 
   it('displays projects stats', async () => {
     renderDashboard()
     
-    // Wait for projects API call (will happen after auth initializes)
+    // Wait for dashboard summary API call which includes projects data
     await waitFor(() => {
-      const hasProjectsCall = api.get.mock.calls.some(call => 
-        call && call[0] && (call[0].includes('/projects') || call[0].includes('/api/projects'))
+      const hasDashboardCall = api.get.mock.calls.some(call => 
+        call && call[0] && call[0].includes('/dashboard/summary')
       )
-      expect(hasProjectsCall).toBe(true)
+      expect(hasDashboardCall).toBe(true)
     }, { timeout: 15000 })
   })
 
