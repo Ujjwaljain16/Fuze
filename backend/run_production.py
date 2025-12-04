@@ -24,10 +24,17 @@ from datetime import timedelta, datetime
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
-from flask_compress import Compress
 import numpy as np
 from utils.redis_utils import redis_cache
 import logging
+
+# Import Flask-Compress for response compression
+try:
+    from flask_compress import Compress
+    COMPRESS_AVAILABLE = True
+except ImportError:
+    logger.warning("Flask-Compress not available - install with: pip install flask-compress")
+    COMPRESS_AVAILABLE = False
 
 # Import Redis exceptions for error handling
 try:
@@ -100,6 +107,22 @@ try:
     from blueprints.feedback import feedback_bp
     from blueprints.profile import profile_bp
     from blueprints.search import search_bp
+    
+    # Import dashboard blueprint with error handling
+    dashboard_available = False
+    try:
+        from blueprints.dashboard import dashboard_bp
+        dashboard_available = True
+        logger.info("[OK] Dashboard blueprint imported successfully")
+    except ImportError as e:
+        logger.warning(f"[WARNING] Dashboard blueprint not available: {e}")
+        dashboard_available = False
+    except Exception as e:
+        logger.error(f"[ERROR] Dashboard blueprint import failed: {e}")
+        import traceback
+        logger.error(f"Dashboard blueprint traceback: {traceback.format_exc()}")
+        dashboard_available = False
+    
     # Import API manager with error handling
     api_manager_available = False
     try:
@@ -157,6 +180,8 @@ except ImportError as e:
     logger.warning(f"[WARNING] Some blueprints not available: {e}")
     recommendations_available = False
     linkedin_available = False
+    dashboard_available = False
+    api_manager_available = False
 
 # Import intent analysis components for production optimization
 try:
@@ -371,6 +396,13 @@ def create_app():
         app.register_blueprint(feedback_bp)
         app.register_blueprint(profile_bp)
         app.register_blueprint(search_bp)
+        
+        # Register dashboard blueprint if available
+        if dashboard_available:
+            app.register_blueprint(dashboard_bp)
+            logger.info("[OK] Dashboard blueprint registered")
+        else:
+            logger.warning("[WARNING] Dashboard blueprint not registered")
         
         # Register recommendations blueprint if available
         if recommendations_available:

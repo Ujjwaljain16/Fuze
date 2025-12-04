@@ -1225,9 +1225,70 @@ def get_analysis_progress():
 
     return jsonify(progress), 200
 
+@bookmarks_bp.route('/progress/check', methods=['GET'])
+@jwt_required()
+def check_active_work():
+    """
+    Check if there's any active import/analysis/content-analysis work in progress
+    Returns hasActiveWork: true/false to determine if SSE connection is needed
+    
+    Checks:
+    1. Import progress (bulk import)
+    2. Analysis progress (background content analysis)
+    3. Pending unanalyzed content (queued for analysis)
+    """
+    user_id = int(get_jwt_identity())
+    
+    # Check Redis for active import or analysis
+    import_key = f"import_progress:{user_id}"
+    analysis_key = f"analysis_progress:{user_id}"
+    
+    import_progress = redis_cache.get(import_key)
+    analysis_progress = redis_cache.get(analysis_key)
+    
+    # Active work exists if either progress is running (not completed/error)
+    has_import_work = import_progress and import_progress.get('status') in ['processing', 'analyzing', 'in_progress']
+    has_analysis_work = analysis_progress and analysis_progress.get('status') == 'analyzing'
+    
+    # Also check if there's pending unanalyzed content (means analysis will start soon)
+    has_pending_analysis = False
+    if not has_analysis_work:  # Only check DB if no active analysis
+        try:
+            from models import SavedContent, ContentAnalysis
+            from sqlalchemy import select
+            
+            # Quick count of unanalyzed items for this user
+            analyzed_content_ids_subquery = select(ContentAnalysis.content_id).subquery()
+            analyzed_content_ids_select = select(analyzed_content_ids_subquery.c.content_id)
+            unanalyzed_count = db.session.query(SavedContent).filter(
+                SavedContent.user_id == user_id,
+                ~SavedContent.id.in_(analyzed_content_ids_select),
+                SavedContent.extracted_text.isnot(None),
+                SavedContent.extracted_text != ''
+            ).limit(1).count()  # Just check if ANY exist, don't count all
+            
+            has_pending_analysis = unanalyzed_count > 0
+        except Exception as e:
+            logger.error(f"Error checking pending analysis: {e}")
+    
+    has_active_work = has_import_work or has_analysis_work or has_pending_analysis
+    
+    return jsonify({
+        'hasActiveWork': has_active_work,
+        'importActive': has_import_work,
+        'analysisActive': has_analysis_work,
+        'pendingAnalysis': has_pending_analysis
+    }), 200
+
 @bookmarks_bp.route('/progress/stream', methods=['GET'])
 def stream_combined_progress():
-    """Combined Server-Sent Events stream for both import and analysis progress"""
+    """Combined Server-Sent Events stream for both import and analysis progress
+    
+    FIXED: Proper heartbeat mechanism to prevent browser reconnections
+    - Sends heartbeat every 15 seconds to keep connection alive
+    - Closes after 10 seconds of NO activity (no progress updates)
+    - Compatible with serverless environments (max 30 min connection)
+    """
     from flask import Response, stream_with_context, request
     from flask_jwt_extended import decode_token
     import json
@@ -1257,18 +1318,22 @@ def stream_combined_progress():
         last_import_status = None
         last_analysis_status = None
         start_time = time.time()
-        max_connection_time = 1800  # 30 minutes maximum
-        idle_timeout = 10  # Close connection after 10 seconds of no activity (reduced from 30s)
-        last_activity = time.time()
-        heartbeat_interval = 15  # Send heartbeat every 15 seconds
+        max_connection_time = 1800  # 30 minutes maximum (serverless limit)
+        # REMOVED idle_timeout - keep connection alive with heartbeats until client disconnects
+        heartbeat_interval = 15  # CRITICAL: Send heartbeat every 15 seconds
         last_heartbeat = time.time()
         consecutive_errors = 0
         max_errors = 5
         
+        # Send initial connection message
+        yield f"data: {json.dumps({'type': 'connected', 'message': 'SSE connection established'})}\n\n"
+        
         while True:
             try:
+                current_time = time.time()
+                
                 # Check if connection has been open too long
-                elapsed = time.time() - start_time
+                elapsed = current_time - start_time
                 if elapsed > max_connection_time:
                     yield f"data: {json.dumps({'type': 'timeout', 'message': 'Connection timeout - please refresh'})}\n\n"
                     break
@@ -1279,26 +1344,15 @@ def stream_combined_progress():
                 # Check if we have any active progress
                 has_activity = import_progress is not None or analysis_progress is not None
                 
-                if not has_activity:
-                    # No activity - check if we should close
-                    idle_elapsed = time.time() - last_activity
-                    if idle_elapsed > idle_timeout:
-                        # No activity for 10 seconds, close connection
-                        yield f"data: {json.dumps({'type': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
-                        break
-                    # Send heartbeat to keep connection alive
-                    if time.time() - last_heartbeat > heartbeat_interval:
-                        yield f": heartbeat\n\n"
-                        last_heartbeat = time.time()
-                else:
-                    # We have activity - reset idle timer
-                    last_activity = time.time()
+                if has_activity:
+                    # We have activity - reset error count
                     consecutive_errors = 0
                     
                     # Send import progress if changed
                     if import_progress != last_import_status:
                         yield f"data: {json.dumps({'type': 'import', 'data': import_progress})}\n\n"
                         last_import_status = import_progress
+                        last_heartbeat = current_time  # Reset heartbeat timer after data send
                         
                         # If import completed, wait a bit then continue
                         if import_progress and import_progress.get('status') == 'completed':
@@ -1308,8 +1362,22 @@ def stream_combined_progress():
                     if analysis_progress != last_analysis_status:
                         yield f"data: {json.dumps({'type': 'analysis', 'data': analysis_progress})}\n\n"
                         last_analysis_status = analysis_progress
+                        last_heartbeat = current_time  # Reset heartbeat timer after data send
+                
+                # CRITICAL: Send heartbeat comment to prevent browser reconnection
+                # Even when there's no data, we need to keep connection alive
+                heartbeat_elapsed = current_time - last_heartbeat
+                if heartbeat_elapsed >= heartbeat_interval:
+                    # Send heartbeat as SSE comment (browsers ignore but keeps connection alive)
+                    yield f": heartbeat at {int(current_time)}\n\n"
+                    last_heartbeat = current_time
                 
                 time.sleep(1)  # Check every second
+                
+            except GeneratorExit:
+                # Client disconnected - exit gracefully
+                logger.info(f"SSE client disconnected for user {user_id}")
+                break
             except Exception as e:
                 consecutive_errors += 1
                 logger.error(f"Error in combined progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
@@ -1321,16 +1389,16 @@ def stream_combined_progress():
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
                 time.sleep(2)
     
-    # SSE headers
+    # SSE headers - CRITICAL configuration
     import os
     headers = {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no',
-        'Transfer-Encoding': 'chunked',
+        'X-Accel-Buffering': 'no',  # Disable nginx buffering
     }
     
+    # HuggingFace Space specific headers
     if os.environ.get('HUGGINGFACE_SPACE') or 'hf.space' in request.host:
         headers['X-Content-Type-Options'] = 'nosniff'
         headers['X-No-Buffering'] = '1'
