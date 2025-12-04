@@ -2,7 +2,6 @@
 Unit tests for authentication blueprint
 """
 import pytest
-from werkzeug.security import check_password_hash
 
 @pytest.mark.unit
 class TestAuth:

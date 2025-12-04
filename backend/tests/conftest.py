@@ -152,7 +152,7 @@ def auth_headers(client, test_user):
 def test_user(app):
     """Create a test user"""
     from models import db, User
-    from werkzeug.security import generate_password_hash
+    from blueprints.auth import hash_password
     import uuid
     
     with app.app_context():
@@ -172,7 +172,7 @@ def test_user(app):
         user = User(
             username=username,
             email=email,
-            password_hash=generate_password_hash('testpass123')
+            password_hash=hash_password('testpass123')
         )
         db.session.add(user)
         db.session.commit()

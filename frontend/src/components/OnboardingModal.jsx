@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { X, Key, Download, CheckCircle, ArrowRight, ExternalLink, Sparkles, AlertCircle } from 'lucide-react'
-import api from '../services/api'
 
 const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
   const [currentStep, setCurrentStep] = useState(1)
@@ -32,7 +31,6 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
       window.removeEventListener('apiKeyAdded', handleApiKeyAdded)
       window.removeEventListener('apiKeyStatus', handleApiKeyStatus)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep])
 
   const handleSkip = () => {
@@ -61,7 +59,6 @@ const OnboardingModal = ({ onComplete, forceApiKey = false }) => {
     if (currentStep === 1) {
       // Status will be updated via apiKeyStatus event
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep])
 
   if (loading) {

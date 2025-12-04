@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User
-from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import IntegrityError
 import logging
 
@@ -158,12 +157,15 @@ def change_password(user_id):
     if not current_password or not new_password:
         return jsonify({'message': 'Current password and new password are required'}), 400
     
-    # Verify current password
-    if not check_password_hash(user.password_hash, current_password):
+    # Import bcrypt functions from auth blueprint
+    from blueprints.auth import verify_password, hash_password
+    
+    # Verify current password using bcrypt-compatible verification
+    if not verify_password(user.password_hash, current_password):
         return jsonify({'message': 'Current password is incorrect'}), 400
     
-    # Update password
-    user.password_hash = generate_password_hash(new_password)
+    # Update password using bcrypt
+    user.password_hash = hash_password(new_password)
     
     try:
         db.session.commit()

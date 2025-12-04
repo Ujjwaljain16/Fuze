@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { X, Key, Download, AlertCircle, ExternalLink, ArrowRight } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import api from '../services/api'
 
 const OnboardingBanner = () => {
   const { isAuthenticated } = useAuth()
