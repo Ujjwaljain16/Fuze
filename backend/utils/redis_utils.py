@@ -25,23 +25,38 @@ class RedisCache:
         redis_url = os.environ.get('REDIS_URL')
         
         if redis_url:
+            # Upstash and other cloud providers require TLS even with redis:// URLs
+            # Convert redis:// to rediss:// for Upstash
+            if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
+                redis_url = redis_url.replace('redis://', 'rediss://', 1)
+                print("Converted Upstash URL to use TLS (rediss://)")
+            
             # Use REDIS_URL (supports TLS with rediss://)
             try:
                 # Create or reuse connection pool (thread-safe)
                 with _pool_lock:
                     if _redis_connection_pool is None:
-                        _redis_connection_pool = redis.ConnectionPool.from_url(
-                            redis_url,
-                            decode_responses=False,  # Keep binary for embeddings
-                            socket_connect_timeout=10,
-                            socket_timeout=10,
-                            max_connections=20,  # Connection pool size
-                            socket_keepalive=True,
-                            socket_keepalive_options={
+                        # Parse URL to add SSL parameters for TLS connections
+                        pool_kwargs = {
+                            'decode_responses': False,  # Keep binary for embeddings
+                            'socket_connect_timeout': 10,
+                            'socket_timeout': 10,
+                            'max_connections': 20,  # Connection pool size
+                            'socket_keepalive': True,
+                            'socket_keepalive_options': {
                                 1: 1,  # TCP_KEEPIDLE
                                 2: 1,  # TCP_KEEPINTVL  
                                 3: 3   # TCP_KEEPCNT
                             }
+                        }
+                        
+                        # Add SSL parameters for rediss:// URLs
+                        if redis_url.startswith('rediss://'):
+                            pool_kwargs['ssl_cert_reqs'] = None  # Don't verify SSL certificates for Upstash
+                        
+                        _redis_connection_pool = redis.ConnectionPool.from_url(
+                            redis_url,
+                            **pool_kwargs
                         )
                         ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
                         print(f"Redis connection pool created ({ssl_status})")
