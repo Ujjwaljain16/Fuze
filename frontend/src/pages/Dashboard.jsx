@@ -36,8 +36,9 @@ const Dashboard = () => {
   const [recentBookmarks, setRecentBookmarks] = useState([])
   const [recentProjects, setRecentProjects] = useState([])
   const [loading, setLoading] = useState(true)
-  const [importProgress, setImportProgress] = useState(null)
-  const [analysisProgress, setAnalysisProgress] = useState(null)
+  // Progress indicators - setters not used as progress is managed by SSE/polling elsewhere
+  const [importProgress] = useState(null)
+  const [analysisProgress] = useState(null)
   const [viewMode, setViewMode] = useState('grid')
   
   // Use optimized hooks for resize and mouse tracking
@@ -52,41 +53,6 @@ const Dashboard = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
-
-  // Use Server-Sent Events for progress updates - ON-DEMAND ONLY
-  // SSE opens when bulk import/analysis is triggered, not on dashboard mount
-  // This is more efficient than polling - the import/analysis trigger will handle SSE
-  useEffect(() => {
-    if (!isAuthenticated || !user?.id || loading) return
-
-    const token = localStorage.getItem('token')
-    if (!token) return
-
-    // Get base URL for SSE (use same logic as api.js)
-    const getBaseURL = () => {
-      const isDevelopment = window.location.hostname === 'localhost' || 
-                           window.location.hostname === '127.0.0.1'
-      if (isDevelopment) {
-        return import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
-      } else {
-        return import.meta.env.VITE_API_URL
-      }
-    }
-
-    const baseURL = getBaseURL()
-    let combinedEventSource = null
-    let closedByIdle = false
-
-    // NOTE: SSE is NOT opened on mount anymore - it will be opened by:
-    // 1. Bulk import trigger (when user clicks "Import Bookmarks")
-    // 2. Analysis trigger (when background analysis starts)
-    // This prevents unnecessary polling and connections when idle
-
-    // Cleanup on unmount or when auth changes
-    return () => {
-      if (combinedEventSource) combinedEventSource.close()
-    }
-  }, [isAuthenticated, user?.id, loading])
 
   const fetchDashboardData = async () => {
     // Use AbortController to cancel requests if component unmounts
