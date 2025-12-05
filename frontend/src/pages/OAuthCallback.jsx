@@ -34,14 +34,21 @@ export default function OAuthCallback() {
         api.defaults.headers.common['Authorization'] = `Bearer ${localAccessToken}`
 
         // Fetch user profile to ensure user data is loaded before navigation
-        await api.get('/api/profile')
+        try {
+          await api.get('/api/profile')
+          console.log('Profile fetched successfully after OAuth')
+        } catch (profileErr) {
+          console.error('Failed to fetch profile after OAuth:', profileErr)
+          // Continue anyway - AuthContext will handle it
+        }
 
         // Dispatch custom event to notify app of login (triggers API key check)
         window.dispatchEvent(new CustomEvent('userLoggedIn'))
 
         // Small delay to let event propagate and AuthContext to update
-        await new Promise(resolve => setTimeout(resolve, 200))
+        await new Promise(resolve => setTimeout(resolve, 300))
 
+        console.log('Navigating to dashboard...')
         // Navigate to dashboard (user data is now loaded)
         navigate('/dashboard', { replace: true })
       } catch (err) {
