@@ -50,6 +50,19 @@ export const AuthProvider = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]) // Only depend on token, not user, to avoid loops
 
+  // Listen for OAuth login events to refresh token state
+  useEffect(() => {
+    const handleUserLoggedIn = () => {
+      const newToken = localStorage.getItem('token')
+      if (newToken && newToken !== token) {
+        setToken(newToken)
+      }
+    }
+
+    window.addEventListener('userLoggedIn', handleUserLoggedIn)
+    return () => window.removeEventListener('userLoggedIn', handleUserLoggedIn)
+  }, [token])
+
   const fetchUser = async (isInitialLoad = false) => {
     try {
       // Profile endpoint is now cached and optimized - should be fast

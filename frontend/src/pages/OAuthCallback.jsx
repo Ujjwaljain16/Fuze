@@ -33,6 +33,12 @@ export default function OAuthCallback() {
         // Update axios default header for immediate use
         api.defaults.headers.common['Authorization'] = `Bearer ${localAccessToken}`
 
+        // Dispatch custom event to notify app of login (triggers API key check)
+        window.dispatchEvent(new CustomEvent('userLoggedIn'))
+
+        // Small delay to let event propagate before navigation
+        await new Promise(resolve => setTimeout(resolve, 100))
+
         // Navigate to dashboard
         navigate('/dashboard')
       } catch (err) {

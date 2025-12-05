@@ -25,8 +25,8 @@ class RedisCache:
         redis_url = os.environ.get('REDIS_URL')
         
         if redis_url:
-            # Upstash and other cloud providers require TLS even with redis:// URLs
-            # Convert redis:// to rediss:// for Upstash
+            # Upstash requires TLS but provides redis:// URLs
+            # Convert redis:// to rediss:// (keep port 6379 - Upstash handles TLS on standard port)
             if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
                 redis_url = redis_url.replace('redis://', 'rediss://', 1)
                 print("Converted Upstash URL to use TLS (rediss://)")
