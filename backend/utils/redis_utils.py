@@ -3,6 +3,7 @@ import json
 import pickle
 import hashlib
 import os
+import ssl
 from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import numpy as np
@@ -50,9 +51,10 @@ class RedisCache:
                             }
                         }
                         
-                        # Add SSL parameters for rediss:// URLs
+                        # Add SSL parameters for rediss:// URLs (Upstash, Redis Cloud, etc.)
                         if redis_url.startswith('rediss://'):
-                            pool_kwargs['ssl_cert_reqs'] = None  # Don't verify SSL certificates for Upstash
+                            pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE  # Don't verify certificates
+                            pool_kwargs['ssl_check_hostname'] = False  # Don't verify hostname
                         
                         _redis_connection_pool = redis.ConnectionPool.from_url(
                             redis_url,
