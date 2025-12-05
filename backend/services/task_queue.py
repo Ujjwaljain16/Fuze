@@ -4,6 +4,7 @@ Handles asynchronous background job processing for bookmark content extraction
 """
 
 import os
+import ssl
 import logging
 from typing import Optional
 from rq import Queue, Connection, Retry
@@ -21,25 +22,30 @@ def get_redis_connection():
     redis_url = os.environ.get('REDIS_URL')
     
     if redis_url:
+        # Convert redis:// to rediss:// for Upstash TLS
+        if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
+            redis_url = redis_url.replace('redis://', 'rediss://', 1)
+            logger.info("Converted Upstash URL to use TLS (rediss://)")
+        
         # Use REDIS_URL if available
         try:
-            # Increase timeouts for cloud Redis (Upstash, etc.)
-            # Cloud Redis can have higher latency
-            return Redis.from_url(
-                redis_url,
-                decode_responses=False,
-                socket_connect_timeout=30,  # Increased from 10 to 30 seconds
-                socket_timeout=60,  # Increased from 30 to 60 seconds for long-running jobs
-                socket_keepalive=True,
-                socket_keepalive_options={
-                    1: 1,  # TCP_KEEPIDLE: 1 second
-                    2: 1,  # TCP_KEEPINTVL: 1 second
-                    3: 3   # TCP_KEEPCNT: 3 probes
-                },
-                health_check_interval=30,  # Check connection every 30 seconds
-                retry_on_timeout=True,  # Retry on timeout errors
-                retry_on_error=[ConnectionError, TimeoutError]  # Retry on these errors
-            )
+            # Base connection parameters
+            conn_params = {
+                'decode_responses': False,
+                'socket_connect_timeout': 30,
+                'socket_timeout': 60,
+                'socket_keepalive': True,
+                'health_check_interval': 30,
+                'retry_on_timeout': True,
+                'retry_on_error': [ConnectionError, TimeoutError]
+            }
+            
+            # Add SSL parameters for rediss:// URLs
+            if redis_url.startswith('rediss://'):
+                conn_params['ssl_cert_reqs'] = ssl.CERT_NONE
+                conn_params['ssl_check_hostname'] = False
+            
+            return Redis.from_url(redis_url, **conn_params)
         except Exception as e:
             logger.warning(f"Failed to create Redis connection from URL: {e}")
     
@@ -60,22 +66,18 @@ def get_redis_connection():
         'db': redis_db,
         'password': redis_password,
         'decode_responses': False,
-        'socket_connect_timeout': 30,  # Increased from 10 to 30 seconds for cloud Redis
-        'socket_timeout': 60,  # Increased from 30 to 60 seconds for long-running jobs
-        'socket_keepalive': True,  # Enable keepalive
-        'socket_keepalive_options': {
-            1: 1,  # TCP_KEEPIDLE: 1 second
-            2: 1,  # TCP_KEEPINTVL: 1 second
-            3: 3   # TCP_KEEPCNT: 3 probes
-        },
-        'health_check_interval': 30,  # Check connection every 30 seconds
-        'retry_on_timeout': True,  # Retry on timeout errors
-        'retry_on_error': [ConnectionError, TimeoutError]  # Retry on these errors
+        'socket_connect_timeout': 30,
+        'socket_timeout': 60,
+        'socket_keepalive': True,
+        'health_check_interval': 30,
+        'retry_on_timeout': True,
+        'retry_on_error': [ConnectionError, TimeoutError]
     }
     
     if use_ssl:
         connection_params['ssl'] = True
-        connection_params['ssl_cert_reqs'] = None
+        connection_params['ssl_cert_reqs'] = ssl.CERT_NONE
+        connection_params['ssl_check_hostname'] = False
     
     try:
         return Redis(**connection_params)
