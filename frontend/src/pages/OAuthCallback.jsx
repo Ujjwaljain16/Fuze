@@ -33,14 +33,17 @@ export default function OAuthCallback() {
         // Update axios default header for immediate use
         api.defaults.headers.common['Authorization'] = `Bearer ${localAccessToken}`
 
+        // Fetch user profile to ensure user data is loaded before navigation
+        await api.get('/api/profile')
+
         // Dispatch custom event to notify app of login (triggers API key check)
         window.dispatchEvent(new CustomEvent('userLoggedIn'))
 
-        // Small delay to let event propagate before navigation
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Small delay to let event propagate and AuthContext to update
+        await new Promise(resolve => setTimeout(resolve, 200))
 
-        // Navigate to dashboard
-        navigate('/dashboard')
+        // Navigate to dashboard (user data is now loaded)
+        navigate('/dashboard', { replace: true })
       } catch (err) {
         console.error('OAuth callback error', err)
         setError('OAuth sign-in failed. Please try again.')
