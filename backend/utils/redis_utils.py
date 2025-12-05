@@ -37,18 +37,13 @@ class RedisCache:
                 # Create or reuse connection pool (thread-safe)
                 with _pool_lock:
                     if _redis_connection_pool is None:
-                        # Parse URL to add SSL parameters for TLS connections
+                        # Base connection parameters
                         pool_kwargs = {
                             'decode_responses': False,  # Keep binary for embeddings
                             'socket_connect_timeout': 10,
                             'socket_timeout': 10,
                             'max_connections': 20,  # Connection pool size
-                            'socket_keepalive': True,
-                            'socket_keepalive_options': {
-                                1: 1,  # TCP_KEEPIDLE
-                                2: 1,  # TCP_KEEPINTVL  
-                                3: 3   # TCP_KEEPCNT
-                            }
+                            'socket_keepalive': True
                         }
                         
                         # Add SSL parameters for rediss:// URLs (Upstash, Redis Cloud, etc.)
