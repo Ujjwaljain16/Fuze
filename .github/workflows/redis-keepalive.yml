@@ -1,0 +1,42 @@
+name: Redis Keep-Alive Ping
+
+on:
+  # Run every 24 hours (at 00:00 UTC)
+  schedule:
+    - cron: '0 0 * * *'
+  
+  # Allow manual triggering from GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  ping-redis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install redis python-dotenv
+      
+      - name: Ping Redis
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        run: |
+          python scripts/ping_redis.py
+      
+      - name: Report status
+        if: always()
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "✅ Redis ping successful at $(date)"
+          else
+            echo "❌ Redis ping failed at $(date)"
+            exit 1
+          fi
