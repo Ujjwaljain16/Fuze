@@ -1,0 +1,42 @@
+name: Database Keep-Alive Ping
+
+on:
+  # Run every 6 hours (at 00:00, 06:00, 12:00, 18:00 UTC)
+  schedule:
+    - cron: '0 */6 * * *'
+  
+  # Allow manual triggering from GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  ping-database:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install psycopg2-binary python-dotenv
+      
+      - name: Ping database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python scripts/ping_db.py
+      
+      - name: Report status
+        if: always()
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "✅ Database ping successful at $(date)"
+          else
+            echo "❌ Database ping failed at $(date)"
+            exit 1
+          fi
