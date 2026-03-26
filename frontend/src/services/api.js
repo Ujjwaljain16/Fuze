@@ -102,7 +102,10 @@ api.interceptors.response.use(
         return api(originalRequest)
       } catch {
         localStorage.removeItem('token')
-        window.location.href = '/login'
+        localStorage.removeItem('user')
+        delete api.defaults.headers.common['Authorization']
+        // Let route guards decide redirection; avoid forcing public pages to /login.
+        window.dispatchEvent(new CustomEvent('authExpired'))
       }
     }
     return Promise.reject(error)

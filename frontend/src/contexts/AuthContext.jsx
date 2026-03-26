@@ -74,8 +74,16 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
+    const handleAuthExpired = () => {
+      logout()
+    }
+
     window.addEventListener('userLoggedIn', handleUserLoggedIn)
-    return () => window.removeEventListener('userLoggedIn', handleUserLoggedIn)
+    window.addEventListener('authExpired', handleAuthExpired)
+    return () => {
+      window.removeEventListener('userLoggedIn', handleUserLoggedIn)
+      window.removeEventListener('authExpired', handleAuthExpired)
+    }
   }, [token])
 
   const fetchUser = async (isInitialLoad = false) => {
@@ -91,12 +99,9 @@ export const AuthProvider = ({ children }) => {
 
       // Handle authentication errors
       if (error.response?.status === 401) {
-        // Only logout if this is not an initial load, or if user is not set
-        // This prevents logging out immediately after a successful login
-        if (!isInitialLoad || !userRef.current) {
-          logout()
-          return false
-        }
+        // 401 means token is invalid/expired - clear stale auth state immediately.
+        logout()
+        return false
       }
 
       // Show error toast for non-auth errors
