@@ -1,22 +1,21 @@
-// Service Worker for Fuze PWA — Full feature set with production hardening
+// Service Worker for Fuze PWA — Stable production-safe version
 const CACHE_VERSION = '__BUILD_HASH__';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `assets-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = ['/index.html', '/manifest.json'];
+const MAX_ASSET_ENTRIES = 120;
 
-// Auth routes that must NEVER be served from cache.
 const AUTH_BYPASS_ROUTES = new Set([
   '/oauth/callback',
   '/auth/callback',
   '/login',
 ]);
 
-const MAX_ASSET_ENTRIES = 120;
-
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE)
+    caches
+      .open(SHELL_CACHE)
       .then((cache) => Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url))))
       .then(() => self.skipWaiting())
   );
@@ -24,12 +23,15 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((k) => k !== SHELL_CACHE && k !== ASSET_CACHE)
-          .map((k) => caches.delete(k))
-      ))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== SHELL_CACHE && k !== ASSET_CACHE)
+            .map((k) => caches.delete(k))
+        )
+      )
       .then(() => self.clients.claim())
   );
 });
@@ -38,44 +40,31 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only handle same-origin requests.
+  // Handle only same-origin in SW; external APIs go straight to browser/network.
   if (url.origin !== self.location.origin) return;
 
-  // Bypass auth-related routes directly to network.
+  // Never cache auth callback/login routes.
   if (AUTH_BYPASS_ROUTES.has(url.pathname)) {
     event.respondWith(fetch(request));
     return;
   }
 
-  // Keep LinkedIn analysis/extract endpoints resilient with IndexedDB fallback.
-  if (url.pathname === '/api/linkedin/extract') {
-    event.respondWith(handleLinkedInExtraction(request));
+  // Keep API traffic network-only to avoid stale auth-sensitive data.
+  if (url.pathname.startsWith('/api/')) {
     return;
   }
 
-  if (url.pathname === '/api/linkedin/analyze') {
-    event.respondWith(handleLinkedInAnalysis(request));
-    return;
-  }
-
-  if (url.pathname.startsWith('/api/recommendations')) {
-    event.respondWith(handleRecommendations(request));
-    return;
-  }
-
-  // Network-first for document navigations, with offline shell fallback.
+  // HTML navigation: network-first with offline fallback shell.
   if (request.mode === 'navigate') {
     event.respondWith(handleNavigationRequest(request));
     return;
   }
 
-  // Cache-first for Vite hashed static assets.
+  // Hashed static assets: cache-first with content-type guard.
   if (isStaticAsset(url.pathname)) {
     event.respondWith(handleStaticAssetRequest(request));
     return;
   }
-
-  // For all other requests (including non-LinkedIn APIs): network only.
 });
 
 async function handleNavigationRequest(request) {
@@ -84,14 +73,14 @@ async function handleNavigationRequest(request) {
 
     if (response && response.ok) {
       const cache = await caches.open(SHELL_CACHE);
-      await cache.put(request, response.clone());
       await cache.put('/index.html', response.clone());
+      await cache.put(request, response.clone());
     }
 
     return response;
   } catch (error) {
-    const cached = await caches.match('/index.html', { cacheName: SHELL_CACHE });
-    if (cached) return cached;
+    const cachedShell = await caches.match('/index.html', { cacheName: SHELL_CACHE });
+    if (cachedShell) return cachedShell;
 
     return new Response('Offline mode: page not available', {
       status: 503,
@@ -106,7 +95,7 @@ async function handleStaticAssetRequest(request) {
 
   const response = await fetch(request);
 
-  if (response && response.ok) {
+  if (isCacheableAssetResponse(response, request.url)) {
     const cache = await caches.open(ASSET_CACHE);
     await cache.put(request, response.clone());
     await trimCache(ASSET_CACHE, MAX_ASSET_ENTRIES);
@@ -116,65 +105,39 @@ async function handleStaticAssetRequest(request) {
 }
 
 function isStaticAsset(pathname) {
-  return pathname.startsWith('/assets/') || /\.(js|css|woff2?|png|jpg|jpeg|svg|ico|webp)$/.test(pathname);
+  return (
+    pathname.startsWith('/assets/') ||
+    /\.(js|css|woff2?|png|jpg|jpeg|svg|ico|webp|gif)$/.test(pathname)
+  );
 }
 
-async function handleLinkedInExtraction(request) {
-  try {
-    const response = await fetch(request);
-    if (response.ok) {
-      await storeApiData('linkedinData', request.url, response.clone());
-    }
-    return response;
-  } catch (error) {
-    const fallback = await getLatestApiData('linkedinData', request.url);
-    if (fallback) {
-      return jsonResponse(fallback, 200, { 'X-Offline-Source': 'indexeddb' });
-    }
+function isCacheableAssetResponse(response, requestUrl) {
+  if (!response || !response.ok || response.type !== 'basic') return false;
 
-    return jsonResponse({
-      error: 'Offline mode: LinkedIn extraction not available',
-      message: 'Please check your connection and try again',
-    }, 503);
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('text/html')) return false;
+
+  const pathname = new URL(requestUrl).pathname;
+
+  if (pathname.endsWith('.css')) return contentType.includes('text/css');
+  if (pathname.endsWith('.js')) return contentType.includes('javascript');
+  if (/\.(woff2?|ttf|otf)$/.test(pathname)) return contentType.includes('font') || contentType.includes('application/octet-stream');
+  if (/\.(png|jpg|jpeg|svg|ico|webp|gif)$/.test(pathname)) return contentType.startsWith('image/');
+
+  return true;
+}
+
+async function trimCache(cacheName, maxEntries) {
+  const cache = await caches.open(cacheName);
+  const keys = await cache.keys();
+  const overflow = keys.length - maxEntries;
+
+  if (overflow > 0) {
+    await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)));
   }
 }
 
-async function handleLinkedInAnalysis(request) {
-  try {
-    const response = await fetch(request);
-    if (response.ok) {
-      await storeApiData('analysisData', request.url, response.clone());
-    }
-    return response;
-  } catch (error) {
-    const fallback = await getLatestApiData('analysisData', request.url);
-    if (fallback) {
-      return jsonResponse(fallback, 200, { 'X-Offline-Source': 'indexeddb' });
-    }
-
-    // Queue analysis for background sync when possible.
-    if (request.method === 'POST') {
-      await queuePendingAnalysis(request);
-    }
-
-    return jsonResponse({
-      error: 'Offline mode: Content analysis not available',
-      message: 'Please check your connection and try again',
-    }, 503);
-  }
-}
-
-async function handleRecommendations(request) {
-  try {
-    return await fetch(request);
-  } catch (error) {
-    return jsonResponse({
-      error: 'Offline mode: Recommendations not available',
-      message: 'Please check your connection and try again',
-    }, 503);
-  }
-}
-
+// Background sync for LinkedIn content analysis queue (kept from legacy SW behavior).
 self.addEventListener('sync', (event) => {
   if (event.tag === 'linkedin-analysis-sync') {
     event.waitUntil(performBackgroundLinkedInAnalysis());
@@ -202,10 +165,11 @@ async function performBackgroundLinkedInAnalysis() {
       }
     }
   } catch (error) {
-    // No-op: sync retries later.
+    // Best effort only.
   }
 }
 
+// Push notification handling (kept from legacy SW behavior).
 self.addEventListener('push', (event) => {
   const options = {
     body: event.data ? event.data.text() : 'New content analysis ready!',
@@ -241,71 +205,6 @@ self.addEventListener('notificationclick', (event) => {
   }
 });
 
-async function trimCache(cacheName, maxEntries) {
-  const cache = await caches.open(cacheName);
-  const keys = await cache.keys();
-  const overflow = keys.length - maxEntries;
-
-  if (overflow > 0) {
-    await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)));
-  }
-}
-
-function jsonResponse(payload, status, extraHeaders = {}) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    statusText: status === 503 ? 'Service Unavailable' : 'OK',
-    headers: {
-      'Content-Type': 'application/json',
-      ...extraHeaders,
-    },
-  });
-}
-
-async function storeApiData(storeName, requestUrl, response) {
-  try {
-    const payload = await response.json();
-    const db = await openIndexedDB();
-    await idbPut(db, storeName, {
-      id: Date.now(),
-      url: requestUrl,
-      data: payload,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    // Skip storage errors to keep network response path stable.
-  }
-}
-
-async function getLatestApiData(storeName, requestUrl) {
-  try {
-    const db = await openIndexedDB();
-    const records = await idbGetAll(db, storeName);
-    const matches = records
-      .filter((item) => item.url === requestUrl)
-      .sort((a, b) => (a.id > b.id ? -1 : 1));
-    return matches[0]?.data || null;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function queuePendingAnalysis(request) {
-  try {
-    const bodyText = await request.clone().text();
-    const body = bodyText ? JSON.parse(bodyText) : {};
-    const db = await openIndexedDB();
-
-    await idbPut(db, 'pendingAnalysis', {
-      id: Date.now(),
-      data: body,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    // Ignore queue failures.
-  }
-}
-
 async function openIndexedDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('FuzePWA', 2);
@@ -315,14 +214,6 @@ async function openIndexedDB() {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-
-      if (!db.objectStoreNames.contains('linkedinData')) {
-        db.createObjectStore('linkedinData', { keyPath: 'id' });
-      }
-
-      if (!db.objectStoreNames.contains('analysisData')) {
-        db.createObjectStore('analysisData', { keyPath: 'id' });
-      }
 
       if (!db.objectStoreNames.contains('pendingAnalysis')) {
         db.createObjectStore('pendingAnalysis', { keyPath: 'id' });
@@ -337,16 +228,6 @@ function idbGetAll(db, storeName) {
     const store = tx.objectStore(storeName);
     const req = store.getAll();
     req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbPut(db, storeName, value) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([storeName], 'readwrite');
-    const store = tx.objectStore(storeName);
-    const req = store.put(value);
-    req.onsuccess = () => resolve(true);
     req.onerror = () => reject(req.error);
   });
 }
