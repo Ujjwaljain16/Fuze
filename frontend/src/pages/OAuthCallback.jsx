@@ -9,19 +9,19 @@ export default function OAuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Supabase returns tokens in the URL hash fragment
-        const hash = window.location.hash.substring(1) // remove leading '#'
-        const params = new URLSearchParams(hash)
-        const access_token = params.get('access_token')
+        // Supabase may return tokens in hash or query params depending on environment/flow.
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+        const queryParams = new URLSearchParams(window.location.search)
+        const access_token = hashParams.get('access_token') || queryParams.get('access_token')
 
         if (!access_token) {
-          setError('No access token found in redirect URL')
+          setError('No access token found in redirect URL. Please try Google sign-in again.')
           return
         }
 
         // Send the Supabase access token to our backend to exchange for local session
         const res = await api.post('/api/auth/supabase-oauth', { access_token })
-        const { access_token: localAccessToken } = res.data
+        const { access_token: localAccessToken, user } = res.data
 
         if (!localAccessToken) {
           setError('Authentication failed: no token returned')
@@ -30,6 +30,9 @@ export default function OAuthCallback() {
 
         // Set local token and redirect
         localStorage.setItem('token', localAccessToken)
+        if (user) {
+          localStorage.setItem('user', JSON.stringify(user))
+        }
         // Update axios default header for immediate use
         api.defaults.headers.common['Authorization'] = `Bearer ${localAccessToken}`
 
@@ -42,8 +45,8 @@ export default function OAuthCallback() {
           // Continue anyway - AuthContext will handle it
         }
 
-        // Dispatch custom event to notify app of login (triggers API key check)
-        window.dispatchEvent(new CustomEvent('userLoggedIn'))
+        // Dispatch custom event to notify app of login (and hydrate AuthContext immediately)
+        window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user } }))
 
         // Small delay to let event propagate and AuthContext to update
         await new Promise(resolve => setTimeout(resolve, 300))

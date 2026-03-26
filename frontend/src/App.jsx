@@ -147,10 +147,6 @@ function AppContent() {
     }
   }, [isMobile]); // Include isMobile dependency
 
-  if (loading) {
-    return <Loader fullScreen={true} message="Loading Fuze..." size="large" variant="full" />;
-  }
-
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     localStorage.removeItem('show_onboarding');
@@ -182,7 +178,7 @@ function AppContent() {
               />
               <Route 
                 path="/login" 
-                element={user ? <Navigate to="/dashboard" /> : <Login />} 
+                element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
               />
               <Route 
                 path="/dashboard" 

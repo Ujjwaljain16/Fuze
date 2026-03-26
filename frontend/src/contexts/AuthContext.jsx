@@ -14,7 +14,14 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(() => {
+    try {
+      const storedUser = localStorage.getItem('user')
+      return storedUser ? JSON.parse(storedUser) : null
+    } catch {
+      return null
+    }
+  })
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
   const userRef = useRef(null) // Track user to avoid closure issues
@@ -42,6 +49,7 @@ export const AuthProvider = ({ children }) => {
         // No token, ensure user is cleared
         setUser(null)
         userRef.current = null
+        localStorage.removeItem('user')
       }
       setLoading(false)
     }
@@ -52,10 +60,17 @@ export const AuthProvider = ({ children }) => {
 
   // Listen for OAuth login events to refresh token state
   useEffect(() => {
-    const handleUserLoggedIn = () => {
+    const handleUserLoggedIn = (event) => {
       const newToken = localStorage.getItem('token')
       if (newToken && newToken !== token) {
         setToken(newToken)
+      }
+
+      // OAuth callback can provide user directly to avoid redirect races on mobile/PWA.
+      if (event?.detail?.user) {
+        setUser(event.detail.user)
+        userRef.current = event.detail.user
+        localStorage.setItem('user', JSON.stringify(event.detail.user))
       }
     }
 
@@ -69,6 +84,7 @@ export const AuthProvider = ({ children }) => {
       const response = await api.get('/api/profile')
       setUser(response.data)
       userRef.current = response.data
+      localStorage.setItem('user', JSON.stringify(response.data))
       return true
     } catch (error) {
       const errorInfo = handleApiError(error, 'fetching user profile')
@@ -105,6 +121,7 @@ export const AuthProvider = ({ children }) => {
       setToken(access_token)
       setUser(userData)
       userRef.current = userData // Update ref immediately
+      localStorage.setItem('user', JSON.stringify(userData))
       
       // Verify the user data is valid
       if (!userData || !userData.id) {
@@ -154,6 +171,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null)
     userRef.current = null
     localStorage.removeItem('token')
+    localStorage.removeItem('user')
     delete api.defaults.headers.common['Authorization']
     
     // Call logout endpoint to clear cookies

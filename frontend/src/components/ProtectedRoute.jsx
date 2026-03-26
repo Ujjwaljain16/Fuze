@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useState, useEffect } from 'react'
+import Loader from './Loader'
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth()
@@ -26,10 +27,8 @@ const ProtectedRoute = ({ children }) => {
   }, [])
 
   // Don't show fullScreen loader here - let individual pages handle their own loading states
-  // The initial app loading is handled in App.jsx
   if (loading) {
-    // Just return null or a minimal loader - pages will show their own loaders
-    return null
+    return <Loader fullScreen={true} message="Checking your session..." size="large" variant="full" />
   }
 
   if (!isAuthenticated) {
