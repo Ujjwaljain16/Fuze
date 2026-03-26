@@ -1,9 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'fs'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'inject-sw-version',
+      writeBundle() {
+        const hash = Date.now().toString(36);
+        const swPath = './dist/sw.js';
+        try {
+          const content = fs.readFileSync(swPath, 'utf8');
+          fs.writeFileSync(swPath, content.replace('__BUILD_HASH__', hash));
+          console.log(`✅ Service worker version injected: ${hash}`);
+        } catch (err) {
+          console.warn('⚠️ Failed to inject SW version:', err.message);
+        }
+      }
+    }
+  ],
   server: {
     host: '0.0.0.0', // Allow external connections
     port: 5173,
