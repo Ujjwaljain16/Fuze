@@ -8,7 +8,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
 import OAuthCallback from './pages/OAuthCallback';
-import MobileConsole from './components/MobileConsole';
 import api from './services/api';
 import './App.css';
 
@@ -212,9 +211,6 @@ function AppContent() {
 
   return (
     <div className="App">
-      {/* Mobile Debug Console - Only visible on mobile in development */}
-      <MobileConsole />
-      
       {/* Onboarding Modal */}
       {showOnboarding && (
         <OnboardingModal onComplete={handleOnboardingComplete} />
