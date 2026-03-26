@@ -6,6 +6,8 @@ export default function OAuthCallback() {
   const navigate = useNavigate()
   const [error, setError] = useState(null)
 
+  console.log('[OAuth] OAuthCallback component RENDERED at URL:', window.location.href)
+
   useEffect(() => {
     const handleCallback = async () => {
       try {
