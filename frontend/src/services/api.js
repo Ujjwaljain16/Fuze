@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+const DEFAULT_PROD_API_URL = 'https://Ujjwaljain16-fuze-backend.hf.space'
+
 // Get base URL from environment or automatically detect
 const getBaseURL = () => {
   // Check if we're in development (localhost or 127.0.0.1)
@@ -10,11 +12,11 @@ const getBaseURL = () => {
     // Development: Use HTTP localhost
     return import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
   } else {
-    // Production: Use environment variable (required)
+    // Production: Prefer environment variable; fall back to known backend URL.
     const apiUrl = import.meta.env.VITE_API_URL
     if (!apiUrl) {
-      console.error('VITE_API_URL environment variable is not set in production!')
-      throw new Error('API URL not configured. Please set VITE_API_URL environment variable.')
+      console.error('VITE_API_URL is not set in production, using fallback API URL:', DEFAULT_PROD_API_URL)
+      return DEFAULT_PROD_API_URL
     }
     return apiUrl
   }
