@@ -13,10 +13,21 @@ export default function OAuthCallback() {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
         const queryParams = new URLSearchParams(window.location.search)
         const access_token = hashParams.get('access_token') || queryParams.get('access_token')
+        const oauthError = hashParams.get('error_description') || queryParams.get('error_description')
+
+        if (oauthError) {
+          setError(`OAuth error: ${oauthError}`)
+          return
+        }
 
         if (!access_token) {
           setError('No access token found in redirect URL. Please try Google sign-in again.')
           return
+        }
+
+        // Strip token fragment from URL as early as possible to avoid PWA/history quirks on Android.
+        if (window.location.hash || window.location.search) {
+          window.history.replaceState({}, document.title, '/oauth/callback')
         }
 
         // Send the Supabase access token to our backend to exchange for local session
@@ -51,9 +62,15 @@ export default function OAuthCallback() {
         // Small delay to let event propagate and AuthContext to update
         await new Promise(resolve => setTimeout(resolve, 300))
 
-        console.log('Navigating to dashboard...')
-        // Navigate to dashboard (user data is now loaded)
+        // Navigate using router first
         navigate('/dashboard', { replace: true })
+
+        // Mobile/PWA fallback: if SPA navigation doesn't take effect, force location redirect.
+        setTimeout(() => {
+          if (window.location.pathname === '/oauth/callback') {
+            window.location.replace('/dashboard')
+          }
+        }, 700)
       } catch (err) {
         console.error('OAuth callback error', err)
         setError('OAuth sign-in failed. Please try again.')
