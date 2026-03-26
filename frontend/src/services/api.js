@@ -39,6 +39,14 @@ let csrfToken = null
 // Request interceptor to add auth token and CSRF token
 api.interceptors.request.use(
   async (config) => {
+    // Log OAuth-related requests
+    if (config.url && config.url.includes('oauth')) {
+      console.log(`[API] ${config.method.toUpperCase()} ${config.url}`, {
+        headers: config.headers,
+        data: config.data
+      })
+    }
+    
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
@@ -58,8 +66,23 @@ api.interceptors.request.use(
 
 // Response interceptor to handle errors and token refresh
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Log OAuth-related responses
+    if (response.config.url && response.config.url.includes('oauth')) {
+      console.log(`[API] Response ${response.status} from ${response.config.url}`, response.data)
+    }
+    return response
+  },
   async (error) => {
+    // Log OAuth-related errors
+    if (error.config?.url && error.config.url.includes('oauth')) {
+      console.error(`[API] Error ${error.response?.status || 'NETWORK'} from ${error.config.url}`, {
+        message: error.message,
+        data: error.response?.data,
+        status: error.response?.status
+      })
+    }
+    
     const originalRequest = error.config
     
     // Handle CSRF token errors
