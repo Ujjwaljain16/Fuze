@@ -1,8 +1,8 @@
 // Service Worker for Fuze PWA
 // Update version to force cache invalidation on new deployments
-const CACHE_NAME = 'fuze-v1.1.0';
-const STATIC_CACHE = 'fuze-static-v1.1';
-const DYNAMIC_CACHE = 'fuze-dynamic-v1.1';
+const CACHE_NAME = 'fuze-v1.1.1';
+const STATIC_CACHE = 'fuze-static-v1.1.1';
+const DYNAMIC_CACHE = 'fuze-dynamic-v1.1.1';
 
 // Files to cache for offline functionality
 // Note: Only cache same-origin files, not external API responses
@@ -84,6 +84,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // CRITICAL: Never intercept OAuth callback documents.
+  // Mobile handoff can be fragile; always let network handle this route directly.
+  if (url.pathname === '/oauth/callback') {
+    event.respondWith(fetch(request));
+    return;
+  }
   
   // CRITICAL: Don't intercept ANY external requests (Hugging Face Spaces backend)
   // This prevents service worker from interfering with cross-origin API calls
@@ -130,20 +137,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Handle index.html with network-first strategy (always get latest version)
+  // Handle all same-origin HTML document requests with network-first strategy.
+  // This prevents blank screens on hard refresh for SPA routes like /login or /oauth/callback.
   if (request.method === 'GET' && 
       request.destination === 'document' && 
-      (url.pathname === '/' || url.pathname === '/index.html') &&
       url.origin === self.location.origin) {
     event.respondWith(handleIndexHtml(request));
-    return;
-  }
-  
-  // Handle other static files (offline support) - only for same-origin
-  if (request.method === 'GET' && 
-      request.destination === 'document' && 
-      url.origin === self.location.origin) {
-    event.respondWith(handleStaticFiles(request));
     return;
   }
   
