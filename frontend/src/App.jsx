@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
+import OAuthCallback from './pages/OAuthCallback';
 import './App.css';
 
 // Lazy load routes for code splitting
@@ -19,7 +20,6 @@ const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const SaveContent = lazy(() => import('./pages/SaveContent'));
 const ShareHandler = lazy(() => import('./pages/ShareHandler'));
 const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
-const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
