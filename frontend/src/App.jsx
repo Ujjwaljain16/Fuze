@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -9,6 +9,7 @@ import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
 import OAuthCallback from './pages/OAuthCallback';
 import MobileConsole from './components/MobileConsole';
+import api from './services/api';
 import './App.css';
 
 // Lazy load routes for code splitting
@@ -25,10 +26,66 @@ const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true); // Start collapsed by default
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Global OAuth processor for mobile/PWA flows.
+  // If token appears on any route, complete exchange immediately (without relying on callback route rendering).
+  useEffect(() => {
+    const OAUTH_LOCK_KEY = 'oauth_exchange_in_progress';
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const queryParams = new URLSearchParams(window.location.search);
+    const token = hashParams.get('access_token') || queryParams.get('access_token');
+    const errorDescription = hashParams.get('error_description') || queryParams.get('error_description');
+
+    if (!token && !errorDescription) {
+      return;
+    }
+
+    if (sessionStorage.getItem(OAUTH_LOCK_KEY) === '1') {
+      return;
+    }
+
+    const processOAuth = async () => {
+      try {
+        sessionStorage.setItem(OAUTH_LOCK_KEY, '1');
+
+        if (errorDescription) {
+          window.history.replaceState({}, document.title, '/login');
+          navigate('/login', { replace: true });
+          return;
+        }
+
+        const res = await api.post('/api/auth/supabase-oauth', { access_token: token });
+        const { access_token: localAccessToken, user: oauthUser } = res.data || {};
+
+        if (!localAccessToken) {
+          throw new Error('No local access token returned from backend');
+        }
+
+        localStorage.setItem('token', localAccessToken);
+        if (oauthUser) {
+          localStorage.setItem('user', JSON.stringify(oauthUser));
+        }
+        api.defaults.headers.common.Authorization = `Bearer ${localAccessToken}`;
+        window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: oauthUser } }));
+
+        window.history.replaceState({}, document.title, '/dashboard');
+        navigate('/dashboard', { replace: true });
+      } catch (err) {
+        console.error('[OAuth][Global] Failed to process OAuth token:', err?.message || err);
+        window.history.replaceState({}, document.title, '/login');
+        navigate('/login', { replace: true });
+      } finally {
+        sessionStorage.removeItem(OAUTH_LOCK_KEY);
+      }
+    };
+
+    processOAuth();
+  }, [location.hash, location.search, navigate]);
   
   // Don't show sidebar on landing page or login page
   const showSidebar = user && location.pathname !== '/' && location.pathname !== '/login';

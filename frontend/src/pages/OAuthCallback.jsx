@@ -11,6 +11,10 @@ export default function OAuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
+        if (sessionStorage.getItem('oauth_exchange_in_progress') === '1') {
+          return
+        }
+
         console.log('[OAuth] Callback initiated, URL:', window.location.href)
         
         // Supabase may return tokens in hash or query params depending on environment/flow.
