@@ -43,7 +43,7 @@ export const AuthProvider = ({ children }) => {
         // Only fetch if user is not already set (to avoid unnecessary calls after login)
         // Use ref to get current value, not closure value
         if (!userRef.current) {
-          await fetchUser(true) // Pass true to indicate this is initialization
+          await fetchUser()
         }
       } else {
         // No token, ensure user is cleared
@@ -86,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token])
 
-  const fetchUser = async (isInitialLoad = false) => {
+  const fetchUser = async () => {
     try {
       // Profile endpoint is now cached and optimized - should be fast
       const response = await api.get('/api/profile')
