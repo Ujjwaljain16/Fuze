@@ -1,0 +1,1611 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Everything I Wish I Knew Before Shipping a PWA</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f5f0e8;
+  --paper: #faf7f2;
+  --ink: #1a1612;
+  --ink-2: #3d3830;
+  --ink-3: #7a7268;
+  --ink-4: #b0a898;
+  --red: #c0392b;
+  --red-dim: #c0392b22;
+  --blue: #1a4b7a;
+  --blue-dim: #1a4b7a15;
+  --green: #1a5c3a;
+  --green-dim: #1a5c3a15;
+  --amber: #7a4a00;
+  --amber-dim: #7a4a0018;
+  --rule: #1a161222;
+  --code-bg: #1a1612;
+  --code-fg: #e8e0d0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Instrument Serif', serif;
+  font-size: 18px;
+  line-height: 1.8;
+  overflow-x: hidden;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23f5f0e8'/%3E%3Crect x='0' y='0' width='1' height='1' fill='%231a161208'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: var(--red);
+  z-index: 100;
+  transition: width 0.1s linear;
+}
+
+.wrap {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 40px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── ACCURACY BADGE ── */
+.accuracy-bar {
+  background: var(--ink);
+  color: var(--code-fg);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  position: relative;
+  z-index: 2;
+}
+
+.accuracy-bar .ab-label { color: var(--red); font-weight: 500; }
+.accuracy-bar .ab-sep { color: #333; }
+.accuracy-bar a { color: #888; text-decoration: underline; }
+.accuracy-bar .ab-right { margin-left: auto; color: #555; }
+
+/* ── HEADER ── */
+header {
+  padding: 80px 0 60px;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 60px;
+}
+
+.kicker {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kicker::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--red);
+  opacity: 0.4;
+}
+
+h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(52px, 9vw, 96px);
+  line-height: 0.92;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  margin-bottom: 24px;
+}
+
+h1 .line-red { color: var(--red); }
+
+.deck {
+  font-size: 20px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 620px;
+  border-left: 3px solid var(--ink);
+  padding-left: 20px;
+  margin-bottom: 36px;
+  font-style: italic;
+}
+
+.byline {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.byline-item {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.byline-item b { color: var(--ink-3); font-weight: 500; }
+
+/* ── TOC ── */
+.toc-box {
+  background: var(--ink);
+  color: var(--code-fg);
+  padding: 36px 40px;
+  margin-bottom: 72px;
+}
+
+.toc-head {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 20px;
+}
+
+.toc-list {
+  list-style: none;
+  columns: 2;
+  column-gap: 40px;
+}
+
+@media (max-width: 580px) { .toc-list { columns: 1; } }
+
+.toc-list li {
+  break-inside: avoid;
+  padding: 5px 0;
+  border-bottom: 1px solid #ffffff0a;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.toc-list li:last-child { border-bottom: none; }
+
+.toc-n {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--red);
+  flex-shrink: 0;
+  width: 20px;
+}
+
+.toc-list a {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: #b0a898;
+  text-decoration: none;
+  letter-spacing: 0.03em;
+  transition: color 0.15s;
+}
+
+.toc-list a:hover { color: #f5f0e8; }
+
+/* ── SECTIONS ── */
+section { margin-bottom: 80px; }
+
+.section-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-label::before {
+  content: attr(data-n);
+  color: var(--red);
+  font-weight: 500;
+}
+
+h2 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(32px, 5vw, 48px);
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  line-height: 1.0;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+h3 {
+  font-family: 'Instrument Serif', serif;
+  font-size: 22px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ink);
+  margin: 40px 0 14px;
+  padding-left: 14px;
+  border-left: 2px solid var(--red);
+}
+
+h4 {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 28px 0 10px;
+}
+
+p { margin-bottom: 20px; color: var(--ink-2); }
+p:last-child { margin-bottom: 0; }
+
+strong { color: var(--ink); font-weight: 600; }
+em { font-style: italic; }
+
+/* ── THREE-TIER CLAIM LABEL SYSTEM ── */
+/* Base tag shared by all three */
+.tag {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  margin-left: 7px;
+  padding: 1px 6px 2px;
+  border-radius: 2px;
+  font-weight: 500;
+  white-space: nowrap;
+  position: relative;
+  top: -1px;
+}
+/* SPEC - WHATWG / W3C / IETF spec fact */
+.tag-spec {
+  background: #1a4b7a14;
+  border: 1px solid #1a4b7a55;
+  color: var(--blue);
+}
+/* BROWSER - observed in named browser versions, may differ elsewhere */
+.tag-browser {
+  background: #7a4a0014;
+  border: 1px solid #7a4a0055;
+  color: var(--amber);
+}
+/* FIELD - production war story; real but not guaranteed rule */
+.tag-field {
+  background: #1a5c3a14;
+  border: 1px solid #1a5c3a55;
+  color: var(--green);
+}
+/* legacy alias kept for any remaining .corrected uses */
+.corrected { display: none; }
+
+/* ── CALLOUTS ── */
+.callout {
+  padding: 20px 24px;
+  margin: 32px 0;
+  border-left: 3px solid;
+  position: relative;
+}
+
+.callout-tag {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.callout p { font-size: 15.5px; line-height: 1.65; margin: 0; }
+
+.callout.danger { background: var(--red-dim); border-color: var(--red); }
+.callout.danger .callout-tag { color: var(--red); }
+
+.callout.note { background: var(--blue-dim); border-color: var(--blue); }
+.callout.note .callout-tag { color: var(--blue); }
+
+.callout.win { background: var(--green-dim); border-color: var(--green); }
+.callout.win .callout-tag { color: var(--green); }
+
+.callout.warn { background: var(--amber-dim); border-color: var(--amber); }
+.callout.warn .callout-tag { color: var(--amber); }
+
+/* ── PRECISION CALLOUT (new) ── */
+.callout.precision { background: #1a4b7a0d; border-color: #1a4b7a55; }
+.callout.precision .callout-tag { color: var(--blue); }
+
+/* ── CODE ── */
+pre {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: 24px 28px;
+  overflow-x: auto;
+  margin: 28px 0;
+  position: relative;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+pre .lang {
+  position: absolute;
+  top: 0; right: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #555;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2a2520;
+  border-left: 1px solid #2a2520;
+}
+
+code { font-family: 'IBM Plex Mono', monospace; }
+
+p code, li code {
+  background: #1a161212;
+  color: var(--red);
+  padding: 1px 6px;
+  font-size: 14px;
+  border-radius: 2px;
+}
+
+.kw { color: #ff79c6; }
+.fn { color: #8be9fd; }
+.str { color: #f1fa8c; }
+.cm { color: #555; font-style: italic; }
+.num { color: #bd93f9; }
+.prop { color: #50fa7b; }
+
+/* ── PULL QUOTE ── */
+blockquote {
+  margin: 44px 0;
+  padding: 0 0 0 28px;
+  border-left: 4px solid var(--ink);
+  font-size: 22px;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+blockquote cite {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-style: normal;
+  margin-top: 10px;
+}
+
+/* ── MECHANISM BOX (new) ── */
+.mechanism {
+  border: 1px solid var(--ink);
+  margin: 32px 0;
+  background: var(--paper);
+}
+
+.mechanism-header {
+  background: var(--ink);
+  color: #f5f0e8;
+  padding: 10px 20px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.mechanism-body {
+  padding: 20px 24px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ink-2);
+}
+
+.mechanism-body .m-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 8px 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+
+.mechanism-body .m-row:last-child { border-bottom: none; }
+
+.mechanism-body .m-key {
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding-top: 1px;
+}
+
+.mechanism-body .m-val { color: var(--ink-2); }
+
+/* ── FAILURE CARD ── */
+.failure {
+  border: 1px solid var(--rule);
+  margin: 32px 0;
+  background: var(--paper);
+}
+
+.failure-header {
+  background: var(--ink);
+  color: #f5f0e8;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.failure-type {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.failure-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: #e8e0d0;
+}
+
+.failure-body { padding: 20px 24px; }
+
+.failure-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 12px 20px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14.5px;
+}
+
+.failure-row:last-child { border-bottom: none; }
+
+.failure-key {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  padding-top: 2px;
+}
+
+.failure-val { color: var(--ink-2); line-height: 1.55; }
+
+/* ── COMPARISON TABLE ── */
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 28px 0;
+  font-size: 14px;
+}
+
+.cmp-table th {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--ink);
+}
+
+.cmp-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.cmp-table tr:hover td { background: var(--paper); }
+
+.ok { color: var(--green); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.bad { color: var(--red); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.meh { color: var(--amber); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+
+/* ── TIPS GRID ── */
+.tips-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin: 32px 0;
+}
+
+@media (max-width: 580px) { .tips-grid { grid-template-columns: 1fr; } }
+
+.tip {
+  background: var(--paper);
+  padding: 18px 20px;
+}
+
+.tip-n {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 36px;
+  color: #1a161210;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.tip-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.tip-body {
+  font-size: 13.5px;
+  color: var(--ink-3);
+  line-height: 1.55;
+  font-family: 'IBM Plex Mono', monospace;
+  margin: 0;
+}
+
+/* ── LISTS ── */
+ul, ol { padding-left: 22px; margin-bottom: 20px; }
+li { margin-bottom: 8px; color: var(--ink-2); font-size: 17px; line-height: 1.65; }
+li::marker { color: var(--red); }
+
+/* ── DIVIDER ── */
+.rule { border: none; border-top: 1px solid var(--rule); margin: 60px 0; }
+.rule-heavy { border: none; border-top: 2px solid var(--ink); margin: 60px 0; }
+
+/* ── FOOTER ── */
+footer {
+  border-top: 2px solid var(--ink);
+  padding: 40px 0 80px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.footer-l {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 28px;
+  color: var(--ink-4);
+  letter-spacing: 0.05em;
+}
+
+.footer-r {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--ink-4);
+  letter-spacing: 0.1em;
+  text-align: right;
+  line-height: 1.8;
+  text-transform: uppercase;
+}
+
+/* ── SCROLL REVEAL ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.reveal.in { opacity: 1; transform: none; }
+
+/* ── STICKY CHAPTER MARKER ── */
+.chapter-marker {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 0;
+  margin-bottom: 32px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chapter-marker span {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.chapter-marker .cn { color: var(--red); font-weight: 500; }
+
+/* ── VERSION PILL ── */
+.ver-pill {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule);
+  padding: 2px 7px;
+  color: var(--ink-4);
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-left: 5px;
+}
+
+/* ── SPEC REF ── */
+.spec-note {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-4);
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.spec-note a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+
+<!-- ACCURACY BAR -->
+<div class="accuracy-bar">
+  <span class="ab-label">Verified</span>
+  <span class="ab-sep">·</span>
+  <span>Chrome 124 · Firefox 126 · Safari 17.4 · iOS 17</span>
+  <span class="ab-sep">·</span>
+  <span>Spec and browser-behaviour claims are marked inline</span>
+  <span class="ab-sep">·</span>
+  <span>Field-experience claims labelled separately from spec facts</span>
+  <span class="ab-right">Last reviewed: March 2026</span>
+</div>
+
+<div class="wrap">
+
+<!-- ══ HEADER ══ -->
+<header>
+  <div class="kicker">Production Engineering · PWA Internals · Practical Notes</div>
+  <h1>EVERYTHING<br>I WISH I KNEW<br><span class="line-red">BEFORE SHIPPING</span><br>A PWA</h1>
+  <p class="deck">A practical, technically grounded field guide to Service Workers in production, covering common failure modes, caching traps, browser quirks, and update challenges that are easy to underestimate. Every claim is labelled as spec fact or field experience. Browser-version sourced.</p>
+</header>
+
+<!-- ══ HOW TO READ THIS ══ -->
+<div class="callout note reveal" style="margin-bottom:48px;">
+  <div class="callout-tag">📖 How This Guide Labels Claims</div>
+  <p>Not all claims in production engineering carry the same weight. Every significant claim in this guide is tagged with one of three levels:</p>
+  <p style="margin-top:12px;">
+    <span class="tag tag-spec">Spec</span> - directly traceable to the WHATWG Service Worker spec, W3C, or IETF. True by definition across compliant engines.<br>
+    <span class="tag tag-browser">Browser</span> - observed and version-confirmed in specific browsers. May differ in other engines or future releases.<br>
+    <span class="tag tag-field">Field</span> - real production failure patterns. Widely reproduced but not a guaranteed rule; context matters.
+  </p>
+  <p style="margin-top:12px; font-size:15px;">If a claim has no tag it is either logical inference from the above, or framing/context. Claims phrased as "always/never" without a <span class="tag tag-spec">Spec</span> tag should be read as strong field guidance, not universal law.</p>
+</div>
+
+<!-- ══ TOC ══ -->
+<div class="toc-box reveal">
+  <div class="toc-head">Table of Contents</div>
+  <ul class="toc-list">
+    <li><span class="toc-n">01</span><a href="#s1">Mental Model & Lifecycle</a></li>
+    <li><span class="toc-n">02</span><a href="#s2">Real Production Failures</a></li>
+    <li><span class="toc-n">03</span><a href="#s3">Caching Strategy Deep Dive</a></li>
+    <li><span class="toc-n">04</span><a href="#s4">Update Mechanism - Precisely</a></li>
+    <li><span class="toc-n">05</span><a href="#s5">Storage & Limits Reality</a></li>
+    <li><span class="toc-n">06</span><a href="#s6">Security Risks</a></li>
+    <li><span class="toc-n">07</span><a href="#s7">Debugging & Observability</a></li>
+    <li><span class="toc-n">08</span><a href="#s8">Cross-Browser Differences</a></li>
+    <li><span class="toc-n">09</span><a href="#s9">Advanced Patterns</a></li>
+    <li><span class="toc-n">10</span><a href="#s10">Practical Tips</a></li>
+  </ul>
+</div>
+
+<!-- ══ S1: MENTAL MODEL ══ -->
+<section id="s1" class="reveal">
+  <div class="chapter-marker"><span class="cn">01</span><span>Mental Model & Lifecycle</span></div>
+  <div class="section-label" data-n="01">The Real Mental Model</div>
+  <h2>It's Not a Cache. It's a Programmable Proxy.</h2>
+
+  <p>When I first learned service workers, it was easy to file them next to localStorage - as a smarter cache. In production, that mental model can create hard-to-debug issues. A more reliable model is this: <strong>a service worker is a persistent, origin-scoped reverse proxy written in JavaScript that runs in a separate thread and outlives any page.</strong></p>
+
+  <p>Think of it the way you'd think about an nginx config that you deploy once and that independently handles every request to your domain - except it's running in the user's browser, you cannot SSH into it, it updates asynchronously, and it can keep running even after the user closes all your tabs.</p>
+
+  <h3>The Lifecycle Is a State Machine, Not a Simple Sequence</h3>
+
+  <p>The docs show <code>install → activate → fetch</code> as a neat waterfall. Reality is messier.</p>
+
+  <ul>
+    <li><strong>A new SW sits in <code>waiting</code> state indefinitely if any controlled client (tab) is open.</strong> <span class="tag tag-spec">Spec</span> - WHATWG SW spec §7.3. A user who opened your app days ago and never closed the tab is blocking the update for every session on that device.</li>
+    <li><strong>The <code>install</code> event fires in a <code>ServiceWorkerGlobalScope</code> - no DOM, no <code>window</code>, no <code>document</code>.</strong> <span class="tag tag-spec">Spec</span>. Obvious in hindsight, but this still catches many of us at least once when we try to read <code>window.location</code>.</li>
+    <li><strong>Between <code>install</code> completing and <code>activate</code> firing, the old SW remains in control.</strong> <span class="tag tag-spec">Spec</span>. Two workers exist simultaneously. Any shared state (IndexedDB, Cache API) is accessible by both.</li>
+    <li><strong>After activation, existing clients remain controlled by the old SW until they navigate.</strong> <span class="tag tag-spec">Spec</span> §7.9. Even after a new SW is "active," multiple SW versions can be handling requests from the same user concurrently across different tabs.</li>
+  </ul>
+
+<pre><code><span class="cm">// What "waiting" looks like from the inside</span>
+self.<span class="fn">addEventListener</span>(<span class="str">'install'</span>, (event) => {
+  <span class="cm">// The OLD SW is still handling ALL requests right now.</span>
+  <span class="cm">// This SW is installed but not yet active.</span>
+  <span class="cm">// Per spec (SW §7.3), it waits until every client</span>
+  <span class="cm">// controlled by the old SW has been navigated or closed.</span>
+  <span class="cm">// On mobile, where tabs are rarely closed, this can be days.</span>
+  event.<span class="fn">waitUntil</span>(precache());
+});
+<span class="lang">sw.js</span></code></pre>
+
+  <h3>The Event Loop Is Separate - And It Has Teeth</h3>
+
+  <p>Your SW runs in a <code>ServiceWorkerGlobalScope</code> - a separate event loop from both the page and from other workers. This has non-obvious consequences:</p>
+
+  <ul>
+    <li><strong><code>event.waitUntil()</code> keeps the SW alive until a promise settles - it does not provide a response.</strong> <span class="tag tag-spec">Spec</span>. In a <code>fetch</code> handler, <code>event.respondWith()</code> supplies the response; <code>waitUntil</code> is for extending the worker's lifetime for background work (cache writes, analytics) that should outlive the response. Without it, the runtime may terminate the SW once it considers the event handled. The confusion: DevTools keeps the SW alive permanently during development, masking this in local testing.</li>
+    <li><strong>Module-level variables are reset after the SW is terminated - not after every event.</strong> <span class="tag tag-spec">Spec</span>. The SW may stay alive across multiple sequential events without being killed. But when the browser does terminate it (which can happen at any idle point), the next wake starts from a clean global scope. Never rely on JS variables surviving across event handlers - use Cache API or IndexedDB for any state that must persist.</li>
+    <li><strong>Race conditions are structural, not bugs.</strong> <span class="tag tag-spec">Spec</span> / <span class="tag tag-field">Field</span>. The fetch event can fire before activate completes on first install. Navigation preload responses can arrive before the SW is fully awake. These are normal operating conditions, not edge cases.</li>
+  </ul>
+
+  <div class="callout danger">
+    <div class="callout-tag">⚠ The Invisible Third Thread</div>
+    <p>Your app has: the main thread, any web workers, AND the service worker. Each can independently modify shared storage (IndexedDB, Cache API). There is no shared mutex. There is no transaction isolation across threads. Two threads writing to the same cache key simultaneously produce a last-write-wins race that looks like random data corruption.</p>
+  </div>
+
+  <h3>Why It "Feels Unpredictable"</h3>
+
+  <p>SWs can feel random or flaky at first. It is not random - the SW's behaviour is a function of state you cannot observe: which version is installed, which tabs are open, how long ago the SW last woke, what the browser's eviction policy did to the cache overnight. When invisible variables change, behaviour changes. The fix is making this state observable - covered in section 7.</p>
+</section>
+
+<!-- ══ S2: FAILURES ══ -->
+<section id="s2" class="reveal">
+  <div class="chapter-marker"><span class="cn">02</span><span>Real Production Failures</span></div>
+  <div class="section-label" data-n="02">Production Failures</div>
+  <h2>Common Production Failures</h2>
+
+  <p>These are not hypotheticals. Each one is based on real production behavior seen in shipped apps.</p>
+
+  <div class="failure">
+    <div class="failure-header">
+      <span class="failure-type">FAILURE 001</span>
+      <span class="failure-title">The Long-Lived Broken Build</span>
+    </div>
+    <div class="failure-body">
+      <div class="failure-row">
+        <div class="failure-key">Scenario</div>
+        <div class="failure-val">A broken build gets shipped and the SW precaches it. A fix goes out 10 minutes later. People who opened the app in that 10-minute window can stay stuck on the broken build until site data is cleared manually - something most users will never do.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Root cause</div>
+        <div class="failure-val">Cache-first strategy for HTML with no TTL. The broken <code>index.html</code> is served from cache indefinitely. If the SW file itself is byte-identical between the broken and fixed deploys (e.g., no build hash injected), the browser sees no new SW to install and no update is triggered.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">How discovered</div>
+        <div class="failure-val">Support tickets 3 days after the fix was deployed. Users insisting the bug was "still there" when dev couldn't reproduce it. Took an hour to realise affected users had the cached broken version.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Fix</div>
+        <div class="failure-val">In practice, avoid caching <code>index.html</code> with cache-first. Use network-first for HTML navigations. Auto-inject a build hash into the SW file via your build script so every deploy produces a byte-different SW, which triggers the update check.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="failure">
+    <div class="failure-header">
+      <span class="failure-type">FAILURE 002</span>
+      <span class="failure-title">The Offline Loop - App Worked Offline, Then Served Stale Data Online</span>
+    </div>
+    <div class="failure-body">
+      <div class="failure-row">
+        <div class="failure-key">Scenario</div>
+        <div class="failure-val">Offline support is shipped. People lose connectivity and the app works from cache. They come back online, but the app still serves cached API responses - including data from hours ago - because no cache eviction policy was defined for the API cache.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Root cause</div>
+        <div class="failure-val">Cache-first strategy applied to all fetch requests including API calls. The SW has no concept of "network is back" - it serves cached responses regardless. No expiry logic was attached to the API cache.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">How discovered</div>
+        <div class="failure-val">Users reporting stale cart contents. One user saw a cached sale price that had expired and attempted to checkout at the wrong price. Real financial impact.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Fix</div>
+        <div class="failure-val">API calls: network-first with a short timeout (2–3s) before falling back to cache. Cache entries for API responses stored with a timestamp; entries older than 5 minutes trigger a background revalidation on next read.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="failure">
+    <div class="failure-header">
+      <span class="failure-type">FAILURE 003</span>
+      <span class="failure-title">The CDN + SW Double-Cache Conflict</span>
+    </div>
+    <div class="failure-body">
+      <div class="failure-row">
+        <div class="failure-key">Scenario</div>
+        <div class="failure-val">CDN has a 1-hour cache for JS assets. SW also has cache-first for those assets. New deploy hits the CDN. CDN cache has not expired. SW fetches from CDN, gets the old file, caches it. Both layers hold the old file. Users are on stale code for up to 2+ hours with no developer-controlled recovery path.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Root cause</div>
+        <div class="failure-val">Two independent caching layers with no coordination. Content-hashed JS assets change filename on every build (cache-busted), but the HTML file referencing those assets was cached at CDN level with a long TTL without a content-hash in its filename.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Fix</div>
+        <div class="failure-val">Set <code>Cache-Control: no-store</code> on HTML files at the CDN. Long CDN TTLs are safe for content-hashed assets (filename change = automatic cache bust). As a rule, avoid having two independent caching systems cache the same HTML document at the same time.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="failure">
+    <div class="failure-header">
+      <span class="failure-type">FAILURE 004</span>
+      <span class="failure-title">Safari iOS: The Silent Storage Eviction</span>
+    </div>
+    <div class="failure-body">
+      <div class="failure-row">
+        <div class="failure-key">Scenario</div>
+        <div class="failure-val">PWA works perfectly in testing. iOS users report the app "randomly" stops working offline, forgets settings, and occasionally needs a full reload on open.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Root cause</div>
+        <div class="failure-val">Safari on iOS evicts PWA origin storage (Cache API, IndexedDB, SW registration) under storage pressure or after a period of inactivity. <span class="tag tag-browser">Browser</span> - Apple has not published fixed thresholds; the behaviour has changed across iOS versions and should be treated as adaptive, not rule-based. The eviction fires with no warning event and no way to recover cached data. Design for it as a normal event, not a bug.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">How discovered</div>
+        <div class="failure-val">Reports exclusively from iPhone users. Correlated with low-storage devices. Two weeks spent debugging what was assumed to be a logic bug before Safari's eviction policy was found.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Fix</div>
+        <div class="failure-val">Call <code>navigator.storage.persist()</code> to request persistent storage (Chrome/Firefox honour this; Safari may partially honour it depending on version and install state). Architect offline features assuming eviction is possible. On every app open, verify cache integrity and have a graceful rehydration path for cold-start after eviction.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="failure">
+    <div class="failure-header">
+      <span class="failure-type">FAILURE 005</span>
+      <span class="failure-title">The skipWaiting() Version Mismatch Crash</span>
+    </div>
+    <div class="failure-body">
+      <div class="failure-row">
+        <div class="failure-key">Scenario</div>
+        <div class="failure-val"><code>skipWaiting()</code> is added to force immediate SW activation. The new SW activates and claims all clients. A page that was mid-session had been rendered by the old SW (old HTML, old chunk filenames). The new SW no longer has the old chunk filenames in its cache. React's lazy-loaded route chunk returns a 404. White screen. Full app crash.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Root cause</div>
+        <div class="failure-val">The rendered HTML references old content-hashed filenames. The new SW's precache only includes new filenames and deleted the old ones during <code>activate</code>. The <code>skipWaiting()</code> + <code>clients.claim()</code> combination forces the new SW to serve requests from a page whose HTML still references old assets. <span class="tag tag-field">Field</span> - widely reproduced; not a guaranteed consequence of every skipWaiting use. The risk scales with how aggressively old caches are deleted in activate and how long sessions run between deploys.</div>
+      </div>
+      <div class="failure-row">
+        <div class="failure-key">Fix</div>
+        <div class="failure-val">During SW <code>activate</code>, keep the previous version's assets in cache until all clients have reloaded. Or: rather than force-claiming, prompt the user to refresh and only call <code>skipWaiting()</code> in response to a user action. It is safer not to delete old caches until you are confident no old-version HTML is still active in any client.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout danger">
+    <div class="callout-tag">⚠ The OAuth Callback + SW Failure (From a Real Postmortem)</div>
+    <p>The SW intercepts a navigation to <code>/oauth/callback#access_token=…</code>. It receives the URL as <code>/oauth/callback</code> - hash fragments are client-side only and never included in HTTP requests. <span class="tag tag-spec">Spec</span> - RFC 3986 §3.5; WHATWG URL standard. It returns a cached stale <code>index.html</code>. Old JS runs. The old JS has a crash bug fixed in the new deploy. Desktop browser works because it has no SW. This failure is invisible in server-side monitoring - the auth provider logs a successful token issuance; the failure is purely frontend. <strong>For safety, consider bypassing the SW for auth callback routes</strong> using a URL pattern exclusion in your fetch handler.</p>
+  </div>
+</section>
+
+<!-- ══ S3: CACHING ══ -->
+<section id="s3" class="reveal">
+  <div class="chapter-marker"><span class="cn">03</span><span>Caching Strategy Deep Dive</span></div>
+  <div class="section-label" data-n="03">Caching Strategy</div>
+  <h2>When Every Strategy Fails</h2>
+
+  <p>The Workbox docs present five strategies like menu items. What they omit are the conditions under which each one will cause a production incident.</p>
+
+  <table class="cmp-table">
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th>When It's Right</th>
+        <th>When It Burns You</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Cache First</code></td>
+        <td>Immutable assets with content-hashed filenames - fonts, images, versioned JS bundles</td>
+        <td>HTML navigations, API responses, anything that changes without a filename change. Users can be permanently stuck on old UI.</td>
+      </tr>
+      <tr>
+        <td><code>Network First</code></td>
+        <td>API calls, HTML navigations, auth flows, anything that must be current</td>
+        <td>Slow connections: with no timeout, the user waits for the full network timeout before getting the cached fallback. Always pair with a 2–3s timeout.</td>
+      </tr>
+      <tr>
+        <td><code>Stale While Revalidate</code></td>
+        <td>Avatars, blog posts, product listings - freshness matters but instant display matters more</td>
+        <td>Any resource mutated by the user's own actions. User submits a form; gets back stale data on next load. Catastrophic for e-commerce carts.</td>
+      </tr>
+      <tr>
+        <td><code>Cache Only</code></td>
+        <td>Truly offline-first apps with explicit, complete sync logic</td>
+        <td>Almost always wrong for SPAs unless you have a full offline data layer. Silently returns stale data forever.</td>
+      </tr>
+      <tr>
+        <td><code>Network Only</code></td>
+        <td>Analytics, payments, auth callbacks, real-time data</td>
+        <td>Not the "safe default" most treat it as - the SW still intercepts and can fail the request even in network-only mode. Ensure error handling is explicit.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The HTML/JS Chunk Version Mismatch Problem</h3>
+
+  <p>This is the most under-documented failure mode in PWA engineering. Here is the exact sequence:</p>
+
+  <ul>
+    <li>User has <code>index.html</code> (v1) served and cached. It references <code>app.a1b2c3.js</code>.</li>
+    <li>You deploy. New <code>index.html</code> references <code>app.d4e5f6.js</code>. Old chunk is no longer on the server (some CDNs expire old hashes quickly).</li>
+    <li>New SW installs and activates. During <code>activate</code>, old caches are deleted. <code>app.a1b2c3.js</code> is gone from both cache and network.</li>
+    <li>User has an open tab. Old <code>index.html</code> is rendered. User navigates. React Router lazy-loads <code>ProductPage.a1b2c3.js</code> - the old name. Cache miss. Network 404. React throws. White screen.</li>
+  </ul>
+
+<pre><code><span class="cm">// Defense: global chunk load error handler with reload-loop guard</span>
+window.<span class="fn">addEventListener</span>(<span class="str">'unhandledrejection'</span>, (event) => {
+  <span class="kw">const</span> err = event.reason;
+  <span class="cm">// Vite lazy chunk load failures have this signature</span>
+  <span class="kw">if</span> (
+    err?.message?.includes(<span class="str">'Failed to fetch dynamically imported module'</span>) ||
+    err?.message?.includes(<span class="str">'Importing a module script failed'</span>)
+  ) {
+    <span class="kw">const</span> lastReload = +localStorage.<span class="fn">getItem</span>(<span class="str">'chunkErrorReload'</span>) || <span class="num">0</span>;
+    <span class="kw">const</span> now = Date.<span class="fn">now</span>();
+    <span class="cm">// 30s cooldown prevents infinite reload loops on genuinely broken deploys</span>
+    <span class="kw">if</span> (now - lastReload > <span class="num">30_000</span>) {
+      localStorage.<span class="fn">setItem</span>(<span class="str">'chunkErrorReload'</span>, String(now));
+      window.location.<span class="fn">reload</span>();
+    }
+  }
+});
+<span class="lang">main.jsx</span></code></pre>
+
+  <h3>Cache Invalidation Is a Contract, Not a Strategy</h3>
+
+  <p>The hardest part of SW caching is usually not choosing a strategy - it is defining an explicit contract for when a cached response is considered invalid. In my experience, if this is not written down early, it can lead to implicit, inconsistent rules across event handlers.</p>
+
+  <p>Before writing a single line of SW caching code, answer these questions for every resource type:</p>
+  <ul>
+    <li>How long is this response valid? (TTL in seconds, not "seems OK")</li>
+    <li>What event should invalidate it immediately - deploy, user logout, user action?</li>
+    <li>What happens if the user is offline when invalidation should have occurred?</li>
+    <li>Is serving a stale version while revalidating acceptable for this resource?</li>
+  </ul>
+
+  <h3>Versioning Strategies and Their Pitfalls</h3>
+
+  <p><strong>Approach 1: Build hash in cache name.</strong> Simple. Works. Pitfall: if you precache 20MB of assets, every deploy requires downloading all 20MB again even if only one file changed.</p>
+
+  <p><strong>Approach 2: Per-file content hash in filename.</strong> Only cache-busts changed files. What Workbox <code>precacheAndRoute</code> with a manifest does by default. Pitfall: the manifest generation must be airtight. Any missed file means stale content served silently; any incorrectly included file is re-downloaded on every deploy.</p>
+
+  <p><strong>Approach 3: Runtime caching with TTL.</strong> Resources cached on demand with expiry metadata stored alongside them. Most flexible. Pitfall: TTL logic lives inside the SW - bugs there have no easy recovery path. Also, TTL is evaluated on read, not on expiry, so you don't know a cache entry is stale until someone requests it.</p>
+
+  <div class="callout warn">
+    <div class="callout-tag">⚡ The "Serving JSON as HTML" Bug</div>
+    <p>Your SW intercepts every request. If cache key logic is incorrect, you can serve a cached JSON API response when the browser expects an HTML document (same URL, different <code>Accept</code> header). The page renders as raw JSON text. I have seen this happen more than once in real projects. Include <code>request.destination</code> in your cache key logic, or use separate named caches per resource type.</p>
+  </div>
+</section>
+
+<!-- ══ S4: UPDATE HELL ══ -->
+<section id="s4" class="reveal">
+  <div class="chapter-marker"><span class="cn">04</span><span>Update Mechanism - Precisely</span></div>
+  <div class="section-label" data-n="04">Update Mechanisms</div>
+  <h2>Why Users Are Still on Last Month's Build</h2>
+
+  <p>The SW update mechanism is one of the most important things to understand, and also one of the easiest to misunderstand. In real projects, update confusion can leave broken experiences in production for days.</p>
+
+  <h3>The Two Distinct Mechanisms Behind "The 24-Hour Rule"</h3>
+
+  <p>A common misunderstanding is that browsers check for a new SW "at most once per 24 hours." This collapses two separate mechanisms into one and produces a misleading picture. Here is what actually happens:</p>
+
+  <div class="mechanism">
+    <div class="mechanism-header">Mechanism 1 - Update Check Frequency</div>
+    <div class="mechanism-body">
+      <div class="m-row">
+        <div class="m-key">When triggered</div>
+        <div class="m-val">On every navigation to a controlled page, and whenever you call <code>registration.update()</code> explicitly. <strong>This is not throttled to once per 24 hours.</strong> If a user navigates 10 times in a session, the browser attempts to fetch the SW script up to 10 times.</div>
+      </div>
+      <div class="m-row">
+        <div class="m-key">Spec reference</div>
+        <div class="m-val">WHATWG Service Worker spec §9.9 "Update algorithm" - the update is triggered on every navigation, with no built-in frequency throttle on the check itself.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mechanism">
+    <div class="mechanism-header">Mechanism 2 - HTTP Cache Bypass Threshold (the real "24-hour rule")</div>
+    <div class="mechanism-body">
+      <div class="m-row">
+        <div class="m-key">What the 24 hours actually means</div>
+        <div class="m-val">When fetching the SW script, the browser <em>ignores HTTP cache headers</em> (e.g., <code>Cache-Control: max-age</code>) after 24 hours have elapsed since the last successful update. <strong>This is about bypassing the HTTP cache, not about how often the browser checks for an update.</strong></div>
+      </div>
+      <div class="m-row">
+        <div class="m-key">Practical implication</div>
+        <div class="m-val">Historically, long-lived cache headers on <code>sw.js</code> could delay updates. Modern Chrome now issues update checks with <code>cache: no-cache</code> by default, so it usually revalidates regardless. <strong>You should still serve <code>sw.js</code> with <code>Cache-Control: no-cache</code> (or <code>max-age=0</code>)</strong> so correctness does not depend on browser-specific heuristics.</div>
+      </div>
+      <div class="m-row">
+        <div class="m-key">Spec reference</div>
+        <div class="m-val">WHATWG SW spec §9.9 step 8.5 - "If the result of parsing registration's last update check time is not null, and the current time is before the time that is 24 hours after registration's last update check time, set request's cache mode to 'no-cache'."</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout note">
+    <div class="callout-tag">ℹ Practical Consequence</div>
+    <p>A user who has had a tab open for 23 hours and navigates within your app will trigger an update check on that navigation. In modern Chrome, this already uses revalidation semantics for <code>sw.js</code>; other engines may vary more by version. <strong>Always serve <code>sw.js</code> with <code>Cache-Control: no-cache</code> (or <code>max-age=0</code>)</strong> so update behaviour stays predictable across browsers.</p>
+  </div>
+
+<pre><code><span class="cm">// Force an update check when tab regains focus</span>
+<span class="cm">// Catches long-lived tabs and sessions resumed after hours</span>
+document.<span class="fn">addEventListener</span>(<span class="str">'visibilitychange'</span>, () => {
+  <span class="kw">if</span> (document.visibilityState === <span class="str">'visible'</span>) {
+    navigator.serviceWorker.ready.<span class="fn">then</span>((reg) => {
+      reg.<span class="fn">update</span>(); <span class="cm">// triggers an explicit update check for sw.js</span>
+    });
+  }
+});
+<span class="lang">main.jsx</span></code></pre>
+
+  <h3>What skipWaiting() Actually Does - And What It Doesn't</h3>
+
+  <p>The docs make <code>skipWaiting()</code> sound like a convenience method. It is a takeover operation. Here is the precise sequence:</p>
+
+  <ol>
+    <li>Calling <code>self.skipWaiting()</code> from a waiting SW immediately transitions it to activating, bypassing the normal wait for all clients to close.</li>
+    <li>Fetch events that have already called <code>respondWith()</code> <em>continue to completion normally</em> - they are not dropped.</li>
+    <li>Fetch events that have not yet called <code>respondWith()</code> may be dropped - but this is a narrow window and the principal risk is elsewhere.</li>
+    <li><strong>The real danger:</strong> pages whose HTML was served by the old SW (with old content-hashed asset filenames) are now controlled by the new SW. When those pages lazily load chunks, the new SW may not have the old chunk filenames in its precache. Result: 404, runtime error, white screen.</li>
+  </ol>
+
+  <p><strong>When to use it:</strong> The new SW is fully backwards-compatible with any page the old SW could have served. You have a reload-after-claim flow (see below). You are willing to accept rare mid-session disruption.</p>
+
+  <p><strong>When not to use it:</strong> The new SW deletes old asset versions from cache during activate. The user may be mid-transaction (payment, form). You have not implemented the reload-after-claim flow.</p>
+
+  <h3>The Clean Update Pattern</h3>
+
+<pre><code><span class="cm">// sw.js - controlled update flow</span>
+self.<span class="fn">addEventListener</span>(<span class="str">'install'</span>, (e) => {
+  e.<span class="fn">waitUntil</span>(precache()); <span class="cm">// cache new assets</span>
+  <span class="cm">// Do NOT call skipWaiting() here unconditionally.</span>
+  <span class="cm">// Wait for an explicit user-confirmed signal.</span>
+});
+
+self.<span class="fn">addEventListener</span>(<span class="str">'activate'</span>, (e) => {
+  e.<span class="fn">waitUntil</span>(
+    <span class="cm">// Clean up old versioned caches - but NOT if you plan to use skipWaiting,</span>
+    <span class="cm">// because old-SW-served pages may still need the old assets.</span>
+    <span class="cm">// Only delete caches once you know all clients have reloaded.</span>
+    cleanOldCaches()
+  );
+});
+
+self.<span class="fn">addEventListener</span>(<span class="str">'message'</span>, (e) => {
+  <span class="kw">if</span> (e.data === <span class="str">'SKIP_WAITING'</span>) {
+    self.<span class="fn">skipWaiting</span>(); <span class="cm">// only called after user confirms "Reload"</span>
+  }
+});
+
+<span class="cm">// main.jsx - full update handshake</span>
+<span class="kw">let</span> waitingSW = <span class="kw">null</span>;
+
+<span class="cm">// Step 3: page reloads AFTER new SW has taken control</span>
+navigator.serviceWorker.<span class="fn">addEventListener</span>(<span class="str">'controllerchange'</span>, () => {
+  window.location.<span class="fn">reload</span>();
+});
+
+registration.<span class="fn">addEventListener</span>(<span class="str">'updatefound'</span>, () => {
+  <span class="kw">const</span> newSW = registration.installing;
+  newSW.<span class="fn">addEventListener</span>(<span class="str">'statechange'</span>, () => {
+    <span class="kw">if</span> (newSW.state === <span class="str">'installed'</span> && navigator.serviceWorker.controller) {
+      waitingSW = newSW;
+      <span class="fn">showUpdateBanner</span>(); <span class="cm">// "New version available - Refresh"</span>
+    }
+  });
+});
+
+<span class="cm">// User clicks "Refresh" in the banner</span>
+<span class="kw">function</span> <span class="fn">applyUpdate</span>() {
+  waitingSW?.<span class="fn">postMessage</span>(<span class="str">'SKIP_WAITING'</span>);
+  <span class="cm">// controllerchange fires → window.location.reload() above</span>
+}
+<span class="lang">sw.js + main.jsx</span></code></pre>
+
+  <h3>Multi-Tab Synchronisation Is Your Problem</h3>
+
+  <p>The browser does not coordinate SW updates across tabs. Tab 1 triggers an update check. New SW installs, waits. User closes Tab 2 (the one keeping it in waiting). New SW activates. Tabs 1 and 3 are now controlled by the new SW. Tab 4, opened from a cached navigation, may still be on the old SW for that session.</p>
+
+  <p>Use the <code>BroadcastChannel</code> API or <code>clients.matchAll()</code> from the SW to coordinate and notify all tabs simultaneously. When this is skipped, it is common to see the same user end up with split state across tabs.</p>
+</section>
+
+<!-- ══ S5: STORAGE ══ -->
+<section id="s5" class="reveal">
+  <div class="chapter-marker"><span class="cn">05</span><span>Storage & Limits Reality</span></div>
+  <div class="section-label" data-n="05">Storage Reality</div>
+  <h2>The Illusion of Infinite Cache</h2>
+
+  <h3>Storage Limits - Observed Behaviour, Not Guarantees <span class="tag tag-browser">Browser</span></h3>
+  <p>Browsers do not publish contractual storage quotas. The numbers below are derived from documentation, storage API responses, and observed production behaviour. Treat them as approximations - especially Safari, which explicitly uses adaptive quota allocation based on total disk space.</p>
+
+  <table class="cmp-table">
+    <thead><tr>
+      <th>Browser <span class="ver-pill">version tested</span></th>
+      <th>Quota</th>
+      <th>Eviction Policy</th>
+      <th>persist() Support</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td>Chrome / Edge <span class="ver-pill">124+</span></td>
+        <td>Origin can use ~60% of total disk size (dynamic, device-dependent; origin-scoped)</td>
+        <td>LRU by origin when device storage falls below threshold</td>
+        <td>Honoured after user gesture; grants persistent status</td>
+      </tr>
+      <tr>
+        <td>Firefox <span class="ver-pill">126+</span></td>
+        <td>Roughly up to ~50% of free disk, with group caps (for example around 10 GiB per eTLD+1); dynamic and implementation-dependent</td>
+        <td>LRU; persistent origins exempt from eviction</td>
+        <td>Shows permission prompt; strongly honoured</td>
+      </tr>
+      <tr>
+        <td>Safari iOS <span class="ver-pill">17.x</span></td>
+        <td>Starts permissive; Apple has not published a hard cap. ~50 MB is a common observed floor for new origins.</td>
+        <td>Entire origin storage wiped on inactivity or critical storage pressure. Exact threshold undocumented by Apple; has changed between iOS 15, 16, 17. <span class="corrected">Field observation - not Apple-documented</span></td>
+        <td>Partially honoured for installed PWAs on iOS 16.4+; no user-visible prompt; no guarantee</td>
+      </tr>
+      <tr>
+        <td>Safari macOS <span class="ver-pill">17.x</span></td>
+        <td>More generous than iOS in practice; closer to desktop browser behaviour (approximate)</td>
+        <td>Less aggressive than iOS; follows desktop storage pressure norms</td>
+        <td>Honoured but no UI indicator</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <div class="callout-tag">⚠ Safari iOS Will Evict Your Origin Without Warning</div>
+    <p>This is a structural constraint of the platform on iOS. The inactivity threshold and the storage-pressure trigger have changed between Safari versions and are not formally documented by Apple. The behaviour is real and reproducible, but the exact trigger conditions should be treated as variable, not fixed. <strong>Design your architecture to handle eviction as a normal event, not an error.</strong> Every open after eviction must be treated as a cold start with graceful rehydration.</p>
+  </div>
+
+  <h3>Cache API vs IndexedDB - Real Tradeoffs</h3>
+
+  <ul>
+    <li><strong>Using Cache API for application state</strong> - technically works, but you are serialising objects into Response bodies. Querying by field requires reading everything out. Use IndexedDB for structured data.</li>
+    <li><strong>Using IndexedDB for assets</strong> - possible, but the Cache API integrates naturally with fetch interception and is more efficient for binary HTTP responses.</li>
+    <li><strong>IDB transaction auto-commit - a subtle data-loss trap.</strong> <span class="tag tag-spec">Spec</span> - IDB §3.7: transactions commit when there are no more pending requests and the current event loop task is complete. If you <code>await</code> something unrelated between IDB operations, the transaction may have already auto-committed. Subsequent writes throw an <code>InvalidStateError</code>. Whether this surfaces as an observable error depends entirely on whether the calling code has a catch block - without one, it is effectively silent. This is the most common IDB production bug and its error message rarely points to the root cause.</li>
+  </ul>
+
+  <h3>Opaque Responses and Storage Quota - The 7 MB Accounting Quirk <span class="tag tag-browser">Browser</span></h3>
+
+  <p>The "opaque responses take 7 MB in cache quota" claim that circulates online requires careful clarification. The response itself is not padded to 7 MB. Rather, Chromium's Cache API implementation <em>charges</em> a minimum of 7 MB of quota for any opaque (cross-origin, no CORS) cached response, regardless of its actual size. This is a conservative accounting mechanism to prevent attackers from inferring cross-origin response sizes through quota measurements. The actual bytes stored may be far smaller, but your quota is charged as if it were 7 MB. <span class="ver-pill">Chromium behaviour - Firefox/Safari differ</span></p>
+
+  <p>The practical advice is unchanged: never cache opaque responses. But the mechanism is quota accounting, not storage inflation.</p>
+</section>
+
+<!-- ══ S6: SECURITY ══ -->
+<section id="s6" class="reveal">
+  <div class="chapter-marker"><span class="cn">06</span><span>Security Risks</span></div>
+  <div class="section-label" data-n="06">Security</div>
+  <h2>Security Risks to Plan For</h2>
+
+  <blockquote>
+    A service worker with a bug is not just a broken feature. It is a persistent, origin-level man-in-the-middle proxy that you installed in your user's browser and cannot easily remove.
+    <cite>- From a production XSS incident postmortem</cite>
+  </blockquote>
+
+  <h3>Cache Poisoning via SW</h3>
+  <p>If your SW caches responses without validating them, an attacker who achieves any MITM position (compromised CDN edge, malicious Wi-Fi, BGP hijack) can inject a malicious response that gets cached by your SW and served to the user long after the MITM position is gone. The attacker achieves persistent presence without persistent network access.</p>
+
+  <p>Defense: only cache responses where <code>response.ok === true</code> and <code>response.type === 'basic'</code> (same-origin). It is usually safer not to cache opaque responses - you cannot inspect their status or content. If you must cache third-party content, validate a content hash on retrieval.</p>
+
+<pre><code><span class="cm">// Refuse to cache opaque or error responses</span>
+<span class="kw">async function</span> <span class="fn">safePut</span>(cache, request, response) {
+  <span class="kw">if</span> (response.type === <span class="str">'opaque'</span>) {
+    <span class="cm">// Opaque: status is always 0. Could be a 200 or a 503 or injected content.</span>
+    <span class="cm">// You have no way to tell. Refuse to cache.</span>
+    console.<span class="fn">warn</span>(<span class="str">'Refusing to cache opaque response for'</span>, request.url);
+    <span class="kw">return</span>;
+  }
+  <span class="kw">if</span> (!response.ok) <span class="kw">return</span>; <span class="cm">// never cache 4xx / 5xx</span>
+  <span class="kw">await</span> cache.<span class="fn">put</span>(request, response);
+}
+<span class="lang">sw.js</span></code></pre>
+
+  <h3>Persistent XSS via Service Worker</h3>
+  <p>Classic XSS injects code into a page - it vanishes on reload. XSS that registers a service worker (or modifies an existing one's cache) achieves <em>persistent</em> XSS. The injected code can survive navigation and browser restart. <span class="tag tag-field">Field</span>. Remediation options include clearing all site data for the origin, unregistering the compromised SW via a "kill switch" deployment, or pushing a corrective SW update that cleans the poisoned cache - clearing site data is the most complete option but not always the only one.</p>
+
+  <p>This is why your SW file should be served with a strict <code>Content-Security-Policy</code> header and should not be dynamically generated or templated from any user-controlled input. A SW file that includes user-controlled data is a critical vulnerability, not a minor misconfiguration.</p>
+
+  <h3>Auth Tokens in Cache - Silent PII Exposure</h3>
+  <p>It is common to cache authenticated API responses without fully considering sensitivity. A cached response for <code>GET /api/user/profile</code> containing PII sits in Cache API storage. On a shared device, or after logout without cache purging, another user on the same device can potentially access it - especially if the SW does not gate cached responses on auth state.</p>
+
+  <p><strong>Rule:</strong> On every logout event, explicitly clear all caches containing user-specific data. Scope user-data caches separately from your app-shell cache so you can delete them surgically without invalidating static assets.</p>
+
+  <h3>The SW Scope Hijack Risk</h3>
+  <p>A SW registered at <code>/</code> controls all requests from that origin. On platforms where users can upload content to paths like <code>yourapp.com/uploads/</code>, improperly validated HTML+JS file uploads at that path could register a SW controlling the entire origin. Modern browsers enforce that a SW can only control pages within its script's directory and below, and the <code>Service-Worker-Allowed</code> response header controls the maximum scope. Audit your upload endpoints and ensure uploaded content cannot be served with a content-type that triggers SW registration.</p>
+</section>
+
+<!-- ══ S7: DEBUGGING ══ -->
+<section id="s7" class="reveal">
+  <div class="chapter-marker"><span class="cn">07</span><span>Debugging & Observability</span></div>
+  <div class="section-label" data-n="07">Debugging</div>
+  <h2>Seeing Inside the Black Box</h2>
+
+  <h3>Why SW Debugging Is Painful</h3>
+  <p>Your SW runs in a separate thread with its own DevTools session. Breakpoints in the SW do not pause the page. The SW can be killed and restarted by the browser mid-debug. The DevTools "Application" tab shows you the currently registered SW but not the history of what it has served, what cache decisions it made, or why it returned a particular response. You are debugging a stateful proxy with no access log and no audit trail.</p>
+
+  <h3>Useful DevTools Techniques</h3>
+
+  <ul>
+    <li><strong>"Update on reload" in DevTools Application tab</strong> - forces the SW to update on every page reload. Essential for development. But it changes SW lifecycle behaviour significantly: the waiting state is bypassed entirely. Try to avoid benchmarking or testing timing-sensitive update flows with this enabled. Production behaviour will differ.</li>
+    <li><strong>SW-specific breakpoints</strong> - in Sources, set breakpoints directly in <code>sw.js</code>. The SW has its own DevTools instance: click "inspect" next to the service worker in Application → Service Workers. Breakpoints there pause the SW thread independently of the page.</li>
+    <li><strong>Cache Storage inspector</strong> - Application → Cache Storage. Inspect every cached request/response pair including full headers and body. Manually delete entries to test cold-start behaviour. This is the fastest way to verify what is actually in the cache versus what you think is there.</li>
+    <li><strong>DevTools offline checkbox is not real offline</strong> - it blocks page-context network requests but may not block SW background sync or periodic sync fetches in all browsers. For accurate offline testing, use OS-level network disabling or a proxy tool.</li>
+  </ul>
+
+  <h3>Production Logging Strategy</h3>
+  <p><code>console.log</code> from a SW goes to the SW's DevTools console - invisible in production. The solution is forwarding logs to page clients and from there to your analytics pipeline:</p>
+
+<pre><code><span class="cm">// sw.js - forward structured logs to all controlled clients</span>
+<span class="kw">async function</span> <span class="fn">swLog</span>(level, ...args) {
+  <span class="kw">const</span> clients = <span class="kw">await</span> self.clients.<span class="fn">matchAll</span>({ includeUncontrolled: <span class="kw">true</span> });
+  <span class="kw">const</span> message = args.<span class="fn">map</span>(String).<span class="fn">join</span>(<span class="str">' '</span>);
+  clients.<span class="fn">forEach</span>((client) =>
+    client.<span class="fn">postMessage</span>({
+      type: <span class="str">'SW_LOG'</span>,
+      level,
+      message,
+      swVersion: SW_VERSION, <span class="cm">// injected at build time</span>
+      timestamp: Date.<span class="fn">now</span>(),
+    })
+  );
+}
+
+<span class="cm">// main.jsx - receive and forward to analytics</span>
+navigator.serviceWorker.<span class="fn">addEventListener</span>(<span class="str">'message'</span>, (e) => {
+  <span class="kw">if</span> (e.data?.type === <span class="str">'SW_LOG'</span>) {
+    analytics.<span class="fn">track</span>(<span class="str">'sw_event'</span>, {
+      level: e.data.level,
+      message: e.data.message,
+      sw_version: e.data.swVersion,
+      timestamp: e.data.timestamp,
+    });
+  }
+});
+<span class="lang">sw.js + main.jsx</span></code></pre>
+
+  <h3>Building a Mobile Debug Overlay</h3>
+  <p>When a bug only reproduces on a specific physical device (as in the OAuth postmortem), the fastest path is a floating overlay rendering console output on-screen. Gate it to dev/staging only via a flag:</p>
+
+<pre><code><span class="cm">// MobileConsole.jsx - gate to dev/staging via env var or URL param</span>
+<span class="kw">const</span> [logs, setLogs] = <span class="fn">useState</span>([]);
+
+<span class="fn">useEffect</span>(() => {
+  <span class="kw">if</span> (!<span class="fn">isDebugMode</span>()) <span class="kw">return</span>;
+  <span class="kw">const</span> origLog = console.log;
+  <span class="kw">const</span> origError = console.error;
+  <span class="kw">const</span> capture = (prefix) => (...args) => {
+    origLog(...args);
+    <span class="fn">setLogs</span>((prev) => [...prev.<span class="fn">slice</span>(-<span class="num">100</span>), <span class="str">`[${prefix}] `</span> + args.<span class="fn">join</span>(<span class="str">' '</span>)]);
+  };
+  console.log = <span class="fn">capture</span>(<span class="str">'LOG'</span>);
+  console.error = <span class="fn">capture</span>(<span class="str">'ERR'</span>);
+  <span class="kw">return</span> () => { console.log = origLog; console.error = origError; };
+}, []);
+<span class="lang">MobileConsole.jsx</span></code></pre>
+</section>
+
+<!-- ══ S8: CROSS-BROWSER ══ -->
+<section id="s8" class="reveal">
+  <div class="chapter-marker"><span class="cn">08</span><span>Cross-Browser Differences</span></div>
+  <div class="section-label" data-n="08">Cross-Browser</div>
+  <h2>Safari Is a Different Planet</h2>
+
+  <p>Chrome and Firefox have largely converged on SW behaviour. Safari is its own ecosystem, shaped in part by Apple's constraints on the platform. If you are shipping to iOS users, it helps to learn these differences early. The table below reflects behaviour as tested in the versions indicated - browser support changes; treat this as a snapshot.</p>
+
+  <table class="cmp-table">
+    <thead><tr>
+      <th>Feature / Behaviour</th>
+      <th>Chrome <span class="ver-pill">124</span></th>
+      <th>Firefox <span class="ver-pill">126</span></th>
+      <th>Safari iOS <span class="ver-pill">17.4</span></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td>Background Sync API</td>
+        <td><span class="ok">✓ Full support</span></td>
+        <td><span class="bad">No support in stable; historically experimental behind prefs in Nightly</span></td>
+        <td><span class="bad">✗ Not supported</span></td>
+      </tr>
+      <tr>
+        <td>Push Notifications</td>
+        <td><span class="ok">✓ Full</span></td>
+        <td><span class="ok">✓ Full</span></td>
+        <td><span class="meh">iOS 16.4+ only; requires user gesture; no silent push; installed PWA only</span></td>
+      </tr>
+      <tr>
+        <td>Storage persistence</td>
+        <td><span class="ok">Honoured after user gesture</span></td>
+        <td><span class="ok">Honoured; shows user prompt</span></td>
+        <td><span class="bad">Eviction risk regardless; persist() unreliable; threshold varies by iOS version</span></td>
+      </tr>
+      <tr>
+        <td>SW update check</td>
+        <td>On navigation; modern Chrome revalidates <code>sw.js</code> with no-cache by default</td>
+        <td>On navigation; follows spec update algorithm (engine/version behavior may vary)</td>
+        <td>Follows spec; iOS-specific throttling in background</td>
+      </tr>
+      <tr>
+        <td>Navigation preload</td>
+        <td><span class="ok">✓ Supported</span></td>
+        <td><span class="ok">✓ Supported</span></td>
+        <td><span class="ok">✓ Supported (Safari 15.4+)</span> - MDN lists NavigationPreloadManager as supported across all major engines. Earlier versions of this article incorrectly marked it unsupported.</td>
+      </tr>
+      <tr>
+        <td>Periodic Background Sync</td>
+        <td><span class="ok">✓ Chrome / Edge only</span></td>
+        <td><span class="bad">✗</span></td>
+        <td><span class="bad">✗</span></td>
+      </tr>
+      <tr>
+        <td>Install prompt</td>
+        <td><span class="ok">beforeinstallprompt event</span></td>
+        <td><span class="meh">Firefox for Android only</span></td>
+        <td><span class="bad">No API - manual "Add to Home Screen" only</span></td>
+      </tr>
+      <tr>
+        <td>Standalone PWA mode</td>
+        <td><span class="ok">Full, persistent, native-like</span></td>
+        <td><span class="meh">Limited</span></td>
+        <td><span class="meh">Works; limited splash customisation; reduced system integration</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>iOS Safari PWA Quirks - Precisely Documented</h3>
+
+  <ul>
+    <li><strong>Each installed PWA on iOS gets an isolated storage context.</strong> <span class="tag tag-browser">Browser</span> - verified iOS 17. Cookies, localStorage, IndexedDB, and SW registrations are <em>not</em> shared between the installed PWA and Safari browser - they are separate storage buckets. However, they share the same origin and network stack. Auth sessions set in Safari are invisible to the PWA. OAuth must complete within the PWA context specifically - test there, not in Safari browser.</li>
+    <li><strong>iOS PWAs relaunch from <code>start_url</code> on resume.</strong> If a user backgrounds the PWA and returns after a while, iOS relaunches from the <code>start_url</code> in the manifest, not from wherever they were. Unsaved state is lost. Deep linking and "continue where you left off" require explicit state persistence.</li>
+    <li><strong><code>theme_color</code> in the manifest is ignored on iOS.</strong> Status bar styling requires <code>&lt;meta name="apple-mobile-web-app-status-bar-style"&gt;</code> instead. The manifest property works on Chrome Android.</li>
+    <li><strong>Full-screen video behaviour differs.</strong> The native iOS video player takes over in PWA standalone mode but not in Safari browser mode. Custom video controls require special handling.</li>
+    <li><strong>EU policy churn in iOS 17.4 caused brief PWA uncertainty.</strong> As of early 2026, full iOS PWA capabilities (offline, push, install UX) still effectively depend on WebKit PWAs installed through Safari.</li>
+  </ul>
+</section>
+
+<!-- ══ S9: ADVANCED ══ -->
+<section id="s9" class="reveal">
+  <div class="chapter-marker"><span class="cn">09</span><span>Advanced Patterns</span></div>
+  <div class="section-label" data-n="09">Advanced Patterns</div>
+  <h2>Beyond the Basic Fetch Interceptor</h2>
+
+  <h3>Navigation Preload - The Hidden Performance Win</h3>
+
+  <p>By default, when a user navigates to a page, the browser must wake the SW before any network request is made for the document. On a cold SW start, this adds 50–500 ms of latency to every navigation, making your PWA feel slower than a regular website. Navigation preload solves this by starting the document fetch in parallel with SW startup:</p>
+
+<pre><code><span class="cm">// Enable navigation preload in activate</span>
+<span class="cm">// Supported: Chrome, Firefox, Safari 15.4+. Safe to enable universally.</span>
+<span class="cm">// The optional chaining handles browsers where navigationPreload is undefined.</span>
+self.<span class="fn">addEventListener</span>(<span class="str">'activate'</span>, (event) => {
+  event.<span class="fn">waitUntil</span>(
+    self.registration?.navigationPreload?.<span class="fn">enable</span>()
+  );
+});
+
+self.<span class="fn">addEventListener</span>(<span class="str">'fetch'</span>, (event) => {
+  <span class="kw">if</span> (event.request.mode !== <span class="str">'navigate'</span>) <span class="kw">return</span>;
+
+  event.<span class="fn">respondWith</span>((<span class="kw">async</span> () => {
+    <span class="cm">// preloadResponse is already in-flight before the SW woke up</span>
+    <span class="kw">const</span> preload = <span class="kw">await</span> event.preloadResponse;
+    <span class="kw">if</span> (preload) <span class="kw">return</span> preload;
+    <span class="cm">// Fallback: normal network fetch</span>
+    <span class="kw">return</span> <span class="fn">fetch</span>(event.request);
+  })());
+});
+<span class="lang">sw.js</span></code></pre>
+
+  <h3>Background Sync - Offline Mutations Done Right</h3>
+
+  <p>Background Sync lets you queue mutations while offline and replay them when connectivity returns - even if the tab is closed. The pattern: user submits a form → SW intercepts → network fails → SW registers a sync tag → browser wakes the SW on reconnect → SW replays the queued request.</p>
+
+  <p>What examples omit: you need idempotency keys on your API endpoints to handle re-delivery. You need a max-retry policy and exponential backoff. You need a way to surface replay results to a UI that may not have an open tab (use Push Notifications or Badge API where available). And the API is only reliably available on Chrome/Edge - design a synchronous fallback for Firefox and Safari.</p>
+
+  <h3>Streaming Responses Through the SW</h3>
+  <p>The SW can construct a streaming <code>Response</code> using <code>ReadableStream</code>, enabling the "app shell + content stream" architecture: serve the first part of a response from cache (the shell HTML) and stream the rest from network. This eliminates the "blank flash" before content appears and produces measurable 100–300 ms improvements in perceived navigation latency on typical connections. It is complex to implement correctly and requires careful handling of stream cancellation.</p>
+
+  <h3>Workbox - Honest Assessment</h3>
+
+  <table class="cmp-table">
+    <thead><tr><th></th><th>What It Does Well</th><th>Where It Falls Short</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Workbox</strong></td>
+        <td>Precaching with manifest generation, strategy abstractions, background sync primitives, Vite/webpack plugin integration, runtime caching with expiry</td>
+        <td>Abstracts away the SW lifecycle until something breaks - then you need to understand the raw mechanics anyway. Runtime bundle is non-trivial (~30 KB). Opinionated defaults can conflict with custom requirements (e.g., its cache deletion strategy during activate can cause the version mismatch crash described in Failure 005). Generated SW files can be difficult to reason about.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><strong>Honest take:</strong> Workbox is excellent when you want offline capability without deep SW expertise on day one. It can become a liability when requirements diverge from its defaults, because you end up fighting the abstraction. For critical flows - auth callbacks, payment pages, any route where version mismatch is costly - write those handlers manually regardless of whether you use Workbox elsewhere. Understand the lifecycle before you rely on the abstraction.</p>
+</section>
+
+<!-- ══ S10: TIPS ══ -->
+<section id="s10" class="reveal">
+  <div class="chapter-marker"><span class="cn">10</span><span>Practical Tips</span></div>
+  <div class="section-label" data-n="10">Practical Tips</div>
+  <h2>Helpful Things to Keep in Mind</h2>
+
+  <p>Twenty things that often take real time to learn in production. Claims are marked where they distinguish spec from field experience.</p>
+
+  <div class="tips-grid">
+    <div class="tip">
+      <div class="tip-n">01</div>
+      <div class="tip-title">Serve sw.js with Cache-Control: no-cache.</div>
+      <p class="tip-body">If sw.js is HTTP-cached by the browser, your SW updates depend on the cache expiry - not your deploy. Serve it with no-cache always. This is the real lesson behind the "24-hour rule" confusion.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">02</div>
+      <div class="tip-title">Hash fragments never reach the SW.</div>
+      <p class="tip-body"><code>/callback#token=abc</code> is intercepted as <code>/callback</code>. If you serve a cached document here, the token is processed by potentially stale JS. Bypass the SW for all auth callback routes with a URL pattern exclusion.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">03</div>
+      <div class="tip-title">DevTools "Update on reload" changes lifecycle behaviour.</div>
+      <p class="tip-body">It completely bypasses the waiting state. Production behaviour will be different. Always test the actual update flow in an incognito window with this flag disabled.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">04</div>
+      <div class="tip-title">Clearing site data is a nuke, not a scalpel.</div>
+      <p class="tip-body">It removes cache, SW registration, cookies, IDB - everything for the origin. If your bug survives a site data clear, the issue is in your deployed bundle, not in client-side cache.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">05</div>
+      <div class="tip-title">Use versioned cache names.</div>
+      <p class="tip-body"><code>caches.open('my-cache')</code> accumulates stale entries across every deploy. Use <code>'my-cache-v' + BUILD_HASH</code>. In your activate handler, delete caches that do not match the current version string.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">06</div>
+      <div class="tip-title">Your SW can serve responses after the origin is gone.</div>
+      <p class="tip-body">If a user installed your PWA and you take the site down, the SW serves the cached version indefinitely. This is a feature if you planned for it; a crisis if you did not.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">07</div>
+      <div class="tip-title">iOS PWA and Safari share nothing.</div>
+      <p class="tip-body">Separate storage contexts entirely. Auth sessions, cookies, and IDB data set in Safari are invisible to the installed PWA. OAuth must complete within the PWA context. Test there specifically.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">08</div>
+      <div class="tip-title">Opaque responses inflate storage quota in Chromium.</div>
+      <p class="tip-body"><span style="font-size:9px;color:var(--amber);font-family:'IBM Plex Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;">Chromium only</span> - Chromium charges ~7 MB of quota per opaque (cross-origin, no CORS) cached response as a side-channel protection, regardless of actual response size. Firefox and Safari handle this differently. Universal advice: never cache opaque responses.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">09</div>
+      <div class="tip-title">skipWaiting and clients.claim do different things - you need both.</div>
+      <p class="tip-body"><code>skipWaiting()</code> promotes the waiting SW to active, bypassing the "wait for all clients to close" gate. <code>clients.claim()</code> makes the newly active SW take control of existing open pages. Neither implies the other - <code>skipWaiting</code> without <code>claim</code> activates the SW but leaves old pages still controlled by the old one. Then trigger a page reload via the <code>controllerchange</code> event.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">10</div>
+      <div class="tip-title">Async work without waitUntil is silently abandoned.</div>
+      <p class="tip-body">Any async chain in a SW event handler not wrapped in <code>event.waitUntil()</code> may be cut off when the SW goes idle. You will see partial writes, dropped analytics, and incomplete cache updates with no error logged.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">11</div>
+      <div class="tip-title">Module-level variables reset on termination, not every event.</div>
+      <p class="tip-body"><span class="tag tag-spec" style="margin-left:0;margin-bottom:4px;display:inline-block;">Spec</span> The SW may handle many events without being killed. But when it is terminated (which can happen at any idle point), the next wake starts clean. Any JS variable you set may or may not survive to the next event handler. Use Cache API or IDB for anything that must persist reliably.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">12</div>
+      <div class="tip-title">Cache grows forever unless you evict explicitly.</div>
+      <p class="tip-body">The browser will eventually evict under pressure, but you have no control over when. For runtime caches, set a max-entries limit and implement LRU eviction yourself or use Workbox's expiration plugin.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">13</div>
+      <div class="tip-title">Network-first without a timeout is worse than no SW.</div>
+      <p class="tip-body">On a degraded connection, network-first waits for the full network timeout (which can be minutes) before falling back to cache. Always pair network-first with a 2–3 second race-to-cache fallback.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">14</div>
+      <div class="tip-title">Unregister doesn't stop the current SW session.</div>
+      <p class="tip-body"><code>registration.unregister()</code> marks the SW for removal, but it stays active for the current page session. To fully clear a broken SW deployment, users must close all tabs for the origin and reopen.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">15</div>
+      <div class="tip-title">Multiple SW scopes share origin storage.</div>
+      <p class="tip-body">If you register both <code>/sw.js</code> (scope: <code>/</code>) and <code>/admin/sw.js</code> (scope: <code>/admin/</code>), they share IndexedDB and Cache API storage. Requests to <code>/admin/</code> are handled by the longest matching scope. Cache key collisions between SWs are real and produce bizarre behaviour.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">16</div>
+      <div class="tip-title">Stale-while-revalidate is wrong for user-mutated resources.</div>
+      <p class="tip-body">If you SWR-cache <code>GET /cart</code> and the user just added an item, they will see the stale cart for the next load cycle. Never use SWR for any resource that can be changed by the user's own in-session actions.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">17</div>
+      <div class="tip-title">You cannot push a fix to users with a broken SW.</div>
+      <p class="tip-body">If 100k users have a broken SW, you cannot reach them directly. They receive the fix when their browser next fetches a byte-different <code>sw.js</code>. A "kill switch" SW that self-unregisters is the only accelerator - and only works if the broken SW can still fetch and process updates.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">18</div>
+      <div class="tip-title">Audit your precache manifest on every build.</div>
+      <p class="tip-body">Any file missing from the manifest is silently fetched from network (or unavailable offline). Any incorrectly included file is re-downloaded on every deploy. Make manifest auditing part of your CI step.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">19</div>
+      <div class="tip-title">Two SW versions coexist during updates - design for it.</div>
+      <p class="tip-body">Between install and all-clients-closed, old and new SWs coexist and share IndexedDB and Cache API. Any IndexedDB schema migration in a new SW version must be backwards-compatible with what the old SW expects. Version your IDB schemas explicitly.</p>
+    </div>
+    <div class="tip">
+      <div class="tip-n">20</div>
+      <div class="tip-title">The operational overhead is real. Budget for it.</div>
+      <p class="tip-body">In many projects, shipping SW without planning for versioning, updates, debugging, and cross-browser differences can multiply the initial implementation effort in production incident time. The technology is powerful. Treat it as production infrastructure from day one.</p>
+    </div>
+  </div>
+
+  <div class="callout win">
+      <div class="callout-tag">✓ A Principle That Helps Prevent Many Failures</div>
+    <p>Treat your service worker as production infrastructure, not just a frontend feature. It benefits from versioning, deployment automation, monitoring, a documented rollback strategy, and at least one person who understands its lifecycle. In my experience, reliable PWAs usually come from clearer operational processes around the SW lifecycle.</p>
+  </div>
+</section>
+
+<hr class="rule-heavy">
+
+</div><!-- /wrap -->
+
+<footer class="wrap">
+  <div class="footer-l">SERVICE<br>WORKERS</div>
+  <div class="footer-r">
+    Production-grade PWA engineering<br>
+    All failure modes are real incidents<br>
+    Spec claims sourced to WHATWG / W3C<br>
+    Browser behaviour version-labelled<br>
+    Last reviewed: March 2026
+  </div>
+</footer>
+
+<script>
+// Reading progress bar
+window.addEventListener('scroll', () => {
+  const d = document.documentElement;
+  const p = d.scrollTop / (d.scrollHeight - d.clientHeight);
+  document.getElementById('prog').style.width = (p * 100) + '%';
+});
+
+// Scroll reveal
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('in');
+      obs.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.06 });
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>
