@@ -5,6 +5,7 @@ import numpy as np
 import os
 from utils.embedding_utils import get_embedding
 import logging
+from utils.unified_config import sanitize_sql_like
 
 logger = logging.getLogger(__name__)
 
@@ -89,15 +90,19 @@ def text_search():
     query = request.args.get('q', '').strip()
     limit = int(request.args.get('limit', 10))
     
+    # Guard: Fail early before DB hit (Audit Requirement)
     if not query:
-        return jsonify({'message': 'Query parameter "q" is required'}), 400
+        return jsonify({'query': '', 'results': [], 'total': 0}), 200
+    
+    sanitized_query = sanitize_sql_like(query)
     
     # Simple text search across title, notes, and extracted text
+    # Using explicit escape='\\' to prevent LIKE injection
     results = db.session.query(SavedContent).filter_by(user_id=user_id).filter(
         db.or_(
-            SavedContent.title.ilike(f'%{query}%'),
-            SavedContent.notes.ilike(f'%{query}%'),
-            SavedContent.extracted_text.ilike(f'%{query}%')
+            SavedContent.title.ilike(f'%{sanitized_query}%', escape='\\'),
+            SavedContent.notes.ilike(f'%{sanitized_query}%', escape='\\'),
+            SavedContent.extracted_text.ilike(f'%{sanitized_query}%', escape='\\')
         )
     ).limit(limit).all()
     

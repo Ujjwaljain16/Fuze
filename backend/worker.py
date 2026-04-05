@@ -104,6 +104,16 @@ def main():
     logger.info(f"Worker created: {worker.name}")
     logger.info("Worker is now listening for jobs...")
     
+    import signal
+    
+    def handle_shutdown(signum, frame):
+        logger.info("Worker received shutdown signal, finishing current job...")
+        worker.request_stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    
     try:
         if args.burst:
             # Burst mode: process all jobs and exit
@@ -113,8 +123,6 @@ def main():
             # Normal mode: keep running
             logger.info("Running in continuous mode - will keep processing jobs")
             worker.work()
-    except KeyboardInterrupt:
-        logger.info("\nWorker stopped by user")
     except Exception as e:
         logger.error(f"Worker error: {e}", exc_info=True)
         sys.exit(1)

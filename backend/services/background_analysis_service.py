@@ -94,7 +94,15 @@ class BackgroundAnalysisService:
             try:
                 flask_app = get_app()
                 with flask_app.app_context():
-                    self._process_unanalyzed_content()
+                    # Attempt to acquire lock to prevent concurrent analysis runs
+                    lock_owner = self.redis_cache.acquire_lock("background_analysis", ttl_ms=300000)
+                    if lock_owner:
+                        try:
+                            self._process_unanalyzed_content()
+                        finally:
+                            self.redis_cache.release_lock("background_analysis", lock_owner)
+                    else:
+                        logger.debug("Background analysis locked by another worker. Skipping this cycle.")
                 time.sleep(30)  # Check every 30 seconds
             except Exception as e:
                 logger.error(f"Error in background analysis worker: {e}")

@@ -340,6 +340,18 @@ def reload_config():
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
+def sanitize_sql_like(query: str) -> str:
+    """
+    Sanitize input for SQL LIKE/ILIKE patterns.
+    - Guards against empty/whitespace input.
+    - Escapes \, %, and _ in correct order.
+    - Returns empty string if invalid.
+    """
+    if not query or not query.strip():
+        return ""
+    # Order matters: \ first, then %, then _
+    return query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""
     return get_config().database

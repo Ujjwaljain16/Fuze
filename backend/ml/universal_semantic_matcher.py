@@ -153,10 +153,11 @@ class UniversalSemanticMatcher:
             norm_text1 = self.normalize_text(text1)
             norm_text2 = self.normalize_text(text2)
             
-            # Generate embeddings
-            embeddings = self.embedding_model.encode([norm_text1, norm_text2])
+            # Generate embeddings asynchronously so we don't break gevent loop
+            from utils.embedding_utils import embed_async
+            embeddings = embed_async([norm_text1, norm_text2])
             
-            # Calculate cosine similarity
+            # Calculate cosine similarity using scikit-learn
             similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
             
             return float(similarity)
