@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Unified Recommendation Orchestrator
 Coordinates all recommendation engines with proper hierarchy and fallback strategies
@@ -589,13 +589,35 @@ class UnifiedDataLayer:
             logger.error(f"Error boosting project relevance: {e}")
             return content
     
+    def _encode_with_circuit_breaker(self, texts: List[str], **kwargs):
+        """Helper to invoke embedding encoding wrapped in a circuit breaker"""
+        # Define internal function to wrap with circuit breaker
+        import pybreaker
+        
+        # Static circuit breaker for ML so it persists across calls
+        if not hasattr(self.__class__, '_ml_breaker'):
+            self.__class__._ml_breaker = pybreaker.CircuitBreaker(fail_max=5, reset_timeout=30)
+            
+        from utils.embedding_utils import embed_async
+        @self.__class__._ml_breaker
+        def _do_encode():
+            return embed_async(texts)
+            
+        return _do_encode()
+
     def generate_embedding(self, text: str) -> Optional[np.ndarray]:
         """Generate embedding for text"""
         if not self.embedding_model or not text:
             return None
         
         try:
-            return self.embedding_model.encode([text])[0]
+            import pybreaker
+            # Call wrapped embedding to handle timeouts/failures resiliently
+            result = self._encode_with_circuit_breaker([text])
+            return result[0]
+        except pybreaker.CircuitBreakerError:
+            logger.error("ML Circuit breaker is open. Falling back to simple embeddings.")
+            return None
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
             return None
@@ -639,14 +661,20 @@ class UnifiedDataLayer:
             all_texts = [request_text] + content_texts
             batch_size = min(64, len(all_texts))  # Increased batch size for better performance
             
-            # OPTIMIZATION 3: Generate embeddings in optimized batches
-            embeddings = self.embedding_model.encode(
-                all_texts, 
-                show_progress_bar=False, 
-                batch_size=batch_size,
-                convert_to_numpy=True,  # Ensure numpy arrays for faster computation
-                normalize_embeddings=True  # Pre-normalize for faster similarity calculation
-            )
+            import pybreaker
+            
+            try:
+                # OPTIMIZATION 3: Generate embeddings in optimized batches (Wrapped with Circuit Breaker)
+                embeddings = self._encode_with_circuit_breaker(
+                    all_texts, 
+                    show_progress_bar=False, 
+                    batch_size=batch_size,
+                    convert_to_numpy=True,  # Ensure numpy arrays for faster computation
+                    normalize_embeddings=True  # Pre-normalize for faster similarity calculation
+                )
+            except pybreaker.CircuitBreakerError:
+                logger.error("ML Circuit breaker is open during batch similarities. Using neutral similarity.")
+                return [0.5] * len(content_texts)
             
             # OPTIMIZATION 4: Extract embeddings efficiently
             request_embedding = embeddings[0]
@@ -691,10 +719,11 @@ class UnifiedDataLayer:
         """Get embedding for text with fallback support"""
         if self.embedding_model is not None:
             try:
-                return self.embedding_model.encode(text).tolist()
+                from utils.embedding_utils import embed_async
+                return embed_async([text])[0].tolist()
             except Exception as e:
-                logger.warning(f"Error with embedding model: {e}")
-                return self._fallback_embedding(text)
+                logger.warning(f"Error computing text embedding: {e}")
+                return None
         else:
             return self._fallback_embedding(text)
     

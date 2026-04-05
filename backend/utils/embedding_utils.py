@@ -5,13 +5,19 @@ from sklearn.metrics.pairwise import cosine_similarity
 import logging
 import os
 import shutil
+import gc
+import gevent
+from gevent.threadpool import ThreadPool
+import threading
+
+# Limit concurrent inference calls
+_embed_pool = ThreadPool(maxsize=2)
 
 logger = logging.getLogger(__name__)
 
 # Singleton pattern for embedding model with thread safety
 _embedding_model = None
 _embedding_model_initialized = False
-import threading
 _embedding_lock = threading.Lock()
 
 def get_embedding_model():
@@ -181,12 +187,12 @@ def _create_robust_fallback_embedding():
             
             embeddings = []
             for text in texts:
-                embedding = self._generate_fallback_embedding(text)
+                embedding = self._generate_fallback_embedding_logic(text)
                 embeddings.append(embedding)
             
             return np.array(embeddings)
         
-        def _generate_fallback_embedding(self, text):
+        def _generate_fallback_embedding_logic(self, text):
             """Generate fallback embedding using advanced text analysis"""
             try:
                 import re
@@ -229,8 +235,42 @@ def _create_robust_fallback_embedding():
     
     return FallbackEmbeddingModel()
 
-# Don't initialize the model at import time - load lazily when needed
-# This prevents memory issues at startup
+def generate_embedding(text):
+    """
+    Generate an embedding for a text string using the lazy-loaded model.
+    Will gracefully fallback to a simple hash if models are unavailable.
+    """
+    if not text:
+        return None
+        
+    try:
+        # Wrap the ML encoding to avoid blocking gevent execution
+        with gevent.Timeout(10.0):
+            return embed_async([text])[0]
+    except gevent.Timeout:
+        logger.error("embedding_timeout — falling back to TF-IDF")
+        return _create_robust_fallback_embedding().encode([text])[0]
+    except Exception as e:
+        logger.warning(f"Failed to generate embedding efficiently: {e}")
+        return _create_robust_fallback_embedding().encode([text])[0]
+
+def embed_async(texts: list) -> list:
+    """
+    Run SentenceTransformer.encode() in a thread pool so it doesn't 
+    block the gevent event loop. Returns a greenlet-safe future.
+    """
+    embedding_model = get_embedding_model()
+    future = _embed_pool.spawn(embedding_model.encode, texts)
+    return future.get()
+
+def warm_up_embedding_model():
+    """Call once at app startup to load model into memory."""
+    logger.info("Warming up embedding model...")
+    try:
+        embed_async(["warm up"])
+        logger.info("Embedding model ready")
+    except Exception as e:
+        logger.error(f"Failed to warm up model: {e}")
 
 def get_embedding(text):
     """Get embedding for text with Redis caching"""
@@ -243,17 +283,12 @@ def get_embedding(text):
         return cached_embedding
     
     # Generate embedding if not cached - lazy load model here
-    try:
-        embedding_model = get_embedding_model()  # Load model only when needed
-        embedding = embedding_model.encode([text])[0]
-        
-        # Cache the embedding for future use
-        redis_cache.cache_embedding(text, embedding)
-        
-        return embedding
-    except Exception as e:
-        logger.error(f"Error generating embedding for text: {e}")
-        return np.zeros(384)
+    embedding = generate_embedding(text)
+    
+    # Cache the embedding for future use
+    redis_cache.cache_embedding(text, embedding)
+    
+    return embedding
 
 def calculate_cosine_similarity(embedding1, embedding2):
     """Calculate cosine similarity between two embeddings"""
