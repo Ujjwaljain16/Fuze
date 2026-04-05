@@ -117,6 +117,19 @@ def with_db_session(func):
         return func(*args, **kwargs)
     return wrapper
 
+def set_rls_context(session, user_id: str):
+    """
+    Call this at the start of every request after JWT validation.
+    Sets the PostgreSQL session variable that RLS policies check.
+    """
+    try:
+        session.execute(
+            text("SELECT set_config('app.current_user_id', :uid, true)"),
+            {"uid": str(user_id)}
+        )
+    except Exception as e:
+        logger.error(f"Failed to set RLS context: {e}")
+
 def ensure_database_connection():
     """Ensure database connection is available with SSL error handling"""
     try:
