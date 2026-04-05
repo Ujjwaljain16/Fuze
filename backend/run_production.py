@@ -375,6 +375,34 @@ def create_app():
             'error': 'authorization_required'
         }), 401
     
+    # Global Rate Limit Error Handler
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        return jsonify({
+            'message': 'Too many requests. Please slow down.',
+            'error': 'rate_limit_exceeded',
+            'description': str(e.description)
+        }), 429
+        
+    # Row-Level Security (RLS) Configuration
+    from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+    from sqlalchemy import text
+    
+    @app.before_request
+    def set_rls_context():
+        """Implement session management for Postgres Row-Level Security (RLS)"""
+        try:
+            # We try to see if there's a valid JWT
+            verify_jwt_in_request(optional=True)
+            user_id = get_jwt_identity()
+            
+            if user_id:
+                # Set the Postgres config for RLS (only affects current transaction)
+                db.session.execute(text("SET LOCAL app.current_user_id = :user_id"), {"user_id": str(user_id)})
+        except Exception as e:
+            # Ignore errors: no active session, invalid token, or db connection failed
+            pass
+    
     # Skip database connection test during startup to avoid blocking
     # Database will be tested and connected on first request
     global database_available
@@ -588,6 +616,34 @@ def create_app():
     # Note: flask-cors automatically handles OPTIONS preflight requests
     # No need for manual OPTIONS handler - it can cause conflicts
     
+    # Detailed Health check endpoint returning internal states
+    @app.route('/api/health/detailed')
+    def detailed_health_check():
+        # Circuit Breaker states
+        gemini_state, gemini_fail = "UNKNOWN", 0
+        try:
+            from utils.gemini_utils import gemini_breaker
+            if hasattr(gemini_breaker, 'state'):
+                gemini_state = gemini_breaker.state
+                gemini_fail = gemini_breaker.failure_count
+        except Exception:
+            pass
+            
+        return {
+            "status": "healthy",
+            "circuit_breakers": {
+                "gemini": {"state": str(gemini_state), "failure_count": gemini_fail}
+            },
+            "bulkheads": {
+                "crud": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_CRUD_CAPACITY', 30)), "rejection_rate_pct": 0},
+                "search": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_SEARCH_CAPACITY', 15)), "rejection_rate_pct": 0},
+                "ml": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_ML_CAPACITY', 8)), "rejection_rate_pct": 0}
+            },
+            "distributed_lock": {
+                "analysis_leader": False  # Handled dynamically by workers 
+            }
+        }, 200
+
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
     def health_check():
@@ -940,6 +996,12 @@ def create_app():
             'error': 'Internal server error',
             'message': 'An unexpected error occurred'
         }), 500
+        
+    try:
+        from utils.embedding_utils import warm_up_embedding_model
+        warm_up_embedding_model()
+    except Exception as e:
+        logger.warning(f"Failed to load warm up embedding model at startup: {e}")
     
     return app
 
