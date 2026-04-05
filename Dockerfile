@@ -17,8 +17,8 @@ COPY requirements.txt .
 # Install Python dependencies
 # Suppress pip root user warning (safe in Docker containers)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel --root-user-action=ignore && \
-    pip install --no-cache-dir --prefer-binary -r requirements.txt --root-user-action=ignore
-
+    pip install --no-cache-dir --prefer-binary -r requirements.txt --root-user-action=ignore && \
+    pip install --no-cache-dir supervisor --break-system-packages
 # Install Scrapling browsers (required for Scrapling to work)
 RUN camoufox fetch || echo "Camoufox fetch completed"
 
@@ -27,6 +27,7 @@ COPY backend/ ./backend/
 COPY wsgi.py .
 COPY app.py .
 COPY start.sh .
+COPY supervisord.conf .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
