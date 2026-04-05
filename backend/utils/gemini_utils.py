@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 import logging
 import time
 import re
+import pybreaker
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -14,6 +15,27 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Custom exceptions for circuit breaker
+class GeminiRetryableError(Exception):
+    """Exception for retryable Gemini API errors"""
+    pass
+
+class GeminiNonRetryableError(Exception):
+    """Exception for non-retryable Gemini API errors"""
+    pass
+
+def is_retryable_error(e: Exception) -> bool:
+    """Check if the Gemini error is retryable, e.g., 429 or 5xx"""
+    error_str = str(e).lower()
+    return any(err in error_str for err in ['429', 'too many requests', '500', '502', '503', '504', 'timeout'])
+
+# Global Circuit Breaker for Gemini API
+gemini_breaker = pybreaker.CircuitBreaker(
+    fail_max=3,
+    reset_timeout=60,
+    exclude=[GeminiNonRetryableError]
+)
+
 # Global instance for simple usage
 _global_analyzer = None
 
@@ -21,11 +43,6 @@ def get_gemini_response(prompt: str, temperature: float = 0.3, user_id: int = No
     """
     Simple wrapper function for getting Gemini responses
     Used for explainability and other AI-powered features
-    
-    Args:
-        prompt: The prompt to send to Gemini
-        temperature: Temperature for generation
-        user_id: Optional user ID to use user's own API key
     """
     try:
         # Get user-specific API key if user_id provided
@@ -85,10 +102,9 @@ class GeminiAnalyzer:
         self.max_retries = 3
         self.retry_delay = 1  # seconds
     
-    def _make_gemini_request(self, prompt: str, retry_count: int = 0) -> Optional[str]:
-        """
-        Make a request to Gemini with retry logic and better error handling
-        """
+    @gemini_breaker
+    def _make_gemini_request_internal(self, prompt: str) -> str:
+        """Internal method wrapped by CircuitBreaker"""
         try:
             response = self.model.generate_content(
                 prompt,
@@ -96,26 +112,43 @@ class GeminiAnalyzer:
             )
             
             # Validate response
-            if not response:
-                logger.warning(f"Empty response object from Gemini (attempt {retry_count + 1})")
-                return None
-                
-            if not hasattr(response, 'text'):
-                logger.warning(f"Response object has no text attribute (attempt {retry_count + 1})")
-                return None
+            if not response or not hasattr(response, 'text'):
+                raise GeminiRetryableError("Empty response object from Gemini")
                 
             response_text = response.text
             if not response_text or response_text.strip() == "":
-                logger.warning(f"Empty response text from Gemini (attempt {retry_count + 1})")
-                return None
+                raise GeminiRetryableError("Empty response text from Gemini")
                 
             return response_text.strip()
             
+        except GeminiRetryableError:
+            raise
         except Exception as e:
-            logger.error(f"Gemini request failed (attempt {retry_count + 1}): {e}")
+            if is_retryable_error(e):
+                raise GeminiRetryableError(str(e))
+            else:
+                raise GeminiNonRetryableError(str(e))
+                
+    def _make_gemini_request(self, prompt: str, retry_count: int = 0) -> Optional[str]:
+        """
+        Make a request to Gemini with retry logic and better error handling
+        """
+        try:
+            return self._make_gemini_request_internal(prompt)
+        except pybreaker.CircuitBreakerError:
+            logger.error("Gemini Circuit breaker is open. Failing fast.")
+            return None
+        except GeminiRetryableError as e:
+            logger.error(f"Gemini request failed (retryable - attempt {retry_count + 1}): {e}")
             if retry_count < self.max_retries:
                 time.sleep(self.retry_delay * (retry_count + 1))
                 return self._make_gemini_request(prompt, retry_count + 1)
+            return None
+        except GeminiNonRetryableError as e:
+            logger.error(f"Gemini request failed (non-retryable): {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in Gemini request: {e}")
             return None
     
     def _extract_json_from_response(self, response_text: str) -> Optional[Dict]:
