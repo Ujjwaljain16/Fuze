@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from utils.unified_config import sanitize_sql_like
 from models import db, SavedContent, User, Project, ContentAnalysis
 import requests
 from readability import Document
@@ -898,6 +899,35 @@ def bulk_import_bookmarks():
         db.session.rollback()
         return jsonify({'message': f'Bulk import failed: {str(e)}'}), 500
 
+@bookmarks_bp.route('/search', methods=['GET'])
+@jwt_required()
+def search_bookmarks():
+    user_id = int(get_jwt_identity())
+    query = request.args.get('q', '').strip()
+    limit = int(request.args.get('limit', 10))
+    
+    # Guard: Fail early before DB hit
+    if not query:
+        return jsonify({'query': '', 'results': [], 'total': 0}), 200
+        
+    sanitized_query = sanitize_sql_like(query)
+    
+    # Simple text search across title, notes, and tags
+    # Using explicit escape='\\' to prevent LIKE injection
+    results = SavedContent.query.filter_by(user_id=user_id).filter(
+        db.or_(
+            SavedContent.title.ilike(f'%{sanitized_query}%', escape='\\'),
+            SavedContent.notes.ilike(f'%{sanitized_query}%', escape='\\'),
+            SavedContent.tags.ilike(f'%{sanitized_query}%', escape='\\')
+        )
+    ).limit(limit).all()
+
+    return jsonify({
+        'query': query,
+        'results': [{'id': r.id, 'title': r.title, 'url': r.url} for r in results],
+        'total': len(results)
+    }), 200
+
 @bookmarks_bp.route('', methods=['GET'])
 @jwt_required()
 def list_bookmarks():
@@ -920,13 +950,22 @@ def list_bookmarks():
     
     # Add search filter
     if search:
-        query = query.filter(
-            db.or_(
-                SavedContent.title.ilike(f'%{search}%'),
-                SavedContent.notes.ilike(f'%{search}%'),
-                SavedContent.url.ilike(f'%{search}%')
+        sanitized_search = sanitize_sql_like(search)
+        if sanitized_search:
+            query = query.filter(
+                db.or_(
+                    SavedContent.title.ilike(f'%{sanitized_search}%', escape='\\'),
+                    SavedContent.notes.ilike(f'%{sanitized_search}%', escape='\\'),
+                    SavedContent.url.ilike(f'%{sanitized_search}%', escape='\\')
+                )
             )
-        )
+        else:
+            # If search is not empty but sanitizes to empty (e.g. only whitespace/special chars)
+            # return no results or ignore the filter - our implementation plan says return [] for search
+            # but list_bookmarks might just return everything else.
+            # However, the guard 'if search:' already handles empty strings.
+            # 'sanitize_sql_like' returns empty for whitespace-only too.
+            pass
     
     # Add category filter (only if category is provided and not 'all')
     # Handle None/empty categories by treating them as 'other'
@@ -1757,4 +1796,4 @@ def delete_all_bookmarks():
         return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500 
+        return jsonify({'message': f'Error: {str(e)}'}), 500

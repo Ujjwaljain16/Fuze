@@ -23,6 +23,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from dataclasses import asdict
+from extensions import limiter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -160,17 +161,9 @@ def invalidate_user_recommendations(user_id):
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_unified_orchestrator_recommendations():
     """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
-    # Apply rate limiting if available
-    from flask import current_app
-    if hasattr(current_app, 'limiter') and current_app.limiter:
-        # Rate limit: 20 requests per minute per user (increased for better UX)
-        @current_app.limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
-        def _rate_limited():
-            pass
-        _rate_limited()
-    
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
