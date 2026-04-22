@@ -147,6 +147,8 @@ class LoggingConfig:
     max_file_size_mb: int = field(default_factory=lambda: int(os.getenv('LOG_MAX_FILE_SIZE_MB', '10')))
     backup_count: int = field(default_factory=lambda: int(os.getenv('LOG_BACKUP_COUNT', '5')))
     enable_console: bool = field(default_factory=lambda: os.getenv('LOG_ENABLE_CONSOLE', 'true').lower() == 'true')
+    sentry_dsn: str = field(default_factory=lambda: os.getenv('SENTRY_DSN', ''))
+    app_version: str = field(default_factory=lambda: os.getenv('APP_VERSION', 'unknown'))
 
 # ============================================================================
 # UNIFIED CONFIGURATION CLASS
@@ -282,11 +284,13 @@ class UnifiedConfig:
             'JWT_SECRET_KEY': self.security.jwt_secret_key,
             'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=self.security.jwt_access_token_expires_hours),
             'JWT_REFRESH_TOKEN_EXPIRES': timedelta(days=self.security.jwt_refresh_token_expires_days),
+            'JWT_TOKEN_LOCATION': ['cookies'],
             # JWT Cookie Security (Production-grade)
             'JWT_COOKIE_SECURE': not self.is_development(),  # HTTPS only in production
             'JWT_COOKIE_HTTPONLY': True,  # Prevent XSS attacks
             'JWT_COOKIE_SAMESITE': 'Lax',  # CSRF protection
             'JWT_COOKIE_CSRF_PROTECT': True,  # Enable CSRF protection for cookies
+            'JWT_ACCESS_CSRF_HEADER_NAME': 'X-CSRF-TOKEN',
             # Session cookie security for Flask sessions (keep in sync with JWT cookie settings)
             'SESSION_COOKIE_SECURE': not self.is_development(),
             'SESSION_COOKIE_HTTPONLY': True,
@@ -350,7 +354,7 @@ def sanitize_sql_like(query: str) -> str:
     if not query or not query.strip():
         return ""
     # Order matters: \ first, then %, then _
-    return query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')[:200]
 
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""
