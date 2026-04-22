@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from backend.core.logging_config import get_logger
+logger = get_logger(__name__)
 
 # Custom exceptions for circuit breaker
 class GeminiRetryableError(Exception):
@@ -52,14 +52,14 @@ def get_gemini_response(prompt: str, temperature: float = 0.3, user_id: int = No
                 from services.multi_user_api_manager import get_user_api_key
                 api_key = get_user_api_key(user_id)
             except Exception as e:
-                logger.warning(f"Could not get user API key for user {user_id}: {e}")
+                logger.warning("multi_user_api_key_fetch_failed", user_id=user_id, error=str(e))
         
         # Create analyzer with user's key or default
         analyzer = GeminiAnalyzer(api_key=api_key)
         response = analyzer._make_gemini_request(prompt)
         return response
     except Exception as e:
-        logger.error(f"Error in get_gemini_response: {e}")
+        logger.error("get_gemini_response_exception", error=str(e))
         return None
 
 class GeminiAnalyzer:
@@ -76,18 +76,18 @@ class GeminiAnalyzer:
         
         # Try different model names for compatibility
         try:
-            self.model = genai.GenerativeModel('gemini-2.0-flash')
-            logger.info("Successfully initialized Gemini with gemini-2.0-flash model")
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            logger.info("gemini_initialized", model="gemini-2.5-flash")
         except Exception as e1:
             try:
-                self.model = genai.GenerativeModel('gemini-1.5-pro')
-                logger.info("Successfully initialized Gemini with gemini-1.5-pro model")
+                self.model = genai.GenerativeModel('gemini-3-pro')
+                logger.info("gemini_initialized", model="gemini-3-pro")
             except Exception as e2:
                 try:
-                    self.model = genai.GenerativeModel('gemini-pro')
-                    logger.info("Successfully initialized Gemini with gemini-pro model")
+                    self.model = genai.GenerativeModel('gemini-3-pro-preview')
+                    logger.info("gemini_initialized", model="gemini-3-pro-preview")
                 except Exception as e3:
-                    logger.error(f"Failed to initialize Gemini with all model names: {e1}, {e2}, {e3}")
+                    logger.error("gemini_initialization_failed", errors=[str(e1), str(e2), str(e3)])
                     raise ValueError(f"Failed to initialize Gemini AI: {e3}")
         
         # Configure generation parameters
@@ -136,26 +136,25 @@ class GeminiAnalyzer:
         try:
             return self._make_gemini_request_internal(prompt)
         except pybreaker.CircuitBreakerError:
-            logger.error("Gemini Circuit breaker is open. Failing fast.")
+            logger.error("gemini_circuit_breaker_open")
             return None
         except GeminiRetryableError as e:
-            logger.error(f"Gemini request failed (retryable - attempt {retry_count + 1}): {e}")
+            logger.error("gemini_request_retryable_failure", attempt=retry_count + 1, error=str(e))
             if retry_count < self.max_retries:
                 time.sleep(self.retry_delay * (retry_count + 1))
                 return self._make_gemini_request(prompt, retry_count + 1)
             return None
         except GeminiNonRetryableError as e:
-            logger.error(f"Gemini request failed (non-retryable): {e}")
+            logger.error("gemini_request_non_retryable_failure", error=str(e))
             return None
         except Exception as e:
-            logger.error(f"Unexpected error in Gemini request: {e}")
+            logger.error("gemini_request_unexpected_exception", error=str(e))
             return None
     
     def _extract_json_from_response(self, response_text: str) -> Optional[Dict]:
         """
         Extract JSON from Gemini response, handling various response formats
         """
-        import logging
         if not response_text:
             return None
         # Try to find JSON in the response
@@ -183,7 +182,7 @@ class GeminiAnalyzer:
         except Exception:
             pass
         # Log the raw response for debugging
-        logging.warning(f"Could not extract JSON from Gemini response. Raw response: {response_text[:500]}")
+        logger.warning("gemini_json_extraction_failed", response_preview=response_text[:500])
         return None
 
     def filter_bad_recommendations(self, recommendations: list) -> list:
@@ -339,22 +338,22 @@ class GeminiAnalyzer:
             response_text = self._make_gemini_request(prompt)
             
             if not response_text:
-                logger.warning(f"Empty response from Gemini for {title}, using fallback")
+                logger.warning("gemini_bookmark_analysis_empty_response", title=title)
                 return self._get_fallback_analysis(title, description, content)
             
             # Try to extract JSON from response
             result = self._extract_json_from_response(response_text)
             
             if result:
-                logger.info(f"Successfully analyzed bookmark: {title}")
+                logger.info("bookmark_analysis_success", title=title)
                 return result
             else:
-                logger.warning(f"Could not extract JSON from Gemini response for {title}, using fallback")
-                logger.debug(f"Raw response: {response_text[:500]}...")
+                logger.warning("gemini_bookmark_analysis_json_failed", title=title)
+                logger.debug("gemini_raw_response", response=response_text[:500])
                 return self._get_fallback_analysis(title, description, content)
                 
         except Exception as e:
-            logger.error(f"Gemini analysis failed for {title}: {e}")
+            logger.error("bookmark_analysis_exception", title=title, error=str(e))
             return self._get_fallback_analysis(title, description, content)
     
     def analyze_user_context(self, title: str, description: str, technologies: str, user_interests: str = "") -> Dict:
@@ -400,22 +399,22 @@ class GeminiAnalyzer:
             response_text = self._make_gemini_request(prompt)
             
             if not response_text:
-                logger.warning(f"Empty response from Gemini for context {title}, using fallback")
+                logger.warning("gemini_context_analysis_empty_response", title=title)
                 return self._get_fallback_context_analysis(title, description, technologies)
             
             # Try to extract JSON from response
             result = self._extract_json_from_response(response_text)
             
             if result:
-                logger.info(f"Successfully analyzed user context: {title}")
+                logger.info("context_analysis_success", title=title)
                 return result
             else:
-                logger.warning(f"Could not extract JSON from Gemini response for context {title}, using fallback")
-                logger.debug(f"Raw response: {response_text[:500]}...")
+                logger.warning("gemini_context_analysis_json_failed", title=title)
+                logger.debug("gemini_raw_response", response=response_text[:500])
                 return self._get_fallback_context_analysis(title, description, technologies)
                 
         except Exception as e:
-            logger.error(f"Gemini context analysis failed for {title}: {e}")
+            logger.error("context_analysis_exception", title=title, error=str(e))
             return self._get_fallback_context_analysis(title, description, technologies)
     
     def generate_recommendation_reasoning(self, bookmark: Dict, user_context: Dict) -> str:
@@ -446,7 +445,7 @@ class GeminiAnalyzer:
             response_text = self._make_gemini_request(prompt)
             
             if not response_text:
-                logger.warning("Empty response from Gemini for reasoning, using fallback")
+                logger.warning("gemini_reasoning_empty_response")
                 return self._get_fallback_reasoning(bookmark, user_context)
             
             # Clean up the response (remove markdown formatting if present)
@@ -455,14 +454,14 @@ class GeminiAnalyzer:
             cleaned_response = cleaned_response.strip()
             
             if cleaned_response:
-                logger.info("Successfully generated recommendation reasoning")
+                logger.info("reasoning_generation_success")
                 return cleaned_response
             else:
-                logger.warning("Empty cleaned response from Gemini for reasoning, using fallback")
+                logger.warning("gemini_reasoning_cleaned_empty")
                 return self._get_fallback_reasoning(bookmark, user_context)
                 
         except Exception as e:
-            logger.error(f"Gemini reasoning generation failed: {e}")
+            logger.error("reasoning_generation_exception", error=str(e))
             return self._get_fallback_reasoning(bookmark, user_context)
 
     def generate_batch_recommendation_reasoning(self, batch_context: Dict) -> List[str]:
@@ -540,17 +539,17 @@ class GeminiAnalyzer:
                 # Extract JSON array from response
                 json_data = self._extract_json_from_response(response)
                 if json_data and isinstance(json_data, list) and len(json_data) == len(recommendations):
-                    logger.info(f"Successfully generated batch recommendation reasoning for {len(recommendations)} items")
+                    logger.info("batch_reasoning_success", count=len(recommendations))
                     return [str(reason).strip() for reason in json_data]
                 else:
-                    logger.warning(f"Invalid batch reasoning response format, falling back to individual")
+                    logger.warning("batch_reasoning_invalid_format", count=len(recommendations))
                     return self._generate_individual_reasons(recommendations, user_request)
             else:
-                logger.warning("Batch reasoning failed, falling back to individual")
+                logger.warning("batch_reasoning_failed")
                 return self._generate_individual_reasons(recommendations, user_request)
                 
         except Exception as e:
-            logger.error(f"Error generating batch recommendation reasoning: {e}")
+            logger.error("batch_reasoning_exception", error=str(e))
             return self._generate_individual_reasons(recommendations, user_request)
 
     def _generate_individual_reasons(self, recommendations: List[Dict], user_request: Dict) -> List[str]:
@@ -563,7 +562,7 @@ class GeminiAnalyzer:
                 reason = self.generate_recommendation_reasoning(rec, user_request)
                 reasons.append(reason)
             except Exception as e:
-                logger.error(f"Error generating individual reason: {e}")
+                logger.error("individual_reason_generation_failed", error=str(e))
                 reasons.append("Content recommended based on relevance scoring.")
         return reasons
     
@@ -627,23 +626,29 @@ class GeminiAnalyzer:
             - Practical applicability
             """
             
-            response = self.model.generate_content(
-                prompt,
-                generation_config=self.generation_config
-            )
+            response_text = self._make_gemini_request(prompt)
             
+            if not response_text:
+                logger.warning("gemini_ranking_empty_response")
+                return recommendations
+                
             try:
-                ranked_indices = json.loads(response.text)
+                # Use common JSON extraction logic
+                ranked_indices = self._extract_json_from_response(response_text)
+                if not ranked_indices or not isinstance(ranked_indices, list):
+                    logger.warning(f"Failed to parse ranking response as list: {response_text[:100]}")
+                    return recommendations
+                
                 # Reorder recommendations based on Gemini ranking
-                ranked_recommendations = [recommendations[i] for i in ranked_indices if i < len(recommendations)]
-                logger.info("Successfully ranked recommendations using Gemini")
+                ranked_recommendations = [recommendations[i] for i in ranked_indices if isinstance(i, int) and i < len(recommendations)]
+                logger.info("recommendation_ranking_success")
                 return ranked_recommendations
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse ranking response: {e}")
+            except Exception as e:
+                logger.error("ranking_response_processing_failed", error=str(e))
                 return recommendations
                 
         except Exception as e:
-            logger.error(f"Gemini ranking failed: {e}")
+            logger.error("gemini_ranking_exception", error=str(e))
             return recommendations
     
     def _get_fallback_analysis(self, title: str, description: str, content: str) -> Dict:
@@ -1016,22 +1021,22 @@ class GeminiAnalyzer:
             response_text = self._make_gemini_request(structured_prompt)
             
             if not response_text:
-                logger.warning("Empty response from Gemini for batch analysis, using fallback")
+                logger.warning("gemini_batch_analysis_empty_response")
                 return self._get_batch_fallback_analysis("")
             
             # Try to extract JSON from response
             result = self._extract_json_from_response(response_text)
             
             if result:
-                logger.info("Successfully analyzed batch content")
+                logger.info("batch_content_analysis_success")
                 return result
             else:
-                logger.warning("Could not extract JSON from Gemini batch response, using fallback")
-                logger.debug(f"Raw batch response: {response_text[:500]}...")
+                logger.warning("gemini_batch_analysis_json_failed")
+                logger.debug("gemini_raw_response", response=response_text[:500])
                 return self._get_batch_fallback_analysis(batch_prompt)
                 
         except Exception as e:
-            logger.error(f"Error in batch content analysis: {e}")
+            logger.error("batch_content_analysis_exception", error=str(e))
             return self._get_batch_fallback_analysis(batch_prompt)
     
     def _get_batch_fallback_analysis(self, batch_prompt: str) -> Dict:
@@ -1149,7 +1154,7 @@ class GeminiAnalyzer:
             }
             
         except Exception as e:
-            logger.error(f"Error in batch fallback analysis: {e}")
+            logger.error("batch_fallback_analysis_exception", error=str(e))
             return {
                 "items": [],
                 "overall_insights": {
@@ -1234,7 +1239,7 @@ class GeminiAnalyzer:
             return analysis
             
         except Exception as e:
-            logger.error(f"Error in project analysis: {e}")
+            logger.error("project_analysis_exception", error=str(e), title=project_title)
             return self._get_project_fallback_analysis(project_title, project_description, project_technologies)
     
     def _get_project_fallback_analysis(self, project_title: str, project_description: str, project_technologies: str) -> Dict:
@@ -1309,7 +1314,7 @@ class GeminiAnalyzer:
             }
             
         except Exception as e:
-            logger.error(f"Error in fallback project analysis: {e}")
+            logger.error("project_fallback_analysis_exception", error=str(e))
             return {
                 "technologies": [],
                 "learning_goals": ["Learn project development"],

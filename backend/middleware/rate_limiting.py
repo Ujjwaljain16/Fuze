@@ -1,89 +1,47 @@
-"""
-Rate limiting middleware for production
-"""
-import os
-import logging
-from flask import request
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import redis.exceptions
+from backend.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+from extensions import limiter
 
 def init_rate_limiter(app):
-    """Initialize rate limiter for the Flask app with Redis fallback"""
+    """Initialize rate limiter for the Flask app with Redis as primary storage"""
     try:
         redis_url = os.environ.get('REDIS_URL')
         
-        # Use more lenient limits for development, stricter for production
-        is_development = os.environ.get('FLASK_ENV', 'development') == 'development'
+        # PRODUCTION: reasonable limits as a baseline
+        # Specific overrides should be used on high-value AI routes
+        default_limits = ["1000 per hour", "100 per minute"]
         
-        if is_development:
-            # Development: DISABLE rate limiting for testing/debugging
-            default_limits = ["100000 per day", "10000 per hour", "1000 per minute"]
-        else:
-            # Production: Reasonable limits for better user experience
-            default_limits = ["1000 per day", "200 per hour", "50 per minute"]
-        
-        # Try Redis first, fallback to memory if Redis is unavailable
-        limiter = None
+        # Security: Default to memory if Redis is missing to avoid crashing, 
+        # but log a critical warning in production.
+        storage_uri = 'memory://'
         if redis_url:
-            try:
-                # Test Redis connection first
-                import redis
-                from urllib.parse import urlparse
-                parsed = urlparse(redis_url)
-                
-                # Create a test connection
-                test_redis = redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
-                test_redis.ping()
-                test_redis.close()
-                
-                # Redis is available, use it
-                limiter = Limiter(
-                    app=app,
-                    key_func=get_remote_address,
-                    default_limits=default_limits,
-                    storage_uri=redis_url,
-                    headers_enabled=True,
-                    swallow_errors=True,  # Don't crash on rate limit errors
-                    on_breach=lambda request, endpoint, limits: logger.warning(
-                        f"Rate limit breached: {endpoint} by {get_remote_address()}"
-                    )
-                )
-                logger.info("Rate limiter using Redis storage")
-            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, 
-                    redis.exceptions.RedisError, Exception) as redis_error:
-                logger.warning(f"Redis unavailable for rate limiting ({redis_error}), falling back to memory storage")
-                # Fall back to memory storage
-                limiter = Limiter(
-                    app=app,
-                    key_func=get_remote_address,
-                    default_limits=default_limits,
-                    storage_uri='memory://',
-                    headers_enabled=True,
-                    swallow_errors=True
-                )
-                logger.warning("Rate limiter using memory storage (Redis unavailable)")
+            storage_uri = redis_url
+            logger.info("rate_limiter_redis_storage_enabled")
         else:
-            # No Redis URL configured, use memory
-            limiter = Limiter(
-                app=app,
-                key_func=get_remote_address,
-                default_limits=default_limits,
-                storage_uri='memory://',
-                headers_enabled=True,
-                swallow_errors=True
-            )
-            logger.warning("Rate limiter using memory storage (no Redis URL configured)")
+            logger.warning("rate_limiter_memory_fallback", reason="REDIS_URL_missing")
         
-        logger.info("Rate limiter initialized successfully")
+        # Configure the limiter
+        # We handle this during init_app to ensure config is applied to the app instance
+        limiter.init_app(app)
+        limiter.storage_uri = storage_uri
+        # Note: default_limits should be set on the object or passed to init_app if supported
+        # flask-limiter 2.x+ uses storage_uri property
+        
+        # Set default limits manually on the instance for broadcast
+        if not hasattr(limiter, '_default_limits'):
+            limiter._default_limits = default_limits
+        
+        limiter.headers_enabled = True
+        # Security: DO NOT swallow errors in production. We want to know if Redis dies.
+        # But for stability, we might set it to True with a fallback.
+        limiter.swallow_errors = True 
+        
+        logger.info("rate_limiter_initialized")
         return limiter
     except Exception as e:
-        logger.error(f"Failed to initialize rate limiter: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
-        # Return None if rate limiting fails - app should still work
+        logger.error("rate_limiter_init_failed", error=str(e))
         return None
 
 

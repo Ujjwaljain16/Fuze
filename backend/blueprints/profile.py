@@ -2,9 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User
 from sqlalchemy.exc import IntegrityError
-import logging
+from backend.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 profile_bp = Blueprint('profile', __name__, url_prefix='/api')
 
@@ -75,7 +75,7 @@ def update_profile():
                 redis_cache.delete_cache(cache_key)
         except Exception as cache_error:
             # Don't fail profile update if cache invalidation fails
-            logger.warning(f"Failed to invalidate profile cache: {cache_error}")
+            logger.warning("profile_cache_invalidation_failed", user_id=user.id, error=str(cache_error))
         
         return jsonify({
             'message': 'Profile updated successfully',
@@ -90,7 +90,7 @@ def update_profile():
         return jsonify({'message': 'Username already taken'}), 400
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error updating profile: {e}", exc_info=True)
+        logger.error("profile_update_failed", user_id=user_id, error=str(e))
         return jsonify({'message': f'Error updating profile: {str(e)}'}), 500
 
 @profile_bp.route('/users/<int:user_id>', methods=['PUT'])

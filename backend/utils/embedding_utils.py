@@ -2,7 +2,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from .redis_utils import redis_cache
 from sklearn.metrics.pairwise import cosine_similarity
-import logging
+from backend.core.logging_config import get_logger
 import os
 import shutil
 import gc
@@ -13,7 +13,7 @@ import threading
 # Limit concurrent inference calls
 _embed_pool = ThreadPool(maxsize=2)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Singleton pattern for embedding model with thread safety
 _embedding_model = None
@@ -39,11 +39,11 @@ def get_embedding_model():
                     from utils.production_optimizations import get_cached_embedding_model
                     _embedding_model = get_cached_embedding_model()
                     _embedding_model_initialized = True
-                    logger.info(" Using production-optimized embedding model cache")
+                    logger.info("embedding_model_cache_hit", type="production_optimized")
                     return _embedding_model
                 except ImportError:
                     # Fallback to standard initialization
-                    logger.debug("Production optimizations not available, using standard initialization")
+                    logger.debug("embedding_model_init_standard")
                 
                 _embedding_model = _initialize_embedding_model_robust()
                 _embedding_model_initialized = True
@@ -55,7 +55,7 @@ def _initialize_embedding_model_robust():
 
     # Check if embeddings are disabled
     if os.environ.get('DISABLE_EMBEDDINGS', '').lower() in ('true', '1', 'yes'):
-        logger.info(" Embeddings disabled by environment variable, using fallback")
+        logger.info("embedding_model_disabled_by_env")
         return _create_robust_fallback_embedding()
 
     # Optimize memory usage for torch
@@ -78,7 +78,7 @@ def _initialize_embedding_model_robust():
     
     for model_name in model_options:
         try:
-            logger.info(f" Attempting to load embedding model: {model_name}")
+            logger.info("embedding_model_load_attempt", model_name=model_name)
             
             # Clear any corrupted cache for this model
             _clear_model_cache_if_needed(model_name)
@@ -88,42 +88,42 @@ def _initialize_embedding_model_robust():
                 model = SentenceTransformer(model_name)
             except Exception as init_error:
                 if "meta tensor" in str(init_error):
-                    logger.warning(f"Meta tensor error during model initialization, trying to clear cache and retry: {init_error}")
+                    logger.warning("embedding_model_meta_tensor_error", model_name=model_name, error=str(init_error))
                     # Force clear cache and retry once
                     _force_clear_model_cache(model_name)
                     try:
                         model = SentenceTransformer(model_name)
                     except Exception as retry_error:
-                        logger.warning(f"Failed to load model {model_name} even after cache clear: {retry_error}")
+                        logger.warning("embedding_model_load_retry_failed", model_name=model_name, error=str(retry_error))
                         continue
                 else:
                     raise init_error
 
             # Don't manually handle device placement - SentenceTransformer handles this internally
-            logger.info(f" Model {model_name} loaded successfully")
+            logger.info("embedding_model_loaded_successfully", model_name=model_name)
 
             # Test the model with a simple encoding
             test_text = "test"
             try:
                 test_embedding = model.encode([test_text])
                 if test_embedding is not None and len(test_embedding) > 0:
-                    logger.info(f" Successfully loaded and tested embedding model: {model_name}")
+                    logger.info("embedding_model_test_success", model_name=model_name)
                     return model
                 else:
-                    logger.warning(f"Model {model_name} loaded but failed test encoding")
+                    logger.warning("embedding_model_test_failed_empty", model_name=model_name)
             except Exception as encode_error:
                 if "meta tensor" in str(encode_error):
-                    logger.warning(f"Meta tensor error during encoding test for {model_name}, skipping this model")
+                    logger.warning("embedding_model_encoding_meta_error", model_name=model_name)
                 else:
-                    logger.warning(f"Encoding test failed for {model_name}: {encode_error}")
+                    logger.warning("embedding_model_encoding_test_failed", model_name=model_name, error=str(encode_error))
                 continue
                 
         except Exception as e:
-            logger.warning(f"Failed to load model {model_name}: {e}")
+            logger.warning("embedding_model_load_generic_failed", model_name=model_name, error=str(e))
             continue
     
     # If all models fail, create a robust fallback
-    logger.error(" All embedding models failed to load. Creating robust fallback.")
+    logger.error("embedding_all_models_failed")
     with _embedding_lock:
         return _create_robust_fallback_embedding()
 
@@ -139,12 +139,12 @@ def _clear_model_cache_if_needed(model_name):
             try:
                 test_model = SentenceTransformer(model_name)
                 del test_model
-                logger.info(f" Model cache for {model_name} is valid")
+                logger.info("embedding_model_cache_valid", model_name=model_name)
             except Exception:
-                logger.warning(f" Clearing corrupted cache for {model_name}")
+                logger.warning("embedding_model_cache_clearing_corrupted", model_name=model_name)
                 shutil.rmtree(model_cache_path, ignore_errors=True)
     except Exception as e:
-        logger.warning(f"Could not check model cache: {e}")
+        logger.warning("embedding_model_cache_check_failed", error=str(e))
 
 def _force_clear_model_cache(model_name):
     """Force clear model cache to fix meta tensor issues"""
@@ -154,7 +154,7 @@ def _force_clear_model_cache(model_name):
         model_cache_path = os.path.join(cache_dir, 'sentence_transformers', model_name)
 
         if os.path.exists(model_cache_path):
-            logger.warning(f" Force clearing cache for {model_name} to fix meta tensor issue")
+            logger.warning("embedding_model_cache_force_clear", model_name=model_name)
             shutil.rmtree(model_cache_path, ignore_errors=True)
             # Also try to clear any related HuggingFace cache
             try:
@@ -168,17 +168,17 @@ def _force_clear_model_cache(model_name):
             except Exception:
                 pass  # Ignore HF cache clearing errors
     except Exception as e:
-        logger.warning(f"Could not force clear model cache: {e}")
+        logger.warning("embedding_model_cache_force_clear_failed", error=str(e))
 
 def _create_robust_fallback_embedding():
     """Create a robust fallback embedding system"""
-    logger.info(" Creating robust fallback embedding system")
+    logger.info("embedding_fallback_init_start")
     
     class FallbackEmbeddingModel:
         def __init__(self):
             self.dimension = 384
             self._generate_fallback_embedding = True  # Mark this as a fallback model
-            logger.info(" Fallback embedding model initialized")
+            logger.info("embedding_fallback_init_success")
         
         def encode(self, texts, **kwargs):
             """Generate fallback embeddings using TF-IDF-like approach"""
@@ -230,7 +230,7 @@ def _create_robust_fallback_embedding():
                 return vector
                 
             except Exception as e:
-                logger.error(f"Error in fallback embedding: {e}")
+                logger.error("embedding_fallback_logic_failed", error=str(e))
                 return np.zeros(self.dimension)
     
     return FallbackEmbeddingModel()
@@ -248,10 +248,10 @@ def generate_embedding(text):
         with gevent.Timeout(10.0):
             return embed_async([text])[0]
     except gevent.Timeout:
-        logger.error("embedding_timeout — falling back to TF-IDF")
+        logger.error("embedding_timeout_use_fallback")
         return _create_robust_fallback_embedding().encode([text])[0]
     except Exception as e:
-        logger.warning(f"Failed to generate embedding efficiently: {e}")
+        logger.warning("embedding_efficiency_failed_use_fallback", error=str(e))
         return _create_robust_fallback_embedding().encode([text])[0]
 
 def embed_async(texts: list) -> list:
@@ -263,14 +263,14 @@ def embed_async(texts: list) -> list:
     future = _embed_pool.spawn(embedding_model.encode, texts)
     return future.get()
 
-def warm_up_embedding_model():
+def _warm_up_embedding_model():
     """Call once at app startup to load model into memory."""
-    logger.info("Warming up embedding model...")
+    logger.info("embedding_warmup_start")
     try:
         embed_async(["warm up"])
-        logger.info("Embedding model ready")
+        logger.info("embedding_warmup_success")
     except Exception as e:
-        logger.error(f"Failed to warm up model: {e}")
+        logger.error("embedding_warmup_failed", error=str(e))
 
 def get_embedding(text):
     """Get embedding for text with Redis caching"""
@@ -305,7 +305,7 @@ def calculate_cosine_similarity(embedding1, embedding2):
         similarity = cosine_similarity(embedding1, embedding2)[0][0]
         return float(similarity)
     except Exception as e:
-        logger.error(f"Error calculating cosine similarity: {e}")
+        logger.error("embedding_similarity_calc_failed", error=str(e))
         return 0.0
 
 def get_content_embedding(content):
@@ -328,7 +328,7 @@ def get_content_embedding(content):
         return get_embedding(combined_text)
         
     except Exception as e:
-        logger.error(f"Error getting content embedding: {e}")
+        logger.error("embedding_get_content_failed", error=str(e))
         return np.zeros(384)
 
 def get_project_embedding(project):
@@ -351,7 +351,7 @@ def get_project_embedding(project):
         return get_embedding(combined_text)
         
     except Exception as e:
-        logger.error(f"Error getting project embedding: {e}")
+        logger.error("embedding_get_project_failed", error=str(e))
         return np.zeros(384)
 
 def get_subtask_embedding(subtask):
@@ -373,7 +373,7 @@ def get_subtask_embedding(subtask):
         return get_embedding(combined_text)
 
     except Exception as e:
-        logger.error(f"Error getting subtask embedding: {e}")
+        logger.error("embedding_get_subtask_failed", error=str(e))
         return np.zeros(384)
 
 def get_task_embedding(task):
@@ -396,7 +396,7 @@ def get_task_embedding(task):
         return get_embedding(combined_text)
 
     except Exception as e:
-        logger.error(f"Error getting task embedding: {e}")
+        logger.error("embedding_get_task_failed", error=str(e))
         try:
             import numpy as np
             return np.zeros(384)
@@ -424,7 +424,7 @@ def get_project_embedding(project):
         return get_embedding(combined_text)
 
     except Exception as e:
-        logger.error(f"Error getting project embedding: {e}")
+        logger.error("embedding_get_project_duplicate_failed", error=str(e))
         try:
             import numpy as np
             return np.zeros(384)

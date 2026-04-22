@@ -29,10 +29,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from models import db, Project, User
 from utils.gemini_utils import GeminiAnalyzer
+from backend.core.logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 @dataclass
 class UserIntent:
@@ -83,12 +82,12 @@ class IntentAnalysisEngine:
                             # Check if cache is still valid
                             updated_at = datetime.fromisoformat(analysis.get('updated_at', '2000-01-01'))
                             if datetime.now() - updated_at < self.cache_duration:
-                                logger.info(f"Using cached intent analysis for project {project_id}")
+                                logger.info("intent_cache_hit", project_id=project_id)
                                 return analysis
             
             return None
         except Exception as e:
-            logger.error(f"Error checking cached analysis: {e}")
+            logger.error("intent_cache_check_failed", project_id=project_id, error=str(e))
             return None
     
     def _save_analysis_to_db(self, analysis: Dict, project_id: Optional[int] = None):
@@ -100,9 +99,9 @@ class IntentAnalysisEngine:
                     project.intent_analysis = json.dumps(analysis)
                     project.intent_analysis_updated = datetime.now()
                     db.session.commit()
-                    logger.info(f"Saved intent analysis to project {project_id}")
+                    logger.info("intent_save_to_db_success", project_id=project_id)
         except Exception as e:
-            logger.error(f"Error saving analysis to DB: {e}")
+            logger.error("intent_save_to_db_failed", project_id=project_id, error=str(e))
             db.session.rollback()
     
     def _extract_technologies(self, text: str) -> List[str]:
@@ -168,7 +167,7 @@ class IntentAnalysisEngine:
             
             if not self.gemini_client:
                 # Fallback if Gemini is not available (e.g., API key not configured)
-                logger.debug("Gemini client not available, using fallback analysis")
+                logger.debug("intent_gemini_client_unavailable_using_fallback")
                 return self._fallback_analysis(user_input)
             result = self.gemini_client._make_gemini_request(context)
             
@@ -182,7 +181,7 @@ class IntentAnalysisEngine:
             return self._fallback_analysis(user_input)
                 
         except Exception as e:
-            logger.error(f"LLM analysis failed: {e}")
+            logger.error("intent_llm_analysis_failed", error=str(e))
             return self._fallback_analysis(user_input)
     
     def _fallback_analysis(self, user_input: str) -> Dict:
@@ -267,7 +266,7 @@ class IntentAnalysisEngine:
                     }
             
             # Perform analysis
-            logger.info(f"Performing intent analysis for input: {user_input[:100]}...")
+            logger.info("intent_analysis_start", input_length=len(user_input), project_id=project_id)
             analysis_result = self._analyze_with_llm(user_input, project_context)
             
             # Extract technologies from input
@@ -303,11 +302,11 @@ class IntentAnalysisEngine:
             
             self._save_analysis_to_db(analysis_data, project_id)
             
-            logger.info(f"Intent analysis completed: {intent.primary_goal} - {intent.project_type}")
+            logger.info("intent_analysis_complete", primary_goal=intent.primary_goal, project_type=intent.project_type)
             return intent
             
         except Exception as e:
-            logger.error(f"Error in intent analysis: {e}")
+            logger.error("intent_analysis_error", project_id=project_id, error=str(e))
             # Return default intent
             return UserIntent(
                 primary_goal='learn',

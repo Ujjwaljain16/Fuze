@@ -2,6 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Feedback
 from sqlalchemy import func
+from backend.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 feedback_bp = Blueprint('feedback', __name__, url_prefix='/api/feedback')
 
@@ -24,7 +27,9 @@ def submit_feedback():
         db.session.add(feedback)
     try:
         db.session.commit()
+        logger.info("feedback_saved", user_id=user_id, content_id=content_id, feedback_type=feedback_type)
         return jsonify({"message": "Feedback recorded"}), 200
     except Exception as e:
         db.session.rollback()
+        logger.error("feedback_save_failed", user_id=user_id, error=str(e))
         return jsonify({"message": f"Error saving feedback: {str(e)}"}), 500 

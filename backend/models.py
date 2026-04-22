@@ -3,6 +3,9 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func
 from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
+from backend.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Initialize SQLAlchemy with enhanced configuration
 db = SQLAlchemy()
@@ -26,7 +29,7 @@ def configure_database():
         
         return True
     except Exception as e:
-        print(f"Failed to configure database: {e}")
+        logger.error("db_configure_failed", error=str(e))
         return False
 
 def ensure_user_metadata_column():
@@ -37,7 +40,7 @@ def ensure_user_metadata_column():
         columns = [col['name'] for col in inspector.get_columns('users')]
         
         if 'user_metadata' not in columns:
-            print("Adding missing 'user_metadata' column to users table...")
+            logger.info("db_migration_adding_column", table="users", column="user_metadata")
             try:
                 # Try to add the column
                 db.session.execute(text("""
@@ -45,18 +48,18 @@ def ensure_user_metadata_column():
                     ADD COLUMN user_metadata JSON;
                 """))
                 db.session.commit()
-                print("Column 'user_metadata' added successfully")
+                logger.info("db_migration_column_added", table="users", column="user_metadata")
             except Exception as add_error:
                 # If column already exists (race condition), that's fine
                 error_str = str(add_error).lower()
                 if 'already exists' in error_str or 'duplicate' in error_str:
-                    print("Column 'user_metadata' already exists")
+                    logger.debug("db_migration_column_exists", table="users", column="user_metadata")
                     db.session.rollback()
                 else:
                     raise
     except Exception as e:
         # Don't fail if column already exists or can't be added
-        print(f"Note: Could not ensure user_metadata column: {e}")
+        logger.warning("db_migration_ensure_column_failed", table="users", column="user_metadata", error=str(e))
         try:
             db.session.rollback()
         except:
@@ -87,7 +90,7 @@ def ensure_user_metadata_column():
                     else:
                         raise
         except Exception as e:
-            print(f"Note: Could not ensure provider columns: {e}")
+            logger.warning("db_migration_ensure_provider_columns_failed", error=str(e))
             try:
                 db.session.rollback()
             except:

@@ -7,12 +7,11 @@ Combines multiple API calls into one to reduce latency and network overhead
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, SavedContent, Project
-import logging
-from datetime import datetime, timedelta
 from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
+from backend.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/api/dashboard')
 
@@ -51,10 +50,10 @@ def get_dashboard_summary():
                 cached_summary = redis_cache.redis_client.get(cache_key)
                 if cached_summary:
                     cache_time = (time.time() - start_time) * 1000
-                    logger.info(f"Dashboard cache hit ({cache_time:.0f}ms)")
+                    logger.info("dashboard_cache_hit", latency_ms=round(cache_time), user_id=user_id)
                     return jsonify(json.loads(cached_summary)), 200
             except Exception as cache_error:
-                logger.warning(f"Cache read failed: {cache_error}")
+                logger.warning("dashboard_cache_read_failed", error=str(cache_error), user_id=user_id)
         
         # Cache miss - fetch all data in parallel using Promise.all equivalent
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -91,7 +90,7 @@ def get_dashboard_summary():
             else:
                 response_data['apiKeyStatus'] = api_stats
         except Exception as e:
-            logger.error(f"Error getting API key status: {e}")
+            logger.error("dashboard_api_stats_failed", user_id=user_id, error=str(e))
             response_data['apiKeyStatus'] = {'has_api_key': False, 'api_key_status': 'error'}
         
         # 3. Get Dashboard Stats (OPTIMIZED: Single query instead of 5)
@@ -207,7 +206,7 @@ def get_dashboard_summary():
         
         # Prepare final response
         total_time = (time.time() - start_time) * 1000
-        logger.info(f"Dashboard summary generated ({total_time:.0f}ms)")
+        logger.info("dashboard_generated", latency_ms=round(total_time), user_id=user_id)
         
         # Cache for 30 seconds (balance between freshness and performance)
         if redis_cache.connected:
@@ -219,10 +218,10 @@ def get_dashboard_summary():
                     json.dumps(response_data)
                 )
             except Exception as cache_error:
-                logger.warning(f"Cache write failed: {cache_error}")
+                logger.warning("dashboard_cache_write_failed", error=str(cache_error), user_id=user_id)
         
         return jsonify(response_data), 200
         
     except Exception as e:
-        logger.error(f"Error getting dashboard summary: {e}")
+        logger.error("dashboard_summary_failed", user_id=user_id, error=str(e))
         return jsonify({'error': f'Server error: {str(e)}'}), 500

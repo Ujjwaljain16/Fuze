@@ -4,10 +4,12 @@ API Key Revocation Manager
 Implements Active Revocation List (ARL) in Redis for immediate key invalidation
 """
 
-import logging
 import hashlib
 from typing import Optional, Set
 from datetime import timedelta
+from backend.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class APIKeyRevocationManager:
     """
@@ -30,7 +32,7 @@ class APIKeyRevocationManager:
         Args:
             redis_cache: RedisCache instance (optional, will create if not provided)
         """
-        self.logger = logging.getLogger("APIKeyRevocationManager")
+        # Static logger removed, using global 'logger'
         
         # Use provided Redis cache or create new one
         if redis_cache:
@@ -40,7 +42,7 @@ class APIKeyRevocationManager:
                 from utils.redis_utils import RedisCache
                 self.redis_cache = RedisCache()
             except Exception as e:
-                self.logger.error(f"Failed to initialize Redis cache: {e}")
+                logger.error("revocation_redis_init_failed", error=str(e))
                 self.redis_cache = None
         
         # Redis key for revoked API keys set
@@ -68,7 +70,7 @@ class APIKeyRevocationManager:
             True if successfully revoked, False otherwise
         """
         if not self.redis_cache or not self.redis_cache.connected:
-            self.logger.warning("Redis not available, cannot revoke key (falling back to DB only)")
+            logger.warning("revocation_redis_not_available", user_id=user_id)
             return False
         
         try:
@@ -81,13 +83,12 @@ class APIKeyRevocationManager:
             # Set expiration on the entire set (refreshed on each addition)
             self.redis_cache.redis_client.expire(self.REVOKED_KEYS_SET, self.REVOCATION_TTL)
             
-            user_info = f" for user {user_id}" if user_id else ""
-            self.logger.info(f"API key revoked{user_info} (hash: {key_hash[:8]}...)")
+            logger.info("api_key_revoked", user_id=user_id, key_hash_preview=key_hash[:8])
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Error revoking API key: {e}")
+            logger.error("api_key_revocation_failed", user_id=user_id, error=str(e))
             return False
     
     def is_api_key_revoked(self, api_key: str) -> bool:
@@ -116,12 +117,12 @@ class APIKeyRevocationManager:
             is_revoked = self.redis_cache.redis_client.sismember(self.REVOKED_KEYS_SET, key_hash)
             
             if is_revoked:
-                self.logger.warning(f"Blocked revoked API key (hash: {key_hash[:8]}...)")
+                logger.warning("revoked_api_key_blocked", key_hash_preview=key_hash[:8])
             
             return bool(is_revoked)
             
         except Exception as e:
-            self.logger.error(f"Error checking revocation status: {e}")
+            logger.error("api_key_revocation_check_failed", error=str(e))
             # Fail open if error
             return False
     
@@ -146,12 +147,12 @@ class APIKeyRevocationManager:
             removed = self.redis_cache.redis_client.srem(self.REVOKED_KEYS_SET, key_hash)
             
             if removed:
-                self.logger.info(f"API key removed from revocation list (hash: {key_hash[:8]}...)")
+                logger.info("api_key_unrevoked", key_hash_preview=key_hash[:8])
             
             return bool(removed)
             
         except Exception as e:
-            self.logger.error(f"Error removing from revocation list: {e}")
+            logger.error("api_key_unrevocation_failed", error=str(e))
             return False
     
     def get_revoked_count(self) -> int:
@@ -162,7 +163,7 @@ class APIKeyRevocationManager:
         try:
             return self.redis_cache.redis_client.scard(self.REVOKED_KEYS_SET)
         except Exception as e:
-            self.logger.error(f"Error getting revoked count: {e}")
+            logger.error("revocation_count_failed", error=str(e))
             return 0
     
     def clear_all_revocations(self) -> bool:
@@ -177,10 +178,10 @@ class APIKeyRevocationManager:
         
         try:
             self.redis_cache.redis_client.delete(self.REVOKED_KEYS_SET)
-            self.logger.warning("All API key revocations cleared (admin action)")
+            logger.warning("all_revocations_cleared")
             return True
         except Exception as e:
-            self.logger.error(f"Error clearing revocations: {e}")
+            logger.error("clear_revocations_failed", error=str(e))
             return False
 
 

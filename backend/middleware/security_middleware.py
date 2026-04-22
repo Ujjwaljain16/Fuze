@@ -11,12 +11,12 @@ Implements RLS-like behavior at application level:
 """
 
 import re
-import logging
 from functools import wraps
 from flask import request, jsonify, g
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from backend.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ============================================================================
 # USER DATA ISOLATION (RLS-like behavior)
@@ -53,17 +53,17 @@ def require_user_context(func):
             
             return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"Error in require_user_context: {e}")
+            logger.error("security_context_failed", error=str(e))
             return jsonify({'error': 'Authentication failed'}), 401
     
     return wrapper
 
-def validate_user_owns_resource(user_id: int, resource_user_id: int):
+    def validate_user_owns_resource(user_id: int, resource_user_id: int):
     """
     Validate that user owns the resource (RLS check)
     """
     if user_id != resource_user_id:
-        logger.warning(f"User {user_id} attempted to access resource owned by {resource_user_id}")
+        logger.warning("security_resource_ownership_denied", user_id=user_id, resource_owner_id=resource_user_id)
         return False
     return True
 
@@ -154,7 +154,7 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
                     ]
                     for pattern in dangerous_patterns:
                         if re.search(pattern, value, re.IGNORECASE):
-                            logger.warning(f"Potential SQL injection detected in user content field {key}")
+                            logger.warning("security_sql_injection_detected_content", field=key)
                             return False, f"Invalid characters in field {key}"
                 elif key in url_fields:
                     # Only check for obvious SQL injection patterns in URLs (more strict)
@@ -165,13 +165,13 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
                     ]
                     for pattern in dangerous_patterns:
                         if re.search(pattern, value, re.IGNORECASE):
-                            logger.warning(f"Potential SQL injection detected in URL field {key}")
+                            logger.warning("security_sql_injection_detected_url", field=key)
                             return False, f"Invalid characters in field {key}"
                 else:
                     # For other fields (like IDs, codes), use standard SQL injection checks
                     for pattern in SQL_INJECTION_PATTERNS:
                         if re.search(pattern, value, re.IGNORECASE):
-                            logger.warning(f"Potential SQL injection detected in field {key}")
+                            logger.warning("security_sql_injection_detected", field=key)
                             return False, f"Invalid characters in field {key}"
             
             # Check XSS (skip for extracted_text and content as they may contain HTML)
@@ -179,7 +179,7 @@ def validate_input(data: dict, field_rules: dict = None) -> tuple[bool, str]:
             if check_xss and key not in {'extracted_text', 'content', 'body', 'text'}:
                 for pattern in XSS_PATTERNS:
                     if re.search(pattern, value, re.IGNORECASE):
-                        logger.warning(f"Potential XSS detected in field {key}")
+                        logger.warning("security_xss_detected", field=key)
                         return False, f"Invalid content in field {key}"
         
         elif isinstance(value, dict):

@@ -11,8 +11,9 @@ from rq import Queue, Connection, Retry
 from rq.job import Job
 from redis import Redis
 from utils.redis_utils import redis_cache
+from backend.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Get Redis connection for RQ
 def get_redis_connection():
@@ -25,7 +26,7 @@ def get_redis_connection():
         # Convert redis:// to rediss:// for Upstash TLS
         if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
             redis_url = redis_url.replace('redis://', 'rediss://', 1)
-            logger.info("Converted Upstash URL to use TLS (rediss://)")
+            logger.info("rq_redis_url_tls_conversion", original="redis://upstash.io", updated="rediss://upstash.io")
         
         # Use REDIS_URL if available
         try:
@@ -47,7 +48,7 @@ def get_redis_connection():
             
             return Redis.from_url(redis_url, **conn_params)
         except Exception as e:
-            logger.warning(f"Failed to create Redis connection from URL: {e}")
+            logger.warning("rq_redis_conn_url_failed", error=str(e))
     
     # Use individual connection parameters
     redis_host = os.environ.get('REDIS_HOST', 'localhost')
@@ -82,7 +83,7 @@ def get_redis_connection():
     try:
         return Redis(**connection_params)
     except Exception as e:
-        logger.warning(f"Failed to create Redis connection: {e}")
+        logger.warning("rq_redis_conn_params_failed", error=str(e))
         # Final fallback: basic local connection
         return Redis(host='localhost', port=6379, db=0, decode_responses=False)
 
@@ -92,9 +93,9 @@ try:
     redis_conn = get_redis_connection()
     # Test connection
     redis_conn.ping()
-    logger.info("RQ Redis connection established successfully")
+    logger.info("rq_redis_conn_established")
 except Exception as e:
-    logger.warning(f"RQ Redis connection failed: {e}. Background jobs will use fallback threading.")
+    logger.warning("rq_redis_conn_failed_fallback", error=str(e))
     redis_conn = None
 
 # Create queue instances
@@ -107,9 +108,9 @@ if redis_conn:
     try:
         default_queue = Queue('default', connection=redis_conn)
         high_queue = Queue('high', connection=redis_conn)
-        logger.info("RQ queues initialized successfully")
+        logger.info("rq_queues_initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize RQ queues: {e}")
+        logger.error("rq_queues_init_failed", error=str(e))
         default_queue = None
         high_queue = None
 
@@ -127,7 +128,7 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
         Job instance if enqueued successfully, None otherwise
     """
     if not redis_conn or not default_queue:
-        logger.warning("RQ not available, falling back to threading")
+        logger.warning("rq_not_available_fallback", bookmark_id=bookmark_id)
         return None
     
     try:
@@ -150,10 +151,10 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
             job_id=f"bookmark_process_{bookmark_id}_{user_id}"  # Unique job ID
         )
         
-        logger.info(f"Enqueued bookmark processing job {job.id} for bookmark {bookmark_id}")
+        logger.info("rq_job_enqueued", job_id=job.id, bookmark_id=bookmark_id, user_id=user_id)
         return job
     except Exception as e:
-        logger.error(f"Failed to enqueue bookmark processing job: {e}", exc_info=True)
+        logger.error("rq_job_enqueue_failed", bookmark_id=bookmark_id, error=str(e), exc_info=True)
         return None
 
 def get_job_status(job_id: str) -> Optional[dict]:
@@ -181,7 +182,7 @@ def get_job_status(job_id: str) -> Optional[dict]:
             'exc_info': job.exc_info if job.is_failed else None
         }
     except Exception as e:
-        logger.error(f"Failed to get job status for {job_id}: {e}")
+        logger.error("rq_job_status_fetch_failed", job_id=job_id, error=str(e))
         return None
 
 def is_rq_available() -> bool:
