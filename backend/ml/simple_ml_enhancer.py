@@ -13,6 +13,7 @@ This is a DROP-IN enhancement that:
 Author: Fuze AI System
 """
 
+from typing import List, Dict, Any
 import numpy as np
 from backend.core.logging_config import get_logger
 
@@ -218,8 +219,6 @@ def test_enhancer():
     enhanced = enhancer.enhance_recommendations(
         test_recs,
         f"{test_query['title']} {test_query['description']} {test_query['technologies']}"
-    )
-    
     )
     
     logger.info("ml_enhancer_test_complete", enhanced_scores=[r['score'] for r in enhanced])

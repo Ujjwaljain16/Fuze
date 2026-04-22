@@ -1,3 +1,5 @@
+from datetime import datetime
+from typing import Optional, List
 from models import ContentAnalysis
 from core.events import GeminiAnalysisTriggered
 from backend.core.logging_config import get_logger

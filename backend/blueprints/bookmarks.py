@@ -236,6 +236,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             logger.info("bg_processing_complete", bookmark_id=bookmark_id)
             
             # Trigger background analysis
+            try:
                 from services.background_analysis_service import analyze_content
                 analyze_content(bookmark_id, user_id)
                 logger.info("bg_analysis_triggered", bookmark_id=bookmark_id)
@@ -1516,23 +1517,23 @@ def stream_analysis_progress():
                             'pending_items': unanalyzed_count
                         }
                         
-                            if idle_status != last_status:
-                                yield f"data: {json.dumps(idle_status)}\n\n"
-                                last_status = idle_status
-                                last_activity = time.time()
-                            else:
-                                # Already sent idle - check if we should close
-                                idle_elapsed = time.time() - last_activity
-                                if idle_elapsed > idle_timeout:
-                                    # No activity for 30 seconds, close connection
-                                    yield f"data: {json.dumps({'status': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
-                                    break
-                        except Exception as e:
-                            logger.error("sse_analysis_idle_status_check_failed", user_id=user_id, error=str(e))
-                            error_status = {'status': 'error', 'message': str(e)}
-                            if error_status != last_status:
-                                yield f"data: {json.dumps(error_status)}\n\n"
-                                last_status = error_status
+                        if idle_status != last_status:
+                            yield f"data: {json.dumps(idle_status)}\n\n"
+                            last_status = idle_status
+                            last_activity = time.time()
+                        else:
+                            # Already sent idle - check if we should close
+                            idle_elapsed = time.time() - last_activity
+                            if idle_elapsed > idle_timeout:
+                                # No activity for 30 seconds, close connection
+                                yield f"data: {json.dumps({'status': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
+                                break
+                    except Exception as e:
+                        logger.error("sse_analysis_idle_status_check_failed", user_id=user_id, error=str(e))
+                        error_status = {'status': 'error', 'message': str(e)}
+                        if error_status != last_status:
+                            yield f"data: {json.dumps(error_status)}\n\n"
+                            last_status = error_status
                 else:
                     # Analysis in progress - update status
                     current_status = progress.get('status', 'unknown')

@@ -1,3 +1,5 @@
+from datetime import datetime
+from typing import Dict, Any, Optional
 from models import UserFeedback
 from core.events import RecommendationFeedbackRecorded
 from backend.core.logging_config import get_logger

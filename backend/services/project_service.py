@@ -1,3 +1,5 @@
+from typing import Dict, Any, Optional
+from models import Project
 from core.events import ProjectCreated, ProjectUpdated, ProjectDeleted
 from backend.core.logging_config import get_logger
 

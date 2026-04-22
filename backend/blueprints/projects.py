@@ -30,38 +30,38 @@ def get_projects():
     
     try:
         uow = UnitOfWork()
-    pagination = uow.projects.list_by_user(user_id, page, per_page)
-    
-    projects_data = []
-    for project in pagination.items:
-        project_dict = project.to_dict()
-        project_dict["created_at"] = project.created_at.isoformat()
+        pagination = uow.projects.list_by_user(user_id, page, per_page)
         
-        if include_tasks:
-            tasks = uow.projects.get_tasks(project.id)
-            project_dict["tasks"] = [{
-                "id": t.id,
-                "title": t.title,
-                "description": t.description,
-                "created_at": t.created_at.isoformat(),
-                "subtasks": [st.to_dict() for st in t.subtasks]
-            } for t in tasks]
+        projects_data = []
+        for project in pagination.items:
+            project_dict = project.to_dict()
+            project_dict["created_at"] = project.created_at.isoformat()
+            
+            if include_tasks:
+                tasks = uow.projects.get_tasks(project.id)
+                project_dict["tasks"] = [{
+                    "id": t.id,
+                    "title": t.title,
+                    "description": t.description,
+                    "created_at": t.created_at.isoformat(),
+                    "subtasks": [st.to_dict() for st in t.subtasks]
+                } for t in tasks]
+            
+            projects_data.append(project_dict)
         
-        projects_data.append(project_dict)
-    
-    response_data = {
-        "projects": projects_data,
-        "total": pagination.total,
-        "page": pagination.page,
-        "per_page": pagination.per_page,
-        "pages": pagination.pages
-    }
-    
-    if redis_cache:
-        redis_cache.cache_query_result(cache_key, response_data, ttl=60)
-    
-    logger.info("project_list_success", user_id=user_id, count=len(projects_data))
-    return jsonify(response_data), 200
+        response_data = {
+            "projects": projects_data,
+            "total": pagination.total,
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "pages": pagination.pages
+        }
+        
+        if redis_cache:
+            redis_cache.cache_query_result(cache_key, response_data, ttl=60)
+        
+        logger.info("project_list_success", user_id=user_id, count=len(projects_data))
+        return jsonify(response_data), 200
     
     except Exception as e:
         logger.error("project_list_failed", user_id=user_id, error=str(e))

@@ -58,7 +58,7 @@ def require_user_context(func):
     
     return wrapper
 
-    def validate_user_owns_resource(user_id: int, resource_user_id: int):
+def validate_user_owns_resource(user_id: int, resource_user_id: int):
     """
     Validate that user owns the resource (RLS check)
     """

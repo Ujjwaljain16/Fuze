@@ -708,7 +708,6 @@ class ScraplingEnhancedScraper:
                             'meta_description': linkedin_result.get('meta_description', ''),
                             'quality_score': linkedin_result.get('quality_score', 7)
                         }
-                        }
                         logger.info("linkedin_scraper_success", content_length=len(result['content']), quality=result['quality_score'], url=url)
                         return result
                     else:
