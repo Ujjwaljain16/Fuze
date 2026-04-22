@@ -76,8 +76,8 @@ def app():
             'connect_args': {'check_same_thread': False}
         }
     
-    # Disable rate limiting in tests
-    app.limiter = None
+    # Ensure TESTING is True so we don't use real rate limits if not mocked
+    app.config['TESTING'] = True
     
     with app.app_context():
         from models import db
