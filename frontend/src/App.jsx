@@ -10,6 +10,7 @@ import Loader from './components/Loader';
 import OAuthCallback from './pages/OAuthCallback';
 import api from './services/api';
 import './App.css';
+import * as Sentry from "@sentry/react";
 
 // Lazy load routes for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -59,17 +60,12 @@ function AppContent() {
         }
 
         const res = await api.post('/api/auth/supabase-oauth', { access_token: token });
-        const { access_token: localAccessToken, user: oauthUser } = res.data || {};
+        const { user: oauthUser } = res.data || {};
 
-        if (!localAccessToken) {
-          throw new Error('No local access token returned from backend');
-        }
-
-        localStorage.setItem('token', localAccessToken);
         if (oauthUser) {
           localStorage.setItem('user', JSON.stringify(oauthUser));
         }
-        api.defaults.headers.common.Authorization = `Bearer ${localAccessToken}`;
+        
         window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: oauthUser } }));
 
         window.history.replaceState({}, document.title, '/dashboard');
@@ -227,7 +223,8 @@ function AppContent() {
           />
         )}
         <main className="main-content">
-          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader fullScreen={false} message="Loading..." size="medium" /></div>}>
+          <Sentry.ErrorBoundary fallback={<div className="p-8 text-center bg-white rounded-lg shadow"><h2 className="text-xl font-bold text-red-600">Something went wrong</h2><p className="mt-2 text-gray-600">Our team has been notified. Please refresh the page.</p></div>}>
+            <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader fullScreen={false} message="Loading..." size="medium" /></div>}>
             <Routes>
               <Route 
                 path="/" 
@@ -309,6 +306,7 @@ function AppContent() {
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Suspense>
+          </Sentry.ErrorBoundary>
         </main>
       </div>
     </div>
