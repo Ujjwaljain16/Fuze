@@ -256,7 +256,7 @@ def _validate_production_env():
 
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
-if os.environ.get('FLASK_ENV') != 'development' and '__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True:
+if os.environ.get('FLASK_ENV') not in ['development', 'testing'] and ('__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True):
     os.environ.setdefault('FLASK_ENV', 'production')
     os.environ.setdefault('FLASK_DEBUG', 'False')
 else:
