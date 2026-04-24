@@ -13,7 +13,7 @@ import json
 from typing import Dict, Optional, List
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

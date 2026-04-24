@@ -15,7 +15,7 @@ from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 # Import embedding function
 from utils.embedding_utils import get_embedding

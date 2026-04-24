@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

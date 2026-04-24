@@ -1,5 +1,5 @@
 from core.events import Event, ProjectCreated, ProjectUpdated, ProjectDeleted
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

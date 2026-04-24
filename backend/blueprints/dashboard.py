@@ -9,7 +9,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, SavedContent, Project
 from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

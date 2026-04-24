@@ -14,7 +14,7 @@ import re
 from functools import wraps
 from flask import request, jsonify, g
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

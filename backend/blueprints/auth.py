@@ -12,7 +12,7 @@ from utils.database_utils import retry_on_connection_error
 import re
 import random
 import string
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
 import bcrypt

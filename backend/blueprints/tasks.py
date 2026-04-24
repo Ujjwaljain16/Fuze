@@ -5,7 +5,7 @@ from utils.gemini_utils import get_gemini_response
 import json
 import logging
 import numpy as np
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

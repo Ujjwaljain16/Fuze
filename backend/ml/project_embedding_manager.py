@@ -14,7 +14,7 @@ import numpy as np
 
 from models import Project, SavedContent, ContentAnalysis
 from utils.embedding_utils import get_embedding
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

@@ -66,7 +66,7 @@ def get_logger(name: str):
     Use this everywhere in Fuze backend.
     
     Usage:
-      from backend.core.logging_config import get_logger
+      from core.logging_config import get_logger
       logger = get_logger(__name__)
       logger.info("bookmark_created", user_id=user_id, url=url)
       logger.error("gemini_failed", error=str(e), attempt=attempt)

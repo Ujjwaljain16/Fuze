@@ -3,7 +3,7 @@ import re
 from typing import Tuple, Optional
 from models import User
 from core.events import UserRegistered
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

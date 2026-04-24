@@ -2,7 +2,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from .redis_utils import redis_cache
 from sklearn.metrics.pairwise import cosine_similarity
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 import os
 import shutil
 import gc
@@ -263,7 +263,7 @@ def embed_async(texts: list) -> list:
     future = _embed_pool.spawn(embedding_model.encode, texts)
     return future.get()
 
-def _warm_up_embedding_model():
+def warm_up_embedding_model():
     """Call once at app startup to load model into memory."""
     logger.info("embedding_warmup_start")
     try:

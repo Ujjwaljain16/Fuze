@@ -10,7 +10,7 @@ from .engines.semantic import SemanticEngine
 from .engines.keyword import KeywordEngine
 from .engines.context import ContextEngine
 
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

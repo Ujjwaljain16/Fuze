@@ -11,7 +11,7 @@ from rq import Queue, Connection, Retry
 from rq.job import Job
 from redis import Redis
 from utils.redis_utils import redis_cache
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

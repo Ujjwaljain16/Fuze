@@ -111,7 +111,7 @@ class RecommendationConfig:
 class AIConfig:
     """AI services configuration"""
     gemini_api_key: Optional[str] = field(default_factory=lambda: os.getenv('GEMINI_API_KEY'))
-    gemini_model: str = field(default_factory=lambda: os.getenv('GEMINI_MODEL', 'gemini-pro'))
+    gemini_model: str = field(default_factory=lambda: os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite'))
     gemini_temperature: float = field(default_factory=lambda: float(os.getenv('GEMINI_TEMPERATURE', '0.7')))
     gemini_max_tokens: int = field(default_factory=lambda: int(os.getenv('GEMINI_MAX_TOKENS', '1024')))
     gemini_timeout: int = field(default_factory=lambda: int(os.getenv('GEMINI_TIMEOUT', '30')))
@@ -465,7 +465,7 @@ CONTENT_TEXT_MAX_LENGTH=2000
 # AI SERVICES CONFIGURATION
 # ==============================================================================
 GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-pro
+GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_TEMPERATURE=0.7
 GEMINI_MAX_TOKENS=1024
 GEMINI_TIMEOUT=30

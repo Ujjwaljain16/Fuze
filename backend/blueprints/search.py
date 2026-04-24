@@ -4,7 +4,7 @@ from models import db, SavedContent
 import numpy as np
 import os
 from utils.embedding_utils import get_embedding
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 from utils.unified_config import sanitize_sql_like
 
 logger = get_logger(__name__)

@@ -15,7 +15,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from utils.redis_utils import redis_cache
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

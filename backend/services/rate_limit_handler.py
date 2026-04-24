@@ -9,7 +9,7 @@ import random
 from typing import Optional, Callable, Any
 from functools import wraps
 from datetime import datetime, timedelta
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

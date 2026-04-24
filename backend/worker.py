@@ -18,7 +18,7 @@ import sys
 import argparse
 from rq import Worker, Queue, Connection
 from rq.worker import WorkerStatus
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

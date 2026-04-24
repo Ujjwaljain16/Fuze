@@ -7,7 +7,7 @@ Implements Active Revocation List (ARL) in Redis for immediate key invalidation
 import hashlib
 from typing import Optional, Set
 from datetime import timedelta
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

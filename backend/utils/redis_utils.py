@@ -8,7 +8,7 @@ import uuid
 from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import numpy as np
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -647,4 +647,4 @@ class RedisCache:
             return 0
 
 # Global Redis instance
-redis_cache = RedisCache() 
+redis_cache = RedisCache() 

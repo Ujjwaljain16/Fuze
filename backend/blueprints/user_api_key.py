@@ -43,8 +43,9 @@ def add_api_key():
             return jsonify({'error': 'API key is required'}), 400
 
         # Validate API key format
-        if not api_key.startswith('AIza') or len(api_key) < 30:
-            return jsonify({'error': 'Invalid API key format'}), 400
+        if len(api_key) < 20:
+            logger.warning("invalid_api_key_format", user_id=user_id)
+            return jsonify({'error': 'Invalid API key format. Key is too short.'}), 400
 
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)

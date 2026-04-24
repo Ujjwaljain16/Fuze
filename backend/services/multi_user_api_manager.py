@@ -11,7 +11,7 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 import json

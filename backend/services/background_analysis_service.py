@@ -9,6 +9,7 @@ import threading
 import time
 import logging
 from datetime import datetime
+import uuid
 from typing import Dict, List, Optional
 
 # Add backend directory to path
@@ -57,7 +58,7 @@ def get_app():
             raise
 
 # Configure logging
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 logger = get_logger(__name__)
 
 class BackgroundAnalysisService:

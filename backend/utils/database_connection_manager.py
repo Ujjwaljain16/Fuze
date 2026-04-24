@@ -20,7 +20,7 @@ from sqlalchemy.exc import OperationalError, DisconnectionError, TimeoutError
 from dotenv import load_dotenv
 load_dotenv()
 
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

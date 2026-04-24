@@ -9,7 +9,7 @@ import difflib
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

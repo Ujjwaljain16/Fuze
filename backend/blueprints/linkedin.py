@@ -15,7 +15,7 @@ from models import db, User, Project, SavedContent, ContentAnalysis
 from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
 from ml.intent_analysis_engine import analyze_user_intent
 from utils.gemini_utils import GeminiAnalyzer
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

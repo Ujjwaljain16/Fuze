@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional
 from models import Project
 from uow.unit_of_work import UnitOfWork
 from core.events import ProjectCreated, ProjectUpdated, ProjectDeleted
-from backend.core.logging_config import get_logger
+from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
