@@ -24,8 +24,8 @@ from datetime import timedelta, datetime
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
+from flask_compress import Compress
 import numpy as np
-from utils.redis_utils import redis_cache
 from utils.redis_utils import redis_cache
 import logging
 from core.logging_config import configure_logging, get_logger
@@ -256,7 +256,10 @@ def _validate_production_env():
 
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
-if os.environ.get('FLASK_ENV') not in ['development', 'testing'] and ('__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True):
+main_file = getattr(sys.modules.get('__main__'), '__file__', '')
+is_development_run = 'flask' in main_file or 'run_production.py' in main_file
+
+if os.environ.get('FLASK_ENV') not in ['development', 'testing'] and not is_development_run:
     os.environ.setdefault('FLASK_ENV', 'production')
     os.environ.setdefault('FLASK_DEBUG', 'False')
 else:
@@ -515,9 +518,12 @@ def create_app():
 
     # Initialize Background Analysis Service
     try:
-        from services.background_analysis_service import start_background_service
-        start_background_service()
-        logger.info("[OK] Background analysis service started")
+        if os.environ.get('SKIP_BACKGROUND_SERVICES', 'false').lower() != 'true':
+            from services.background_analysis_service import start_background_service
+            start_background_service()
+            logger.info("[OK] Background analysis service started")
+        else:
+            logger.info("background_analysis_service_skipped_by_env")
     except Exception as e:
         logger.error("background_analysis_service_init_failed", error=str(e))
         logger.warning("background_analysis_not_available")

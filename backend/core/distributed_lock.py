@@ -1,4 +1,6 @@
-from backend.core.logging_config import get_logger
+import uuid
+from core.logging_config import get_logger
+from utils.redis_utils import redis_cache
 
 logger = get_logger(__name__)
 
