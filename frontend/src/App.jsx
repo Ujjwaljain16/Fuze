@@ -4,6 +4,7 @@ import { useAuth } from './contexts/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
+import { SidebarProvider, useSidebar } from './contexts/SidebarContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
@@ -28,10 +29,9 @@ const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === 'true';
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
+  const { isOpen, isCollapsed, setOpen, setCollapsed, toggle, collapse } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(true); // Start collapsed by default
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -93,15 +93,16 @@ function AppContent() {
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth <= 900);
-      if (window.innerWidth > 900) {
-        setSidebarOpen(false);
+      const mobile = window.innerWidth <= 900;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setOpen(false);
         setCollapsed(false); // Keep expanded on desktop
       }
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [setOpen, setCollapsed]);
 
   // Check if onboarding should be shown - listen for API key status from dashboard
   useEffect(() => {
@@ -167,41 +168,6 @@ function AppContent() {
     };
   }, [isAuthenticated, loading]);
 
-  // Add sidebar state class to body - CRITICAL for layout
-  useEffect(() => {
-    // Clear all classes first
-    document.body.classList.remove('sidebar-collapsed', 'sidebar-expanded');
-    
-    if (!isMobile) {
-      if (collapsed) {
-        document.body.classList.add('sidebar-collapsed');
-      } else {
-        document.body.classList.add('sidebar-expanded');
-      }
-      
-      // Force immediate layout recalculation
-      document.body.offsetHeight;
-      
-      // Force a repaint to ensure layout is applied
-      window.requestAnimationFrame(() => {
-        document.body.offsetHeight;
-      });
-    }
-    
-    // Debug: log current body classes (development only)
-    // Logging removed for production
-  }, [collapsed, isMobile]);
-
-  // Ensure initial body class is applied on mount
-  useEffect(() => {
-    if (!isMobile) {
-      // Apply immediately without delay to fix layout
-      document.body.classList.add('sidebar-collapsed'); // Start collapsed
-      
-      // Force layout recalculation
-      document.body.offsetHeight;
-    }
-  }, [isMobile]); // Include isMobile dependency
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
@@ -213,7 +179,12 @@ function AppContent() {
   }
 
   return (
-    <div className="App">
+    <div 
+      className="App"
+      data-sidebar={isOpen ? 'open' : 'closed'}
+      data-sidebar-collapsed={isCollapsed ? 'true' : 'false'}
+      data-mobile={isMobile ? 'true' : 'false'}
+    >
       {/* Onboarding Modal */}
       {showOnboarding && (
         <OnboardingModal onComplete={handleOnboardingComplete} />
@@ -221,11 +192,6 @@ function AppContent() {
       <div className="app-container">
         {showSidebar && (
           <Sidebar
-            isOpen={isMobile ? sidebarOpen : true}
-            onClose={() => setSidebarOpen(false)}
-            onToggle={() => setSidebarOpen(!sidebarOpen)}
-            collapsed={!isMobile && collapsed}
-            setCollapsed={setCollapsed}
             isMobile={isMobile}
           />
         )}
@@ -323,7 +289,9 @@ function AppContent() {
 function App() {
   return (
     <Router>
-      <AppContent />
+      <SidebarProvider>
+        <AppContent />
+      </SidebarProvider>
     </Router>
   );
 }
