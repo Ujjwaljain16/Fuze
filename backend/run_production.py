@@ -24,57 +24,78 @@ from datetime import timedelta, datetime
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
+from flask_compress import Compress
 import numpy as np
 from utils.redis_utils import redis_cache
 import logging
+from core.logging_config import configure_logging, get_logger
 
-# Import Flask-Compress for response compression
-try:
-    from flask_compress import Compress
-    COMPRESS_AVAILABLE = True
-except ImportError:
-    logger.warning("Flask-Compress not available - install with: pip install flask-compress")
-    COMPRESS_AVAILABLE = False
+# Import UnifiedConfig for standard settings
+from utils.unified_config import get_config
+config = get_config()
 
-# Import Redis exceptions for error handling
-try:
-    import redis.exceptions
-except ImportError:
-    # Redis not installed, create dummy exception classes
-    class ConnectionError(Exception):
-        pass
-    class TimeoutError(Exception):
-        pass
-    redis = type('redis', (), {'exceptions': type('exceptions', (), {
-        'ConnectionError': ConnectionError,
-        'TimeoutError': TimeoutError,
-        'RedisError': Exception
-    })()})()
+# Configure structured logging
+configure_logging(debug=config.debug)
+logger = get_logger(__name__)
 
-# Configure production logging first with UTC timezone
-import logging.handlers
-from logging import Formatter
+# Initialize Sentry
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
+from sentry_sdk.integrations.rq import RqIntegration
+import structlog
+import uuid
 
-class UTCFormatter(Formatter):
-    """Formatter that converts timestamps to UTC"""
-    converter = time.gmtime  # Use UTC time instead of local time
+def _scrub_sensitive_data(event, hint):
+    """Remove sensitive fields before sending to Sentry."""
+    if 'request' in event:
+        headers = event['request'].get('headers', {})
+        sensitive_headers = ['Authorization', 'Cookie', 'X-CSRF-TOKEN']
+        for header in sensitive_headers:
+            if header in headers:
+                headers[header] = '[Filtered]'
+    
+    # Scrub bodies for common sensitive patterns
+    if 'request' in event and 'data' in event['request']:
+        import re
+        body = str(event['request']['data'])
+        body = re.sub(r'("password":\s*)"[^"]+"', r'\1"[Filtered]"', body)
+        body = re.sub(r'("token":\s*)"[^"]+"', r'\1"[Filtered]"', body)
+        event['request']['data'] = body
 
-# Create handlers
-stream_handler = logging.StreamHandler()
-file_handler = logging.FileHandler('production.log', encoding='utf-8')
+    # Remove embedding vectors
+    if 'extra' in event:
+        for key in list(event['extra'].keys()):
+            if 'embedding' in key.lower():
+                event['extra'][key] = '[Vector filtered]'
+    
+    return event
 
-# Set UTC formatter
-utc_formatter = UTCFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-stream_handler.setFormatter(utc_formatter)
-file_handler.setFormatter(utc_formatter)
+def init_sentry(unified_config):
+    """Initialize Sentry with strict filtering and privacy."""
+    dsn = unified_config.logging.sentry_dsn
+    if not dsn:
+        logger.warning("sentry_not_configured")
+        return
+    
+    sentry_sdk.init(
+        dsn=dsn,
+        integrations=[
+            FlaskIntegration(transaction_style='url'),
+            SqlalchemyIntegration(),
+            RedisIntegration(),
+            RqIntegration(),
+        ],
+        traces_sample_rate=0.1 if not unified_config.debug else 1.0,
+        profiles_sample_rate=0.01,
+        environment=unified_config.environment,
+        release=unified_config.logging.app_version,
+        before_send=_scrub_sensitive_data,
+    )
+    logger.info("sentry_initialized", environment=unified_config.environment)
 
-# Configure logging with UTC handlers
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[stream_handler, file_handler]
-)
-logger = logging.getLogger(__name__)
+init_sentry(config)
 
 # Import rate limiting middleware
 try:
@@ -93,9 +114,9 @@ try:
         get_database_info
     )
     connection_manager_available = True
-    logger.info("[OK] Database connection manager imported successfully")
+    logger.info("database_connection_manager_imported")
 except ImportError as e:
-    logger.warning(f"[WARNING] Database connection manager not available: {e}")
+    logger.warning("database_connection_manager_not_available", error=str(e))
     connection_manager_available = False
 
 # Import blueprints with error handling
@@ -113,9 +134,9 @@ try:
     try:
         from blueprints.dashboard import dashboard_bp
         dashboard_available = True
-        logger.info("[OK] Dashboard blueprint imported successfully")
+        logger.info("blueprint_import_success", blueprint="dashboard")
     except ImportError as e:
-        logger.warning(f"[WARNING] Dashboard blueprint not available: {e}")
+        logger.warning("blueprint_import_not_available", blueprint="dashboard", error=str(e))
         dashboard_available = False
     except Exception as e:
         logger.error(f"[ERROR] Dashboard blueprint import failed: {e}")
@@ -128,14 +149,12 @@ try:
     try:
         from services.multi_user_api_manager import init_api_manager
         api_manager_available = True
-        logger.info("[OK] API manager imported successfully")
+        logger.info("service_import_success", service="multi_user_api_manager")
     except ImportError as e:
-        logger.warning(f"[WARNING] API manager not available: {e}")
+        logger.warning("service_import_not_available", service="multi_user_api_manager", error=str(e))
         api_manager_available = False
     except Exception as e:
-        logger.error(f"[ERROR] API manager import failed: {e}")
-        import traceback
-        logger.error(f"API manager traceback: {traceback.format_exc()}")
+        logger.error("service_import_failed", service="multi_user_api_manager", error=str(e))
         api_manager_available = False
 
     # Import user API key blueprint with error handling
@@ -144,15 +163,13 @@ try:
     try:
         from blueprints.user_api_key import init_app as init_user_api_key
         user_api_key_available = True
-        logger.info("[OK] User API key blueprint imported successfully")
+        logger.info("blueprint_import_success", blueprint="user_api_key")
     except ImportError as e:
-        logger.warning(f"[WARNING] User API key blueprint not available: {e}")
+        logger.warning("blueprint_import_not_available", blueprint="user_api_key", error=str(e))
         user_api_key_available = False
         init_user_api_key = None
     except Exception as e:
-        logger.error(f"[ERROR] User API key blueprint import failed: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error("blueprint_import_failed", blueprint="user_api_key", error=str(e))
         user_api_key_available = False
         init_user_api_key = None
 
@@ -160,21 +177,21 @@ try:
     try:
         from blueprints.recommendations import recommendations_bp
         recommendations_available = True
-        logger.info("[OK] Recommendations blueprint imported successfully")
+        logger.info("blueprint_import_success", blueprint="recommendations")
     except ImportError as e:
-        logger.warning(f"[WARNING] Recommendations blueprint not available: {e}")
+        logger.warning("blueprint_import_not_available", blueprint="recommendations", error=str(e))
         recommendations_available = False
     
     # Import LinkedIn blueprint with error handling
     try:
         from blueprints.linkedin import linkedin_bp
         linkedin_available = True
-        logger.info("[OK] LinkedIn blueprint imported successfully")
+        logger.info("blueprint_import_success", blueprint="linkedin")
     except ImportError as e:
-        logger.warning(f"[WARNING] LinkedIn blueprint not available: {e}")
+        logger.warning("blueprint_import_not_available", blueprint="linkedin", error=str(e))
         linkedin_available = False
         
-    logger.info("[OK] All blueprints imported successfully")
+    logger.info("all_blueprints_imported")
         
 except ImportError as e:
     logger.warning(f"[WARNING] Some blueprints not available: {e}")
@@ -188,9 +205,9 @@ try:
     from ml.intent_analysis_engine import IntentAnalysisEngine
     from utils.gemini_utils import GeminiAnalyzer
     intent_analysis_available = True
-    logger.info("[OK] Intent Analysis components imported successfully")
+    logger.info("intent_analysis_components_imported")
 except ImportError as e:
-    logger.warning(f"[WARNING] Intent Analysis components not available: {e}")
+    logger.warning("intent_analysis_components_not_available", error=str(e))
     intent_analysis_available = False
 
 # Initialize status variables at module level - only set what's not already defined
@@ -229,17 +246,20 @@ def _validate_production_env():
                 warnings.append(f"{var} is not set (may cause issues)")
     
     for warning in warnings:
-        logger.warning(f"[PRODUCTION WARNING] {warning}")
+        logger.warning("production_config_warning", warning=warning)
     
     for error in errors:
-        logger.error(f"[PRODUCTION ERROR] {error}")
+        logger.error("production_config_error", error=error)
     
     if errors:
         raise ValueError(f"Critical production configuration errors: {', '.join(errors)}")
 
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
-if os.environ.get('FLASK_ENV') != 'development' and '__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True:
+main_file = getattr(sys.modules.get('__main__'), '__file__', '')
+is_development_run = 'flask' in main_file or 'run_production.py' in main_file
+
+if os.environ.get('FLASK_ENV') not in ['development', 'testing'] and not is_development_run:
     os.environ.setdefault('FLASK_ENV', 'production')
     os.environ.setdefault('FLASK_DEBUG', 'False')
 else:
@@ -289,8 +309,8 @@ def create_app():
             if pattern_clean not in cors_origins:
                 cors_origins.append(pattern_clean)
     
-    logger.info(f"[OK] CORS configured with {len(cors_origins)} allowed origins")
-    logger.info(f"[DEBUG] CORS origins: {cors_origins}")
+    logger.info("cors_configured", count=len(cors_origins))
+    logger.debug("cors_origins_list", origins=cors_origins)
     
     # flask-cors supports wildcard patterns directly as strings
     # No need to convert to regex - just pass the list as-is
@@ -307,11 +327,11 @@ def create_app():
     if RATE_LIMITING_AVAILABLE:
         limiter = init_rate_limiter(app)
         if limiter:
-            logger.info("[OK] Rate limiting initialized")
+            logger.info("rate_limiting_initialized")
         else:
-            logger.warning("[WARNING] Rate limiting initialization failed")
+            logger.warning("rate_limiting_init_failed")
     else:
-        logger.warning("[WARNING] Rate limiting not available")
+        logger.warning("rate_limiting_not_available")
     
     # Make limiter available to blueprints
     app.limiter = limiter
@@ -319,7 +339,7 @@ def create_app():
     # Initialize response compression for better performance
     compress = Compress()
     compress.init_app(app)
-    logger.info("[OK] Response compression enabled")
+    logger.info("response_compression_enabled")
     
     # Initialize database with enhanced SSL handling
     try:
@@ -330,7 +350,7 @@ def create_app():
             # Defer database configuration to avoid blocking startup
             # The connection manager will configure the database lazily on first request
             # This ensures the app starts quickly even if database is slow/unavailable
-            logger.info("[OK] Database connection manager available - will configure on first request")
+            logger.info("database_connection_manager_active_lazy")
             # Set up fallback configuration for now
             try:
                 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
@@ -344,14 +364,14 @@ def create_app():
                         'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
                     }
                 }
-                logger.info("[OK] Database extension initialized (lazy configuration mode)")
+                logger.info("database_extension_init_lazy")
             except Exception as fallback_error:
-                logger.warning(f"[WARNING] Fallback configuration failed: {fallback_error}")
-                logger.info("[OK] Database extension initialized (basic mode)")
+                logger.warning("database_fallback_config_failed", error=str(fallback_error))
+                logger.info("database_extension_init_basic")
         else:
-            logger.info("[OK] Database extension initialized (standard mode)")
+            logger.info("database_extension_init_standard")
     except Exception as e:
-        logger.error(f"[ERROR] Error initializing database extension: {e}")
+        logger.error("database_extension_init_error", error=str(e))
         # Continue without database - some endpoints might still work
     
     jwt = JWTManager(app)
@@ -375,11 +395,61 @@ def create_app():
             'error': 'authorization_required'
         }), 401
     
+    # Global Rate Limit Error Handler
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        return jsonify({
+            'message': 'Too many requests. Please slow down.',
+            'error': 'rate_limit_exceeded',
+            'description': str(e.description)
+        }), 429
+        
+    # Row-Level Security (RLS) Configuration
+    from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+    from sqlalchemy import text
+    
+    @app.before_request
+    def set_correlation_id():
+        """Set correlation ID for request tracing/observability."""
+        correlation_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
+        g.correlation_id = correlation_id
+        
+        # Bind to structlog context for auto-injection in every log trace
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            correlation_id=correlation_id,
+            method=request.method,
+            path=request.path,
+            ip=request.remote_addr
+        )
+
+    @app.after_request
+    def add_correlation_header(response):
+        """Echo correlation ID for frontend tracing."""
+        response.headers['X-Request-ID'] = getattr(g, 'correlation_id', '')
+        return response
+
+    @app.before_request
+    def set_rls_context():
+        """Implement session management for Postgres Row-Level Security (RLS)"""
+        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+        try:
+            # We try to see if there's a valid JWT
+            verify_jwt_in_request(optional=True)
+            user_id = get_jwt_identity()
+            
+            if user_id:
+                # Set the Postgres config for RLS (only affects current transaction)
+                db.session.execute(text("SET LOCAL app.current_user_id = :user_id"), {"user_id": str(user_id)})
+        except Exception:
+            # Ignore errors: no active session, invalid token, or db connection failed
+            pass
+    
     # Skip database connection test during startup to avoid blocking
     # Database will be tested and connected on first request
     global database_available
     database_available = False  # Will be set to True on first successful connection
-    logger.info("[OK] Database connection will be tested on first request (non-blocking startup)")
+    logger.info("database_test_deferred")
     
     # Simple root endpoint - responds immediately for port binding (no DB checks)
     @app.route('/')
@@ -400,40 +470,37 @@ def create_app():
         # Register dashboard blueprint if available
         if dashboard_available:
             app.register_blueprint(dashboard_bp)
-            logger.info("[OK] Dashboard blueprint registered")
+            logger.info("blueprint_registered", blueprint="dashboard")
         else:
-            logger.warning("[WARNING] Dashboard blueprint not registered")
+            logger.warning("blueprint_not_registered", blueprint="dashboard")
         
         # Register recommendations blueprint if available
         if recommendations_available:
             app.register_blueprint(recommendations_bp)
-            logger.info("[OK] Recommendations blueprint registered")
+            logger.info("blueprint_registered", blueprint="recommendations")
         else:
-            logger.warning("[WARNING] Recommendations blueprint not registered")
+            logger.warning("blueprint_not_registered", blueprint="recommendations")
             
         # Register LinkedIn blueprint if available
         if linkedin_available:
             app.register_blueprint(linkedin_bp)
-            logger.info("[OK] LinkedIn blueprint registered")
+            logger.info("blueprint_registered", blueprint="linkedin")
         else:
-            logger.warning("[WARNING] LinkedIn blueprint not registered")
+            logger.warning("blueprint_not_registered", blueprint="linkedin")
             
         # Register user API key blueprint if available
         logger.info(f"[DEBUG] About to register user API key blueprint")
         logger.info(f"[DEBUG] user_api_key_available: {user_api_key_available}, init_user_api_key: {init_user_api_key}")
         if user_api_key_available and init_user_api_key:
             try:
-                logger.info("[DEBUG] Calling init_user_api_key function")
                 init_user_api_key(app)
-                logger.info("[OK] User API key blueprint registered")
+                logger.info("blueprint_registered", blueprint="user_api_key")
             except Exception as e:
-                logger.warning(f"[WARNING] Error registering user API key blueprint: {e}")
-                import traceback
-                logger.error(f"Blueprint registration traceback: {traceback.format_exc()}")
+                logger.warning("blueprint_registration_failed", blueprint="user_api_key", error=str(e))
         else:
-            logger.warning("[WARNING] User API key blueprint not registered")
+            logger.warning("blueprint_not_registered", blueprint="user_api_key")
             
-        logger.info("[OK] All blueprints registered successfully")
+        logger.info("all_blueprints_registered")
     except Exception as e:
         logger.error(f"[ERROR] Error registering blueprints: {e}")
     
@@ -442,22 +509,24 @@ def create_app():
         try:
             if api_manager_available:
                 # Try to initialize API manager even if database test failed
-                # The API manager will handle database connection errors gracefully
                 init_api_manager()
-                logger.info("[OK] API manager initialized")
+                logger.info("api_manager_initialized")
             else:
-                logger.warning("[WARNING] Skipping API manager initialization - API manager not available")
+                logger.warning("api_manager_skipped_not_available")
         except Exception as e:
-            logger.error(f"[ERROR] Error initializing API manager: {e}")
+            logger.error("api_manager_init_failed", error=str(e))
 
     # Initialize Background Analysis Service
     try:
-        from services.background_analysis_service import start_background_service
-        start_background_service()
-        logger.info("[OK] Background analysis service started")
+        if os.environ.get('SKIP_BACKGROUND_SERVICES', 'false').lower() != 'true':
+            from services.background_analysis_service import start_background_service
+            start_background_service()
+            logger.info("[OK] Background analysis service started")
+        else:
+            logger.info("background_analysis_service_skipped_by_env")
     except Exception as e:
-        logger.error(f"[ERROR] Error starting background analysis service: {e}")
-        logger.warning("[WARNING] Background content analysis will not be available")
+        logger.error("background_analysis_service_init_failed", error=str(e))
+        logger.warning("background_analysis_not_available")
     
     # Initialize Intent Analysis System for production with error handling
     with app.app_context():
@@ -472,12 +541,12 @@ def create_app():
                     # Test Gemini connection
                     try:
                         test_analyzer = GeminiAnalyzer(gemini_api_key)
-                        logger.info("[OK] Intent Analysis System (Gemini) initialized successfully")
+                        logger.info("intent_analysis_gemini_init_success")
                     except Exception as e:
-                        logger.warning(f"[WARNING] Intent Analysis System (Gemini) initialization failed: {e}")
+                        logger.warning("intent_analysis_gemini_init_failed", error=str(e))
                         intent_analysis_available = False
                 else:
-                    logger.warning("[WARNING] GEMINI_API_KEY not found - Intent Analysis will not work")
+                    logger.warning("intent_analysis_gemini_api_key_missing")
                     intent_analysis_available = False
             elif not database_available:
                 logger.warning("[WARNING] Intent Analysis System disabled - database unavailable")
@@ -486,7 +555,7 @@ def create_app():
                 # intent_analysis_available is False from import failure
                 logger.warning("[WARNING] Intent Analysis components not available")
         except Exception as e:
-            logger.error(f"[ERROR] Error initializing Intent Analysis System: {e}")
+            logger.error("intent_analysis_system_init_error", error=str(e))
             intent_analysis_available = False
     
     # Import and apply security middleware
@@ -588,6 +657,34 @@ def create_app():
     # Note: flask-cors automatically handles OPTIONS preflight requests
     # No need for manual OPTIONS handler - it can cause conflicts
     
+    # Detailed Health check endpoint returning internal states
+    @app.route('/api/health/detailed')
+    def detailed_health_check():
+        # Circuit Breaker states
+        gemini_state, gemini_fail = "UNKNOWN", 0
+        try:
+            from utils.gemini_utils import gemini_breaker
+            if hasattr(gemini_breaker, 'state'):
+                gemini_state = gemini_breaker.state
+                gemini_fail = gemini_breaker.failure_count
+        except Exception:
+            pass
+            
+        return {
+            "status": "healthy",
+            "circuit_breakers": {
+                "gemini": {"state": str(gemini_state), "failure_count": gemini_fail}
+            },
+            "bulkheads": {
+                "crud": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_CRUD_CAPACITY', 30)), "rejection_rate_pct": 0},
+                "search": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_SEARCH_CAPACITY', 15)), "rejection_rate_pct": 0},
+                "ml": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_ML_CAPACITY', 8)), "rejection_rate_pct": 0}
+            },
+            "distributed_lock": {
+                "analysis_leader": False  # Handled dynamically by workers 
+            }
+        }, 200
+
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
     def health_check():
@@ -940,6 +1037,12 @@ def create_app():
             'error': 'Internal server error',
             'message': 'An unexpected error occurred'
         }), 500
+        
+    try:
+        from utils.embedding_utils import warm_up_embedding_model
+        warm_up_embedding_model()
+    except Exception as e:
+        logger.warning(f"Failed to load warm up embedding model at startup: {e}")
     
     return app
 

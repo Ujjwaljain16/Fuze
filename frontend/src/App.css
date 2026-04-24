@@ -60,14 +60,14 @@ html, body {
     width: 100vw; /* Full width by default */
   }
   
-  /* When sidebar is expanded via body class */
-  body.sidebar-expanded .main-content {
+  /* When sidebar is expanded via data attribute */
+  .App[data-sidebar-collapsed="false"] .main-content {
     margin-left: 280px !important;
     width: calc(100vw - 280px) !important;
   }
   
-  /* When sidebar is collapsed via body class */
-  body.sidebar-collapsed .main-content {
+  /* When sidebar is collapsed via data attribute */
+  .App[data-sidebar-collapsed="true"] .main-content {
     margin-left: 64px !important;
     width: calc(100vw - 64px) !important;
   }
@@ -167,7 +167,7 @@ html, body {
 }
 
 /* Force immediate layout adjustment - CRITICAL FIX */
-body.sidebar-expanded .main-content {
+.App[data-sidebar-collapsed="false"] .main-content {
   margin-left: 280px !important;
   width: calc(100vw - 280px) !important;
   /* Remove any gaps */
@@ -175,7 +175,7 @@ body.sidebar-expanded .main-content {
   padding-right: 0 !important;
 }
 
-body.sidebar-collapsed .main-content {
+.App[data-sidebar-collapsed="true"] .main-content {
   margin-left: 64px !important;
   width: calc(100vw - 64px) !important;
   /* Remove any gaps */
@@ -189,9 +189,9 @@ body.sidebar-collapsed .main-content {
   flex-shrink: 1;
 }
 
-/* Force layout recalculation */
-body.sidebar-expanded *,
-body.sidebar-collapsed * {
+/* Ensure main content fills the available space */
+.App[data-sidebar-collapsed="false"] *,
+.App[data-sidebar-collapsed="true"] * {
   box-sizing: border-box;
 }
 
@@ -205,7 +205,7 @@ body.sidebar-collapsed * {
 }
 
 /* Navbar alignment with sidebar - FIXED */
-body.sidebar-expanded .navbar {
+.App[data-sidebar-collapsed="false"] .navbar {
   left: 280px !important;
   width: calc(100vw - 280px) !important;
   /* Ensure navbar content is properly positioned */
@@ -216,7 +216,7 @@ body.sidebar-expanded .navbar {
   top: 0 !important;
 }
 
-body.sidebar-collapsed .navbar {
+.App[data-sidebar-collapsed="true"] .navbar {
   left: 64px !important;
   width: calc(100vw - 64px) !important;
   /* Ensure navbar content is properly positioned */
@@ -233,8 +233,8 @@ body.sidebar-collapsed .navbar {
 }
 
 /* Prevent navbar from overlapping sidebar */
-body.sidebar-expanded .navbar,
-body.sidebar-collapsed .navbar {
+.App[data-sidebar-collapsed="false"] .navbar,
+.App[data-sidebar-collapsed="true"] .navbar {
   position: fixed !important;
   z-index: 1001;
 }
@@ -285,7 +285,7 @@ body.sidebar-collapsed .navbar {
 }
 
 /* Force exact positioning for expanded state */
-body.sidebar-expanded .main-content {
+.App[data-sidebar-collapsed="false"] .main-content {
   margin-left: 280px !important;
   width: calc(100vw - 280px) !important;
   margin-right: 0 !important;
@@ -293,7 +293,7 @@ body.sidebar-expanded .main-content {
 }
 
 /* Force exact positioning for collapsed state */
-body.sidebar-collapsed .main-content {
+.App[data-sidebar-collapsed="true"] .main-content {
   margin-left: 64px !important;
   width: calc(100vw - 64px) !important;
   margin-right: 0 !important;
@@ -302,7 +302,7 @@ body.sidebar-collapsed .main-content {
 
 /* Landing page specific styles - full width */
 .landing-page .main-content,
-body.landing-page .main-content {
+.App[data-landing-page="true"] .main-content {
   margin-left: 0 !important;
   width: 100vw !important;
   padding: 0 !important;
@@ -322,7 +322,7 @@ body.landing-page .main-content {
 }
 
 /* Only apply sidebar margins when sidebar is actually present and active */
-body:not(.sidebar-expanded):not(.sidebar-collapsed) .main-content {
+.App:not([data-sidebar-collapsed]) .main-content {
   margin-left: 0 !important;
   width: 100vw !important;
 }

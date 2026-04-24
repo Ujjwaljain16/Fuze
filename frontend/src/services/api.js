@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { v4 as uuidv4 } from 'uuid'
 
 const DEFAULT_PROD_API_URL = 'https://Ujjwaljain16-fuze-backend.hf.space'
 
@@ -38,17 +39,26 @@ const api = axios.create({
 // CSRF token management - optimized for performance
 let csrfToken = null
 
-// Request interceptor to add auth token and CSRF token
+// Request interceptor to add CSRF token and correlation ID
 api.interceptors.request.use(
   async (config) => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
+    // Inject Correlation ID for end-to-end traceability
+    const requestId = uuidv4()
+    config.headers['X-Request-ID'] = requestId
     
-    // Only add CSRF token for non-GET requests and only if CSRF is actually enabled
-    if (config.method !== 'get' && csrfToken && csrfToken !== 'csrf_disabled') {
-      config.headers['X-CSRF-TOKEN'] = csrfToken
+    // Authorization header is now automatically handled by cookies (HttpOnly)
+    
+    // CSRF Protection: For mutating requests, extract the CSRF token from the cookie
+    // Flask-JWT-Extended sets 'csrf_access_token' in a non-HttpOnly cookie
+    if (['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase())) {
+      const csrfCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_access_token='))
+      
+      if (csrfCookie) {
+        const csrfToken = csrfCookie.split('=')[1]
+        config.headers['X-CSRF-TOKEN'] = csrfToken
+      }
     }
     
     return config
@@ -88,25 +98,17 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/api/auth/login')) {
       originalRequest._retry = true
       try {
-        // Attempt to refresh the access token
-        const oldToken = localStorage.getItem('token');
-        const res = await axios.post(
+        // Attempt to refresh the access token using the HttpOnly refresh cookie
+        await axios.post(
           `${baseURL}/api/auth/refresh`,
           {},
-          {
-            withCredentials: true,
-            headers: oldToken ? { Authorization: `Bearer ${oldToken}` } : {}
-          }
+          { withCredentials: true }
         )
-        const newToken = res.data.access_token
-        localStorage.setItem('token', newToken)
-        originalRequest.headers['Authorization'] = `Bearer ${newToken}`
+        // Refresh succeeded (backend set new access cookie) - retry the original request
         return api(originalRequest)
       } catch {
-        localStorage.removeItem('token')
+        // Refresh failed (refresh token expired) - clear user state
         localStorage.removeItem('user')
-        delete api.defaults.headers.common['Authorization']
-        // Let route guards decide redirection; avoid forcing public pages to /login.
         window.dispatchEvent(new CustomEvent('authExpired'))
       }
     }
@@ -114,59 +116,25 @@ api.interceptors.response.use(
   }
 )
 
-// Proactive token refresh for long-running requests
+// Proactive token refresh - now simplified as it just hits the refresh endpoint
 export const refreshTokenIfNeeded = async () => {
   try {
-    const token = localStorage.getItem('token')
-    if (!token) return
-    
-    // Decode JWT token to check expiration (without verification for client-side)
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    const expirationTime = payload.exp * 1000 // Convert to milliseconds
-    const currentTime = Date.now()
-    const timeUntilExpiration = expirationTime - currentTime
-    
-    // If token expires in less than 5 minutes, refresh it
-    if (timeUntilExpiration < 5 * 60 * 1000) {
-      const res = await axios.post(
-        `${baseURL}/api/auth/refresh`,
-        {},
-        {
-          withCredentials: true,
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        }
-      )
-      const newToken = res.data.access_token
-      localStorage.setItem('token', newToken)
-    }
+    // We can't decode HttpOnly cookies from JS, so we just hit the refresh endpoint
+    // to ensure we have a valid access cookie before starting long operations.
+    await axios.post(
+      `${baseURL}/api/auth/refresh`,
+      {},
+      { withCredentials: true }
+    )
   } catch (error) {
-    console.warn('Failed to refresh token proactively:', error)
+    console.warn('Proactive refresh failed:', error)
   }
 }
 
-// Initialize CSRF token on app startup - optimized for performance
+// CSRF token initialization is no longer needed as tokens are read directly from cookies in the interceptor
 export const initializeCSRF = async () => {
-  try {
-    // Increased timeout for Hugging Face Spaces (may have higher latency)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-    
-    const response = await axios.get(`${baseURL}/api/auth/csrf-token`, {
-      withCredentials: true,
-      signal: controller.signal,
-      timeout: 10000 // Also set axios timeout
-    })
-    
-    clearTimeout(timeoutId)
-    csrfToken = response.data.csrf_token
-  } catch (error) {
-    if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
-      console.warn('CSRF token request timed out, continuing without CSRF')
-    } else {
-      console.warn('CSRF token initialization failed, continuing without CSRF:', error.message)
-    }
-    csrfToken = 'csrf_disabled'
-  }
+  // No-op for backward compatibility in AuthContext
+  return Promise.resolve()
 }
 
 // ============================================================================

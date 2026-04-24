@@ -15,10 +15,9 @@ from models import db, User, Project, SavedContent, ContentAnalysis
 from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
 from ml.intent_analysis_engine import analyze_user_intent
 from utils.gemini_utils import GeminiAnalyzer
+from core.logging_config import get_logger
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 linkedin_bp = Blueprint('linkedin', __name__)
 
@@ -50,7 +49,7 @@ def extract_linkedin_content():
                 'error': 'Please provide a valid LinkedIn URL'
             }), 400
         
-        logger.info(f"[INFO] Extracting LinkedIn content from: {linkedin_url}")
+        logger.info("linkedin_extraction_start", url=linkedin_url, user_id=user_id)
         
         # Extract content using our scraper
         try:
@@ -81,10 +80,10 @@ def extract_linkedin_content():
                 db.session.add(extraction_record)
                 db.session.commit()
                 
-                logger.info(f"[OK] LinkedIn content extracted and stored for user {user_id}")
+                logger.info("linkedin_extraction_success", user_id=user_id, url=linkedin_url)
                 
             except SQLAlchemyError as db_error:
-                logger.error(f"Database error storing extraction: {db_error}")
+                logger.error("linkedin_extraction_db_failed", user_id=user_id, error=str(db_error))
                 # Continue even if storage fails
                 db.session.rollback()
             
@@ -103,7 +102,7 @@ def extract_linkedin_content():
             })
             
         except Exception as scrape_error:
-            logger.error(f"LinkedIn scraping error: {scrape_error}")
+            logger.error("linkedin_extraction_failed", url=linkedin_url, error=str(scrape_error))
             return jsonify({
                 'success': False,
                 'error': 'Failed to extract LinkedIn content',
@@ -111,8 +110,7 @@ def extract_linkedin_content():
             }), 500
     
     except Exception as e:
-        logger.error(f"LinkedIn extraction endpoint error: {e}")
-        logger.error(traceback.format_exc())
+        logger.error("linkedin_extraction_endpoint_error", error=str(e))
         return jsonify({
             'success': False,
             'error': 'Internal server error during LinkedIn extraction'
@@ -138,7 +136,7 @@ def analyze_linkedin_content():
         user_id = int(get_jwt_identity())
         project_context = data.get('project_context')
         
-        logger.info(f"[INFO] Analyzing LinkedIn content for user {user_id}")
+        logger.info("linkedin_analysis_start", user_id=user_id, url=url)
         
         # Get user's API key and create analyzer
         from multi_user_api_manager import get_user_api_key
@@ -242,10 +240,10 @@ def analyze_linkedin_content():
                 db.session.add(analysis_record)
                 db.session.commit()
                 
-                logger.info(f"[OK] LinkedIn content analysis completed and stored for user {user_id}")
+                logger.info("linkedin_analysis_success", user_id=user_id, url=url)
                 
             except SQLAlchemyError as db_error:
-                logger.error(f"Database error storing analysis: {db_error}")
+                logger.error("linkedin_analysis_db_failed", user_id=user_id, error=str(db_error))
                 db.session.rollback()
             
             return jsonify({
@@ -265,7 +263,7 @@ def analyze_linkedin_content():
             })
             
         except Exception as ai_error:
-            logger.error(f"AI analysis error: {ai_error}")
+            logger.error("linkedin_ai_analysis_failed", user_id=user_id, error=str(ai_error))
             
             # Fallback analysis
             fallback_analysis = {
@@ -291,8 +289,7 @@ def analyze_linkedin_content():
             })
     
     except Exception as e:
-        logger.error(f"LinkedIn analysis endpoint error: {e}")
-        logger.error(traceback.format_exc())
+        logger.error("linkedin_analysis_endpoint_error", error=str(e), user_id=user_id)
         return jsonify({
             'success': False,
             'error': 'Internal server error during LinkedIn analysis'
@@ -326,7 +323,7 @@ def batch_extract_linkedin():
                 'error': 'Maximum 10 URLs allowed per batch'
             }), 400
         
-        logger.info(f"[INFO] Batch extracting {len(urls)} LinkedIn URLs for user {user_id}")
+        logger.info("linkedin_batch_extraction_start", count=len(urls), user_id=user_id)
         
         results = []
         successful = 0
@@ -368,7 +365,7 @@ def batch_extract_linkedin():
                     failed += 1
                 
             except Exception as url_error:
-                logger.error(f"Error processing URL {url}: {url_error}")
+                logger.error("linkedin_batch_item_failed", url=url, error=str(url_error))
                 results.append({
                     'url': url,
                     'success': False,
@@ -388,8 +385,7 @@ def batch_extract_linkedin():
         })
     
     except Exception as e:
-        logger.error(f"Batch LinkedIn extraction error: {e}")
-        logger.error(traceback.format_exc())
+        logger.error("linkedin_batch_extraction_failed", error=str(e))
         return jsonify({
             'success': False,
             'error': 'Internal server error during batch LinkedIn extraction'
@@ -433,7 +429,7 @@ def get_linkedin_history():
                     'content_type': analysis_data.get('content_type', 'linkedin_post')
                 })
             except Exception as record_error:
-                logger.error(f"Error processing history record {record.id}: {record_error}")
+                logger.error("linkedin_history_record_failed", record_id=record.id, error=str(record_error))
                 continue
         
         return jsonify({
@@ -450,8 +446,7 @@ def get_linkedin_history():
         })
     
     except Exception as e:
-        logger.error(f"LinkedIn history endpoint error: {e}")
-        logger.error(traceback.format_exc())
+        logger.error("linkedin_history_failed", error=str(e))
         return jsonify({
             'success': False,
             'error': 'Internal server error retrieving LinkedIn history'
@@ -511,7 +506,7 @@ def save_to_bookmarks():
         db.session.add(new_bookmark)
         db.session.commit()
         
-        logger.info(f"Saved LinkedIn extraction {extraction_id} to bookmarks for user {user_id}")
+        logger.info("linkedin_saved_to_bookmarks", extraction_id=extraction_id, user_id=user_id)
         
         return jsonify({
             'success': True,
@@ -520,7 +515,7 @@ def save_to_bookmarks():
         })
     
     except Exception as e:
-        logger.error(f"Error saving to bookmarks: {e}")
+        logger.error("linkedin_save_bookmark_failed", error=str(e), extraction_id=extraction_id)
         db.session.rollback()
         return jsonify({
             'success': False,
@@ -549,7 +544,7 @@ def delete_extraction(extraction_id):
         db.session.delete(extraction)
         db.session.commit()
         
-        logger.info(f"Deleted LinkedIn extraction {extraction_id} for user {user_id}")
+        logger.info("linkedin_extraction_deleted", extraction_id=extraction_id, user_id=user_id)
         
         return jsonify({
             'success': True,
@@ -557,7 +552,7 @@ def delete_extraction(extraction_id):
         })
     
     except Exception as e:
-        logger.error(f"Error deleting extraction: {e}")
+        logger.error("linkedin_delete_extraction_failed", error=str(e), extraction_id=extraction_id)
         db.session.rollback()
         return jsonify({
             'success': False,
@@ -600,7 +595,7 @@ def get_linkedin_status():
         })
     
     except Exception as e:
-        logger.error(f"LinkedIn status endpoint error: {e}")
+        logger.error("linkedin_status_failed", error=str(e))
         return jsonify({
             'success': False,
             'error': 'Internal server error checking LinkedIn status'
@@ -625,7 +620,7 @@ def unauthorized(error):
 
 @linkedin_bp.errorhandler(500)
 def internal_error(error):
-    logger.error(f"LinkedIn blueprint error: {error}")
+    logger.error("linkedin_blueprint_error", error=str(error))
     return jsonify({
         'success': False,
         'error': 'Internal server error',

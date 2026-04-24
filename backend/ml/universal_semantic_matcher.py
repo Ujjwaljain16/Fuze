@@ -9,6 +9,9 @@ import difflib
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class UniversalSemanticMatcher:
     """Universal semantic matcher that handles all variations"""
@@ -115,11 +118,11 @@ class UniversalSemanticMatcher:
                 self._embedding_available = is_embedding_available()
 
                 if self._embedding_available:
-                    print(" UniversalSemanticMatcher using proper embedding model (lazy-loaded)")
+                    logger.info("semantic_matcher_embedding_lazy_loaded")
                 else:
-                    print(" UniversalSemanticMatcher using fallback embedding model")
+                    logger.info("semantic_matcher_embedding_fallback")
             except Exception as e:
-                print(f" Failed to initialize UniversalSemanticMatcher: {e}")
+                logger.error("semantic_matcher_init_failed", error=str(e))
                 self._embedding_model = None
                 self._embedding_available = False
             self._embedding_model_initialized = True
@@ -145,7 +148,7 @@ class UniversalSemanticMatcher:
         try:
             if not self.embedding_model:
                 if not self._fallback_logged:
-                    print(" Embedding model not available, using fallback similarity")
+                    logger.warning("semantic_matcher_fallback_triggered")
                     self._fallback_logged = True
                 return self._fallback_similarity(text1, text2)
             
@@ -153,16 +156,19 @@ class UniversalSemanticMatcher:
             norm_text1 = self.normalize_text(text1)
             norm_text2 = self.normalize_text(text2)
             
-            # Generate embeddings
-            embeddings = self.embedding_model.encode([norm_text1, norm_text2])
+            # Generate embeddings asynchronously so we don't break gevent loop
+            from utils.embedding_utils import embed_async
+            embeddings = embed_async([norm_text1, norm_text2])
             
-            # Calculate cosine similarity
+            # Calculate cosine similarity using scikit-learn
             similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
             
             return float(similarity)
             
+            return float(similarity)
+            
         except Exception as e:
-            print(f"Error calculating semantic similarity: {e}")
+            logger.error("semantic_matcher_similarity_error", error=str(e))
             return self._fallback_similarity(text1, text2)
     
     def find_semantic_matches(self, query: str, candidates: List[Dict], 
@@ -204,8 +210,10 @@ class UniversalSemanticMatcher:
             
             return results[:max_results]
             
+            return results[:max_results]
+            
         except Exception as e:
-            print(f"Error finding semantic matches: {e}")
+            logger.error("semantic_matcher_matches_error", error=str(e))
             return []
     
     def calculate_spelling_similarity(self, text1: str, text2: str) -> float:
@@ -289,39 +297,31 @@ class UniversalSemanticMatcher:
 
 def test_universal_matcher():
     """Test the universal semantic matcher"""
-    print("🧪 Testing Universal Semantic Matcher")
-    print("=" * 50)
+    logger.info("semantic_matcher_test_start")
     
     try:
         matcher = UniversalSemanticMatcher()
-        print(" UniversalSemanticMatcher initialized")
         
         # Test normalization
-        print("\n📊 Testing text normalization...")
         test_text = "Python visualiser for DSA with React and Node.js"
         normalized = matcher.normalize_text(test_text)
-        print(f"Original: {test_text}")
-        print(f"Normalized: {normalized}")
+        logger.info("semantic_matcher_test_normalization", original=test_text, normalized=normalized)
         
         # Test semantic similarity
-        print("\n📊 Testing semantic similarity...")
         text1 = "DSA visualiser"
         text2 = "Data Structures and Algorithms visualizer"
         similarity = matcher.calculate_semantic_similarity(text1, text2)
-        print(f"Similarity between '{text1}' and '{text2}': {similarity:.3f}")
+        logger.info("semantic_matcher_test_semantic", text1=text1, text2=text2, similarity=similarity)
         
         # Test spelling similarity
-        print("\n📊 Testing spelling similarity...")
         spelling_sim = matcher.calculate_spelling_similarity("visualiser", "visualizer")
-        print(f"Spelling similarity 'visualiser' vs 'visualizer': {spelling_sim:.3f}")
+        logger.info("semantic_matcher_test_spelling", term1="visualiser", term2="visualizer", similarity=spelling_sim)
         
-        print("\n🎉 Universal Semantic Matcher is working correctly!")
+        logger.info("semantic_matcher_test_complete")
         return True
         
     except Exception as e:
-        print(f"\n Test failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("semantic_matcher_test_failed", error=str(e))
         return False
 
 if __name__ == "__main__":

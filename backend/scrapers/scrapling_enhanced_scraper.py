@@ -4,7 +4,6 @@ Scrapling-Enhanced Web Scraper
 Uses Scrapling library for better extraction on problematic sites
 """
 
-import logging
 from typing import Dict, Optional
 from urllib.parse import urlparse
 import os
@@ -12,8 +11,9 @@ import asyncio
 import threading
 import re
 import requests
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Try to import Scrapling - make it optional
 # Handle multiple types of import errors (missing package, missing dependencies, etc.)
@@ -26,29 +26,27 @@ try:
     from scrapling.fetchers import StealthyFetcher, DynamicFetcher, Fetcher
     # Test if we can actually use it (browsers might not be installed)
     SCRAPLING_AVAILABLE = True
-    logger.info("Scrapling imported successfully")
+    logger.info("scrapling_import_successful")
 except ImportError as e:
     SCRAPLING_AVAILABLE = False
-    logger.warning(f" Scrapling not installed. Install with: pip install 'scrapling[all]' 'camoufox[geoip]'")
-    logger.info("   Will use standard scraper instead")
+    logger.warning("scrapling_not_installed", error=str(e))
+    logger.info("scrapling_using_standard_fallback")
 except (FileNotFoundError, AttributeError, ModuleNotFoundError) as e:
     # Handle errors like missing camoufox, browser dependencies, etc.
     SCRAPLING_AVAILABLE = False
     error_msg = str(e)
     if 'camoufox' in error_msg.lower() or 'fetch' in error_msg.lower() or 'version.json' in error_msg.lower():
-        logger.warning(f" Scrapling installed but camoufox browser not set up.")
-        logger.warning(f"   Run: camoufox fetch")
-        logger.warning(f"   Or: python scripts/setup_scrapling.py")
-        logger.info("   Will use standard scraper until browsers are installed")
+        logger.warning("scrapling_browsers_not_setup")
+        logger.info("scrapling_using_standard_fallback")
     else:
-        logger.warning(f" Scrapling import failed: {error_msg[:150]}")
-        logger.info("   Will use standard scraper instead")
+        logger.warning("scrapling_import_failed", error=error_msg[:150])
+        logger.info("scrapling_using_standard_fallback")
 except Exception as e:
     # Catch any other errors during import
     SCRAPLING_AVAILABLE = False
     error_msg = str(e)
-    logger.warning(f" Scrapling import error: {error_msg[:150]}")
-    logger.info("   Will use standard scraper instead")
+    logger.warning("scrapling_import_exception", error=error_msg[:150])
+    logger.info("scrapling_using_standard_fallback")
 
 # Import existing scraper as fallback
 from scrapers.enhanced_web_scraper import EnhancedWebScraper
@@ -225,11 +223,11 @@ class ScraplingEnhancedScraper:
                 # Sort by score (higher is better), then by length
                 candidates.sort(key=lambda x: (x[1], len(x[0])), reverse=True)
                 best_content = candidates[0][0]
-                logger.debug(f"Selected content from strategy '{candidates[0][2]}' with score {candidates[0][1]}")
+                logger.debug("content_extraction_strategy_selected", strategy=candidates[0][2], score=candidates[0][1], url=url)
                 return best_content
             
         except Exception as e:
-            logger.debug(f"Intelligent extraction failed: {e}")
+            logger.debug("intelligent_extraction_failed", error=str(e), url=url)
         
         return ""
     
@@ -312,7 +310,7 @@ class ScraplingEnhancedScraper:
                     if h1:
                         title = str(h1).strip()
             except Exception as e:
-                logger.debug(f"Title extraction failed: {e}")
+                logger.debug("title_extraction_failed", error=str(e), url=url)
             
             # Extract meta description
             meta_desc = ""
@@ -323,7 +321,7 @@ class ScraplingEnhancedScraper:
                 if meta:
                     meta_desc = str(meta).strip()
             except Exception as e:
-                logger.debug(f"Meta extraction failed: {e}")
+                logger.debug("meta_description_extraction_failed", error=str(e), url=url)
             
             # Extract headings
             headings = []
@@ -335,7 +333,7 @@ class ScraplingEnhancedScraper:
                         if heading_text and heading_text not in headings:
                             headings.append(heading_text)
             except Exception as e:
-                logger.debug(f"Heading extraction failed: {e}")
+                logger.debug("heading_extraction_failed", error=str(e), url=url)
             
             # Intelligent content extraction - try multiple strategies and pick the best
             content = self._intelligent_content_extraction(page, url)
@@ -357,7 +355,7 @@ class ScraplingEnhancedScraper:
                     if domain_content and len(domain_content) > len(content or ''):
                         content = domain_content
                 except Exception as e:
-                    logger.debug(f"Domain-specific extraction failed: {e}")
+                    logger.debug("domain_specific_extraction_failed", error=str(e), url=url)
             
             # Fallback content generation
             if not content or len(content.strip()) < 50:
@@ -381,7 +379,7 @@ class ScraplingEnhancedScraper:
                 'meta_description': meta_desc
             }
         except Exception as e:
-            logger.error(f"Error in _extract_from_scrapling_page: {e}")
+            logger.error("scrapling_page_extraction_exception", error=str(e), url=url)
             return {
                 'title': 'Untitled',
                 'content': self._generate_fallback_content(url, ''),
@@ -477,7 +475,7 @@ class ScraplingEnhancedScraper:
                             # No README, try to get default branch content
                             logger.debug(f"No README found for {owner}/{repo}")
                     except Exception as e:
-                        logger.debug(f"GitHub README API failed: {e}")
+                        logger.debug("github_readme_api_failed", error=str(e), repo=f"{owner}/{repo}")
                     
                     # For specific files (blob URLs), try to get file content
                     if url_type == 'blob' and file_path:
@@ -492,7 +490,7 @@ class ScraplingEnhancedScraper:
                                     file_content = file_content[:5000] + "\n... (truncated)"
                                 content_parts.append(f"\nFile Content ({file_path}):\n{file_content}")
                         except Exception as e:
-                            logger.debug(f"Failed to get file content: {e}")
+                            logger.debug("github_file_content_failed", error=str(e), file_path=file_path)
                     
                 elif response.status_code == 404:
                     logger.debug(f"Repository {owner}/{repo} not found or private")
@@ -502,10 +500,10 @@ class ScraplingEnhancedScraper:
             except requests.exceptions.Timeout:
                 logger.warning(f"GitHub API timeout for {url}")
             except requests.exceptions.RequestException as e:
-                logger.debug(f"GitHub API request failed: {e}")
+                logger.debug("github_api_request_failed", error=str(e), url=url)
                 
         except Exception as e:
-            logger.debug(f"GitHub API extraction error: {e}")
+            logger.debug("github_api_extraction_error", error=str(e), url=url)
         
         # Try to extract from page if available (fallback)
         if page and len(content_parts) == 0:
@@ -517,7 +515,7 @@ class ScraplingEnhancedScraper:
                     if content and len(str(content)) > 100:
                         content_parts.append(str(content))
             except Exception as e:
-                logger.debug(f"GitHub page extraction failed: {e}")
+                logger.debug("github_page_extraction_failed", error=str(e), url=url)
         
         if content_parts:
             return '\n\n'.join(content_parts)
@@ -558,7 +556,7 @@ class ScraplingEnhancedScraper:
                 'quality_score': 3  # Low but not zero
             }
         except Exception as e:
-            logger.debug(f"Basic fallback generation failed: {e}")
+            logger.debug("basic_fallback_generation_failed", error=str(e), url=url)
             return {
                 'title': 'Web Content',
                 'content': f'Content from {url}',
@@ -621,7 +619,7 @@ class ScraplingEnhancedScraper:
                         self._browsers_installed = True
                         return True
             except Exception as e:
-                logger.debug(f"Camoufox check failed: {e}")
+                logger.debug("camoufox_check_failed", error=str(e))
             
             # Try to check if Playwright browsers exist (used by DynamicFetcher)
             # Run in a thread to avoid async conflicts
@@ -649,12 +647,12 @@ class ScraplingEnhancedScraper:
                         self._browsers_installed = True
                         return True
             except Exception as e:
-                logger.debug(f"Playwright check failed: {e}")
+                logger.debug("playwright_check_failed", error=str(e))
             
             self._browsers_installed = False
             return False
         except Exception as e:
-            logger.debug(f"Browser check failed: {e}")
+            logger.debug("browser_check_exception", error=str(e))
             self._browsers_installed = False
             return False
     
@@ -671,7 +669,7 @@ class ScraplingEnhancedScraper:
             else:
                 return page.css(selector)
         except Exception as e:
-            logger.debug(f"CSS selector failed: {e}")
+            logger.debug("safe_css_failed", error=str(e), selector=selector)
             return []
     
     def _safe_css_first(self, page, selector, adaptive=False):
@@ -680,7 +678,7 @@ class ScraplingEnhancedScraper:
         try:
             return page.css_first(selector)
         except Exception as e:
-            logger.debug(f"CSS first selector failed: {e}")
+            logger.debug("safe_css_first_failed", error=str(e), selector=selector)
             return None
     
     def scrape_url_enhanced(self, url: str) -> Dict:
@@ -710,12 +708,12 @@ class ScraplingEnhancedScraper:
                             'meta_description': linkedin_result.get('meta_description', ''),
                             'quality_score': linkedin_result.get('quality_score', 7)
                         }
-                        logger.info(f" LinkedIn scraper extraction successful: {len(result['content'])} chars, quality={result['quality_score']}")
+                        logger.info("linkedin_scraper_success", content_length=len(result['content']), quality=result['quality_score'], url=url)
                         return result
                     else:
-                        logger.warning(f"LinkedIn scraper returned low quality result, trying fallback")
+                        logger.warning("linkedin_scraper_low_quality", url=url)
                 except Exception as linkedin_error:
-                    logger.warning(f"LinkedIn scraper failed: {linkedin_error}, trying fallback")
+                    logger.warning("linkedin_scraper_exception", error=str(linkedin_error), url=url)
             
             # For GitHub URLs, ALWAYS try API first (most reliable method)
             # This ensures we get README, description, topics even if Scrapling fails
@@ -736,7 +734,7 @@ class ScraplingEnhancedScraper:
                         'quality_score': 8  # High quality for GitHub API content
                     }
                     # For GitHub, prefer API result - return immediately
-                    logger.info(f" GitHub API extraction successful: {len(github_content)} chars")
+                    logger.info("github_api_success", content_length=len(github_content), url=url)
                     return github_api_result
                 # If GitHub API failed, continue with Scrapling (might get better content)
             
@@ -744,21 +742,21 @@ class ScraplingEnhancedScraper:
             if SCRAPLING_AVAILABLE:
                 strategy = self._get_scrapling_strategy(domain)
                 if strategy:
-                    logger.info(f"Using Scrapling ({strategy}) for {url}")
+                    logger.info("scrapling_strategy_start", strategy=strategy, url=url)
                     try:
                         result = self._scrape_with_scrapling(url, strategy)
                         if result and result.get('quality_score', 0) >= 5:
-                            logger.info(f" Scrapling extraction successful: quality={result.get('quality_score')}, content_length={len(result.get('content', ''))}")
+                            logger.info("scrapling_extraction_success", quality=result.get('quality_score'), content_length=len(result.get('content', '')), url=url)
                             return result
                         elif result:
-                            logger.warning(f"Scrapling extraction had low quality ({result.get('quality_score')}), trying fallback scraper")
+                            logger.warning("scrapling_low_quality", quality=result.get('quality_score'), url=url)
                         else:
-                            logger.warning(f"Scrapling extraction returned None, trying fallback scraper")
+                            logger.warning("scrapling_no_result", url=url)
                     except Exception as scrapling_error:
-                        logger.warning(f"Scrapling extraction failed: {scrapling_error}, trying fallback scraper")
+                        logger.warning("scrapling_extraction_exception", error=str(scrapling_error), url=url)
                 else:
                     # Try Scrapling standard Fetcher for unknown sites as first attempt
-                    logger.debug(f"No specific Scrapling strategy for {domain}, trying standard Fetcher first")
+                    logger.debug("scrapling_trying_unlisted_domain", domain=domain, url=url)
                     try:
                         if SCRAPLING_AVAILABLE:
                             result = self._scrape_standard(url)
@@ -768,15 +766,15 @@ class ScraplingEnhancedScraper:
                         pass
             
             # Fallback to existing scraper
-            logger.info(f"Using fallback scraper for {url}")
+            logger.info("web_scraper_fallback_start", url=url)
             try:
                 result = self.fallback_scraper.scrape_url_enhanced(url)
                 if result and result.get('content') and len(result.get('content', '')) > 50:
                     return result
                 else:
-                    logger.warning(f"Fallback scraper returned poor quality result, using basic fallback")
+                    logger.warning("web_scraper_fallback_low_quality", url=url)
             except Exception as fallback_error:
-                logger.warning(f"Fallback scraper failed: {fallback_error}")
+                logger.warning("web_scraper_fallback_exception", error=str(fallback_error), url=url)
 
             # Try domain-specific extractors before ultimate fallback
             try:
@@ -799,12 +797,12 @@ class ScraplingEnhancedScraper:
             return self._generate_basic_fallback(url)
             
         except Exception as e:
-            logger.error(f"Error in ScraplingEnhancedScraper for {url}: {e}")
+            logger.error("scrapling_enhanced_scraper_exception", error=str(e), url=url)
             # Final fallback
             try:
                 return self.fallback_scraper.scrape_url_enhanced(url)
             except Exception as final_error:
-                logger.error(f"Final fallback also failed: {final_error}")
+                logger.error("final_fallback_failed", error=str(final_error), url=url)
                 return self._generate_basic_fallback(url)
     
     def _get_scrapling_strategy(self, domain: str) -> Optional[str]:
@@ -824,7 +822,7 @@ class ScraplingEnhancedScraper:
             else:
                 return self._scrape_standard(url)
         except Exception as e:
-            logger.error(f"Scrapling scraping failed for {url}: {e}")
+            logger.error("scrapling_scraping_failed", error=str(e), url=url, strategy=strategy)
             return None
     
     def _run_fetcher_in_thread(self, fetcher_func, timeout=90):
@@ -849,7 +847,7 @@ class ScraplingEnhancedScraper:
         if thread_done.wait(timeout=timeout):
             thread.join(timeout=1)  # Give thread a moment to finish
         else:
-            logger.warning(f"Fetcher timeout after {timeout}s")
+            logger.warning("scrapling_fetcher_timeout", timeout=timeout)
             return None, TimeoutError("Fetcher operation timed out")
         
         return result, exception
@@ -857,12 +855,12 @@ class ScraplingEnhancedScraper:
     def _scrape_stealthy(self, url: str) -> Dict:
         """Use StealthyFetcher for sites with anti-bot protection"""
         if not SCRAPLING_AVAILABLE or StealthyFetcher is None:
-            logger.warning("StealthyFetcher not available, cannot use stealthy scraping")
+            logger.warning("stealthy_fetcher_unavailable")
             return None
         
         # Check if browsers are installed before attempting
         if not self._check_browsers_installed():
-            logger.debug(f"Browsers not installed, skipping StealthyFetcher for {url}")
+            logger.debug("stealthy_fetch_skipped_no_browsers", url=url)
             return None
         
         try:
@@ -881,22 +879,22 @@ class ScraplingEnhancedScraper:
             try:
                 loop = asyncio.get_running_loop()
                 # We're in an async context, need to run in a thread
-                logger.debug(f"Running StealthyFetcher in thread to avoid async conflict")
+                logger.debug("stealthy_fetch_async_running_in_thread", url=url)
                 page, exception = self._run_fetcher_in_thread(fetch_page, timeout=120)  # 120s for Cloudflare
                 
                 if exception:
                     if isinstance(exception, TimeoutError):
-                        logger.warning(f"StealthyFetcher timeout for {url}")
+                        logger.warning("stealthy_fetch_timeout", url=url)
                         return None
                     # Check if it's a browser installation error
                     error_str = str(exception).lower()
                     if 'executable doesn\'t exist' in error_str or 'playwright' in error_str or 'camoufox' in error_str or 'browser' in error_str:
-                        logger.debug(f"Browsers not installed. Run: camoufox fetch or scrapling install")
+                        logger.debug("stealthy_fetch_browsers_not_installed")
                         self._browsers_installed = False  # Update cache
                         return None
                     # Check for Cloudflare-specific errors
                     if 'cloudflare' in error_str or 'challenge' in error_str or 'turnstile' in error_str:
-                        logger.warning(f"Cloudflare challenge failed for {url}: {exception}")
+                        logger.warning("stealthy_fetch_cloudflare_failed", error=str(exception), url=url)
                         return None
                     # Re-raise other exceptions
                     raise exception
@@ -909,17 +907,17 @@ class ScraplingEnhancedScraper:
                     # Check if it's a browser installation error
                     error_str = str(e).lower()
                     if 'executable doesn\'t exist' in error_str or 'playwright' in error_str or 'camoufox' in error_str or 'browser' in error_str:
-                        logger.debug(f"Browsers not installed. Run: scrapling install or camoufox fetch")
+                        logger.debug("stealthy_fetch_browsers_not_installed")
                         self._browsers_installed = False  # Update cache
                         return None
                     # Check for Cloudflare-specific errors
                     if 'cloudflare' in error_str or 'challenge' in error_str:
-                        logger.warning(f"Cloudflare challenge failed for {url}: {e}")
+                        logger.warning("stealthy_fetch_cloudflare_failed", error=str(e), url=url)
                         return None
                     raise
             
             if not page:
-                logger.warning(f"StealthyFetcher returned None for {url}")
+                logger.warning("stealthy_fetcher_no_result", url=url)
                 return None
             
             # Use Scrapling's native Selector API directly (Response IS a Selector!)
@@ -937,7 +935,7 @@ class ScraplingEnhancedScraper:
             quality_score = self._compute_quality_score(content, title, meta_desc)
             
             # Log extraction quality
-            logger.info(f"Scrapling (stealthy) extraction: {len(content)} chars, quality: {quality_score}, title: {title[:50]}")
+            logger.info("stealthy_fetch_success", content_length=len(content), quality=quality_score, title=title[:50], url=url)
             
             return {
                 'title': title or 'Untitled',
@@ -948,20 +946,18 @@ class ScraplingEnhancedScraper:
             }
             
         except Exception as e:
-            logger.error(f"StealthyFetcher error for {url}: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
+            logger.error("stealthy_fetch_exception", error=str(e), url=url)
             return None
     
     def _scrape_dynamic(self, url: str) -> Dict:
         """Use DynamicFetcher for JavaScript-heavy sites"""
         if not SCRAPLING_AVAILABLE or DynamicFetcher is None:
-            logger.warning("DynamicFetcher not available, cannot use dynamic scraping")
+            logger.warning("dynamic_fetcher_unavailable")
             return None
         
         # Check if browsers are installed before attempting
         if not self._check_browsers_installed():
-            logger.debug(f"Browsers not installed, skipping DynamicFetcher for {url}")
+            logger.debug("dynamic_fetch_skipped_no_browsers", url=url)
             return None
         
         try:
@@ -980,17 +976,17 @@ class ScraplingEnhancedScraper:
             try:
                 loop = asyncio.get_running_loop()
                 # We're in an async context, need to run in a thread
-                logger.debug(f"Running DynamicFetcher in thread to avoid async conflict")
+                logger.debug("dynamic_fetch_async_running_in_thread", url=url)
                 page, exception = self._run_fetcher_in_thread(fetch_page, timeout=90)
                 
                 if exception:
                     if isinstance(exception, TimeoutError):
-                        logger.warning(f"DynamicFetcher timeout for {url}")
+                        logger.warning("dynamic_fetch_timeout", url=url)
                         return None
                     # Check if it's a browser installation error
                     error_str = str(exception).lower()
                     if 'executable doesn\'t exist' in error_str or 'playwright' in error_str or 'browser' in error_str:
-                        logger.debug(f"Browsers not installed. Run: scrapling install or camoufox fetch")
+                        logger.debug("dynamic_fetch_browsers_not_installed")
                         self._browsers_installed = False  # Update cache
                         return None
                     # Re-raise other exceptions
@@ -1001,20 +997,19 @@ class ScraplingEnhancedScraper:
                 try:
                     page = fetch_page()
                 except Exception as e:
-                    # Check if it's a browser installation error
                     error_str = str(e).lower()
                     if 'executable doesn\'t exist' in error_str or 'playwright' in error_str or 'browser' in error_str:
-                        logger.warning(f"Playwright browsers not installed. Run: playwright install")
+                        logger.warning("dynamic_fetch_browsers_not_installed")
                         self._browsers_installed = False  # Update cache
                         return None
                     # Check for Playwright-specific errors
                     if 'playwright' in error_str and ('timeout' in error_str or 'navigation' in error_str or 'target closed' in error_str):
-                        logger.warning(f"Playwright navigation issue for {url}: {e}")
+                        logger.warning("dynamic_fetch_playwright_issue", error=str(e), url=url)
                         return None
                     raise
             
             if not page:
-                logger.warning(f"DynamicFetcher returned None for {url}")
+                logger.warning("dynamic_fetcher_no_result", url=url)
                 return None
             
             # Use Scrapling's native Selector API
@@ -1030,7 +1025,7 @@ class ScraplingEnhancedScraper:
             
             quality_score = self._compute_quality_score(content, title, meta_desc)
             
-            logger.info(f"Scrapling (dynamic) extraction: {len(content)} chars, quality: {quality_score}, title: {title[:50]}")
+            logger.info("dynamic_fetch_success", content_length=len(content), quality=quality_score, title=title[:50], url=url)
             
             return {
                 'title': title or 'Untitled',
@@ -1041,15 +1036,13 @@ class ScraplingEnhancedScraper:
             }
             
         except Exception as e:
-            logger.error(f"DynamicFetcher error for {url}: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
+            logger.error("dynamic_fetch_exception", error=str(e), url=url)
             return None
     
     def _scrape_standard(self, url: str) -> Dict:
         """Use standard Fetcher for simple sites"""
         if not SCRAPLING_AVAILABLE or Fetcher is None:
-            logger.warning("Fetcher not available, cannot use standard Scrapling fetcher")
+            logger.warning("standard_fetcher_unavailable")
             return None
         
         try:
@@ -1081,9 +1074,7 @@ class ScraplingEnhancedScraper:
             }
             
         except Exception as e:
-            logger.error(f"Standard Fetcher error for {url}: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
+            logger.error("standard_fetch_exception", error=str(e), url=url)
             return None
     
     def _clean_and_optimize_content(self, content: str) -> str:

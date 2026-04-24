@@ -13,9 +13,9 @@ import json
 from typing import Dict, Optional, List
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
-import logging
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class EnhancedWebScraper:
     """
@@ -75,7 +75,7 @@ class EnhancedWebScraper:
         Enhanced URL scraping with multiple strategies
         """
         strategy = self.get_domain_strategy(url)
-        logger.info(f"Using strategy '{strategy}' for {url}")
+        logger.info("enhanced_scraper_strategy_start", strategy=strategy, url=url)
         
         if strategy == 'localhost':
             return self.handle_localhost_url(url)
@@ -117,7 +117,7 @@ class EnhancedWebScraper:
             return self.enhanced_playwright_scraping(url, site_specific=True)
             
         except Exception as e:
-            logger.error(f"LeetCode handling failed: {e}")
+            logger.error("leetcode_scraping_failed", error=str(e), url=url)
             return self.get_fallback_content(url, "LeetCode")
     
     def handle_github_url(self, url: str) -> Dict:
@@ -125,7 +125,7 @@ class EnhancedWebScraper:
         try:
             return self.github_playwright_scraping(url)
         except Exception as e:
-            logger.error(f"GitHub handling failed: {e}")
+            logger.error("github_scraping_failed", error=str(e), url=url)
             return self.get_fallback_content(url, "GitHub")
     
     def handle_stackoverflow_url(self, url: str) -> Dict:
@@ -133,7 +133,7 @@ class EnhancedWebScraper:
         try:
             return self.enhanced_playwright_scraping(url, site_specific=True)
         except Exception as e:
-            logger.error(f"Stack Overflow handling failed: {e}")
+            logger.error("stackoverflow_scraping_failed", error=str(e), url=url)
             return self.get_fallback_content(url, "Stack Overflow")
     
     def handle_medium_url(self, url: str) -> Dict:
@@ -141,7 +141,7 @@ class EnhancedWebScraper:
         try:
             return self.enhanced_playwright_scraping(url, site_specific=True)
         except Exception as e:
-            logger.error(f"Medium handling failed: {e}")
+            logger.error("medium_scraping_failed", error=str(e), url=url)
             return self.get_fallback_content(url, "Medium")
     
     def handle_devto_url(self, url: str) -> Dict:
@@ -149,7 +149,7 @@ class EnhancedWebScraper:
         try:
             return self.enhanced_playwright_scraping(url, site_specific=True)
         except Exception as e:
-            logger.error(f"Dev.to handling failed: {e}")
+            logger.error("devto_scraping_failed", error=str(e), url=url)
             return self.get_fallback_content(url, "Dev.to")
     
     def enhanced_static_scraping(self, url: str, _tried_playwright=False) -> Dict:
@@ -173,7 +173,7 @@ class EnhancedWebScraper:
             return self.parse_html_content(html, url)
             
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Static scraping failed for {url}: {e}")
+            logger.warning("static_scraping_failed", error=str(e), url=url)
             # Fallback to Playwright only if available and not already tried
             if PLAYWRIGHT_AVAILABLE and not _tried_playwright:
                 return self.enhanced_playwright_scraping(url)
@@ -183,7 +183,7 @@ class EnhancedWebScraper:
     def enhanced_playwright_scraping(self, url: str, site_specific: bool = False, _tried_static=False) -> Dict:
         """Enhanced Playwright scraping with site-specific optimizations"""
         if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available, using static scraping fallback")
+            logger.debug("playwright_unavailable_static_fallback", url=url)
             return self.enhanced_static_scraping(url, _tried_playwright=True)
         
         try:
@@ -234,7 +234,7 @@ class EnhancedWebScraper:
             error_str = str(e).lower()
             # Check if it's a browser installation error
             if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for {url}, falling back to static scraping")
+                logger.debug("playwright_browsers_not_installed", url=url)
                 # Try static scraping as fallback (only if not already tried)
                 if not _tried_static:
                     try:
@@ -242,7 +242,7 @@ class EnhancedWebScraper:
                     except:
                         return self.get_fallback_content(url, "Static")
                 return self.get_fallback_content(url, "Static")
-            logger.error(f"Playwright scraping failed for {url}: {e}")
+            logger.error("playwright_scraping_failed", error=str(e), url=url)
             # Try static scraping as fallback (only if not already tried)
             if not _tried_static:
                 try:
@@ -254,7 +254,7 @@ class EnhancedWebScraper:
     def leetcode_playwright_scraping(self, url: str, problem_slug: str) -> Dict:
         """Specialized LeetCode scraping"""
         if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available for LeetCode, using static scraping")
+            logger.debug("leetcode_playwright_unavailable_static_fallback")
             return self.enhanced_static_scraping(url)
         
         try:
@@ -290,12 +290,12 @@ class EnhancedWebScraper:
         except Exception as e:
             error_str = str(e).lower()
             if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for LeetCode, falling back to static scraping")
+                logger.debug("leetcode_playwright_browsers_not_installed")
                 try:
                     return self.enhanced_static_scraping(url, _tried_playwright=True)
                 except:
                     return self.get_fallback_content(url, "Static")
-            logger.error(f"LeetCode Playwright scraping failed: {e}")
+            logger.error("leetcode_playwright_scraping_exception", error=str(e), url=url)
             try:
                 return self.enhanced_static_scraping(url, _tried_playwright=True)
             except:
@@ -304,7 +304,7 @@ class EnhancedWebScraper:
     def github_playwright_scraping(self, url: str) -> Dict:
         """Specialized GitHub scraping"""
         if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available for GitHub, using static scraping")
+            logger.debug("github_playwright_unavailable_static_fallback")
             return self.enhanced_static_scraping(url)
         
         try:
@@ -335,12 +335,12 @@ class EnhancedWebScraper:
         except Exception as e:
             error_str = str(e).lower()
             if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for GitHub, falling back to static scraping")
+                logger.debug("github_playwright_browsers_not_installed")
                 try:
                     return self.enhanced_static_scraping(url, _tried_playwright=True)
                 except:
                     return self.get_fallback_content(url, "Static")
-            logger.error(f"GitHub Playwright scraping failed: {e}")
+            logger.error("github_playwright_scraping_exception", error=str(e), url=url)
             try:
                 return self.enhanced_static_scraping(url, _tried_playwright=True)
             except:

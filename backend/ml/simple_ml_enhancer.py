@@ -13,11 +13,11 @@ This is a DROP-IN enhancement that:
 Author: Fuze AI System
 """
 
-import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import numpy as np
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Try to import ML features (optional)
 ML_AVAILABLE = False
@@ -25,9 +25,9 @@ try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
     ML_AVAILABLE = True
-    logger.info(" ML features available - will enhance recommendations")
+    logger.info("ml_features_available")
 except ImportError:
-    logger.info("ℹ️ ML features not available - using standard scoring")
+    logger.info("ml_features_unavailable", reason="sklearn_missing")
 
 def calculate_tfidf_similarity(query_text: str, content_text: str) -> float:
     """
@@ -49,7 +49,7 @@ def calculate_tfidf_similarity(query_text: str, content_text: str) -> float:
         similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
         return float(similarity)
     except Exception as e:
-        logger.debug(f"TF-IDF similarity calculation failed: {e}")
+        logger.debug("tfidf_similarity_calculation_failed", error=str(e))
         return 0.0
 
 class SimpleMLEnhancer:
@@ -69,9 +69,9 @@ class SimpleMLEnhancer:
                     stop_words='english',
                     ngram_range=(1, 2)
                 )
-                logger.info(" TF-IDF vectorizer initialized")
+                logger.info("tfidf_vectorizer_initialized")
             except Exception as e:
-                logger.warning(f"TF-IDF init failed: {e}")
+                logger.warning("tfidf_init_failed", error=str(e))
                 self.tfidf = None
     
     def enhance_recommendations(
@@ -135,11 +135,11 @@ class SimpleMLEnhancer:
             # Re-sort by enhanced score
             enhanced.sort(key=lambda x: x.get('score', 0), reverse=True)
             
-            logger.debug(f"Enhanced {len(enhanced)} recommendations with ML")
+            logger.debug("ml_enhancement_success", count=len(enhanced))
             return enhanced
         
         except Exception as e:
-            logger.warning(f"ML enhancement failed: {e} - returning original")
+            logger.warning("ml_enhancement_failed", error=str(e))
             return recommendations
     
     def is_available(self) -> bool:
@@ -186,8 +186,7 @@ def enhance_unified_recommendations(
 
 def test_enhancer():
     """Test the ML enhancer"""
-    print("🧪 Testing Simple ML Enhancer")
-    print("=" * 60)
+    logger.info("ml_enhancer_test_start")
     
     # Test recommendations
     test_recs = [
@@ -213,8 +212,7 @@ def test_enhancer():
         'technologies': 'python, machine learning'
     }
     
-    print(f"\n📊 ML Available: {ML_AVAILABLE}")
-    print(f"📊 Original scores: {[r['score'] for r in test_recs]}")
+    logger.info("ml_enhancer_test_info", ml_available=ML_AVAILABLE, original_scores=[r['score'] for r in test_recs])
     
     # Enhance
     enhancer = get_enhancer()
@@ -223,13 +221,12 @@ def test_enhancer():
         f"{test_query['title']} {test_query['description']} {test_query['technologies']}"
     )
     
-    print(f"📊 Enhanced scores: {[r['score'] for r in enhanced]}")
-    print(f"📊 ML Enhanced: {[r.get('ml_enhanced', False) for r in enhanced]}")
+    logger.info("ml_enhancer_test_complete", enhanced_scores=[r['score'] for r in enhanced])
     
     if ML_AVAILABLE:
-        print("\n🎉 ML Enhancement working!")
+        logger.info("ml_enhancer_test_success_ai")
     else:
-        print("\n Graceful fallback working (ML not available)")
+        logger.info("ml_enhancer_test_success_fallback")
     
     return True
 

@@ -52,7 +52,7 @@ export default function FuzeLanding() {
     const queryParams = new URLSearchParams(window.location.search)
     const access_token = hashParams.get('access_token') || queryParams.get('access_token')
     
-    if (access_token && !localStorage.getItem('token')) {
+    if (access_token) {
       console.log('[Root] OAuth token detected at /, redirecting to callback handler...')
       // Redirect to callback page with token in hash
       window.location.href = `/oauth/callback#access_token=${access_token}`

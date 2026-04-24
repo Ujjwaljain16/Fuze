@@ -3,6 +3,9 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func
 from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Initialize SQLAlchemy with enhanced configuration
 db = SQLAlchemy()
@@ -26,7 +29,7 @@ def configure_database():
         
         return True
     except Exception as e:
-        print(f"Failed to configure database: {e}")
+        logger.error("db_configure_failed", error=str(e))
         return False
 
 def ensure_user_metadata_column():
@@ -37,7 +40,7 @@ def ensure_user_metadata_column():
         columns = [col['name'] for col in inspector.get_columns('users')]
         
         if 'user_metadata' not in columns:
-            print("Adding missing 'user_metadata' column to users table...")
+            logger.info("db_migration_adding_column", table="users", column="user_metadata")
             try:
                 # Try to add the column
                 db.session.execute(text("""
@@ -45,53 +48,56 @@ def ensure_user_metadata_column():
                     ADD COLUMN user_metadata JSON;
                 """))
                 db.session.commit()
-                print("Column 'user_metadata' added successfully")
+                logger.info("db_migration_column_added", table="users", column="user_metadata")
             except Exception as add_error:
                 # If column already exists (race condition), that's fine
                 error_str = str(add_error).lower()
                 if 'already exists' in error_str or 'duplicate' in error_str:
-                    print("Column 'user_metadata' already exists")
+                    logger.debug("db_migration_column_exists", table="users", column="user_metadata")
                     db.session.rollback()
                 else:
                     raise
     except Exception as e:
         # Don't fail if column already exists or can't be added
-        print(f"Note: Could not ensure user_metadata column: {e}")
+        logger.warning("db_migration_ensure_column_failed", table="users", column="user_metadata", error=str(e))
         try:
             db.session.rollback()
         except:
             pass
 
     def ensure_provider_columns():
-        """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
-        try:
-            from sqlalchemy import inspect, text
-            inspector = inspect(db.engine)
-            columns = [col['name'] for col in inspector.get_columns('users')]
-            # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
-            stmts = []
-            if 'provider_name' not in columns:
-                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
-            if 'provider_user_id' not in columns:
-                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
+        pass  # This stub is unreachable; real function is at module level below
 
-            for s in stmts:
-                try:
-                    db.session.execute(text(s))
-                    db.session.commit()
-                except Exception as e:
-                    # If column was added by a concurrent process, ignore
-                    err = str(e).lower()
-                    if 'already exists' in err or 'duplicate' in err:
-                        db.session.rollback()
-                    else:
-                        raise
-        except Exception as e:
-            print(f"Note: Could not ensure provider columns: {e}")
+def ensure_provider_columns():
+    """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('users')]
+        # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
+        stmts = []
+        if 'provider_name' not in columns:
+            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
+        if 'provider_user_id' not in columns:
+            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
+
+        for s in stmts:
             try:
-                db.session.rollback()
-            except:
-                pass
+                db.session.execute(text(s))
+                db.session.commit()
+            except Exception as e:
+                # If column was added by a concurrent process, ignore
+                err = str(e).lower()
+                if 'already exists' in err or 'duplicate' in err:
+                    db.session.rollback()
+                else:
+                    raise
+    except Exception as e:
+        logger.warning("db_migration_ensure_provider_columns_failed", error=str(e))
+        try:
+            db.session.rollback()
+        except:
+            pass
 
 class Base(db.Model):
     __abstract__ = True

@@ -14,8 +14,9 @@ import numpy as np
 
 from models import Project, SavedContent, ContentAnalysis
 from utils.embedding_utils import get_embedding
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class ProjectEmbeddingManager:
     """Manages project embeddings for enhanced semantic matching"""
@@ -37,7 +38,7 @@ class ProjectEmbeddingManager:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"🔄 Updating embeddings for project: {project.title}")
+            logger.info("embedding_update_start", project_id=project.id, title=project.title)
             
             # Prepare text for embeddings
             title = project.title or ""
@@ -47,28 +48,28 @@ class ProjectEmbeddingManager:
             # Generate individual embeddings
             if technologies.strip():
                 project.tech_embedding = get_embedding(technologies)
-                logger.debug(f" Generated tech embedding for: {technologies}")
+                logger.debug("embedding_generated_tech", project_id=project.id)
             
             if description.strip():
                 project.description_embedding = get_embedding(description)
-                logger.debug(f" Generated description embedding")
+                logger.debug("embedding_generated_description", project_id=project.id)
             
             # Generate combined embedding (most important for matching)
             combined_text = f"{title} {description} {technologies}".strip()
             if combined_text:
                 project.combined_embedding = get_embedding(combined_text)
-                logger.debug(f" Generated combined embedding")
+                logger.debug("embedding_generated_combined", project_id=project.id)
             
             # Update timestamp
             project.embeddings_updated = datetime.utcnow()
             
             # Commit changes
             self.db_session.commit()
-            logger.info(f" Successfully updated embeddings for project: {project.title}")
+            logger.info("embedding_update_success", project_id=project.id)
             return True
             
         except Exception as e:
-            logger.error(f" Failed to update project embeddings: {e}")
+            logger.error("embedding_update_failed", project_id=project.id, error=str(e))
             self.db_session.rollback()
             return False
     
@@ -81,7 +82,7 @@ class ProjectEmbeddingManager:
         """
         try:
             projects = self.db_session.query(Project).all()
-            logger.info(f"🔄 Updating embeddings for {len(projects)} projects")
+            logger.info("embedding_update_all_start", count=len(projects))
             
             success_count = 0
             failure_count = 0
@@ -92,7 +93,7 @@ class ProjectEmbeddingManager:
                 else:
                     failure_count += 1
             
-            logger.info(f" Completed embedding updates: {success_count} success, {failure_count} failures")
+            logger.info("embedding_update_all_complete", success=success_count, failure=failure_count)
             return {
                 'total': len(projects),
                 'success': success_count,
@@ -100,7 +101,7 @@ class ProjectEmbeddingManager:
             }
             
         except Exception as e:
-            logger.error(f" Failed to update all project embeddings: {e}")
+            logger.error("embedding_update_all_failed", error=str(e))
             return {'total': 0, 'success': 0, 'failure': 1}
     
     def get_enhanced_recommendations(
@@ -128,9 +129,9 @@ class ProjectEmbeddingManager:
         try:
             if (project.combined_embedding is None or 
                 (hasattr(project.combined_embedding, '__len__') and len(project.combined_embedding) == 0)):
-                logger.warning(f"Project {project.title} has no embeddings, updating now...")
+                logger.warning("recommendation_missing_embeddings_triggered_update", project_id=project.id)
                 if not self.update_project_embeddings(project):
-                    logger.error(f"Failed to generate embeddings for project {project.title}")
+                    logger.error("recommendation_embedding_update_failed", project_id=project.id)
                     return []
             
             recommendations = []
@@ -181,7 +182,7 @@ class ProjectEmbeddingManager:
             return recommendations[:limit]
             
         except Exception as e:
-            logger.error(f" Failed to get enhanced recommendations: {e}")
+            logger.error("recommendation_generation_failed", project_id=project.id, error=str(e))
             return []
     
     def _calculate_tech_overlap(self, project_tech: str, content_tech: str) -> float:
@@ -230,7 +231,7 @@ class ProjectEmbeddingManager:
             return max(0.0, min(1.0, float(similarity)))
             
         except Exception as e:
-            logger.warning(f"Failed to calculate semantic similarity: {e}")
+            logger.warning("embedding_similarity_failed", error=str(e))
             return 0.0
     
     def _calculate_analysis_score(self, project: Project, content: SavedContent) -> float:
@@ -283,7 +284,7 @@ class ProjectEmbeddingManager:
             return score / factors if factors > 0 else 0.5
             
         except Exception as e:
-            logger.warning(f"Failed to calculate analysis score: {e}")
+            logger.warning("analysis_score_calculation_failed", project_id=project.id, error=str(e))
             return 0.5
     
     def _get_content_tech_tags(self, content: SavedContent) -> str:
@@ -301,7 +302,7 @@ class ProjectEmbeddingManager:
             return content.tags or ""
             
         except Exception as e:
-            logger.warning(f"Failed to get content tech tags: {e}")
+            logger.warning("content_tech_tags_fetch_failed", content_id=content.id, error=str(e))
             return ""
     
     def _generate_recommendation_reasoning(
@@ -366,7 +367,7 @@ class ProjectEmbeddingManager:
             return results
             
         except Exception as e:
-            logger.error(f"Failed to find similar projects: {e}")
+            logger.error("similar_projects_fetch_failed", project_id=project.id, error=str(e))
             return []
     
     def cleanup_orphaned_embeddings(self) -> int:
@@ -376,5 +377,5 @@ class ProjectEmbeddingManager:
             # For now, just return 0
             return 0
         except Exception as e:
-            logger.error(f"Failed to cleanup orphaned embeddings: {e}")
+            logger.error("orphaned_embeddings_cleanup_failed", error=str(e))
             return 0

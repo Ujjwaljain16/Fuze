@@ -4,17 +4,26 @@ import pickle
 import hashlib
 import os
 import ssl
+import uuid
 from typing import Optional, Dict, Any, List
 from datetime import timedelta
 import numpy as np
+from core.logging_config import get_logger
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
+logger = get_logger(__name__)
 
 # Global connection pool (shared across instances)
 _redis_connection_pool = None
 _pool_lock = __import__('threading').Lock()
+
+# Atomic Release Script: Only delete if owner matches
+LUA_RELEASE_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"""
 
 class RedisCache:
     """Redis cache utility for Fuze application with connection pooling"""
@@ -27,59 +36,47 @@ class RedisCache:
         
         if redis_url:
             # Upstash requires TLS but provides redis:// URLs
-            # Convert redis:// to rediss:// (keep port 6379 - Upstash handles TLS on standard port)
             if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
                 redis_url = redis_url.replace('redis://', 'rediss://', 1)
-                print("Converted Upstash URL to use TLS (rediss://)")
+                logger.info("redis_upstash_tls_conversion", original="redis://upstash.io", updated="rediss://upstash.io")
             
-            # Use REDIS_URL (supports TLS with rediss://)
             try:
-                # Create or reuse connection pool (thread-safe)
                 with _pool_lock:
                     if _redis_connection_pool is None:
-                        # Base connection parameters
                         pool_kwargs = {
-                            'decode_responses': False,  # Keep binary for embeddings
+                            'decode_responses': False,
                             'socket_connect_timeout': 10,
                             'socket_timeout': 10,
-                            'max_connections': 20,  # Connection pool size
+                            'max_connections': 20,
                             'socket_keepalive': True
                         }
                         
-                        # Add SSL parameters for rediss:// URLs (Upstash, Redis Cloud, etc.)
                         if redis_url.startswith('rediss://'):
-                            pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE  # Don't verify certificates
-                            pool_kwargs['ssl_check_hostname'] = False  # Don't verify hostname
+                            pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE
+                            pool_kwargs['ssl_check_hostname'] = False
                         
                         _redis_connection_pool = redis.ConnectionPool.from_url(
                             redis_url,
                             **pool_kwargs
                         )
-                        ssl_status = "with TLS" if redis_url.startswith('rediss://') else "without TLS"
-                        print(f"Redis connection pool created ({ssl_status})")
+                        logger.info("redis_pool_created", tls=redis_url.startswith('rediss://'))
                 
-                # Use connection from pool
                 self.redis_client = redis.Redis(connection_pool=_redis_connection_pool)
-                # Test connection
                 self.redis_client.ping()
                 self.connected = True
             except Exception as e:
-                print(f"Redis connection via REDIS_URL failed: {e}")
+                logger.error("redis_conn_url_failed", error=str(e))
                 self.connected = False
                 self.redis_client = None
         else:
-            # Use individual connection parameters
             self.redis_host = os.environ.get('REDIS_HOST', 'localhost')
             self.redis_port = int(os.environ.get('REDIS_PORT', 6379))
             self.redis_db = int(os.environ.get('REDIS_DB', 0))
             self.redis_password = os.environ.get('REDIS_PASSWORD')
             
-            # Check if TLS is required (for Upstash and other cloud providers)
             use_ssl = os.environ.get('REDIS_SSL', 'false').lower() == 'true'
-            # Auto-detect TLS for common cloud providers
             if not use_ssl and any(provider in self.redis_host for provider in ['upstash.io', 'redislabs.com', 'redis.cache']):
                 use_ssl = True
-                print("Auto-detected TLS requirement for cloud Redis provider")
             
             try:
                 connection_params = {
@@ -87,28 +84,94 @@ class RedisCache:
                     'port': self.redis_port,
                     'db': self.redis_db,
                     'password': self.redis_password,
-                    'decode_responses': False,  # Keep binary for embeddings
+                    'decode_responses': False,
                     'socket_connect_timeout': 10,
                     'socket_timeout': 10
                 }
                 
-                # Add SSL parameters if TLS is required
                 if use_ssl:
                     connection_params['ssl'] = True
-                    connection_params['ssl_cert_reqs'] = None  # Don't verify cert (for cloud providers)
+                    connection_params['ssl_cert_reqs'] = None
                 
                 self.redis_client = redis.Redis(**connection_params)
-                
-                # Test connection
                 self.redis_client.ping()
                 self.connected = True
-                ssl_status = "with TLS" if use_ssl else "without TLS"
-                print(f"Redis connected successfully {ssl_status}")
+                logger.info("redis_conn_established", tls=use_ssl)
             except Exception as e:
-                print(f"Redis connection failed: {e}")
+                logger.error("redis_conn_failed", error=str(e))
                 self.connected = False
                 self.redis_client = None
-    
+
+    # DISTRIBUTED LOCKING (SETNX + LUA)
+    def acquire_lock(self, resource: str, ttl_ms: int = 300000) -> Optional[str]:
+        """
+        Acquire a distributed lock for a resource.
+        - Uses SET NX PX (Atomic Set-if-not-exists with expiration)
+        - Returns unique owner_id on success, None on failure.
+        - Default TTL: 5 minutes (Conservative Production Guard)
+        """
+        if not self.connected:
+            return None
+        
+        owner_id = str(uuid.uuid4())
+        key = f"lock:{resource}"
+        try:
+            if self.redis_client.set(key, owner_id, nx=True, px=ttl_ms):
+                logger.debug("redis_lock_acquired", resource=resource, owner_id=owner_id)
+                return owner_id
+        except Exception as e:
+            logger.error("redis_lock_acquisition_error", resource=resource, error=str(e))
+        
+        return None
+
+    def release_lock(self, resource: str, owner_id: str) -> bool:
+        """
+        Release a distributed lock safely using Lua.
+        - Ensures only the owner who acquired the lock can release it.
+        - Prevents accidental release of expired locks held by new owners.
+        """
+        if not self.connected or not owner_id:
+            return False
+        
+        key = f"lock:{resource}"
+        try:
+            result = self.redis_client.eval(LUA_RELEASE_SCRIPT, 1, key, owner_id)
+            if result:
+                logger.debug("redis_lock_released", resource=resource, owner_id=owner_id)
+                return True
+            else:
+                logger.warning("redis_lock_release_failed_expired", resource=resource, owner_id=owner_id)
+        except Exception as e:
+            logger.error("redis_lock_release_error", resource=resource, error=str(e))
+        
+        return False
+
+    # MEMORY-SAFE CLEANUP (SCAN)
+    def safe_delete_pattern(self, pattern: str, batch_size: int = 100) -> int:
+        """
+        Memory-safe deletion using SCAN instead of KEYS.
+        - Iterates via cursor to prevent blocking Redis at scale.
+        - Returns total number of deleted keys.
+        """
+        if not self.connected:
+            return 0
+        
+        deleted_count = 0
+        cursor = 0
+        try:
+            while True:
+                cursor, keys = self.redis_client.scan(cursor=cursor, match=pattern, count=batch_size)
+                if keys:
+                    count = self.redis_client.delete(*keys)
+                    deleted_count += count
+                    logger.info("redis_scan_deleted", count=count, pattern=pattern)
+                if cursor == 0:
+                    break
+        except Exception as e:
+            logger.error("redis_scan_error", pattern=pattern, error=str(e))
+            
+        return deleted_count
+
     def _get_key(self, prefix: str, identifier: str) -> str:
         """Generate Redis key with prefix"""
         return f"fuze:{prefix}:{identifier}"
@@ -126,11 +189,10 @@ class RedisCache:
         try:
             content_hash = self._hash_content(content)
             key = self._get_key("embedding", content_hash)
-            # Serialize numpy array
             embedding_bytes = pickle.dumps(embedding)
             return self.redis_client.setex(key, ttl, embedding_bytes)
         except Exception as e:
-            print(f"Error caching embedding: {e}")
+            logger.error("redis_cache_embedding_error", error=str(e))
             return False
     
     def get_cached_embedding(self, content: str) -> Optional[np.ndarray]:
@@ -145,7 +207,7 @@ class RedisCache:
             if embedding_bytes:
                 return pickle.loads(embedding_bytes)
         except Exception as e:
-            print(f"Error getting cached embedding: {e}")
+            logger.error("redis_get_cached_embedding_error", error=str(e))
         return None
     
     # Scraping Cache
@@ -160,7 +222,7 @@ class RedisCache:
             content_json = json.dumps(content, default=str)
             return self.redis_client.setex(key, ttl, content_json.encode())
         except Exception as e:
-            print(f"Error caching scraped content: {e}")
+            logger.error("redis_cache_scraped_content_error", url=url, error=str(e))
             return False
     
     def get_cached_scraped_content(self, url: str) -> Optional[Dict[str, Any]]:
@@ -175,7 +237,7 @@ class RedisCache:
             if content_json:
                 return json.loads(content_json.decode())
         except Exception as e:
-            print(f"Error getting cached scraped content: {e}")
+            logger.error("redis_get_cached_scraped_content_error", url=url, error=str(e))
         return None
     
     # User Bookmarks Cache
@@ -189,7 +251,7 @@ class RedisCache:
             bookmarks_json = json.dumps(bookmarks, default=str)
             return self.redis_client.setex(key, ttl, bookmarks_json.encode())
         except Exception as e:
-            print(f"Error caching user bookmarks: {e}")
+            logger.error("redis_cache_user_bookmarks_error", user_id=user_id, error=str(e))
             return False
     
     def get_cached_user_bookmarks(self, user_id: int) -> Optional[List[Dict]]:
@@ -203,7 +265,7 @@ class RedisCache:
             if bookmarks_json:
                 return json.loads(bookmarks_json.decode())
         except Exception as e:
-            print(f"Error getting cached user bookmarks: {e}")
+            logger.error("redis_get_cached_user_bookmarks_error", user_id=user_id, error=str(e))
         return None
     
     def invalidate_user_bookmarks(self, user_id: int) -> bool:
@@ -215,7 +277,7 @@ class RedisCache:
             key = self._get_key("user_bookmarks", str(user_id))
             return bool(self.redis_client.delete(key))
         except Exception as e:
-            print(f"Error invalidating user bookmarks: {e}")
+            logger.error("redis_invalidate_user_bookmarks_error", user_id=user_id, error=str(e))
             return False
     
     # Rate Limiting
@@ -230,7 +292,7 @@ class RedisCache:
                 self.redis_client.expire(key, window)
             return current <= limit
         except Exception as e:
-            print(f"Error checking rate limit: {e}")
+            logger.error("redis_check_rate_limit_error", key=key, error=str(e))
             return True  # Allow if Redis is down
     
     # Session Cache
@@ -244,7 +306,7 @@ class RedisCache:
             data_json = json.dumps(data)
             return self.redis_client.setex(key, ttl, data_json.encode())
         except Exception as e:
-            print(f"Error caching session: {e}")
+            logger.error("redis_cache_session_error", session_id=session_id, error=str(e))
             return False
     
     def get_cached_session(self, session_id: str) -> Optional[Dict]:
@@ -258,7 +320,7 @@ class RedisCache:
             if data_json:
                 return json.loads(data_json.decode())
         except Exception as e:
-            print(f"Error getting cached session: {e}")
+            logger.error("redis_get_cached_session_error", session_id=session_id, error=str(e))
         return None
     
     # Query Result Cache (Enhanced)
@@ -272,7 +334,7 @@ class RedisCache:
             result_json = json.dumps(result, default=str)
             return self.redis_client.setex(key, ttl, result_json.encode())
         except Exception as e:
-            print(f"Error caching query result: {e}")
+            logger.error("redis_cache_query_result_error", cache_key=cache_key, error=str(e))
             return False
     
     def get_cached_query_result(self, cache_key: str) -> Optional[Any]:
@@ -286,25 +348,23 @@ class RedisCache:
             if result_json:
                 return json.loads(result_json.decode())
         except Exception as e:
-            print(f"Error getting cached query result: {e}")
+            logger.error("redis_get_cached_query_result_error", cache_key=cache_key, error=str(e))
         return None
     
     def invalidate_query_cache(self, pattern: str = None) -> int:
-        """Invalidate query cache by pattern"""
+        """Invalidate query cache by pattern using SCAN"""
         if not self.connected:
             return 0
         
         try:
             if pattern:
-                keys = self.redis_client.keys(self._get_key("query", f"*{pattern}*"))
+                scan_pattern = self._get_key("query", f"*{pattern}*")
             else:
-                keys = self.redis_client.keys(self._get_key("query", "*"))
+                scan_pattern = self._get_key("query", "*")
             
-            if keys:
-                return self.redis_client.delete(*keys)
-            return 0
+            return self.safe_delete_pattern(scan_pattern)
         except Exception as e:
-            print(f"Error invalidating query cache: {e}")
+            logger.error("redis_invalidate_query_cache_error", pattern=pattern, error=str(e))
             return 0
     
     # API Response Cache
@@ -314,8 +374,6 @@ class RedisCache:
             return False
         
         try:
-            # Create cache key from endpoint and params
-            import hashlib
             params_str = json.dumps(params, sort_keys=True)
             params_hash = hashlib.md5(params_str.encode()).hexdigest()
             cache_key = f"{endpoint}:{params_hash}"
@@ -324,7 +382,7 @@ class RedisCache:
             response_json = json.dumps(response, default=str)
             return self.redis_client.setex(key, ttl, response_json.encode())
         except Exception as e:
-            print(f"Error caching API response: {e}")
+            logger.error("redis_cache_api_response_error", endpoint=endpoint, error=str(e))
             return False
     
     def get_cached_api_response(self, endpoint: str, params: Dict) -> Optional[Any]:
@@ -333,7 +391,6 @@ class RedisCache:
             return None
         
         try:
-            import hashlib
             params_str = json.dumps(params, sort_keys=True)
             params_hash = hashlib.md5(params_str.encode()).hexdigest()
             cache_key = f"{endpoint}:{params_hash}"
@@ -343,7 +400,7 @@ class RedisCache:
             if response_json:
                 return json.loads(response_json.decode())
         except Exception as e:
-            print(f"Error getting cached API response: {e}")
+            logger.error("redis_get_cached_api_response_error", endpoint=endpoint, error=str(e))
         return None
     
     # Cache Statistics
@@ -354,11 +411,17 @@ class RedisCache:
         
         try:
             info = self.redis_client.info()
-            # Count keys by prefix
-            query_keys = len(self.redis_client.keys(self._get_key("query", "*")))
-            api_keys = len(self.redis_client.keys(self._get_key("api", "*")))
-            embedding_keys = len(self.redis_client.keys(self._get_key("embedding", "*")))
             
+            # Use SCAN for counting keys in production
+            def count_pattern(pattern):
+                count = 0
+                cursor = 0
+                while True:
+                    cursor, keys = self.redis_client.scan(cursor=cursor, match=pattern, count=1000)
+                    count += len(keys)
+                    if cursor == 0: break
+                return count
+
             return {
                 "connected": True,
                 "used_memory": info.get("used_memory_human", "N/A"),
@@ -367,11 +430,10 @@ class RedisCache:
                 "keyspace_hits": info.get("keyspace_hits", 0),
                 "keyspace_misses": info.get("keyspace_misses", 0),
                 "cache_keys": {
-                    "queries": query_keys,
-                    "api_responses": api_keys,
-                    "embeddings": embedding_keys,
-                },
-                "keyspace_misses": info.get("keyspace_misses", 0)
+                    "queries": count_pattern(self._get_key("query", "*")),
+                    "api_responses": count_pattern(self._get_key("api", "*")),
+                    "embeddings": count_pattern(self._get_key("embedding", "*")),
+                }
             }
         except Exception as e:
             return {"connected": True, "error": str(e)}
@@ -387,16 +449,13 @@ class RedisCache:
             if data_bytes is None:
                 return None
             
-            # Try to deserialize data
             try:
-                # Try pickle first (for numpy arrays)
                 return pickle.loads(data_bytes)
             except:
-                # Try JSON if pickle fails
                 return json.loads(data_bytes.decode())
                 
         except Exception as e:
-            print(f"Error getting cache: {e}")
+            logger.error("redis_get_cache_error", key=key, error=str(e))
             return None
     
     def get(self, key: str) -> Optional[Any]:
@@ -409,7 +468,6 @@ class RedisCache:
             return False
         
         try:
-            # Serialize data
             if isinstance(value, np.ndarray):
                 data_bytes = pickle.dumps(value)
             elif isinstance(value, str):
@@ -419,25 +477,12 @@ class RedisCache:
             
             return self.redis_client.setex(key, ttl, data_bytes)
         except Exception as e:
-            print(f"Error setting cache with TTL: {e}")
+            logger.error("redis_set_cache_error", key=key, error=str(e))
             return False
     
     def set_cache(self, key: str, data: Any, ttl: int = 3600) -> bool:
         """Generic method to cache any data"""
-        if not self.connected:
-            return False
-        
-        try:
-            # Serialize data
-            if isinstance(data, np.ndarray):
-                data_bytes = pickle.dumps(data)
-            else:
-                data_bytes = json.dumps(data, default=str).encode()
-            
-            return self.redis_client.setex(key, ttl, data_bytes)
-        except Exception as e:
-            print(f"Error setting cache: {e}")
-            return False
+        return self.setex(key, ttl, data)
     
     def delete_cache(self, key: str) -> bool:
         """Delete cached data by key"""
@@ -447,25 +492,15 @@ class RedisCache:
         try:
             return bool(self.redis_client.delete(key))
         except Exception as e:
-            print(f"Error deleting cache: {e}")
+            logger.error("redis_delete_cache_error", key=key, error=str(e))
             return False
     
     def delete_keys_pattern(self, pattern: str) -> int:
-        """Delete all keys matching a pattern"""
-        if not self.connected:
-            return 0
-        
-        try:
-            keys = self.redis_client.keys(pattern)
-            if keys:
-                return self.redis_client.delete(*keys)
-            return 0
-        except Exception as e:
-            print(f"Error deleting keys with pattern {pattern}: {e}")
-            return 0
+        """Delete all keys matching a pattern using SCAN"""
+        return self.safe_delete_pattern(pattern)
     
     def invalidate_content_cache(self, content_id: int) -> bool:
-        """Invalidate all cache related to a specific content item"""
+        """Invalidate all cache related to a specific content item using SCAN"""
         if not self.connected:
             return False
         
@@ -478,16 +513,16 @@ class RedisCache:
             
             deleted_count = 0
             for pattern in patterns:
-                deleted_count += self.delete_keys_pattern(pattern)
+                deleted_count += self.safe_delete_pattern(pattern)
             
-            print(f"Invalidated {deleted_count} cache entries for content {content_id}")
+            logger.info("redis_invalidate_content_success", count=deleted_count, content_id=content_id)
             return deleted_count > 0
         except Exception as e:
-            print(f"Error invalidating content cache for {content_id}: {e}")
+            logger.error("redis_invalidate_content_error", content_id=content_id, error=str(e))
             return False
     
     def invalidate_user_recommendations(self, user_id: int) -> bool:
-        """Invalidate all recommendation cache for a user"""
+        """Invalidate all recommendation cache for a user using SCAN"""
         if not self.connected:
             return False
         
@@ -505,16 +540,16 @@ class RedisCache:
             
             deleted_count = 0
             for pattern in patterns:
-                deleted_count += self.delete_keys_pattern(pattern)
+                deleted_count += self.safe_delete_pattern(pattern)
             
-            print(f"Invalidated {deleted_count} recommendation cache entries for user {user_id}")
+            logger.info("redis_invalidate_user_rec_success", count=deleted_count, user_id=user_id)
             return deleted_count > 0
         except Exception as e:
-            print(f"Error invalidating user recommendations for {user_id}: {e}")
+            logger.error("redis_invalidate_user_rec_error", user_id=user_id, error=str(e))
             return False
     
     def invalidate_project_cache(self, project_id: int) -> bool:
-        """Invalidate all cache related to a specific project"""
+        """Invalidate all cache related to a specific project using SCAN"""
         if not self.connected:
             return False
         
@@ -527,16 +562,16 @@ class RedisCache:
             
             deleted_count = 0
             for pattern in patterns:
-                deleted_count += self.delete_keys_pattern(pattern)
+                deleted_count += self.safe_delete_pattern(pattern)
             
-            print(f"Invalidated {deleted_count} cache entries for project {project_id}")
+            logger.info("redis_invalidate_project_success", count=deleted_count, project_id=project_id)
             return deleted_count > 0
         except Exception as e:
-            print(f"Error invalidating project cache for {project_id}: {e}")
+            logger.error("redis_invalidate_project_error", project_id=project_id, error=str(e))
             return False
     
     def invalidate_analysis_cache(self, content_id: int = None, user_id: int = None) -> bool:
-        """Invalidate analysis cache for content or user"""
+        """Invalidate analysis cache for content or user using SCAN"""
         if not self.connected:
             return False
         
@@ -558,16 +593,16 @@ class RedisCache:
             
             deleted_count = 0
             for pattern in patterns:
-                deleted_count += self.delete_keys_pattern(pattern)
+                deleted_count += self.safe_delete_pattern(pattern)
             
-            print(f"Invalidated {deleted_count} analysis cache entries")
+            logger.info("redis_invalidate_analysis_success", count=deleted_count, content_id=content_id, user_id=user_id)
             return deleted_count > 0
         except Exception as e:
-            print(f"Error invalidating analysis cache: {e}")
+            logger.error("redis_invalidate_analysis_error", content_id=content_id, user_id=user_id, error=str(e))
             return False
     
     def invalidate_all_recommendations(self) -> bool:
-        """Invalidate all recommendation cache"""
+        """Invalidate all recommendation cache using SCAN"""
         if not self.connected:
             return False
         
@@ -585,26 +620,30 @@ class RedisCache:
             
             deleted_count = 0
             for pattern in patterns:
-                deleted_count += self.delete_keys_pattern(pattern)
+                deleted_count += self.safe_delete_pattern(pattern)
             
-            print(f"Invalidated {deleted_count} recommendation cache entries")
+            logger.info("redis_invalidate_all_rec_success", count=deleted_count)
             return deleted_count > 0
         except Exception as e:
-            print(f"Error invalidating all recommendations: {e}")
+            logger.error("redis_invalidate_all_rec_error", error=str(e))
             return False
     
     # Cache Cleanup
     def cleanup_expired_keys(self, pattern: str = "fuze:*") -> int:
-        """Clean up expired keys (this is usually automatic in Redis)"""
+        """Clean up expired keys (monitored via SCAN)"""
         if not self.connected:
             return 0
         
         try:
-            # This is just for monitoring, Redis handles expiration automatically
-            keys = self.redis_client.keys(pattern)
-            return len(keys)
+            count = 0
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_client.scan(cursor=cursor, match=pattern, count=1000)
+                count += len(keys)
+                if cursor == 0: break
+            return count
         except Exception as e:
-            print(f"Error cleaning up keys: {e}")
+            logger.error("redis_cleanup_expired_keys_error", error=str(e))
             return 0
 
 # Global Redis instance

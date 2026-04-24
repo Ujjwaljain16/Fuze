@@ -1,24 +1,31 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, make_response
+from extensions import limiter
 import os
 import requests
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
-    set_refresh_cookies, unset_jwt_cookies
+    set_access_cookies, set_refresh_cookies, unset_jwt_cookies
 )
 from models import db, User
 from werkzeug.security import generate_password_hash, check_password_hash
 from utils.database_utils import retry_on_connection_error
 import re
-import logging
 import random
 import string
+from core.logging_config import get_logger
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
 import bcrypt
 
-logger = logging.getLogger(__name__)
+from uow.unit_of_work import UnitOfWork
+from services.auth_service import AuthService, AuthenticationFailed, RegistrationFailed
+
+logger = get_logger(__name__)
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+def get_auth_service(uow):
+    return AuthService(uow)
 
 # Optimized password hashing using bcrypt
 # Work factor 12 = ~300ms (perfect balance of security and performance)
@@ -84,19 +91,7 @@ def validate_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email))
 
-def apply_rate_limit():
-    """Apply rate limiting if limiter is available"""
-    if hasattr(current_app, 'limiter') and current_app.limiter:
-        from flask_limiter.util import get_remote_address
-        # Rate limit: 5 login attempts per 15 minutes per IP
-        @current_app.limiter.limit("5 per 15 minutes", key_func=get_remote_address)
-        def _rate_limited():
-            pass
-        try:
-            _rate_limited()
-        except Exception as e:
-            logger.warning(f"Rate limit check failed: {e}")
-            # Continue if rate limiting fails
+# apply_rate_limit function removed - standard decorators used instead
 
 # ============================================================================
 # ROBUST USERNAME DETECTION SYSTEM
@@ -136,8 +131,8 @@ def check_username_availability(username):
 
         return is_available, exact_match_exists, case_insensitive_match
 
-    except Exception as e:
-        logger.error(f"Username availability check failed: {e}")
+    except Exception:
+        logger.error("username_availability_check_failed", username=username)
         # Fallback to ORM query if raw SQL fails
         try:
             exact_match = User.query.filter_by(username=username).first()
@@ -148,8 +143,8 @@ def check_username_availability(username):
             case_insensitive_match = case_insensitive_match.username if case_insensitive_match else None
 
             return is_available, exact_match_exists, case_insensitive_match
-        except Exception as e2:
-            logger.error(f"Fallback username check also failed: {e2}")
+        except Exception:
+            logger.error("fallback_username_check_failed", username=username)
             # Conservative approach: assume unavailable on error
             return False, True, None
 
@@ -242,8 +237,8 @@ def bulk_check_usernames(usernames):
         # Return availability for each requested username
         return {uname: uname.lower() not in taken_usernames for uname, _ in username_data}
 
-    except Exception as e:
-        logger.error(f"Bulk username check failed: {e}")
+    except Exception:
+        logger.error("bulk_username_check_failed", count=len(usernames))
         # Fallback: check each username individually
         return {uname: check_username_availability(uname)[0] for uname in usernames}
 
@@ -280,110 +275,63 @@ def check_username():
 
         return jsonify(response), 200
 
-    except Exception as e:
-        logger.error(f"Username check error: {e}")
+    except Exception:
+        logger.error("username_check_route_failed")
         return jsonify({'available': False, 'error': 'Service temporarily unavailable'}), 500
 
 @auth_bp.route('/register', methods=['POST'])
+@limiter.limit("5 per 15 minutes")
 @retry_on_connection_error(max_retries=1, delay=1.0)
 def register():
-    """Production-grade registration endpoint with validation and rate limiting"""
+    """Production-grade registration endpoint delegating to AuthService"""
     try:
-        # Apply rate limiting
-        apply_rate_limit()
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'message': 'Request body is required'}), 400
-        
+        data = request.get_json() or {}
         username = data.get('username')
         email = data.get('email')
         password = data.get('password')
-        name = data.get('name', '')  # Optional name field
         
-        # Input validation
+        # 1. Validation (Request/Protocol Level)
         if not username or not email or not password:
             return jsonify({'message': 'Username, email, and password are required'}), 400
         
-        # Sanitize inputs
         username = sanitize_input(username, max_length=50)
         email = sanitize_input(email, max_length=255)
-        name = sanitize_input(name, max_length=100) if name else ''
         
-        if not username or not email or not password:
-            return jsonify({'message': 'Invalid input format'}), 400
-        
-        # Validate email format
         if not validate_email(email):
             return jsonify({'message': 'Invalid email format'}), 400
         
-        # Validate username format (alphanumeric, underscore, hyphen, 3-50 chars)
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', username):
-            return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
+            return jsonify({'message': 'Username must be 3-50 characters and alphanumeric/hyphen'}), 400
 
-        # Validate password strength
-        is_valid, error_msg = validate_password_strength(password)
-        if not is_valid:
-            return jsonify({'message': error_msg}), 400
+        # 2. Business Execution
+        with UnitOfWork() as uow:
+            auth_service = get_auth_service(uow)
+            
+            # Strength validation in service
+            is_valid, error_msg = auth_service.validate_password_strength(password)
+            if not is_valid:
+                return jsonify({'message': error_msg}), 400
+                
+            try:
+                auth_service.register(username, email, password)
+                # Success - UoW will commit and dispatch UserRegistered event
+            except RegistrationFailed as e:
+                return jsonify({'message': str(e)}), 400
+            except IntegrityError as e:
+                # DB Level uniqueness catch
+                uow.session.rollback()
+                error_str = str(e).lower()
+                if 'username' in error_str:
+                    return jsonify({'message': 'Username already exists', 'suggestions': generate_username_suggestions(username, 3)}), 409
+                if 'email' in error_str:
+                    return jsonify({'message': 'Email already exists'}), 409
+                raise
 
-        # Robust username availability check with race condition protection
-        is_available, exact_match, case_insensitive_match = check_username_availability(username)
-        if not is_available:
-            suggestions = generate_username_suggestions(username, 3)
-            response = {'message': 'Username already exists'}
-
-            if suggestions:
-                response['suggestions'] = suggestions
-                response['message'] += f'. Try: {", ".join(suggestions[:2])}'
-
-            if case_insensitive_match and case_insensitive_match != username:
-                response['case_insensitive_conflict'] = case_insensitive_match
-
-            return jsonify(response), 409
-
-        # Check email availability (also race condition protected)
-        if User.query.filter_by(email=email).first():
-            return jsonify({'message': 'Email already exists'}), 409
-        
-        # Create user with race condition protection
-        try:
-            user = User(username=username, email=email, password_hash=hash_password(password))
-            db.session.add(user)
-            db.session.commit()
-
-            logger.info(f"User registered successfully: {username}")
-            return jsonify({'message': 'User registered successfully'}), 201
-
-        except IntegrityError as e:
-            # Handle race conditions where another request created the user between our check and commit
-            db.session.rollback()
-
-            error_str = str(e).lower()
-            if 'username' in error_str and 'unique' in error_str:
-                # Username constraint violation - suggest alternatives
-                suggestions = generate_username_suggestions(username, 3)
-                response = {'message': 'Username was taken during registration'}
-                if suggestions:
-                    response['suggestions'] = suggestions
-                    response['message'] += f'. Try: {", ".join(suggestions[:2])}'
-                return jsonify(response), 409
-
-            elif 'email' in error_str and 'unique' in error_str:
-                # Email constraint violation
-                return jsonify({'message': 'Email was registered during signup process'}), 409
-
-            else:
-                # Other constraint violation
-                logger.error(f"IntegrityError during registration: {e}")
-                return jsonify({'message': 'Registration failed due to data conflict. Please try again.'}), 409
-
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Unexpected error during user creation: {e}")
-            return jsonify({'message': 'Registration failed. Please try again.'}), 500
+        logger.info("user_registered", username=username)
+        return jsonify({'message': 'User registered successfully'}), 201
         
     except Exception as e:
-        logger.error(f"Registration error: {str(e)}", exc_info=True)
+        logger.error("registration_failed", error=str(e))
         return jsonify({'message': 'Registration failed. Please try again.'}), 500
 
 @auth_bp.route('/verify', methods=['GET'])
@@ -404,163 +352,57 @@ def verify_token():
         }), 200
 
     except Exception as e:
-        logger.error(f"Token verification error: {e}")
+        logger.error("auth_token_verification_failed", error=str(e))
         return jsonify({'message': 'Token verification failed'}), 401
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("5 per 15 minutes")
 def login():
-    """Production-grade login endpoint with rate limiting and security"""
-    import time
-    start_time = time.time()
-    
+    """Production-grade login endpoint delegating to AuthService"""
     try:
-        # Apply rate limiting (stricter for login)
-        if hasattr(current_app, 'limiter') and current_app.limiter:
-            from flask_limiter.util import get_remote_address
-            try:
-                @current_app.limiter.limit("5 per 15 minutes", key_func=get_remote_address)
-                def _rate_limited():
-                    pass
-                _rate_limited()
-            except Exception as e:
-                # If rate limit exceeded, return 429
-                if '429' in str(e) or 'rate limit' in str(e).lower():
-                    logger.warning(f"Rate limit exceeded for login attempt from {get_remote_address()}")
-                    return jsonify({'message': 'Too many login attempts. Please try again later.'}), 429
-                logger.warning(f"Rate limit check failed: {e}")
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({'message': 'Request body is required'}), 400
-        
+        data = request.get_json() or {}
         identifier = data.get('username') or data.get('email')
         password = data.get('password')
         
         if not identifier or not password:
             return jsonify({'message': 'Username/email and password required'}), 400
         
-        # Sanitize identifier
         identifier = sanitize_input(identifier, max_length=255)
-        if not identifier:
-            return jsonify({'message': 'Invalid input format'}), 400
         
-        # Query user
-        try:
-            user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
-                logger.error(f"Database connection error during login: {db_error}")
-                return jsonify({'message': 'Database connection failed. Please try again.'}), 503
-            raise
-        
-        if not user:
-            logger.warning(f"Failed login attempt - user not found: {identifier[:3]}***")
-            return jsonify({'message': 'Invalid credentials'}), 401
-        
-        # Password verification
-        if not verify_password(user.password_hash, password):
-            logger.warning(f"Failed login attempt - invalid password for: {identifier[:3]}***")
-            return jsonify({'message': 'Invalid credentials'}), 401
-        
-        # Auto-migrate legacy passwords to bcrypt
-        if not user.password_hash.startswith('$2b$'):
+        with UnitOfWork() as uow:
+            auth_service = get_auth_service(uow)
             try:
-                user.password_hash = hash_password(password)
-                db.session.commit()
-                logger.info(f"Password migrated to bcrypt for user {user.username}")
-            except Exception as migrate_error:
-                logger.warning(f"Password migration failed for {user.username}: {migrate_error}")
-                db.session.rollback()
-        
-        access_token = create_access_token(identity=str(user.id))
-        refresh_token = create_refresh_token(identity=str(user.id))
-        
-        response = jsonify({
-            'access_token': access_token,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email
-            }
-        })
-        
-        # Set refresh token in HTTP-only, secure cookie
-        set_refresh_cookies(response, refresh_token)
-        
-        total_time = (time.time() - start_time) * 1000
-        logger.info(f"User logged in successfully: {user.username} ({total_time:.0f}ms)")
-        return response, 200
-        
-    except Exception as e:
-        # Log the actual error for debugging
-        logger.error(f"Login error: {str(e)}", exc_info=True)
-        
-        # Only retry on actual database connection errors
-        error_str = str(e).lower()
-        if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
-            # Fallback to retry mechanism for connection issues
-            try:
-                return login_with_retry(identifier, password)
-            except Exception as retry_error:
-                logger.error(f"Login retry failed: {str(retry_error)}", exc_info=True)
-                return jsonify({'message': 'Database connection failed. Please try again.'}), 503
-        else:
-            # For other errors, return generic message but log the actual error
-            logger.error(f"Login failed with non-connection error: {str(e)}", exc_info=True)
-            return jsonify({'message': 'Login failed. Please try again.'}), 500
+                user = auth_service.authenticate(identifier, password)
+            except AuthenticationFailed:
+                return jsonify({'message': 'Invalid credentials'}), 401
 
-def login_with_retry(identifier, password):
-    """Fallback login method with retry logic for connection issues"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    @retry_on_connection_error(max_retries=2, delay=1.0)
-    def _login():
-        # SQLAlchemy connection pool handles connection management
-        user = User.query.filter((User.username == identifier) | (User.email == identifier)).first()
-        if not user or not verify_password(user.password_hash, password):
-            return None
-        return user
-    
-    try:
-        user = _login()
-        if not user:
-            return jsonify({'message': 'Invalid credentials'}), 401
-        
-        access_token = create_access_token(identity=str(user.id))
-        refresh_token = create_refresh_token(identity=str(user.id))
-        
-        response = jsonify({
-            'access_token': access_token,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email
-            }
-        })
-        
-        set_refresh_cookies(response, refresh_token)
-        return response, 200
-        
+            # Generate tokens (Blueprint responsibility)
+            access_token = create_access_token(identity=str(user.id))
+            refresh_token = create_refresh_token(identity=str(user.id))
+            
+            logger.info("user_logged_in", username=user.username, user_id=user.id)
+            
+            response = make_response(jsonify({
+                'message': 'Login successful',
+                'user': user.to_dict()
+            }))
+            
+            set_access_cookies(response, access_token)
+            set_refresh_cookies(response, refresh_token)
+            
+            return response, 200
+            
     except Exception as e:
-        logger.error(f"Login retry failed: {str(e)}", exc_info=True)
+        logger.error("login_route_failed", error=str(e))
         return jsonify({'message': 'Login failed. Please try again.'}), 500
 
 
 @auth_bp.route('/set-password', methods=['POST'])
 @jwt_required()
 def set_password():
-    """Allow logged-in users (including those created via OAuth) to set or change their password.
-
-    Request JSON: { "current_password": "..." (optional if no password set), "new_password": "..." }
-    """
+    """Consistency fix: use AuthService for password setting"""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'message': 'User not found'}), 404
-
         data = request.get_json() or {}
         new_password = data.get('new_password')
         current_password = data.get('current_password')
@@ -568,42 +410,40 @@ def set_password():
         if not new_password:
             return jsonify({'message': 'New password is required'}), 400
 
-        # If user has a password hash, require current_password to match
-        if user.password_hash:
-            if not current_password:
-                return jsonify({'message': 'Current password required'}), 400
-            if not check_password_hash(user.password_hash, current_password):
-                return jsonify({'message': 'Current password is incorrect'}), 401
+        with UnitOfWork() as uow:
+            auth_service = get_auth_service(uow)
+            user = uow.users.get_by_id(user_id)
+            if not user:
+                return jsonify({'message': 'User not found'}), 404
 
-        # Validate new password strength
-        is_valid, error_msg = validate_password_strength(new_password)
-        if not is_valid:
-            return jsonify({'message': error_msg}), 400
+            # Verify strength first
+            is_valid, err = auth_service.validate_password_strength(new_password)
+            if not is_valid:
+                return jsonify({'message': err}), 400
 
-        user.password_hash = generate_password_hash(new_password)
-        db.session.add(user)
-        db.session.commit()
+            # If user has a password, verify it
+            if user.password_hash:
+                if not current_password:
+                    return jsonify({'message': 'Current password required'}), 400
+                if not auth_service.verify_password(user.password_hash, current_password):
+                    return jsonify({'message': 'Current password is incorrect'}), 401
+
+            user.password_hash = auth_service.hash_password(new_password)
+        
+        logger.info("auth_password_update_success", user_id=user_id)
         return jsonify({'message': 'Password updated successfully'}), 200
 
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Set password error: {e}", exc_info=True)
+        logger.error("password_update_failed", user_id=user_id, error=str(e))
         return jsonify({'message': 'Failed to update password'}), 500
 
 
 @auth_bp.route('/update-username', methods=['POST'])
 @jwt_required()
 def update_username():
-    """Allow logged-in users to change their username with uniqueness checks.
-
-    Request JSON: { "new_username": "..." }
-    """
+    """Consistency fix: delegate username updates to repo via UoW"""
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'message': 'User not found'}), 404
-
         data = request.get_json() or {}
         new_username = data.get('new_username', '').strip()
         if not new_username:
@@ -611,32 +451,25 @@ def update_username():
 
         # Validate format
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', new_username):
-            return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
+            return jsonify({'message': 'Username format invalid'}), 400
 
-        # Check availability
-        is_available, exact_match, case_insensitive_match = check_username_availability(new_username)
-        if not is_available:
-            suggestions = generate_username_suggestions(new_username, 3)
-            response = {'message': 'Username already exists', 'suggestions': suggestions}
-            if case_insensitive_match and case_insensitive_match != new_username:
-                response['case_insensitive_conflict'] = case_insensitive_match
-            return jsonify(response), 409
+        with UnitOfWork() as uow:
+            user = uow.users.get_by_id(user_id)
+            if not user:
+                return jsonify({'message': 'User not found'}), 404
 
-        # Update username
-        try:
+            if not uow.users.is_username_available(new_username):
+                suggestions = generate_username_suggestions(new_username, 3)
+                return jsonify({'message': 'Username already exists', 'suggestions': suggestions}), 409
+
             user.username = new_username
-            db.session.add(user)
-            db.session.commit()
-            return jsonify({'message': 'Username updated successfully', 'username': new_username}), 200
-        except IntegrityError as e:
-            db.session.rollback()
-            # Race condition - someone took it; return suggestion
-            suggestions = generate_username_suggestions(new_username, 3)
-            return jsonify({'message': 'Username already exists', 'suggestions': suggestions}), 409
+            # UoW commits automatically
+            
+        logger.info("auth_username_update_success", user_id=user_id, new_username=new_username)
+        return jsonify({'message': 'Username updated successfully', 'username': new_username}), 200
 
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"Update username error: {e}", exc_info=True)
+        logger.error("username_update_failed", user_id=user_id, error=str(e))
         return jsonify({'message': 'Failed to update username'}), 500
 
 @auth_bp.route('/refresh', methods=['POST'])
@@ -644,11 +477,16 @@ def update_username():
 def refresh():
     identity = get_jwt_identity()
     access_token = create_access_token(identity=identity)
-    return jsonify({'access_token': access_token}), 200
+    logger.info("auth_token_refresh_success", user_id=identity)
+    
+    response = make_response(jsonify({'message': 'Token refreshed'}))
+    set_access_cookies(response, access_token)
+    return response, 200
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
-    response = jsonify({'message': 'Logout successful'})
+    logger.info("auth_logout_success")
+    response = make_response(jsonify({'message': 'Logout successful'}))
     unset_jwt_cookies(response)
     return response, 200
 
@@ -664,27 +502,37 @@ def get_csrf_token_endpoint():
     # This endpoint must respond quickly to avoid dashboard loading delays
     return jsonify({'csrf_token': 'csrf_disabled'}), 200
 
+@auth_bp.route('/session-status', methods=['GET'])
+def session_status():
+    """Debug endpoint to verify session status without returning tokens"""
+    access_present = 'access_token_cookie' in request.cookies
+    refresh_present = 'refresh_token_cookie' in request.cookies
+    csrf_present = 'csrf_access_token' in request.cookies
+    
+    return jsonify({
+        'access_cookie': access_present,
+        'refresh_cookie': refresh_present,
+        'csrf_cookie': csrf_present,
+        'is_authenticated': access_present
+    }), 200
+
 @auth_bp.route('/verify-token', methods=['POST'])
 @jwt_required()
 @retry_on_connection_error(max_retries=1, delay=1.0)
 def verify_token_status():
-    """Verify if the current token is valid"""
+    """Verify if the current token is valid using UoW"""
     current_user_id = get_jwt_identity()
     
-    # SQLAlchemy connection pool handles connection management
-    user = User.query.get(current_user_id)
-    
-    if not user:
-        return jsonify({'message': 'User not found'}), 404
-    
-    return jsonify({
-        'valid': True,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'email': user.email
-        }
-    }), 200
+    with UnitOfWork() as uow:
+        user = uow.users.get_by_id(current_user_id)
+        if not user:
+            return jsonify({'message': 'User not found'}), 404
+        
+        logger.info("auth_verify_token_status_success", user_id=current_user_id)
+        return jsonify({
+            'valid': True,
+            'user': user.to_dict()
+        }), 200
 
 @auth_bp.route('/supabase-oauth', methods=['POST'])
 @retry_on_connection_error(max_retries=1, delay=1.0)
@@ -714,7 +562,7 @@ def supabase_oauth():
 
         resp = requests.get(user_info_url, headers=headers, timeout=10)
         if resp.status_code != 200:
-            logger.warning(f"Supabase token verification failed: {resp.status_code} {resp.text}")
+            logger.warning("supabase_token_verification_failed", status_code=resp.status_code)
             return jsonify({'message': 'Invalid Supabase token'}), 401
 
         supa_user = resp.json()
@@ -755,8 +603,7 @@ def supabase_oauth():
             except IntegrityError as e:
                 # Handle race condition where another request created the user concurrently
                 db.session.rollback()
-                err_text = str(e).lower()
-                logger.warning(f"IntegrityError creating user for supabase oauth: {e}")
+                logger.warning("supabase_oauth_integrity_error", error=str(e))
                 # If email already exists, fetch that user and continue
                 try:
                     existing = User.query.filter_by(email=email).first()
@@ -770,18 +617,18 @@ def supabase_oauth():
                             if existing:
                                 user = existing
                             else:
-                                logger.error("IntegrityError but could not find existing user to recover")
+                                logger.error("supabase_oauth_recovery_failed", reason="existing_user_not_found")
                                 return jsonify({'message': 'Failed to create user account'}), 500
                         else:
-                            logger.error("IntegrityError and no provider id to recover user")
+                            logger.error("supabase_oauth_recovery_failed", reason="no_provider_id")
                             return jsonify({'message': 'Failed to create user account'}), 500
                 except Exception as qerr:
                     db.session.rollback()
-                    logger.error(f"Error recovering from IntegrityError: {qerr}")
+                    logger.error("supabase_oauth_recovery_exception", error=str(qerr))
                     return jsonify({'message': 'Failed to create user account'}), 500
             except Exception as e:
                 db.session.rollback()
-                logger.error(f"Failed to create user for supabase oauth: {e}")
+                logger.error("supabase_oauth_creation_failed", error=str(e))
                 return jsonify({'message': 'Failed to create user account'}), 500
 
         else:
@@ -801,23 +648,26 @@ def supabase_oauth():
             except Exception:
                 db.session.rollback()
 
-        # Issue local JWT tokens and set refresh cookie
+        # Issue local JWT tokens and set cookies
         access = create_access_token(identity=str(user.id))
         refresh = create_refresh_token(identity=str(user.id))
 
-        response = jsonify({
-            'access_token': access,
+        response = make_response(jsonify({
+            'message': 'OAuth login successful',
             'user': {
                 'id': user.id,
                 'username': user.username,
                 'email': user.email
             }
-        })
+        }))
+        
+        set_access_cookies(response, access)
         set_refresh_cookies(response, refresh)
+        
         return response, 200
 
     except Exception as e:
-        logger.error(f"Supabase OAuth error: {e}", exc_info=True)
+        logger.error("supabase_oauth_failed", error=str(e))
         return jsonify({'message': 'OAuth sign-in failed'}), 500
 
 # Note: OPTIONS requests are automatically handled by flask-cors

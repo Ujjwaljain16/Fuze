@@ -7,11 +7,13 @@ Manages API keys for multiple users with individual rate limiting
 import os
 import sys
 import time
-import logging
-from datetime import datetime, timedelta
-from typing import Dict, Optional, List
-from dataclasses import dataclass
 from enum import Enum
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Any
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 import json
 import hashlib
 import base64
@@ -61,7 +63,6 @@ class MultiUserAPIManager:
     def __init__(self):
         self.user_api_keys: Dict[int, UserAPIKey] = {}
         self.rate_limit_cache: Dict[int, Dict] = {}  # user_id -> rate limit data
-        self.logger = logging.getLogger("MultiUserAPIManager")
         
         # Rate limiting settings
         self.REQUESTS_PER_MINUTE = 15
@@ -85,7 +86,7 @@ class MultiUserAPIManager:
         try:
             return self.cipher.decrypt(encrypted_key.encode()).decode()
         except Exception as e:
-            self.logger.error(f"Error decrypting API key: {e}")
+            logger.error("api_key_decrypt_failed", error=str(e))
             return None
     
     def hash_api_key(self, api_key: str) -> str:
@@ -112,7 +113,7 @@ class MultiUserAPIManager:
         try:
             # Validate API key
             if not self.validate_api_key(api_key):
-                self.logger.error(f"Invalid API key format for user {user_id}")
+                logger.error("api_key_add_invalid_format", user_id=user_id)
                 return False
             
             # If user is re-adding a key, remove it from revocation list
@@ -121,7 +122,7 @@ class MultiUserAPIManager:
                 revocation_manager = get_revocation_manager()
                 revocation_manager.remove_from_revocation_list(api_key)
             except Exception as e:
-                self.logger.warning(f"Could not remove from revocation list: {e}")
+                logger.warning("api_key_revocation_list_update_failed", error=str(e))
             
             # Encrypt the API key for storage
             encrypted_key = self.encrypt_api_key(api_key)
@@ -145,11 +146,11 @@ class MultiUserAPIManager:
             # Save to database
             self.save_user_api_key_to_db(user_api_key, encrypted_key)
             
-            self.logger.info(f"Successfully added API key for user {user_id}")
+            logger.info("api_key_add_success", user_id=user_id)
             return True
             
         except Exception as e:
-            self.logger.error(f"Error adding API key for user {user_id}: {e}")
+            logger.error("api_key_add_failed", user_id=user_id, error=str(e))
             return False
     
     def get_user_api_key(self, user_id: int) -> Optional[str]:
@@ -169,7 +170,7 @@ class MultiUserAPIManager:
                         if decrypted:
                             # CRITICAL: Check revocation list BEFORE returning cached key
                             if revocation_manager.is_api_key_revoked(decrypted):
-                                self.logger.warning(f"Cached API key for user {user_id} is revoked")
+                                logger.warning("api_key_cached_revoked", user_id=user_id)
                                 # Remove from cache
                                 del self.user_api_keys[user_id]
                                 # Fall through to DB check
@@ -189,7 +190,7 @@ class MultiUserAPIManager:
                         if decrypted:
                             # CRITICAL: Check revocation list BEFORE caching/returning
                             if revocation_manager.is_api_key_revoked(decrypted):
-                                self.logger.warning(f"DB API key for user {user_id} is revoked but not yet removed")
+                                logger.warning("api_key_db_revoked", user_id=user_id)
                                 # Don't cache or return it
                                 return os.environ.get('GEMINI_API_KEY')
                             
@@ -209,7 +210,7 @@ class MultiUserAPIManager:
             return os.environ.get('GEMINI_API_KEY')
             
         except Exception as e:
-            self.logger.error(f"Error getting API key for user {user_id}: {e}")
+            logger.error("api_key_get_failed", user_id=user_id, error=str(e))
             # Fallback to default
             return os.environ.get('GEMINI_API_KEY')
     
@@ -264,7 +265,7 @@ class MultiUserAPIManager:
             }
             
         except Exception as e:
-            self.logger.error(f"Error checking rate limit for user {user_id}: {e}")
+            logger.error("api_key_rate_limit_check_failed", user_id=user_id, error=str(e))
             return {'can_make_request': False, 'wait_time_seconds': 60}
     
     def calculate_wait_time(self, rate_data: Dict) -> int:
@@ -313,10 +314,10 @@ class MultiUserAPIManager:
                 user_api_key.monthly_requests += 1
                 user_api_key.last_used = current_time
             
-            self.logger.debug(f"Recorded request for user {user_id}")
+            logger.debug("api_key_request_recorded", user_id=user_id)
             
         except Exception as e:
-            self.logger.error(f"Error recording request for user {user_id}: {e}")
+            logger.error("api_key_record_request_failed", user_id=user_id, error=str(e))
     
     def save_user_api_key_to_db(self, user_api_key: UserAPIKey, encrypted_key: str):
         """Save user API key to database (encrypted)"""
@@ -324,7 +325,7 @@ class MultiUserAPIManager:
             # Use merge to ensure we're working with the current database state
             user = db.session.query(User).filter_by(id=user_api_key.user_id).first()
             if not user:
-                self.logger.error(f"User {user_api_key.user_id} not found")
+                logger.error("api_key_save_db_user_not_found", user_id=user_api_key.user_id)
                 return
             
             # Create a fresh copy of metadata to ensure we're updating it properly
@@ -360,14 +361,12 @@ class MultiUserAPIManager:
             
             # Verify the save worked
             if user.user_metadata and user.user_metadata.get('api_key', {}).get('hash') == user_api_key.api_key_hash:
-                self.logger.debug(f"API key successfully saved to database for user {user_api_key.user_id}")
+                logger.debug("api_key_save_db_verified", user_id=user_api_key.user_id)
             else:
-                self.logger.warning(f"API key save verification failed for user {user_api_key.user_id}")
+                logger.warning("api_key_save_db_verification_failed", user_id=user_api_key.user_id)
                 
         except Exception as e:
-            self.logger.error(f"Error saving API key to database: {e}")
-            import traceback
-            self.logger.error(traceback.format_exc())
+            logger.error("api_key_save_db_failed", user_id=user_api_key.user_id, error=str(e))
             db.session.rollback()
             raise  # Re-raise to ensure caller knows it failed
     
@@ -401,26 +400,26 @@ class MultiUserAPIManager:
                             if decrypted:
                                 test_hash = self.hash_api_key(decrypted)
                                 if test_hash != api_key_data['hash']:
-                                    self.logger.warning(f"API key hash mismatch for user {user.id} - encrypted value may be stale")
+                                    logger.warning("api_key_hash_mismatch", user_id=user.id)
                         except Exception as e:
-                            self.logger.warning(f"Could not verify API key for user {user.id}: {e}")
+                            logger.warning("api_key_verification_failed", user_id=user.id, error=str(e))
                     self.user_api_keys[user.id] = user_api_key
                     loaded_count += 1
 
-            self.logger.info(f"Loaded {loaded_count} user API keys from database")
+            logger.info("api_keys_loaded_batch", count=loaded_count)
 
         except Exception as e:
             # Don't crash if database is temporarily unavailable
             # API keys can be loaded later when needed
-            self.logger.warning(f"Could not load user API keys from database (will retry later): {e}")
+            logger.warning("api_keys_load_failed_deferred", error=str(e))
 
             # Try to load from a simple fallback if available
             try:
                 # Check if we can at least connect to the database
                 db.session.execute(db.text('SELECT 1'))
-                self.logger.info("Database connection OK, will load API keys on demand")
+                logger.info("api_keys_db_conn_ok")
             except Exception as db_error:
-                self.logger.error(f"Database connection failed: {db_error}")
+                logger.error("api_keys_db_conn_failed", error=str(db_error))
     
     def get_user_api_stats(self, user_id: int) -> Dict:
         """Get API usage statistics for a user"""
@@ -441,9 +440,6 @@ class MultiUserAPIManager:
                     user = User.query.get(user_id)
                     if user and user.user_metadata and 'api_key' in user.user_metadata:
                         has_api_key = True
-                        api_key_status = user.user_metadata['api_key'].get('status', 'active')
-                        self.logger.info(f"Found API key in database for user {user_id}, loading into cache")
-
                         # Load into cache for future use
                         api_key_data = user.user_metadata['api_key']
                         cached_key = UserAPIKey(
@@ -455,8 +451,9 @@ class MultiUserAPIManager:
                             last_used=datetime.fromisoformat(api_key_data['last_used']) if api_key_data['last_used'] else None
                         )
                         self.user_api_keys[user.id] = cached_key
+                        logger.info("api_key_loaded_on_demand", user_id=user_id)
                 except Exception as db_error:
-                    self.logger.warning(f"Could not check database for user {user_id} API key: {db_error}")
+                    logger.warning("api_key_db_check_failed", user_id=user_id, error=str(db_error))
 
             return {
                 'user_id': user_id,
@@ -473,7 +470,7 @@ class MultiUserAPIManager:
             }
 
         except Exception as e:
-            self.logger.error(f"Error getting API stats for user {user_id}: {e}")
+            logger.error("api_key_stats_failed", user_id=user_id, error=str(e))
             return {}
 
 # Global instance
@@ -484,7 +481,7 @@ def init_api_manager():
     try:
         api_manager.load_user_api_keys()
     except Exception as e:
-        api_manager.logger.error(f"Error initializing API manager: {e}")
+        logger.error("api_manager_init_failed", error=str(e))
 
 def add_user_api_key(user_id: int, api_key: str, api_key_name: str = None) -> bool:
     """Add API key for a user"""

@@ -9,6 +9,7 @@ import threading
 import time
 import logging
 from datetime import datetime
+import uuid
 from typing import Dict, List, Optional
 
 # Add backend directory to path
@@ -19,6 +20,7 @@ if backend_dir not in sys.path:
 from models import db, SavedContent, ContentAnalysis
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import RedisCache
+from core.distributed_lock import DistributedLock
 
 # Import app for app_context - use lazy import to avoid circular dependencies
 _app_instance = None
@@ -52,12 +54,12 @@ def get_app():
             _app_instance = create_app()
             return _app_instance
         except Exception as e:
-            logger.error(f"Failed to get Flask app: {e}")
+            logger.error("bg_analysis_get_app_failed", error=str(e))
             raise
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from core.logging_config import get_logger
+logger = get_logger(__name__)
 
 class BackgroundAnalysisService:
     """Service to analyze content in the background and cache results"""
@@ -73,20 +75,20 @@ class BackgroundAnalysisService:
     def start_background_analysis(self):
         """Start the background analysis thread"""
         if self.running:
-            logger.info("Background analysis service is already running")
+            logger.info("bg_analysis_service_already_running")
             return
             
         self.running = True
         self.analysis_thread = threading.Thread(target=self._analysis_worker, daemon=True)
         self.analysis_thread.start()
-        logger.info("Background analysis service started")
+        logger.info("bg_analysis_service_started")
     
     def stop_background_analysis(self):
         """Stop the background analysis thread"""
         self.running = False
         if self.analysis_thread:
             self.analysis_thread.join()
-        logger.info("Background analysis service stopped")
+        logger.info("bg_analysis_service_stopped")
     
     def _analysis_worker(self):
         """Background worker that continuously checks for unanalyzed content"""
@@ -94,10 +96,19 @@ class BackgroundAnalysisService:
             try:
                 flask_app = get_app()
                 with flask_app.app_context():
-                    self._process_unanalyzed_content()
+                    # Attempt to acquire lock to prevent concurrent analysis runs
+                    # PRODUCTION HARDENING: Using the robust DistributedLock core utility
+                    lock = DistributedLock("background_analysis", ttl_ms=300000)
+                    if lock.acquire():
+                        try:
+                            self._process_unanalyzed_content()
+                        finally:
+                            lock.release()
+                    else:
+                        logger.debug("bg_analysis_worker_lock_skipped")
                 time.sleep(30)  # Check every 30 seconds
             except Exception as e:
-                logger.error(f"Error in background analysis worker: {e}")
+                logger.error("bg_analysis_worker_exception", error=str(e))
                 time.sleep(60)  # Wait longer on error
     
     def _process_unanalyzed_content(self):
@@ -107,7 +118,7 @@ class BackgroundAnalysisService:
             try:
                 db.session.execute(db.text('SELECT 1'))
             except Exception as conn_error:
-                logger.warning(f"Database connection check failed, refreshing: {conn_error}")
+                logger.warning("bg_analysis_db_conn_check_failed", error=str(conn_error))
                 try:
                     db.session.close()
                     db.session.remove()
@@ -121,7 +132,7 @@ class BackgroundAnalysisService:
             if not unanalyzed_content:
                 return
 
-            logger.info(f"Found {len(unanalyzed_content)} items to analyze")
+            logger.info("bg_analysis_batch_found", count=len(unanalyzed_content))
 
             # Update progress tracking
             total_items = len(unanalyzed_content)
@@ -133,7 +144,7 @@ class BackgroundAnalysisService:
                     try:
                         db.session.execute(db.text('SELECT 1'))
                     except Exception as conn_error:
-                        logger.warning(f"Connection lost during processing, refreshing: {conn_error}")
+                        logger.warning("bg_analysis_conn_lost_refreshing", error=str(conn_error))
                         try:
                             db.session.close()
                             db.session.remove()
@@ -166,7 +177,7 @@ class BackgroundAnalysisService:
                     time.sleep(delay)  # Rate limiting between analyses
 
                 except Exception as e:
-                    logger.error(f"Error analyzing content {content.id}: {e}")
+                    logger.error("bg_analysis_item_failed", content_id=content.id, error=str(e))
                     # Check if it's a connection error
                     error_str = str(e).lower()
                     is_connection_error = any(keyword in error_str for keyword in [
@@ -175,7 +186,7 @@ class BackgroundAnalysisService:
                     ])
                     
                     if is_connection_error:
-                        logger.warning("Connection error detected, will retry next cycle")
+                        logger.warning("bg_analysis_db_connection_error")
                         try:
                             db.session.close()
                             db.session.remove()
@@ -198,7 +209,7 @@ class BackgroundAnalysisService:
                 }, ttl=3600)
 
         except Exception as e:
-            logger.error(f"Error processing unanalyzed content: {e}")
+            logger.error("bg_analysis_unanalyzed_process_failed", error=str(e))
             # Check if it's a connection error
             error_str = str(e).lower()
             is_connection_error = any(keyword in error_str for keyword in [
@@ -207,7 +218,7 @@ class BackgroundAnalysisService:
             ])
             
             if is_connection_error:
-                logger.warning("Connection error in _process_unanalyzed_content, will retry next cycle")
+                logger.warning("bg_analysis_unanalyzed_connection_error")
             else:
                 db.session.rollback()  # Rollback on error
             
@@ -235,7 +246,7 @@ class BackgroundAnalysisService:
                 try:
                     db.session.execute(db.text('SELECT 1'))
                 except Exception as conn_error:
-                    logger.warning(f"Database connection check failed (attempt {attempt + 1}): {conn_error}")
+                    logger.warning("bg_analysis_db_conn_check_failed_retry", attempt=attempt + 1, error=str(conn_error))
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         continue
@@ -255,11 +266,11 @@ class BackgroundAnalysisService:
                     analyzed_ids_set = {row[0] for row in analyzed_ids} if analyzed_ids else set()
                 except OperationalError as e:
                     # Table doesn't exist (common in tests) - assume no analyzed content
-                    logger.debug(f"ContentAnalysis table not available: {e}")
+                    logger.debug("bg_analysis_table_not_available", error=str(e))
                     analyzed_ids_set = set()
                 except Exception as e:
                     # Other database errors - log and assume no analyzed content
-                    logger.warning(f"Error querying ContentAnalysis table: {e}")
+                    logger.warning("bg_analysis_table_query_failed", error=str(e))
                     analyzed_ids_set = set()
                 
                 # Query unanalyzed content
@@ -303,8 +314,8 @@ class BackgroundAnalysisService:
                 ])
                 
                 if is_connection_error and attempt < max_retries - 1:
-                    logger.warning(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
-                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    logger.warning("bg_analysis_db_conn_retry", attempt=attempt+1, max_retries=max_retries, error=str(e))
+                    logger.info("bg_analysis_retry_wait", seconds=retry_delay)
                     
                     # Close session and wait before retry
                     try:
@@ -317,7 +328,7 @@ class BackgroundAnalysisService:
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    logger.error(f"Error getting unanalyzed content: {e}")
+                    logger.error("bg_analysis_get_unanalyzed_failed", error=str(e))
                     # Close session on final failure
                     try:
                         db.session.rollback()
@@ -331,7 +342,7 @@ class BackgroundAnalysisService:
     def _analyze_single_content(self, content: SavedContent, user_id: int = None):
         """Analyze a single content item and store the result"""
         try:
-            logger.info(f"Analyzing content: {content.title} for user {content.user_id}")
+            logger.info("bg_analysis_item_start", content_id=content.id, title=content.title, user_id=content.user_id)
             
             # Check if we have the required fields - analyze even if empty
             # (We want to analyze all content regardless of quality or emptiness)
@@ -350,14 +361,14 @@ class BackgroundAnalysisService:
                     rate_limit_status = check_user_rate_limit(user_id)
                     if not rate_limit_status.get('can_make_request', True):
                         wait_time = rate_limit_status.get('wait_time_seconds', 60)
-                        logger.warning(f"Rate limit exceeded for user {user_id}. Waiting {wait_time} seconds...")
+                        logger.warning("bg_analysis_rate_limit_exceeded", user_id=user_id, wait_time=wait_time)
                         import time
                         time.sleep(min(wait_time, 60))  # Wait up to 60 seconds
                         return  # Skip this item and try again later
                     
                     api_key = get_user_api_key(user_id)
                 except Exception as e:
-                    logger.warning(f"Could not get user API key for user {user_id}: {e}")
+                    logger.warning("bg_analysis_user_api_key_fetch_failed", user_id=user_id, error=str(e))
             
             # Create analyzer with user's key
             gemini_analyzer = GeminiAnalyzer(api_key=api_key)
@@ -376,7 +387,7 @@ class BackgroundAnalysisService:
                     from services.multi_user_api_manager import record_user_request
                     record_user_request(user_id)
                 except Exception as record_error:
-                    logger.warning(f"Could not record API usage: {record_error}")
+                    logger.warning("bg_analysis_usage_record_failed", user_id=user_id, error=str(record_error))
 
             # Generate basic summary for instant display
             if analysis_result:
@@ -384,7 +395,7 @@ class BackgroundAnalysisService:
                 analysis_result['basic_summary'] = basic_summary
             
             if not analysis_result:
-                logger.warning(f"No analysis result for content {content.id}")
+                logger.warning("bg_analysis_item_no_result", content_id=content.id)
                 return
             
             # Extract key information from analysis (same as content_analysis_script.py)
@@ -397,7 +408,7 @@ class BackgroundAnalysisService:
             # Check if analysis already exists (prevent duplicates from race conditions)
             existing_analysis = db.session.query(ContentAnalysis).filter_by(content_id=content.id).first()
             if existing_analysis:
-                logger.debug(f"Analysis already exists for content {content.id}, skipping duplicate")
+                logger.debug("bg_analysis_duplicate_skip", content_id=content.id)
                 return
             
             # Create analysis record (same format as content_analysis_script.py)
@@ -419,7 +430,7 @@ class BackgroundAnalysisService:
                 # Handle race condition - if another thread already created analysis
                 error_str = str(db_error).lower()
                 if 'unique' in error_str or 'duplicate' in error_str:
-                    logger.debug(f"Analysis already exists for content {content.id} (race condition), skipping")
+                    logger.debug("bg_analysis_db_race_condition_skip", content_id=content.id)
                     db.session.rollback()
                     return
                 else:
@@ -439,14 +450,15 @@ class BackgroundAnalysisService:
                 from utils.redis_utils import redis_cache
                 # Use the dedicated method for invalidating user recommendations
                 redis_cache.invalidate_user_recommendations(content.user_id)
-                logger.debug(f"Invalidated recommendation caches for user {content.user_id}")
+                logger.debug("bg_analysis_rec_cache_invalidated", user_id=content.user_id)
             except Exception as e:
-                logger.warning(f"Error invalidating recommendation caches: {e}")
+                logger.warning("bg_analysis_rec_cache_invalidation_failed", user_id=content.user_id, error=str(e))
             
-            logger.info(f"Analysis completed and stored for content {content.id}")
+            
+            logger.info("bg_analysis_item_complete", content_id=content.id)
 
         except Exception as e:
-            logger.error(f"Error analyzing content {content.id}: {e}")
+            logger.error("bg_analysis_single_item_exception", content_id=content.id, error=str(e))
             db.session.rollback()
             # Add to failed analyses to prevent infinite retries
             self.failed_analyses.add(content.id)
@@ -479,7 +491,7 @@ class BackgroundAnalysisService:
                 return f"Content about {', '.join(analysis_result.get('technologies', ['various topics'])[:3])}"
 
         except Exception as e:
-            logger.error(f"Error generating basic summary for content {content.id}: {e}")
+            logger.error("bg_analysis_summary_gen_failed", content_id=content.id, error=str(e))
             # Return a simple fallback
             return f"Content about {content.title[:50]}..."
     
@@ -505,7 +517,7 @@ class BackgroundAnalysisService:
             return None
             
         except Exception as e:
-            logger.error(f"Error getting cached analysis for content {content_id}: {e}")
+            logger.error("bg_analysis_get_cached_failed", content_id=content_id, error=str(e))
             return None
     
     def analyze_content_immediately(self, content_id: int, user_id: int = None) -> Optional[Dict]:
@@ -515,7 +527,7 @@ class BackgroundAnalysisService:
             with flask_app.app_context():
                 content = db.session.query(SavedContent).filter_by(id=content_id).first()
                 if not content:
-                    logger.error(f"Content {content_id} not found")
+                    logger.error("bg_analysis_immediate_content_missing", content_id=content_id)
                     return None
                 
                 # Use provided user_id or content's user_id
@@ -526,7 +538,7 @@ class BackgroundAnalysisService:
                 return self.get_cached_analysis(content_id)
                 
         except Exception as e:
-            logger.error(f"Error in immediate analysis for content {content_id}: {e}")
+            logger.error("bg_analysis_immediate_analysis_failed", content_id=content_id, error=str(e))
             return None
     
     def get_analysis_stats(self) -> Dict:
@@ -544,7 +556,7 @@ class BackgroundAnalysisService:
                     'pending_analysis': total_content - analyzed_content
                 }
         except Exception as e:
-            logger.error(f"Error getting analysis stats: {e}")
+            logger.error("bg_analysis_stats_failed", error=str(e))
             return {}
 
 # Global instance
@@ -576,7 +588,7 @@ def start_background_analysis_for_user(user_id: int) -> Dict:
             'message': 'Background analysis service started successfully'
         }
     except Exception as e:
-        logger.error(f"Error starting background analysis for user {user_id}: {e}")
+        logger.error("bg_analysis_start_user_failed", user_id=user_id, error=str(e))
         return {
             'status': 'error',
             'message': f'Failed to start background analysis: {str(e)}'
@@ -597,7 +609,7 @@ def batch_analyze_content(content_ids: List[int], user_id: int = None) -> Dict:
             else:
                 results.append({'content_id': content_id, 'success': False, 'error': 'No result'})
         except Exception as e:
-            logger.error(f"Error analyzing content {content_id}: {e}")
+            logger.error("bg_analysis_batch_item_failed", content_id=content_id, error=str(e))
             results.append({'content_id': content_id, 'success': False, 'error': str(e)})
     
     return {
@@ -608,7 +620,7 @@ def batch_analyze_content(content_ids: List[int], user_id: int = None) -> Dict:
     }
 
 if __name__ == "__main__":
-    print("Starting Background Analysis Service...")
+    logger.info("bg_analysis_process_starting")
     start_background_service()
     
     try:
