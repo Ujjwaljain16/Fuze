@@ -45,7 +45,6 @@
     "msw": "^2.6.5",
     "stylelint": "^16.26.0",
     "stylelint-config-standard": "^36.0.1",
-    "stylelint-config-tailwindcss": "^0.0.7",
     "vite": "^4.5.14",
     "vitest": "^2.1.8"
   }

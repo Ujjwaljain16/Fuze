@@ -1,7 +1,6 @@
 {
   "extends": [
-    "stylelint-config-standard",
-    "stylelint-config-tailwindcss"
+    "stylelint-config-standard"
   ],
   "rules": {
     "at-rule-no-unknown": [
