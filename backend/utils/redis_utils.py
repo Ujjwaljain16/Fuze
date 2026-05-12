@@ -1,6 +1,5 @@
 import redis
 import json
-import pickle
 import hashlib
 import os
 import ssl
@@ -189,7 +188,8 @@ class RedisCache:
         try:
             content_hash = self._hash_content(content)
             key = self._get_key("embedding", content_hash)
-            embedding_bytes = pickle.dumps(embedding)
+            # Store raw float32 bytes for maximum performance (no base64 overhead)
+            embedding_bytes = embedding.astype(np.float32).tobytes()
             return self.redis_client.setex(key, ttl, embedding_bytes)
         except Exception as e:
             logger.error("redis_cache_embedding_error", error=str(e))
@@ -205,7 +205,14 @@ class RedisCache:
             key = self._get_key("embedding", content_hash)
             embedding_bytes = self.redis_client.get(key)
             if embedding_bytes:
-                return pickle.loads(embedding_bytes)
+                # 384 dimensions * 4 bytes per float32 = 1536 bytes
+                if len(embedding_bytes) == 1536:
+                    # Validate size and use .copy() to prevent immutable buffer issues
+                    return np.frombuffer(embedding_bytes, dtype=np.float32).copy()
+                else:
+                    logger.warning("Legacy pickle cache detected in embeddings", key=key, bytes_len=len(embedding_bytes))
+                    self.redis_client.delete(key)
+                    return None
         except Exception as e:
             logger.error("redis_get_cached_embedding_error", error=str(e))
         return None
@@ -450,9 +457,20 @@ class RedisCache:
                 return None
             
             try:
-                return pickle.loads(data_bytes)
-            except:
-                return json.loads(data_bytes.decode())
+                data_str = data_bytes.decode('utf-8')
+                data = json.loads(data_str)
+                # Handle generic numpy arrays wrapped in JSON
+                if isinstance(data, dict) and data.get("__numpy__"):
+                    import base64
+                    buffer = base64.b64decode(data["data"])
+                    return np.frombuffer(buffer, dtype=np.dtype(data["dtype"])).reshape(data["shape"]).copy()
+                return data
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                # We refuse to use pickle.loads() for security reasons.
+                # If we encounter un-decodable bytes (likely legacy pickle data),
+                # we log a warning and return None.
+                logger.warning("Legacy non-JSON (possibly pickle) cache detected and ignored.", key=key)
+                return None
                 
         except Exception as e:
             logger.error("redis_get_cache_error", key=key, error=str(e))
@@ -469,7 +487,14 @@ class RedisCache:
         
         try:
             if isinstance(value, np.ndarray):
-                data_bytes = pickle.dumps(value)
+                import base64
+                data_dict = {
+                    "__numpy__": True,
+                    "dtype": str(value.dtype),
+                    "shape": value.shape,
+                    "data": base64.b64encode(value.tobytes()).decode('ascii')
+                }
+                data_bytes = json.dumps(data_dict).encode('utf-8')
             elif isinstance(value, str):
                 data_bytes = value.encode()
             else:
