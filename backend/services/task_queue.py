@@ -7,7 +7,7 @@ import os
 import ssl
 import logging
 from typing import Optional
-from rq import Queue, Connection, Retry
+from rq import Queue, Retry
 from rq.job import Job
 from redis import Redis
 from utils.redis_utils import redis_cache

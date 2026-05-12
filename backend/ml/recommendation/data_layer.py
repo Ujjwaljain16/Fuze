@@ -219,6 +219,73 @@ class UnifiedDataLayer:
             logger.error("ml_data_layer_db_fetch_failed", user_id=user_id, error=str(e))
             return []
 
+    @property
+    def _supabase(self):
+        """Lazy-load supabase client for RPC calls"""
+        if not hasattr(self, '_supabase_client'):
+            import os
+            url = os.environ.get("SUPABASE_URL")
+            key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            if url and key:
+                from supabase import create_client
+                self._supabase_client = create_client(url, key)
+            else:
+                self._supabase_client = None
+        return self._supabase_client
+
+    def fetch_candidates_for_recommendation(
+        self,
+        user_id: str,
+        project_embedding: list[float],
+        candidate_pool_size: int = 100,  # Stage 1: get 100 approximate candidates
+    ) -> list[dict]:
+        """
+        Stage 1 of two-stage retrieval.
+        Uses HNSW index to get top-100 approximate nearest neighbors FAST.
+        The orchestrator's scoring chain (Stage 2) re-ranks to final top-N.
+        
+        Why 100? 
+        - HNSW with ef_search=40 (default) has ~95% recall@100
+        - Python re-ranking on 100 items is ~2ms — acceptable
+        - Returning 100 vectors to Python is ~150KB — acceptable
+        - Much better than returning ALL vectors (was MB+)
+        """
+        try:
+            if not self._supabase:
+                return self._fetch_recent_content_fallback(user_id, limit=50)
+                
+            result = self._supabase.rpc(
+                "match_user_content",
+                {
+                    "query_embedding": project_embedding,
+                    "target_user_id": str(user_id),
+                    "match_threshold": 0.15,  # low threshold for Stage 1 
+                    "match_count": candidate_pool_size,
+                }
+            ).execute()
+            return result.data or []
+        except Exception as e:
+            logger.error("candidate_fetch_failed", error=str(e))
+            # Fallback: fetch recent content without vector similarity
+            return self._fetch_recent_content_fallback(user_id, limit=50)
+
+    def _fetch_recent_content_fallback(self, user_id: str, limit: int) -> list[dict]:
+        """Fallback when vector search fails — return recent content."""
+        from models import SavedContent
+        session = self.get_db_session()
+        if not session:
+            return []
+        
+        try:
+            content = session.query(SavedContent).filter_by(
+                user_id=int(user_id) if str(user_id).isdigit() else user_id
+            ).order_by(SavedContent.saved_at.desc()).limit(limit).all()
+            
+            return [self.normalize_content_data(c) for c in content]
+        except Exception as e:
+            logger.error("fallback_fetch_failed", error=str(e))
+            return []
+
     def _encode_with_circuit_breaker(self, texts: List[str], **kwargs):
         """Helper to invoke embedding encoding wrapped in a circuit breaker"""
         import pybreaker

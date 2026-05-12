@@ -18,6 +18,8 @@ class UnitOfWork:
         self._user_repo = None
         self._project_repo = None
         self._recommendation_repo = None
+        self._bookmark_repo = None
+        self._analysis_repo = None
 
     @property
     def users(self):
@@ -39,6 +41,30 @@ class UnitOfWork:
             from repositories.recommendation_repository import RecommendationRepository
             self._recommendation_repo = RecommendationRepository(self.session)
         return self._recommendation_repo
+
+    @property
+    def bookmarks(self):
+        if not self._bookmark_repo:
+            from repositories.bookmark_repository import BookmarkRepository
+            self._bookmark_repo = BookmarkRepository(self.session)
+        return self._bookmark_repo
+
+    @property
+    def analyses(self):
+        if not self._analysis_repo:
+            # We don't have a dedicated analysis repo yet, we can create a generic one or just return the session
+            # For simplicity, we'll return a simple wrapper around session for ContentAnalysis
+            class AnalysisRepo:
+                def __init__(self, session):
+                    self.session = session
+                def add(self, analysis):
+                    self.session.add(analysis)
+            self._analysis_repo = AnalysisRepo(self.session)
+        return self._analysis_repo
+
+    def flush(self):
+        """Flush session to get IDs without committing"""
+        self.session.flush()
 
     def emit(self, event: Event):
         """Record a domain event to be dispatched post-commit"""
