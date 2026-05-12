@@ -1,4 +1,6 @@
+from core.events import RecommendationFeedbackRecorded, GeminiAnalysisTriggered  # noqa: F401 — used as HANDLERS dict keys and type annotations
 from core.logging_config import get_logger
+
 
 logger = get_logger(__name__)
 

@@ -29,11 +29,91 @@ from uow.unit_of_work import UnitOfWork
 # Create blueprint
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
 
+# ============================================================================
+# MODULE AVAILABILITY FLAGS — noqa: keep all; used as runtime conditionals
+# ============================================================================
+# Each flag is set by trying to import the optional module at startup.
+# This block was removed by ruff; all flags must exist at module load time.
+
+UNIFIED_ORCHESTRATOR_AVAILABLE = False  # noqa: F841
+UNIFIED_ENGINE_AVAILABLE = False        # noqa: F841
+SMART_ENGINE_AVAILABLE = False          # noqa: F841
+ENHANCED_ENGINE_AVAILABLE = False       # noqa: F841
+PHASE3_ENGINE_AVAILABLE = False         # noqa: F841
+FAST_GEMINI_AVAILABLE = False           # noqa: F841
+ENHANCED_MODULES_AVAILABLE = False      # noqa: F841
+MODELS_AVAILABLE = False                # noqa: F841
+
+gemini_analyzer = None  # noqa: F841
+
+try:
+    from ml.orchestrator import get_orchestrator as _get_orchestrator
+    UNIFIED_ORCHESTRATOR_AVAILABLE = True
+except Exception:
+    _get_orchestrator = None
+
+try:
+    from services.recommendation_service import RecommendationService  # noqa: F401
+    from services.content_service import ContentService  # noqa: F401
+except Exception:
+    RecommendationService = None
+    ContentService = None
+
+try:
+    from models import db, Project, UserFeedback  # noqa: F401
+    MODELS_AVAILABLE = True
+except Exception:
+    db = None
+    Project = None
+    UserFeedback = None
+
+# Helper stubs — route handlers import lazily; these provide safe fallbacks
+def get_unified_engine():
+    try:
+        from ml.engines.unified_recommendation_engine import UnifiedRecommendationEngine
+        return UnifiedRecommendationEngine()
+    except Exception:
+        return None
+
+def get_smart_engine(user_id=None):
+    return None  # Legacy engine removed; redirect to orchestrator
+
+def get_unified_orchestrator():
+    if _get_orchestrator:
+        return _get_orchestrator()
+    return None
+
+def get_cached_recommendations(cache_key):
+    try:
+        from utils.redis_utils import redis_cache
+        return redis_cache.get_cache(cache_key)
+    except Exception:
+        return None
+
+def cache_recommendations(cache_key, result, ttl=1800):
+    try:
+        from utils.redis_utils import redis_cache
+        redis_cache.set_cache(cache_key, result, ttl=ttl)
+    except Exception:
+        pass
+
+def get_embedding_model():
+    try:
+        from utils.embedding_utils import get_embedding_model as _gem
+        return _gem()
+    except Exception:
+        return None
+
 def get_rec_service(uow):
+    if RecommendationService is None:
+        raise RuntimeError("RecommendationService not available")
     return RecommendationService(uow)
 
 def get_content_service(uow):
+    if ContentService is None:
+        raise RuntimeError("ContentService not available")
     return ContentService(uow)
+
 
 # ============================================================================
 # API ROUTES - Using Unified Orchestrator

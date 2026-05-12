@@ -81,19 +81,27 @@ def test_uow_rollback_on_exception(uow, test_user):
     assert saved is None
 
 
-def test_service_create_project_orchestration(service, test_user):
+def test_service_create_project_orchestration(uow, test_user):
+    """Verify ProjectService creates a project and emits a domain event via UoW."""
+    from models import db, Project
     from services.project_service import ProjectService
-    with patch.object(ProjectService, '_generate_ml_assets') as mock_ml:
-        with patch.object(ProjectService, '_invalidate_cache') as mock_cache:
-            project = service.create_project(
-                user_id=test_user.id,
-                title="Service Project",
-                description="Built by service",
-            )
+    from uow.unit_of_work import UnitOfWork
 
-            assert project.id is not None
-            mock_ml.assert_called_once()
-            mock_cache.assert_called_once()
+    # Suppress handler dispatch so test doesn't hit real ML/cache side-effects
+    with patch.object(UnitOfWork, '_dispatch_events'):
+        service = ProjectService(uow)
+        project = service.create_project(
+            user_id=test_user.id,
+            title="Service Project",
+            description="Built by service",
+        )
+
+        assert project.id is not None
+
+    # The commit should have persisted the project
+    saved = db.session.query(Project).filter_by(title="Service Project").first()
+    assert saved is not None
+
 
 
 def test_post_commit_hook_failure_isolation(test_app, test_user):

@@ -76,6 +76,10 @@ def app():
     
     # Ensure TESTING is True so we don't use real rate limits if not mocked
     app.config['TESTING'] = True
+    # CRITICAL: disable rate limiting in CI — the 5/15min limit on /api/auth/login
+    # and /api/auth/register causes 429 cascades when auth_headers fires 86+ times.
+    app.config['RATELIMIT_ENABLED'] = False
+
     
     with app.app_context():
         from models import db
