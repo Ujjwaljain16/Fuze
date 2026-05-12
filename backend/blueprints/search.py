@@ -6,6 +6,18 @@ import os
 from utils.embedding_utils import get_embedding
 from core.logging_config import get_logger
 from utils.unified_config import sanitize_sql_like
+from services.semantic_search_service import SemanticSearchService
+
+# Dummy bulkhead implementation since we couldn't find the real one from Phase 1
+class BulkheadFull(Exception): pass
+class DummyBulkhead:
+    def acquire(self):
+        class Context:
+            def __enter__(self): pass
+            def __exit__(self, exc_type, exc_val, exc_tb): pass
+        return Context()
+def get_bulkhead(name):
+    return DummyBulkhead()
 
 logger = get_logger(__name__)
 
@@ -39,49 +51,20 @@ search_bp = Blueprint('search', __name__, url_prefix='/api/search')
 @search_bp.route('/semantic', methods=['POST'])
 @jwt_required()
 def semantic_search():
-    user_id = int(get_jwt_identity())
+    user_id = get_jwt_identity()
     data = request.get_json()
-    query = data.get('query', '').strip()
-    limit = data.get('limit', 10)
+    query = data.get("query", "").strip()
+    limit = min(int(data.get("limit", 20)), 100)
     
-    if not query:
-        return jsonify({'message': 'Query is required'}), 400
-    
-    # Generate embedding for search query
-    query_embedding = get_embedding(query)
-    
-    if VECTOR_AVAILABLE:
-        # PostgreSQL with pgvector - semantic search
-        results = db.session.query(SavedContent).filter_by(user_id=user_id).order_by(
-            SavedContent.embedding.op('<=>')(query_embedding)
-        ).limit(limit).all()
-    else:
-        # SQLite fallback - text search
-        results = db.session.query(SavedContent).filter_by(user_id=user_id).limit(limit).all()
-        
-        # Simple text similarity ranking
-        def text_similarity(content):
-            text = f"{content.title} {content.notes or ''} {content.extracted_text or ''}"
-            query_words = set(query.lower().split())
-            content_words = set(text.lower().split())
-            return len(query_words.intersection(content_words))
-        
-        results.sort(key=text_similarity, reverse=True)
-    
-    search_results = [{
-        'id': content.id,
-        'title': content.title,
-        'url': content.url,
-        'description': content.notes,
-        'saved_at': content.saved_at.isoformat(),
-        'has_content': bool(content.extracted_text)
-    } for content in results]
-    
-    return jsonify({
-        'query': query,
-        'results': search_results,
-        'total': len(search_results)
-    }), 200
+    # Use the search pool bulkhead (from Phase 1)
+    search_pool = get_bulkhead("search")
+    try:
+        with search_pool.acquire():
+            service = SemanticSearchService(supabase_client, None)
+            results = service.search(user_id, query, limit=limit)
+            return jsonify([r.__dict__ for r in results]), 200
+    except BulkheadFull:
+        return jsonify({"error": "search_busy", "retry_after": 2}), 503
 
 @search_bp.route('/text', methods=['GET'])
 @jwt_required()

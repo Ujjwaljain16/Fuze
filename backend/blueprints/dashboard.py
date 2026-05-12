@@ -10,6 +10,7 @@ from models import db, User, SavedContent, Project
 from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
 from core.logging_config import get_logger
+from datetime import datetime, timedelta
 
 logger = get_logger(__name__)
 

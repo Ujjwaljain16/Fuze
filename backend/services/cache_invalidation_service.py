@@ -132,13 +132,7 @@ class CacheInvalidationService:
                 redis_cache.delete_keys_pattern("*content_embedding:*")
                 redis_cache.delete_keys_pattern("*project_embedding:*")
                 redis_cache.delete_keys_pattern("*task_embedding:*")
-                # Also clear in-memory Gemini analyzer cache
-                try:
-                    from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
-                    cleared = clear_gemini_analyzer_cache()
-                    logger.info("cache_clear_gemini_analyzer_success", count=cleared)
-                except Exception as e:
-                    logger.warning("cache_clear_gemini_analyzer_failed", error=str(e))
+                # In-memory analyzer cache clearing removed since module is deprecated
                 # Also clear database-level intent analysis cache
                 try:
                     from models import db, Project
@@ -169,13 +163,7 @@ class CacheInvalidationService:
                 redis_cache.delete_keys_pattern("*content_embedding:*")
                 redis_cache.delete_keys_pattern("*project_embedding:*")
                 redis_cache.delete_keys_pattern("*task_embedding:*")
-                # Also clear all in-memory Gemini analyzer cache
-                try:
-                    from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
-                    cleared = clear_gemini_analyzer_cache()
-                    logger.info("cache_clear_gemini_analyzer_success", count=cleared)
-                except Exception as e:
-                    logger.warning("cache_clear_gemini_analyzer_failed", error=str(e))
+                # In-memory analyzer cache clearing removed since module is deprecated
                 # Also clear all database-level intent analysis cache
                 try:
                     from models import db, Project
