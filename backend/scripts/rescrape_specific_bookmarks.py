@@ -16,7 +16,7 @@ from flask import Flask
 from config import DevelopmentConfig
 from models import db, SavedContent
 from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
-from utils.embedding_utils import get_embedding
+from utils.embedding_utils import get_embedding_artifact
 import logging
 from datetime import datetime
 from urllib.parse import urlparse
@@ -166,8 +166,10 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         content_for_embedding = bookmark.url or "unknown content"
 
                     try:
-                        embedding = get_embedding(content_for_embedding)
-                        bookmark.embedding = embedding
+                        from dataclasses import asdict
+                        artifact = get_embedding_artifact(content_for_embedding)
+                        bookmark.embedding = artifact.vector
+                        bookmark.embedding_metadata = asdict(artifact)
                         logger.info(f"   Generated embedding from {len(content_for_embedding)} chars (title: {len(bookmark.title or '')} chars, text: {len(extracted_text or '')} chars)")
                     except Exception as embed_error:
                         logger.error(f"   Embedding generation failed: {embed_error}")
@@ -175,8 +177,10 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         try:
                             fallback_content = f"{bookmark.title or 'Unknown'} {bookmark.url or ''}".strip()
                             if fallback_content:
-                                embedding = get_embedding(fallback_content)
-                                bookmark.embedding = embedding
+                                from dataclasses import asdict
+                                artifact = get_embedding_artifact(fallback_content)
+                                bookmark.embedding = artifact.vector
+                                bookmark.embedding_metadata = asdict(artifact)
                                 logger.info(f"   Generated fallback embedding from {len(fallback_content)} chars")
                         except Exception as fallback_error:
                             logger.error(f"   Fallback embedding also failed: {fallback_error}")
