@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, event
 from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
@@ -23,81 +23,12 @@ def configure_database():
         # Configure session
         db.session.configure(bind=engine)
         
-        # Ensure user_metadata column exists (migration helper)
-        ensure_user_metadata_column()
-        ensure_provider_columns()
+        # Alembic now handles all schema migrations safely
         
         return True
     except Exception as e:
         logger.error("db_configure_failed", error=str(e))
         return False
-
-def ensure_user_metadata_column():
-    """Ensure user_metadata column exists in users table (migration helper)"""
-    try:
-        from sqlalchemy import inspect, text
-        inspector = inspect(db.engine)
-        columns = [col['name'] for col in inspector.get_columns('users')]
-        
-        if 'user_metadata' not in columns:
-            logger.info("db_migration_adding_column", table="users", column="user_metadata")
-            try:
-                # Try to add the column
-                db.session.execute(text("""
-                    ALTER TABLE users 
-                    ADD COLUMN user_metadata JSON;
-                """))
-                db.session.commit()
-                logger.info("db_migration_column_added", table="users", column="user_metadata")
-            except Exception as add_error:
-                # If column already exists (race condition), that's fine
-                error_str = str(add_error).lower()
-                if 'already exists' in error_str or 'duplicate' in error_str:
-                    logger.debug("db_migration_column_exists", table="users", column="user_metadata")
-                    db.session.rollback()
-                else:
-                    raise
-    except Exception as e:
-        # Don't fail if column already exists or can't be added
-        logger.warning("db_migration_ensure_column_failed", table="users", column="user_metadata", error=str(e))
-        try:
-            db.session.rollback()
-        except:
-            pass
-
-    def ensure_provider_columns():
-        pass  # This stub is unreachable; real function is at module level below
-
-def ensure_provider_columns():
-    """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
-    try:
-        from sqlalchemy import inspect, text
-        inspector = inspect(db.engine)
-        columns = [col['name'] for col in inspector.get_columns('users')]
-        # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
-        stmts = []
-        if 'provider_name' not in columns:
-            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
-        if 'provider_user_id' not in columns:
-            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
-
-        for s in stmts:
-            try:
-                db.session.execute(text(s))
-                db.session.commit()
-            except Exception as e:
-                # If column was added by a concurrent process, ignore
-                err = str(e).lower()
-                if 'already exists' in err or 'duplicate' in err:
-                    db.session.rollback()
-                else:
-                    raise
-    except Exception as e:
-        logger.warning("db_migration_ensure_provider_columns_failed", error=str(e))
-        try:
-            db.session.rollback()
-        except:
-            pass
 
 class Base(db.Model):
     __abstract__ = True
@@ -149,6 +80,7 @@ class Project(Base):
 
     # Embedding field for semantic matching
     embedding = Column(Vector(384))  # Combined embedding for semantic matching
+    embedding_metadata = Column(JSON, nullable=True)  # Provenance metadata
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 
@@ -162,15 +94,17 @@ class SavedContent(Base):
     saved_at = Column(DateTime, default=func.now(), index=True)  # Indexed for sorting
     extracted_text = Column(TEXT)
     embedding = Column(Vector(384))
+    embedding_metadata = Column(JSON, nullable=True)
     tags = Column(TEXT)
     category = Column(String(100))
     notes = Column(TEXT)
     quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
     
-    # Production indexes (will be created by database_indexes.py script)
+    # Production indexes and constraints
     __table_args__ = (
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
+        UniqueConstraint('user_id', 'url', name='_user_url_uc'),
     )
 
 class ContentAnalysis(Base):
@@ -228,6 +162,7 @@ class Task(Base):
     description = Column(Text)
     created_at = Column(DateTime, default=func.now())
     embedding = Column(Vector(384))
+    embedding_metadata = Column(JSON, nullable=True)
     
     subtasks = relationship('Subtask', backref='task', lazy=True, cascade='all, delete-orphan', order_by='Subtask.created_at')
 
@@ -241,3 +176,34 @@ class Subtask(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     embedding = Column(Vector(384))  # Embedding for semantic matching in recommendations
+    embedding_metadata = Column(JSON, nullable=True)
+
+# --- SQLAlchemy Validation Hooks ---
+@event.listens_for(Project, 'before_insert')
+@event.listens_for(Project, 'before_update')
+@event.listens_for(SavedContent, 'before_insert')
+@event.listens_for(SavedContent, 'before_update')
+@event.listens_for(Task, 'before_insert')
+@event.listens_for(Task, 'before_update')
+@event.listens_for(Subtask, 'before_insert')
+@event.listens_for(Subtask, 'before_update')
+def validate_embedding_metadata(mapper, connection, target):
+    """Enforce that provenance metadata travels with the embedding."""
+    # Check if the target has an embedding but is missing metadata
+    # (Allow None embedding to pass through without metadata)
+    import numpy as np
+    
+    has_embedding = False
+    if target.embedding is not None:
+        if isinstance(target.embedding, np.ndarray):
+            has_embedding = not np.all(target.embedding == 0)
+        elif isinstance(target.embedding, list):
+            has_embedding = not all(x == 0 for x in target.embedding)
+        else:
+            has_embedding = True
+            
+    if has_embedding and target.embedding_metadata is None:
+        raise ValueError(
+            f"Embedding provenance metadata is missing for {target.__class__.__name__}! "
+            f"Must explicitly provide embedding_metadata when saving an embedding."
+        )
