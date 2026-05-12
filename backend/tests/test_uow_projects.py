@@ -96,17 +96,28 @@ def test_service_create_project_orchestration(service, test_user):
             mock_cache.assert_called_once()
 
 
-def test_post_commit_hook_failure_isolation(uow, test_user):
-    """Verify that if a hook fails, it doesn't crash the UoW exit but is logged."""
+def test_post_commit_hook_failure_isolation(test_app, test_user):
+    """Verify that if an event handler fails, UoW still commits the transaction."""
     from models import db, Project
+    from core.events import ProjectCreated
+    from uow.unit_of_work import UnitOfWork
+    from unittest.mock import MagicMock, patch
 
-    mock_hook = MagicMock(side_effect=Exception("Hook failed"))
+    failing_handler = MagicMock(side_effect=Exception("Hook failed"))
+    failing_handler.__name__ = "failing_handler"
 
-    with uow as u:
-        project = Project(user_id=test_user.id, title="HookTest", description="...")
-        u.projects.add(project)
-        u.add_event(mock_hook)
+    with patch.dict('services.handlers.EVENT_HANDLERS', {ProjectCreated: [failing_handler]}):
+        with test_app.app_context():
+            with UnitOfWork(db.session) as u:
+                project = Project(user_id=test_user.id, title="HookTest", description="...")
+                u.projects.add(project)
+                u.emit(ProjectCreated(
+                    project_id=1, user_id=test_user.id,
+                    title="HookTest", description="...", technologies=""
+                ))
 
-    saved = db.session.query(Project).filter_by(title="HookTest").first()
-    assert saved is not None
-    mock_hook.assert_called_once()
+            # UoW should have committed even though handler raised
+            saved = db.session.query(Project).filter_by(title="HookTest").first()
+            assert saved is not None
+            failing_handler.assert_called_once()
+

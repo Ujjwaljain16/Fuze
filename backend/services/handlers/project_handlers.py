@@ -1,3 +1,5 @@
+from core.events import ProjectCreated, ProjectUpdated, ProjectDeleted  # noqa: F401 — used as HANDLERS dict keys and type annotations
+from uow.unit_of_work import UnitOfWork  # noqa: F401 — used inside handler bodies
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)

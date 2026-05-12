@@ -1,3 +1,4 @@
+from typing import List
 from core.events import Event
 from core.logging_config import get_logger
 
@@ -11,6 +12,7 @@ class UnitOfWork:
     """
     
     def __init__(self, session=None):
+        from models import db  # lazy import to avoid circular dependency at module load time
         self.session = session or db.session
         self.events: List[Event] = []
         
@@ -70,6 +72,10 @@ class UnitOfWork:
         """Record a domain event to be dispatched post-commit"""
         self.events.append(event)
         logger.debug("event_recorded", event_type=type(event).__name__, event_id=event.event_id)
+
+    def add_event(self, event: Event):
+        """Alias for emit() — backwards-compatible hook registration"""
+        self.emit(event)
 
     def __enter__(self):
         return self
