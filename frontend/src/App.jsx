@@ -29,7 +29,7 @@ const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === 'true';
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
-  const { isOpen, isCollapsed, setOpen, setCollapsed, toggle, collapse } = useSidebar();
+  const { isOpen, isCollapsed, setOpen, setCollapsed } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);

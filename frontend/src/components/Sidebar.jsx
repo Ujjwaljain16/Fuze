@@ -18,7 +18,7 @@ import './sidebar-styles.css'
 
 const Sidebar = ({ isMobile }) => {
   const { isAuthenticated, user } = useAuth()
-  const { isOpen, isCollapsed, toggle, collapse, setOpen, setCollapsed } = useSidebar()
+  const { isOpen, isCollapsed, toggle, collapse, setOpen } = useSidebar()
   const location = useLocation()
 
   const navigation = [

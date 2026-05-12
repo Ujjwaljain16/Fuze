@@ -73,6 +73,7 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('userLoggedIn', handleUserLoggedIn)
       window.removeEventListener('authExpired', handleAuthExpired)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchUser = async () => {
