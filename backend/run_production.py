@@ -17,7 +17,7 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g  # noqa: F401 — g used inside before_request closures
 from flask_jwt_extended import JWTManager
 from datetime import datetime
 from models import db
@@ -43,6 +43,7 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from sentry_sdk.integrations.rq import RqIntegration
 import structlog
 import uuid
+import redis  # noqa: F401 — used in handle_exception isinstance checks
 
 def _scrub_sensitive_data(event, hint):
     """Remove sensitive fields before sending to Sentry."""
