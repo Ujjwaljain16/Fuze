@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock
 from services.auth_service import AuthService, AuthenticationFailed
 from uow.unit_of_work import UnitOfWork
-from models import User
 
 @pytest.fixture
 def mock_uow():

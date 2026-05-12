@@ -1,5 +1,4 @@
 import os
-import sys
 import datetime
 import subprocess
 from dotenv import load_dotenv

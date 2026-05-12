@@ -53,7 +53,7 @@ def view_database_schema():
                     count = 0
                 print(f"  📈 Records: {count}")
             except:
-                print(f"  📈 Records: Unable to count")
+                print("  📈 Records: Unable to count")
             
             print()
         

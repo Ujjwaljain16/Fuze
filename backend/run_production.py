@@ -7,7 +7,6 @@ Enhanced with Intent Analysis System optimizations and SSL connection management
 
 import os
 import sys
-import time
 import re
 from dotenv import load_dotenv
 
@@ -18,16 +17,14 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 from flask_jwt_extended import JWTManager
-from datetime import timedelta, datetime
+from datetime import datetime
 from models import db
 from sqlalchemy import text
 from flask_cors import CORS
 from flask_compress import Compress
-import numpy as np
 from utils.redis_utils import redis_cache
-import logging
 from core.logging_config import configure_logging, get_logger
 
 # Import UnifiedConfig for standard settings
@@ -406,7 +403,6 @@ def create_app():
         
     # Row-Level Security (RLS) Configuration
     from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
-    from sqlalchemy import text
     
     @app.before_request
     def set_correlation_id():
@@ -432,7 +428,6 @@ def create_app():
     @app.before_request
     def set_rls_context():
         """Implement session management for Postgres Row-Level Security (RLS)"""
-        from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
         try:
             # We try to see if there's a valid JWT
             verify_jwt_in_request(optional=True)
@@ -489,7 +484,7 @@ def create_app():
             logger.warning("blueprint_not_registered", blueprint="linkedin")
             
         # Register user API key blueprint if available
-        logger.info(f"[DEBUG] About to register user API key blueprint")
+        logger.info("[DEBUG] About to register user API key blueprint")
         logger.info(f"[DEBUG] user_api_key_available: {user_api_key_available}, init_user_api_key: {init_user_api_key}")
         if user_api_key_available and init_user_api_key:
             try:
@@ -1077,7 +1072,7 @@ if __name__ == "__main__":
     if https_enabled and ssl_cert_path and ssl_key_path:
         # Check if SSL certificate files exist
         if os.path.exists(ssl_cert_path) and os.path.exists(ssl_key_path):
-            logger.info(f"HTTPS Enabled: Using SSL certificates")
+            logger.info("HTTPS Enabled: Using SSL certificates")
             logger.info(f"Certificate: {ssl_cert_path}")
             logger.info(f"Private Key: {ssl_key_path}")
             

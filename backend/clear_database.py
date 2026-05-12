@@ -46,7 +46,7 @@ def clear_all_data(dry_run=False):
 
             total_records = sum(counts.values())
 
-            print(f"\n📊 Current Database Records:")
+            print("\n📊 Current Database Records:")
             print(f"   👥 Users: {counts['users']}")
             print(f"   📁 Projects: {counts['projects']}")
             print(f"    Tasks: {counts['tasks']}")
@@ -151,7 +151,7 @@ def clear_all_data(dry_run=False):
                             if result.scalar():
                                 db.session.execute(text(f"ALTER SEQUENCE {seq_name} RESTART WITH 1;"))
                                 print(f"    ✅ Reset {seq_name}")
-                        except Exception as e:
+                        except Exception:
                             # Sequence might not exist or have different name - that's okay
                             pass
                     

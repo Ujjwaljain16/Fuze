@@ -1,5 +1,5 @@
-from typing import List, Optional, Dict, Any
-from models import SavedContent, ContentAnalysis, UserFeedback, db
+from typing import List, Optional
+from models import SavedContent, ContentAnalysis, UserFeedback
 
 class RecommendationRepository:
     """Repository for managing saved bookmarks and their ML analyses"""

@@ -7,7 +7,7 @@ Combines multiple API calls into one to reduce latency and network overhead
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, SavedContent, Project
-from sqlalchemy import func, and_
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from core.logging_config import get_logger
 from datetime import datetime, timedelta
@@ -57,7 +57,6 @@ def get_dashboard_summary():
                 logger.warning("dashboard_cache_read_failed", error=str(cache_error), user_id=user_id)
         
         # Cache miss - fetch all data in parallel using Promise.all equivalent
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         
         response_data = {}
         

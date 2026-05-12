@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional
 
 @dataclass(kw_only=True)
 class Event:

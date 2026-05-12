@@ -4,9 +4,7 @@ Pytest configuration and fixtures for backend tests
 import pytest
 import os
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from flask import Flask
-from flask_jwt_extended import JWTManager
+from unittest.mock import patch, MagicMock
 from dotenv import load_dotenv
 
 # Add backend directory to path
@@ -124,7 +122,7 @@ def app():
                     return  # Don't drop production database!
             
             db.drop_all()
-        except Exception as e:
+        except Exception:
             # Ignore teardown errors (like database timeouts) - tests already passed
             pass
 

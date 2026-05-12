@@ -9,8 +9,7 @@ from bs4 import BeautifulSoup
 from readability import Document
 import re
 import time
-import json
-from typing import Dict, Optional, List
+from typing import Dict
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
 from core.logging_config import get_logger

@@ -1,6 +1,6 @@
 import pytest
 from app import app
-from models import db, User, Project, ContentAnalysis
+from models import db, User, Project
 from uow.unit_of_work import UnitOfWork
 from services.project_service import ProjectService
 from core.events import ProjectCreated

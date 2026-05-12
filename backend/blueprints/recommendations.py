@@ -6,11 +6,8 @@ Combines all features from both versions with proper circular import handling
 
 import os
 import sys
-import time
-import logging
 import json
-from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 
 # Load environment variables
@@ -20,9 +17,8 @@ load_dotenv()
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from dataclasses import asdict
 from extensions import limiter
 from core.logging_config import get_logger
 
@@ -1404,7 +1400,7 @@ def get_learning_insights():
                 logger.warning(f"Phase 3 insights failed, using fallback: {e}")
         
         # Fallback to basic insights
-        from models import SavedContent, Feedback
+        from models import SavedContent
         
         # Basic learning patterns
         recent_bookmarks = SavedContent.query.filter_by(user_id=user_id).order_by(

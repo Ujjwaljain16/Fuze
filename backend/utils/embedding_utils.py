@@ -5,11 +5,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from core.logging_config import get_logger
 import os
 import shutil
-import gc
 import gevent
 from gevent.threadpool import ThreadPool
 import threading
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 
 @dataclass

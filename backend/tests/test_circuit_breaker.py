@@ -1,6 +1,5 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from utils.gemini_utils import GeminiAnalyzer, GeminiRetryableError
+from unittest.mock import patch
+from utils.gemini_utils import GeminiAnalyzer
 
 def test_circuit_breaker_trips_after_failures():
     """Verify that the circuit breaker opens after repeated failures"""
@@ -24,7 +23,6 @@ def test_circuit_breaker_trips_after_failures():
                 pass
         
         # The breaker should now be open
-        import pybreaker
         assert gemini_breaker.current_state == 'open'
         
         # Wrapped call should return None when breaker is open

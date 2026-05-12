@@ -7,11 +7,9 @@ With smart caching to avoid redundant analysis
 
 import os
 import sys
-import time
-import logging
 import json
 import hashlib
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import re
 from datetime import datetime, timedelta
@@ -27,7 +25,7 @@ load_dotenv()
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from models import db, Project, User
+from models import db, Project
 from utils.gemini_utils import GeminiAnalyzer
 from core.logging_config import get_logger
 
@@ -382,7 +380,7 @@ def get_fallback_intent(user_input: str, project_id: Optional[int] = None) -> Us
             context_hash='fallback'
         )
         
-    except Exception as e:
+    except Exception:
         # Ultimate fallback
         return UserIntent(
             primary_goal='learn',
@@ -400,8 +398,6 @@ def get_fallback_intent(user_input: str, project_id: Optional[int] = None) -> Us
 # PERFORMANCE OPTIMIZATIONS - Added for better speed and caching
 # ============================================================================
 
-from functools import lru_cache
-import redis
 
 @lru_cache(maxsize=1000)
 def get_cached_intent_analysis(input_hash: str) -> Optional[Dict]:
@@ -434,15 +430,13 @@ def analyze_multiple_intents(inputs: List[str]) -> List[UserIntent]:
         try:
             intent = analyze_user_intent(user_input)
             results.append(intent)
-        except Exception as e:
+        except Exception:
             # Use fallback for failed analysis
             fallback_intent = get_fallback_intent(user_input)
             results.append(fallback_intent)
     
     return results
 
-import asyncio
-import concurrent.futures
 
 async def analyze_intent_async(user_input: str) -> UserIntent:
     """Analyze intent asynchronously"""
@@ -453,5 +447,5 @@ async def analyze_intent_async(user_input: str) -> UserIntent:
         try:
             intent = await loop.run_in_executor(None, future.result)
             return intent
-        except Exception as e:
+        except Exception:
             return get_fallback_intent(user_input) 

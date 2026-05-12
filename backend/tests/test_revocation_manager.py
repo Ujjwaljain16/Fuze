@@ -38,54 +38,54 @@ def test_revocation_manager():
     test_user_id = 999
     
     # Test 1: Revoke a key
-    print(f"\n2. Revoking test API key...")
+    print("\n2. Revoking test API key...")
     success = manager.revoke_api_key(test_key, user_id=test_user_id)
     if success:
-        print(f"✅ Key revoked successfully")
+        print("✅ Key revoked successfully")
     else:
-        print(f"❌ Failed to revoke key")
+        print("❌ Failed to revoke key")
         return False
     
     # Test 2: Check if key is revoked
-    print(f"\n3. Checking if key is revoked...")
+    print("\n3. Checking if key is revoked...")
     is_revoked = manager.is_api_key_revoked(test_key)
     if is_revoked:
-        print(f"✅ Key correctly detected as revoked")
+        print("✅ Key correctly detected as revoked")
     else:
-        print(f"❌ Key not detected as revoked")
+        print("❌ Key not detected as revoked")
         return False
     
     # Test 3: Check different key (should not be revoked)
     different_key = "AIzaSyDifferentKeyForTesting123456789012"
-    print(f"\n4. Checking different key (should NOT be revoked)...")
+    print("\n4. Checking different key (should NOT be revoked)...")
     is_revoked = manager.is_api_key_revoked(different_key)
     if not is_revoked:
-        print(f"✅ Different key correctly NOT revoked")
+        print("✅ Different key correctly NOT revoked")
     else:
-        print(f"❌ Different key incorrectly marked as revoked")
+        print("❌ Different key incorrectly marked as revoked")
         return False
     
     # Test 4: Get revoked count
-    print(f"\n5. Getting revoked keys count...")
+    print("\n5. Getting revoked keys count...")
     count = manager.get_revoked_count()
     print(f"✅ Total revoked keys: {count}")
     
     # Test 5: Remove from revocation list
-    print(f"\n6. Removing test key from revocation list...")
+    print("\n6. Removing test key from revocation list...")
     success = manager.remove_from_revocation_list(test_key)
     if success:
-        print(f"✅ Key removed from revocation list")
+        print("✅ Key removed from revocation list")
     else:
-        print(f"❌ Failed to remove key")
+        print("❌ Failed to remove key")
         return False
     
     # Test 6: Verify key is no longer revoked
-    print(f"\n7. Verifying key is no longer revoked...")
+    print("\n7. Verifying key is no longer revoked...")
     is_revoked = manager.is_api_key_revoked(test_key)
     if not is_revoked:
-        print(f"✅ Key correctly NOT revoked after removal")
+        print("✅ Key correctly NOT revoked after removal")
     else:
-        print(f"❌ Key still showing as revoked")
+        print("❌ Key still showing as revoked")
         return False
     
     print("\n" + "=" * 60)

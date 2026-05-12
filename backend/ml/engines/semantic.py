@@ -1,6 +1,5 @@
 from typing import List, Dict, Any
 import time
-import numpy as np
 from .base import BaseEngine
 from ..recommendation.schemas import UnifiedRecommendationResult, UnifiedRecommendationRequest
 from core.logging_config import get_logger

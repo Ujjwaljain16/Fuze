@@ -29,7 +29,7 @@ def clear_user_recommendation_cache(user_id):
         print(f"  📦 Clearing Redis recommendation caches for user {user_id}...")
         success1 = CacheInvalidationService.invalidate_recommendation_cache(user_id)
         
-        print(f"  🧠 Clearing in-memory Gemini analyzer cache...")
+        print("  🧠 Clearing in-memory Gemini analyzer cache...")
         try:
             from ml.unified_recommendation_orchestrator import clear_gemini_analyzer_cache
             cleared_gemini = clear_gemini_analyzer_cache()

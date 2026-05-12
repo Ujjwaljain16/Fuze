@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 from core.logging_config import get_logger
 
@@ -62,7 +62,6 @@ class UnifiedDataLayer:
                 return
             
             # Fallback local initialization
-            import torch
             from sentence_transformers import SentenceTransformer
             try:
                 self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -174,7 +173,7 @@ class UnifiedDataLayer:
     def get_candidate_content(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
         """Get candidate content in unified format"""
         try:
-            from utils.database_utils import get_db_session, with_db_session
+            from utils.database_utils import with_db_session
             
             @with_db_session
             def get_content(session):

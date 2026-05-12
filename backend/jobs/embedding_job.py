@@ -1,10 +1,8 @@
-import sys
-import os
 
 from rq import get_current_job
 from core.logging_config import get_logger
 from uow.unit_of_work import UnitOfWork
-from utils.embedding_utils import get_embedding, get_embedding_artifact
+from utils.embedding_utils import get_embedding_artifact
 from dataclasses import asdict
 from models import db
 

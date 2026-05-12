@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Project, User, Task, Subtask
 from uow.unit_of_work import UnitOfWork
 from services.project_service import ProjectService
 from core.logging_config import get_logger

@@ -5,12 +5,10 @@ Handles asynchronous background job processing for bookmark content extraction
 
 import os
 import ssl
-import logging
 from typing import Optional
 from rq import Queue, Retry
 from rq.job import Job
 from redis import Redis
-from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)

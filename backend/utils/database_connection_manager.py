@@ -6,7 +6,6 @@ Provides robust SSL connection handling and automatic recovery
 
 import os
 import time
-import logging
 import threading
 import socket
 from urllib.parse import urlparse, urlunparse

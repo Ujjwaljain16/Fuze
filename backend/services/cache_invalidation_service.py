@@ -6,8 +6,7 @@ Provides comprehensive cache invalidation hooks for the Fuze recommendation syst
 
 import sys
 import os
-import logging
-from typing import Optional, List
+from typing import Optional
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -14,7 +14,6 @@ Author: Fuze AI System
 """
 
 from typing import List, Dict, Any
-import numpy as np
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)

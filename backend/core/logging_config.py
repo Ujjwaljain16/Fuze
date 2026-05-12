@@ -1,7 +1,6 @@
 import structlog
 import logging
 import sys
-from flask import g, has_request_context
 
 def add_correlation_id(logger, method, event_dict):
     """

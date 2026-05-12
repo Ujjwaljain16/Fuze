@@ -534,19 +534,19 @@ def test_config():
         print(f"Configuration loaded for environment: {config.environment}")
         
         # Test database config
-        print(f"\nDatabase Configuration:")
+        print("\nDatabase Configuration:")
         print(f"   Pool Size: {config.database.pool_size}")
         print(f"   Max Overflow: {config.database.max_overflow}")
         print(f"   SSL Mode: {config.database.ssl_mode}")
         
         # Test ML config
-        print(f"\nML Configuration:")
+        print("\nML Configuration:")
         print(f"   Embedding Model: {config.ml.embedding_model}")
         print(f"   Learning Rate: {config.ml.learning_rate}")
         print(f"   TF-IDF Max Features: {config.ml.tfidf_max_features}")
         
         # Test recommendation config
-        print(f"\nRecommendation Configuration:")
+        print("\nRecommendation Configuration:")
         print(f"   Max Recommendations: {config.recommendation.max_recommendations_default}")
         print(f"   Enable Diversity: {config.recommendation.enable_diversity}")
         print(f"   Cache TTL: {config.recommendation.cache_ttl_seconds}s")

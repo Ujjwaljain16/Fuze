@@ -1,8 +1,6 @@
-import logging
 from dataclasses import dataclass
 from core.logging_config import get_logger
 from utils.embedding_utils import get_embedding
-from repositories.bookmark_repository import BookmarkRepository
 
 logger = get_logger(__name__)
 

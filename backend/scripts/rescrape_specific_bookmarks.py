@@ -18,9 +18,6 @@ from models import db, SavedContent
 from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
 from utils.embedding_utils import get_embedding_artifact
 import logging
-from datetime import datetime
-from urllib.parse import urlparse
-import re
 
 # Try to import tqdm for progress bar, fallback if not available
 try:
@@ -113,7 +110,7 @@ def rescrape_bookmarks_by_ids(bookmark_ids, batch_size=10, delay=2):
                         scraped = scrape_url_enhanced(bookmark.url)
 
                         if not scraped:
-                            logger.warning(f"   No result from scraper")
+                            logger.warning("   No result from scraper")
                             failed += 1
                             continue
 

@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 
 def test_recommendations_rate_limited_after_calls(client, auth_headers):
@@ -30,9 +29,7 @@ def test_recommendations_rate_limited_after_calls(client, auth_headers):
 
 def test_rate_limit_key_contains_user_identity(app):
     """Verify the rate limit key function uses JWT identity"""
-    from blueprints.recommendations import get_jwt_identity
     with app.test_request_context():
         with patch('flask_jwt_extended.get_jwt_identity', return_value='test-user'):
-            from blueprints.recommendations import recommendations_bp
             # This is a bit internal, but ensures the logic we wrote exists
             assert True # Placeholder for more complex state check if needed

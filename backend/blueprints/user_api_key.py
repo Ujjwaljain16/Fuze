@@ -7,7 +7,6 @@ Handles user API key operations through REST API
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
-from datetime import datetime
 from models import db, User
 
 # Lazy imports to avoid import-time dependency issues

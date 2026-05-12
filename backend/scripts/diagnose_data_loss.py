@@ -6,7 +6,6 @@ Checks database state and logs to investigate user data loss issues
 
 import sys
 import os
-from datetime import datetime, timedelta
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -89,7 +88,7 @@ def check_recent_imports():
                 by_user[bm.user_id] = []
             by_user[bm.user_id].append(bm)
         
-        print(f"\n👥 Users with recent activity:")
+        print("\n👥 Users with recent activity:")
         for user_id, bookmarks in sorted(by_user.items(), key=lambda x: len(x[1]), reverse=True):
             user = User.query.get(user_id)
             username = user.username if user else f"User {user_id} (deleted?)"
@@ -140,7 +139,7 @@ def check_logs_for_imports():
         return
     
     print(f"\n{'='*60}")
-    print(f"Recent Import Activity in Logs")
+    print("Recent Import Activity in Logs")
     print(f"{'='*60}")
     
     # Read last 1000 lines of log file

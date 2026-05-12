@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app, make_response
+from flask import Blueprint, request, jsonify, make_response
 from extensions import limiter
 import os
 import requests

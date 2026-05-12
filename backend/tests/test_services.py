@@ -3,7 +3,6 @@ Unit tests for backend services
 """
 import pytest
 from unittest.mock import patch, MagicMock, Mock
-from datetime import datetime
 
 @pytest.mark.unit
 class TestBackgroundAnalysisService:

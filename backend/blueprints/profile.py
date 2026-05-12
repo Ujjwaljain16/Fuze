@@ -85,7 +85,7 @@ def update_profile():
                 'technology_interests': user.technology_interests
             }
         }), 200
-    except IntegrityError as e:
+    except IntegrityError:
         db.session.rollback()
         return jsonify({'message': 'Username already taken'}), 400
     except Exception as e:

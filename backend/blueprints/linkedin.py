@@ -1,19 +1,15 @@
-from flask import Blueprint, request, jsonify, current_app
-from flask_sqlalchemy import SQLAlchemy
+from flask import Blueprint, request, jsonify
 from sqlalchemy.exc import SQLAlchemyError
 from flask_jwt_extended import jwt_required, get_jwt_identity
-import logging
 import json
 from datetime import datetime
-import traceback
 
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-from models import db, User, Project, SavedContent, ContentAnalysis
+from models import db, SavedContent, ContentAnalysis
 from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
-from ml.intent_analysis_engine import analyze_user_intent
 from utils.gemini_utils import GeminiAnalyzer
 from core.logging_config import get_logger
 

@@ -6,15 +6,13 @@ Manages API keys for multiple users with individual rate limiting
 
 import os
 import sys
-import time
 from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
-import json
 import hashlib
 import base64
 from cryptography.fernet import Fernet

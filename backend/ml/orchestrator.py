@@ -1,6 +1,6 @@
 import time
 import hashlib
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import asdict
 
 from .recommendation.schemas import UnifiedRecommendationRequest, UnifiedRecommendationResult

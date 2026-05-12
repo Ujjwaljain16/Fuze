@@ -3,10 +3,8 @@ import logging
 from functools import wraps
 import time
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError, TimeoutError, DisconnectionError
 from sqlalchemy.pool import QueuePool
-import psycopg2
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from run_production import create_app
-from models import db, User, SavedContent, Project
+from models import User, SavedContent, Project
 
 app = create_app()
 
@@ -34,7 +34,7 @@ with app.app_context():
     total_bookmarks = SavedContent.query.count()
     total_projects = Project.query.count()
     
-    print(f"\n📊 Total Database State:")
+    print("\n📊 Total Database State:")
     print(f"   Users: {total_users}")
     print(f"   Bookmarks: {total_bookmarks}")
     print(f"   Projects: {total_projects}")

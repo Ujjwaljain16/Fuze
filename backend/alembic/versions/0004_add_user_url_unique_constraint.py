@@ -6,7 +6,6 @@ Create Date: 2026-05-12 17:00:00.000000
 
 """
 from alembic import op
-import sqlalchemy as sa
 from core.logging_config import get_logger
 
 # revision identifiers, used by Alembic.

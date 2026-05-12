@@ -5,9 +5,8 @@ This module handles the generation, updating, and management of project embeddin
 to enable semantic matching between projects and saved content.
 """
 
-import logging
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import numpy as np

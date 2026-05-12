@@ -1,10 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Task, Project, User, SavedContent, Subtask
+from models import db, Task, Project, SavedContent, Subtask
 from utils.gemini_utils import get_gemini_response
 import json
-import logging
-import numpy as np
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)

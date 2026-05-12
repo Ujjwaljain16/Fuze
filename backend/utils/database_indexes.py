@@ -217,7 +217,7 @@ def create_indexes(db, use_concurrent: bool = False):
                     if not needs_concurrent:
                         db.session.rollback()
     
-    logger.info(f" Index creation complete:")
+    logger.info(" Index creation complete:")
     logger.info(f"   Created: {created_count}")
     logger.info(f"   Skipped: {skipped_count}")
     logger.info(f"   Errors: {error_count}")

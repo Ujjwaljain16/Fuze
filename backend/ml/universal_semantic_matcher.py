@@ -6,8 +6,7 @@ Handles spelling variations, synonyms, and semantic variations automatically
 
 import re
 import difflib
-from typing import List, Dict, Tuple, Optional
-import numpy as np
+from typing import List, Dict
 from sklearn.metrics.pairwise import cosine_similarity
 from core.logging_config import get_logger
 

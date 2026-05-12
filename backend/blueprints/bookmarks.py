@@ -1,24 +1,19 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.query_sanitizer import sanitize_like_query
-from models import db, SavedContent, User, Project, ContentAnalysis
+from models import db, SavedContent, Project, ContentAnalysis
 import requests
-from readability import Document
 from bs4 import BeautifulSoup
-import numpy as np
-from sqlalchemy.exc import IntegrityError
 from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
-from urllib.parse import urlparse, urljoin, urlunparse
-import re
+from urllib.parse import urlparse, urlunparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
 from datetime import datetime, timedelta
-from sqlalchemy import func
 from core.logging_config import get_logger
 from dataclasses import asdict
 # Import embedding function
-from utils.embedding_utils import get_embedding, get_embedding_artifact
+from utils.embedding_utils import get_embedding_artifact
 from rq import Queue, Retry
 from jobs.embedding_job import embed_content_job
 from services.task_queue import get_redis_connection
@@ -270,7 +265,6 @@ def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
     
     # Fallback to threading if RQ is not available
     import threading
-    from flask import current_app
     
     def process():
         # Call the task function directly
@@ -766,7 +760,7 @@ def bulk_import_bookmarks():
             # CRITICAL: Verify user_id is set correctly before returning
             if new_bm.user_id != user_id:
                 logger.error("bulk_import_security_user_mismatch", expected_user_id=user_id, actual_user_id=new_bm.user_id)
-                return ('error', url, f'Security error: user_id mismatch', 'security_error')
+                return ('error', url, 'Security error: user_id mismatch', 'security_error')
             return ('add', url, new_bm, None)
         except Exception as e:
             return ('error', bookmark_data.get('url', ''), str(e), 'exception')
@@ -860,7 +854,6 @@ def bulk_import_bookmarks():
             # Trigger background analysis for newly imported content
             try:
                 import threading
-                from flask import current_app
                 
                 def analyze_bulk_async():
                     # CRITICAL: Create app context in the thread
@@ -1200,7 +1193,7 @@ def stream_import_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active imports
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 
@@ -1556,7 +1549,7 @@ def stream_analysis_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active analysis
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 

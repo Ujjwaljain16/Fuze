@@ -17,7 +17,6 @@ import os
 import sys
 import argparse
 from rq import Worker, Queue
-from rq.worker import WorkerStatus
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -78,7 +77,6 @@ def main():
     
     # Test that we can import the task function
     try:
-        from blueprints.bookmarks import process_bookmark_content_task
         logger.info("worker_task_import_success")
     except Exception as e:
         logger.error("worker_task_import_failed", error=str(e))

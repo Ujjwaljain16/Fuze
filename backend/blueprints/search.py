@@ -5,7 +5,6 @@ import numpy as np
 import os
 from utils.embedding_utils import get_embedding
 from core.logging_config import get_logger
-from utils.unified_config import sanitize_sql_like
 from services.semantic_search_service import SemanticSearchService
 
 # Dummy bulkhead implementation since we couldn't find the real one from Phase 1

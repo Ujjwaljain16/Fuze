@@ -7,9 +7,7 @@ import sys
 import os
 import threading
 import time
-import logging
 from datetime import datetime
-import uuid
 from typing import Dict, List, Optional
 
 # Add backend directory to path
@@ -255,7 +253,6 @@ class BackgroundAnalysisService:
                 
                 # Find content without corresponding analysis
                 # Use a simpler query that works with both PostgreSQL and SQLite
-                from sqlalchemy import select, text
                 from sqlalchemy.exc import OperationalError
                 
                 # Get all analyzed content IDs (handle case where table doesn't exist)

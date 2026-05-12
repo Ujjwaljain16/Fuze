@@ -1,4 +1,3 @@
-import pytest
 from utils.query_sanitizer import sanitize_like_query
 
 def test_percent_escaped():

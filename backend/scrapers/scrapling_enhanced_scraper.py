@@ -10,7 +10,6 @@ import os
 import asyncio
 import threading
 import re
-import requests
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -50,7 +49,6 @@ except Exception as e:
 
 # Import existing scraper as fallback
 from scrapers.enhanced_web_scraper import EnhancedWebScraper
-from bs4 import BeautifulSoup
 
 class ScraplingEnhancedScraper:
     """
@@ -606,7 +604,6 @@ class ScraplingEnhancedScraper:
         try:
             # Check for Camoufox first (used by StealthyFetcher)
             try:
-                import camoufox
                 from pathlib import Path
                 # Check multiple possible locations
                 possible_paths = [
@@ -1082,7 +1079,6 @@ class ScraplingEnhancedScraper:
         if not content:
             return ""
         
-        import re
         
         # Remove CSS styles (e.g., .class-name { property: value; })
         # Match CSS selectors and rules
@@ -1280,7 +1276,7 @@ class ScraplingEnhancedScraper:
         """Return content for URLs that require authentication"""
         return {
             'title': f'Content from {domain}',
-            'content': f'This URL requires authentication to access. Content cannot be extracted without login credentials.',
+            'content': 'This URL requires authentication to access. Content cannot be extracted without login credentials.',
             'headings': [],
             'meta_description': f'Content from {domain} - authentication required',
             'quality_score': 3

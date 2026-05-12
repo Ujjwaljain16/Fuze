@@ -2,7 +2,6 @@ import os
 import json
 import google.generativeai as genai
 from typing import Dict, List, Optional
-import logging
 import time
 import re
 import pybreaker
@@ -170,7 +169,7 @@ class GeminiAnalyzer:
                     cleaned = match.strip()
                     if cleaned.startswith('{') and cleaned.endswith('}'):
                         return json.loads(cleaned)
-                except Exception as e:
+                except Exception:
                     continue
         # Try to parse the entire response if it looks like JSON
         try:
