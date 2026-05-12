@@ -33,7 +33,10 @@ def create_task():
         # Generate embedding for task BEFORE committing
         try:
             from utils.embedding_utils import get_task_embedding
-            new_task.embedding = get_task_embedding(new_task)
+            from dataclasses import asdict
+            artifact = get_task_embedding(new_task)
+            new_task.embedding = artifact.vector
+            new_task.embedding_metadata = asdict(artifact)
             if new_task.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -260,7 +263,10 @@ def update_task(task_id):
         # Regenerate embedding for updated task
         try:
             from utils.embedding_utils import get_task_embedding
-            task.embedding = get_task_embedding(task)
+            from dataclasses import asdict
+            artifact = get_task_embedding(task)
+            task.embedding = artifact.vector
+            task.embedding_metadata = asdict(artifact)
             if task.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -358,7 +364,10 @@ def create_subtask(task_id):
         # Generate embedding for subtask for better semantic matching
         try:
             from utils.embedding_utils import get_subtask_embedding
-            new_subtask.embedding = get_subtask_embedding(new_subtask)
+            from dataclasses import asdict
+            artifact = get_subtask_embedding(new_subtask)
+            new_subtask.embedding = artifact.vector
+            new_subtask.embedding_metadata = asdict(artifact)
             if new_subtask.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -467,7 +476,10 @@ def update_subtask(subtask_id):
         if title_changed or description_changed:
             try:
                 from utils.embedding_utils import get_subtask_embedding
-                subtask.embedding = get_subtask_embedding(subtask)
+                from dataclasses import asdict
+                artifact = get_subtask_embedding(subtask)
+                subtask.embedding = artifact.vector
+                subtask.embedding_metadata = asdict(artifact)
                 if subtask.embedding is not None:
                     # Check if it's not a zero vector (fallback case)
                     try:

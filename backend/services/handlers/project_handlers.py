@@ -17,9 +17,11 @@ def handle_project_created(event: ProjectCreated):
             # 1. Generate/Refresh Embedding
             try:
                 from utils.embedding_utils import get_project_embedding
-                embedding = get_project_embedding(project)
-                if embedding is not None:
-                    project.embedding = embedding
+                from dataclasses import asdict
+                artifact = get_project_embedding(project)
+                if artifact is not None:
+                    project.embedding = artifact.vector
+                    project.embedding_metadata = asdict(artifact)
                     logger.debug("project_embedding_success", project_id=event.project_id)
             except Exception as e:
                 logger.error("project_embedding_failed", project_id=event.project_id, error=str(e))

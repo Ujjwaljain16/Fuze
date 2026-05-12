@@ -16,7 +16,7 @@ Usage:
 import os
 import sys
 import argparse
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 from rq.worker import WorkerStatus
 from core.logging_config import get_logger
 

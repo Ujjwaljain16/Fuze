@@ -9,6 +9,19 @@ import gc
 import gevent
 from gevent.threadpool import ThreadPool
 import threading
+from dataclasses import dataclass, asdict
+from datetime import datetime
+
+@dataclass
+class EmbeddingArtifact:
+    vector: np.ndarray
+    provider: str
+    model: str
+    version: str
+    dimension: int
+    dtype: str
+    normalized: bool
+    generated_at: str
 
 # Limit concurrent inference calls
 _embed_pool = ThreadPool(maxsize=2)
@@ -34,16 +47,8 @@ def get_embedding_model():
         with _embedding_lock:
             # Double-check pattern
             if not _embedding_model_initialized:
-                # Try to use production-optimized model loader first
-                try:
-                    from utils.production_optimizations import get_cached_embedding_model
-                    _embedding_model = get_cached_embedding_model()
-                    _embedding_model_initialized = True
-                    logger.info("embedding_model_cache_hit", type="production_optimized")
-                    return _embedding_model
-                except ImportError:
-                    # Fallback to standard initialization
-                    logger.debug("embedding_model_init_standard")
+                # Standard initialization
+                logger.debug("embedding_model_init_standard")
                 
                 _embedding_model = _initialize_embedding_model_robust()
                 _embedding_model_initialized = True
@@ -290,6 +295,22 @@ def get_embedding(text):
     
     return embedding
 
+def get_embedding_artifact(text) -> EmbeddingArtifact:
+    """Get fully qualified EmbeddingArtifact with provenance metadata"""
+    vector = get_embedding(text)
+    
+    # We use MiniLM locally by default
+    return EmbeddingArtifact(
+        vector=vector,
+        provider="sentence-transformers",
+        model="all-MiniLM-L6-v2",
+        version="1.0",
+        dimension=384,
+        dtype="float32",
+        normalized=True,
+        generated_at=datetime.utcnow().isoformat() + "Z"
+    )
+
 def calculate_cosine_similarity(embedding1, embedding2):
     """Calculate cosine similarity between two embeddings"""
     try:
@@ -308,11 +329,11 @@ def calculate_cosine_similarity(embedding1, embedding2):
         logger.error("embedding_similarity_calc_failed", error=str(e))
         return 0.0
 
-def get_content_embedding(content):
-    """Get embedding for content combining title and text"""
+def get_content_embedding(content) -> EmbeddingArtifact:
+    """Get embedding artifact for content combining title and text"""
     try:
         if not content:
-            return np.zeros(384)
+            return get_embedding_artifact("")
         
         # Combine title and text for better representation
         title = content.title or ""
@@ -322,20 +343,17 @@ def get_content_embedding(content):
         # Create comprehensive text representation
         combined_text = f"{title} {text} {notes}".strip()
         
-        if not combined_text:
-            return np.zeros(384)
-        
-        return get_embedding(combined_text)
+        return get_embedding_artifact(combined_text)
         
     except Exception as e:
         logger.error("embedding_get_content_failed", error=str(e))
-        return np.zeros(384)
+        return get_embedding_artifact("")
 
-def get_project_embedding(project):
-    """Get embedding for project combining title and description"""
+def get_project_embedding(project) -> EmbeddingArtifact:
+    """Get embedding artifact for project combining title and description"""
     try:
         if not project:
-            return np.zeros(384)
+            return get_embedding_artifact("")
         
         # Combine project fields for better representation
         title = project.title or ""
@@ -345,20 +363,17 @@ def get_project_embedding(project):
         # Create comprehensive project representation
         combined_text = f"{title} {description} {technologies}".strip()
         
-        if not combined_text:
-            return np.zeros(384)
-        
-        return get_embedding(combined_text)
+        return get_embedding_artifact(combined_text)
         
     except Exception as e:
         logger.error("embedding_get_project_failed", error=str(e))
-        return np.zeros(384)
+        return get_embedding_artifact("")
 
-def get_subtask_embedding(subtask):
-    """Get embedding for subtask combining title and description"""
+def get_subtask_embedding(subtask) -> EmbeddingArtifact:
+    """Get embedding artifact for subtask combining title and description"""
     try:
         if not subtask:
-            return np.zeros(384)
+            return get_embedding_artifact("")
 
         # Combine subtask fields for better representation
         title = subtask.title or ""
@@ -367,21 +382,17 @@ def get_subtask_embedding(subtask):
         # Create comprehensive subtask representation
         combined_text = f"{title} {description}".strip()
 
-        if not combined_text:
-            return np.zeros(384)
-
-        return get_embedding(combined_text)
+        return get_embedding_artifact(combined_text)
 
     except Exception as e:
         logger.error("embedding_get_subtask_failed", error=str(e))
-        return np.zeros(384)
+        return get_embedding_artifact("")
 
-def get_task_embedding(task):
-    """Get embedding for task combining title and description"""
+def get_task_embedding(task) -> EmbeddingArtifact:
+    """Get embedding artifact for task combining title and description"""
     try:
-        import numpy as np
         if not task:
-            return np.zeros(384)
+            return get_embedding_artifact("")
 
         # Combine task fields for better representation
         title = task.title or ""
@@ -390,46 +401,11 @@ def get_task_embedding(task):
         # Create comprehensive task representation
         combined_text = f"{title} {description}".strip()
 
-        if not combined_text:
-            return np.zeros(384)
-
-        return get_embedding(combined_text)
+        return get_embedding_artifact(combined_text)
 
     except Exception as e:
         logger.error("embedding_get_task_failed", error=str(e))
-        try:
-            import numpy as np
-            return np.zeros(384)
-        except:
-            return [0.0] * 384
-
-def get_project_embedding(project):
-    """Get embedding for project combining title, description, and technologies"""
-    try:
-        import numpy as np
-        if not project:
-            return np.zeros(384)
-
-        # Combine project fields for better representation
-        title = project.title or ""
-        description = project.description or ""
-        technologies = project.technologies or ""
-
-        # Create comprehensive project representation
-        combined_text = f"{title} {description} {technologies}".strip()
-
-        if not combined_text:
-            return np.zeros(384)
-
-        return get_embedding(combined_text)
-
-    except Exception as e:
-        logger.error("embedding_get_project_duplicate_failed", error=str(e))
-        try:
-            import numpy as np
-            return np.zeros(384)
-        except:
-            return [0.0] * 384
+        return get_embedding_artifact("")
 
 def is_embedding_available():
     """Check if proper embedding model is available (not fallback)"""
