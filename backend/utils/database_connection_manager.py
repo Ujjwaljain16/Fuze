@@ -6,7 +6,6 @@ Provides robust SSL connection handling and automatic recovery
 
 import os
 import time
-import logging
 import threading
 import socket
 from urllib.parse import urlparse, urlunparse
@@ -16,14 +15,13 @@ from sqlalchemy import create_engine, text, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.exc import OperationalError, DisconnectionError, TimeoutError
-from dotenv import load_dotenv
-
 # Load environment variables
+from dotenv import load_dotenv
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # IPv4 resolution helper - ensures we always get IPv4 addresses
 def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[str]:
@@ -37,25 +35,25 @@ def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[st
             addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
             if addresses:
                 ipv4_address = addresses[0][4][0]
-                logger.info(f" Resolved {hostname} to IPv4 (method 1): {ipv4_address}")
+                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address, method=1)
                 return ipv4_address
         except socket.gaierror as e:
-            logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 1) failed: {e}")
+            logger.debug("db_hostname_resolution_ipv4_failed", hostname=hostname, method=1, error=str(e))
         
         try:
             # Method 2: Use gethostbyname (legacy, but sometimes works when getaddrinfo fails)
             ipv4_address = socket.gethostbyname(hostname)
             if ipv4_address:
-                logger.info(f" Resolved {hostname} to IPv4 (method 2): {ipv4_address}")
+                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address, method=2)
                 return ipv4_address
         except socket.gaierror as e:
-            logger.debug(f"IPv4 resolution attempt {attempt + 1} (method 2) failed: {e}")
+            logger.debug("db_hostname_resolution_ipv4_failed", hostname=hostname, method=2, error=str(e))
         
         # Wait before retry
         if attempt < max_retries - 1:
             time.sleep(1)
     
-    logger.warning(f" Failed to resolve {hostname} to IPv4 after {max_retries} attempts")
+    logger.warning("db_hostname_resolution_ipv4_exhausted", hostname=hostname, attempts=max_retries)
     return None
 
 class DatabaseConnectionManager:
@@ -80,20 +78,20 @@ class DatabaseConnectionManager:
             ipv6_addresses = [addr[4][0] for addr in addresses if addr[0] == socket.AF_INET6]
             
             if ipv4_addresses:
-                logger.info(f" Resolved {hostname} to IPv4: {ipv4_addresses[0]}")
+                logger.info("db_hostname_resolved", hostname=hostname, ipv4=ipv4_addresses[0])
                 return ipv4_addresses[0]
             elif ipv6_addresses:
-                logger.info(f" Resolved {hostname} to IPv6: {ipv6_addresses[0]}")
+                logger.info("db_hostname_resolved", hostname=hostname, ipv6=ipv6_addresses[0])
                 return ipv6_addresses[0]
             else:
-                logger.warning(f" Could not resolve {hostname} to any IP address")
+                logger.warning("db_hostname_resolution_empty", hostname=hostname)
                 return None
                 
         except socket.gaierror as e:
-            logger.error(f" DNS resolution failed for {hostname}: {e}")
+            logger.error("db_dns_resolution_failed", hostname=hostname, error=str(e))
             return None
         except Exception as e:
-            logger.error(f" Unexpected error resolving {hostname}: {e}")
+            logger.error("db_dns_resolution_unexpected_error", hostname=hostname, error=str(e))
             return None
     
     def _resolve_hostname_with_fallback(self, hostname: str) -> Optional[str]:
@@ -103,13 +101,13 @@ class DatabaseConnectionManager:
             addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
             if addresses:
                 ipv4_address = addresses[0][4][0]
-                logger.info(f" Resolved {hostname} to IPv4: {ipv4_address}")
+                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address)
                 return ipv4_address
         except Exception as e:
-            logger.warning(f" IPv4 resolution failed for {hostname}: {e}")
+            logger.warning("db_hostname_resolution_ipv4_fallback_failed", hostname=hostname, error=str(e))
         
         # Don't try IPv6 - it causes "Network is unreachable" errors on Render
-        logger.warning(f" IPv4 resolution failed, will use hostname directly instead of IPv6")
+        logger.warning("db_hostname_resolution_ipv4_skipped_using_hostname", hostname=hostname)
         return None
     
     def _validate_database_url(self, url: str) -> bool:
@@ -149,7 +147,7 @@ class DatabaseConnectionManager:
             return True
             
         except Exception as e:
-            logger.warning(f" URL validation error: {e}")
+            logger.warning("db_url_validation_error", error=str(e))
             return False
     
     def _get_database_url(self) -> str:
@@ -169,7 +167,7 @@ class DatabaseConnectionManager:
                 # netloc format: user:password@host:port
                 netloc = parsed.netloc
                 if not netloc:
-                    logger.warning(" Could not extract netloc from DATABASE_URL, skipping IPv4 resolution")
+                    logger.warning("db_url_netloc_missing_skipping_resolution")
                     return database_url
                 
                 # Split credentials and host:port
@@ -229,7 +227,7 @@ class DatabaseConnectionManager:
                             hostname = host_port_part[1:bracket_end]
                             port_part = host_port_part[bracket_end + 1:]  # Includes the ':'
                         else:
-                            logger.warning(" Malformed IPv6 address in URL, skipping IPv4 resolution")
+                            logger.warning("db_url_malformed_ipv6_skipping_resolution")
                             return database_url
                     else:
                         # Regular hostname:port format - split from right
@@ -246,8 +244,7 @@ class DatabaseConnectionManager:
                 
                 # Validate hostname - should not contain @, :, or be empty
                 if '@' in hostname or ':' in hostname or hostname.strip() == '':
-                    logger.warning(f" Invalid hostname extracted: {hostname}, skipping IPv4 resolution")
-                    logger.debug(f"   Original netloc: {netloc}, host_port_part: {host_port_part}")
+                    logger.warning("db_hostname_extraction_invalid", hostname=hostname)
                     return database_url
                 
                 # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
@@ -268,23 +265,21 @@ class DatabaseConnectionManager:
                     
                     # Validate the new URL
                     if self._validate_database_url(new_url):
-                        logger.info(f" Updated DATABASE_URL to use IPv4 address: {ip_address}")
+                        logger.info("db_url_updated_ipv4", ip_address=ip_address)
                         return new_url
                     else:
-                        logger.warning(f" Generated IPv4 URL is malformed, using original")
+                        logger.warning("db_url_ipv4_malformed_using_original")
                 else:
                     # IPv4 resolution failed - log warning but continue with hostname
-                    logger.warning(f" IPv4 resolution failed for {hostname} - connection may fail on Render.com")
-                    logger.warning(f"   This is likely due to network configuration issues")
+                    logger.warning("db_ipv4_resolution_failed", hostname=hostname)
                 
                 # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
-                logger.info(f"ℹ️ Using hostname directly: {hostname} (IPv4 resolution failed)")
+                logger.info("db_using_hostname_directly", hostname=hostname)
                         
             except Exception as e:
-                logger.warning(f" Error processing DATABASE_URL: {e}")
-                logger.debug(f"   Exception details: {type(e).__name__}: {str(e)}")
+                logger.warning("db_url_processing_error", error=str(e))
                 import traceback
-                logger.debug(f"   Traceback: {traceback.format_exc()}")
+                logger.debug("db_url_processing_traceback", traceback=traceback.format_exc())
         
         return database_url
     
@@ -301,8 +296,7 @@ class DatabaseConnectionManager:
         
         # Check if the URL contains IPv6 addresses (shouldn't happen with our new logic, but safety check)
         if '[' in database_url and ']' in database_url:
-            logger.error(" IPv6 address detected in database URL - this will cause connection failures")
-            logger.error("   IPv6 connections are not supported. Please use hostname or IPv4 address.")
+            logger.error("db_ipv6_detected_in_url")
             # Extract hostname from original URL and use that instead
             try:
                 # Try to extract the original hostname from the URL
@@ -316,9 +310,9 @@ class DatabaseConnectionManager:
                     if '[' in host_part:
                         # This is IPv6, we need to get the original hostname
                         # Unfortunately we can't recover it, so we'll let it fail and log the error
-                        logger.error("   Cannot recover hostname from IPv6 URL. Connection will likely fail.")
+                        logger.error("db_hostname_recovery_failed_ipv6")
             except Exception as e:
-                logger.warning(f" Error processing IPv6 address: {e}")
+                logger.warning("db_ipv6_processing_error", error=str(e))
         
         # Update SSL mode in connection string (only for PostgreSQL)
         if not is_sqlite:
@@ -390,12 +384,12 @@ class DatabaseConnectionManager:
         @event.listens_for(engine, "checkout")
         def receive_checkout(dbapi_connection, connection_record, connection_proxy):
             """Handle connection checkout"""
-            logger.debug("Database connection checked out")
+            logger.debug("db_connection_checkout")
         
         @event.listens_for(engine, "checkin")
         def receive_checkin(dbapi_connection, connection_record):
             """Handle connection checkin"""
-            logger.debug("Database connection checked in")
+            logger.debug("db_connection_checkin")
     
     def _test_connection(self, engine: Engine) -> bool:
         """Test if the engine connection works with retry logic"""
@@ -411,11 +405,11 @@ class DatabaseConnectionManager:
                     return True
             except Exception as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Connection test attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                    logger.warning("db_connection_test_failed_retrying", attempt=attempt+1, error=str(e))
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
-                    logger.warning(f"Connection test failed after {max_retries} attempts: {e}")
+                    logger.warning("db_connection_test_exhausted", attempts=max_retries, error=str(e))
                     return False
         
         return False
@@ -427,30 +421,30 @@ class DatabaseConnectionManager:
         
         # SQLite doesn't use SSL modes
         if is_sqlite:
-            logger.info("SQLite detected - skipping SSL mode testing")
+            logger.info("db_ssl_mode_skipped_sqlite")
             return 'none'
         
         ssl_modes = ['prefer', 'require', 'verify-ca', 'verify-full']
         
         for ssl_mode in ssl_modes:
             try:
-                logger.info(f"Testing SSL mode: {ssl_mode}")
+                logger.info("db_ssl_mode_testing", mode=ssl_mode)
                 test_engine = self._create_engine(ssl_mode)
                 
                 if self._test_connection(test_engine):
-                    logger.info(f" SSL mode '{ssl_mode}' works")
+                    logger.info("db_ssl_mode_success", mode=ssl_mode)
                     test_engine.dispose()
                     return ssl_mode
                 
                 test_engine.dispose()
                 
             except Exception as e:
-                logger.warning(f"SSL mode '{ssl_mode}' failed: {e}")
+                logger.warning("db_ssl_mode_failed", mode=ssl_mode, error=str(e))
                 continue
         
         # If no SSL mode works, try 'allow' mode (less secure but more compatible)
         try:
-            logger.info("Testing SSL mode: allow")
+            logger.info("db_ssl_mode_testing", mode="allow")
             # Create a custom engine with 'allow' mode
             database_url = self._get_database_url()
             is_sqlite = self._is_sqlite(database_url)
@@ -490,14 +484,14 @@ class DatabaseConnectionManager:
             )
             
             if self._test_connection(test_engine):
-                logger.info(" SSL mode 'allow' works")
+                logger.info("db_ssl_mode_success", mode="allow")
                 test_engine.dispose()
                 return 'allow'
             
             test_engine.dispose()
             
         except Exception as e:
-            logger.warning(f"SSL mode 'allow' failed: {e}")
+            logger.warning("db_ssl_mode_failed", mode="allow", error=str(e))
         
         return None
     
@@ -516,7 +510,7 @@ class DatabaseConnectionManager:
                 try:
                     self._engine.dispose()
                 except Exception as e:
-                    logger.warning(f"Failed to dispose engine: {e}")
+                    logger.warning("db_engine_dispose_failed", error=str(e))
                 self._engine = None
             
             # Try to create new engine
@@ -527,7 +521,7 @@ class DatabaseConnectionManager:
                 database_url = self._get_database_url()
                 if 'sslmode=' in database_url:
                     current_ssl = database_url.split('sslmode=')[1].split('&')[0]
-                    logger.info(f"Trying current SSL mode: {current_ssl}")
+                    logger.info("db_ssl_mode_testing_current", mode=current_ssl)
                     
                     test_engine = self._create_engine(current_ssl)
                     if self._test_connection(test_engine):
@@ -537,7 +531,7 @@ class DatabaseConnectionManager:
                         test_engine.dispose()
                         
             except Exception as e:
-                logger.warning(f"Current SSL mode failed: {e}")
+                logger.warning("db_current_ssl_mode_failed", error=str(e))
             
             # If current mode doesn't work, find a working one
             if not working_ssl_mode:
@@ -545,7 +539,7 @@ class DatabaseConnectionManager:
             
             # If no SSL mode works, try without SSL
             if not working_ssl_mode:
-                logger.warning("No SSL mode works, trying without SSL")
+                logger.warning("db_no_ssl_mode_works_falling_back")
                 try:
                     database_url = self._get_database_url()
                     is_sqlite = self._is_sqlite(database_url)
@@ -593,7 +587,7 @@ class DatabaseConnectionManager:
                         raise Exception("No SSL mode works and non-SSL also fails")
                         
                 except Exception as e:
-                    logger.error(f"Failed to create working connection: {e}")
+                    logger.error("db_working_connection_failed", error=str(e))
                     raise
             
             # Create the final working engine
@@ -644,7 +638,7 @@ class DatabaseConnectionManager:
                 raise Exception("Created engine but connection test failed")
             
             self._last_connection_test = current_time
-            logger.info(f" Database engine created successfully with SSL mode: {working_ssl_mode}")
+            logger.info("db_engine_created_successfully", ssl_mode=working_ssl_mode)
             
             return self._engine
     
@@ -658,7 +652,7 @@ class DatabaseConnectionManager:
             connection = engine.connect()
             yield connection
         except (OperationalError, DisconnectionError, TimeoutError) as e:
-            logger.warning(f"Database connection error: {e}")
+            logger.warning("db_connection_error", error=str(e))
             
             # Try to refresh the engine
             try:
@@ -666,14 +660,14 @@ class DatabaseConnectionManager:
                 connection = engine.connect()
                 yield connection
             except Exception as refresh_error:
-                logger.error(f"Failed to refresh connection: {refresh_error}")
+                logger.error("db_connection_refresh_failed", error=str(refresh_error))
                 raise
         finally:
             if connection:
                 try:
                     connection.close()
                 except Exception as e:
-                    logger.warning(f"Failed to close connection: {e}")
+                    logger.warning("db_connection_close_failed", error=str(e))
     
     def test_connection(self) -> bool:
         """Test if the database connection is working"""
@@ -682,7 +676,7 @@ class DatabaseConnectionManager:
                 conn.execute(text('SELECT 1'))
                 return True
         except Exception as e:
-            logger.error(f"Connection test failed: {e}")
+            logger.error("db_connection_test_failed", error=str(e))
             return False
     
     def refresh_connections(self) -> bool:
@@ -698,7 +692,7 @@ class DatabaseConnectionManager:
                 return self._test_connection(engine)
                 
         except Exception as e:
-            logger.error(f"Failed to refresh connections: {e}")
+            logger.error("db_connection_refresh_failed", error=str(e))
             return False
     
     def get_connection_info(self) -> Dict[str, Any]:
@@ -753,18 +747,18 @@ def get_database_info():
 
 if __name__ == "__main__":
     # Test the connection manager
-    print("Testing Database Connection Manager...")
+    logger.info("db_manager_test_start")
     
     try:
         # Test connection
         if test_database_connection():
-            print(" Database connection successful")
+            logger.info("db_manager_test_success")
             
             # Get connection info
             info = get_database_info()
-            print(f"Connection info: {info}")
+            logger.info("db_manager_info", info=info)
         else:
-            print(" Database connection failed")
+            logger.error("db_manager_test_failed")
             
     except Exception as e:
-        print(f" Error: {e}")
+        logger.error("db_manager_error", error=str(e))

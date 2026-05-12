@@ -5,14 +5,13 @@ Check if bookmarks were deleted or moved to another user
 
 import sys
 import os
-from datetime import datetime, timedelta
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from run_production import create_app
-from models import db, SavedContent, ContentAnalysis
+from models import db
 from sqlalchemy import text
 
 app = create_app()

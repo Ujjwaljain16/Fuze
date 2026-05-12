@@ -111,7 +111,7 @@ class RecommendationConfig:
 class AIConfig:
     """AI services configuration"""
     gemini_api_key: Optional[str] = field(default_factory=lambda: os.getenv('GEMINI_API_KEY'))
-    gemini_model: str = field(default_factory=lambda: os.getenv('GEMINI_MODEL', 'gemini-pro'))
+    gemini_model: str = field(default_factory=lambda: os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite'))
     gemini_temperature: float = field(default_factory=lambda: float(os.getenv('GEMINI_TEMPERATURE', '0.7')))
     gemini_max_tokens: int = field(default_factory=lambda: int(os.getenv('GEMINI_MAX_TOKENS', '1024')))
     gemini_timeout: int = field(default_factory=lambda: int(os.getenv('GEMINI_TIMEOUT', '30')))
@@ -147,6 +147,8 @@ class LoggingConfig:
     max_file_size_mb: int = field(default_factory=lambda: int(os.getenv('LOG_MAX_FILE_SIZE_MB', '10')))
     backup_count: int = field(default_factory=lambda: int(os.getenv('LOG_BACKUP_COUNT', '5')))
     enable_console: bool = field(default_factory=lambda: os.getenv('LOG_ENABLE_CONSOLE', 'true').lower() == 'true')
+    sentry_dsn: str = field(default_factory=lambda: os.getenv('SENTRY_DSN', ''))
+    app_version: str = field(default_factory=lambda: os.getenv('APP_VERSION', 'unknown'))
 
 # ============================================================================
 # UNIFIED CONFIGURATION CLASS
@@ -282,11 +284,13 @@ class UnifiedConfig:
             'JWT_SECRET_KEY': self.security.jwt_secret_key,
             'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=self.security.jwt_access_token_expires_hours),
             'JWT_REFRESH_TOKEN_EXPIRES': timedelta(days=self.security.jwt_refresh_token_expires_days),
+            'JWT_TOKEN_LOCATION': ['cookies'],
             # JWT Cookie Security (Production-grade)
             'JWT_COOKIE_SECURE': not self.is_development(),  # HTTPS only in production
             'JWT_COOKIE_HTTPONLY': True,  # Prevent XSS attacks
             'JWT_COOKIE_SAMESITE': 'Lax',  # CSRF protection
             'JWT_COOKIE_CSRF_PROTECT': True,  # Enable CSRF protection for cookies
+            'JWT_ACCESS_CSRF_HEADER_NAME': 'X-CSRF-TOKEN',
             # Session cookie security for Flask sessions (keep in sync with JWT cookie settings)
             'SESSION_COOKIE_SECURE': not self.is_development(),
             'SESSION_COOKIE_HTTPONLY': True,
@@ -339,6 +343,18 @@ def reload_config():
 # ============================================================================
 # CONVENIENCE FUNCTIONS
 # ============================================================================
+
+def sanitize_sql_like(query: str) -> str:
+    """
+    Sanitize input for SQL LIKE/ILIKE patterns.
+    - Guards against empty/whitespace input.
+    - Escapes \, %, and _ in correct order.
+    - Returns empty string if invalid.
+    """
+    if not query or not query.strip():
+        return ""
+    # Order matters: \ first, then %, then _
+    return query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')[:200]
 
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""
@@ -449,7 +465,7 @@ CONTENT_TEXT_MAX_LENGTH=2000
 # AI SERVICES CONFIGURATION
 # ==============================================================================
 GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-pro
+GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_TEMPERATURE=0.7
 GEMINI_MAX_TOKENS=1024
 GEMINI_TIMEOUT=30
@@ -518,19 +534,19 @@ def test_config():
         print(f"Configuration loaded for environment: {config.environment}")
         
         # Test database config
-        print(f"\nDatabase Configuration:")
+        print("\nDatabase Configuration:")
         print(f"   Pool Size: {config.database.pool_size}")
         print(f"   Max Overflow: {config.database.max_overflow}")
         print(f"   SSL Mode: {config.database.ssl_mode}")
         
         # Test ML config
-        print(f"\nML Configuration:")
+        print("\nML Configuration:")
         print(f"   Embedding Model: {config.ml.embedding_model}")
         print(f"   Learning Rate: {config.ml.learning_rate}")
         print(f"   TF-IDF Max Features: {config.ml.tfidf_max_features}")
         
         # Test recommendation config
-        print(f"\nRecommendation Configuration:")
+        print("\nRecommendation Configuration:")
         print(f"   Max Recommendations: {config.recommendation.max_recommendations_default}")
         print(f"   Enable Diversity: {config.recommendation.enable_diversity}")
         print(f"   Cache TTL: {config.recommendation.cache_ttl_seconds}s")

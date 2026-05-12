@@ -1,11 +1,8 @@
-"""
-Input validation middleware for API endpoints
-"""
-import logging
+from core.logging_config import get_logger
 from functools import wraps
 from flask import request, jsonify
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def validate_json(schema):
     """
@@ -28,6 +25,7 @@ def validate_json(schema):
         def decorated_function(*args, **kwargs):
             data = request.get_json()
             if not data:
+                logger.debug("json_validation_failed", reason="missing_data")
                 return jsonify({'error': 'Invalid or missing JSON data'}), 400
             
             errors = []
@@ -81,6 +79,7 @@ def validate_json(schema):
                         errors.append(f"Field '{field_name}' is below minimum value of {min_val}")
             
             if errors:
+                logger.debug("json_validation_failed", errors=errors)
                 return jsonify({
                     'error': 'Validation failed',
                     'details': errors

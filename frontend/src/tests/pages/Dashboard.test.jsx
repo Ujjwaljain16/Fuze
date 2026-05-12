@@ -126,9 +126,6 @@ describe('Dashboard Page', () => {
   })
 
   const renderDashboard = () => {
-    // Set token right before rendering (AuthContext reads it on mount)
-    localStorage.setItem('token', 'mock-token')
-    
     return render(
       <BrowserRouter>
         <ToastProvider>

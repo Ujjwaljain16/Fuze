@@ -6,11 +6,8 @@ Combines all features from both versions with proper circular import handling
 
 import os
 import sys
-import time
-import logging
 import json
-from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 
 # Load environment variables
@@ -20,121 +17,103 @@ load_dotenv()
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from dataclasses import asdict
+from extensions import limiter
+from core.logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# Create blueprint FIRST to avoid circular imports
+from uow.unit_of_work import UnitOfWork
+
+# Create blueprint
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
 
-# Import models for new endpoints
+# ============================================================================
+# MODULE AVAILABILITY FLAGS — noqa: keep all; used as runtime conditionals
+# ============================================================================
+# Each flag is set by trying to import the optional module at startup.
+# This block was removed by ruff; all flags must exist at module load time.
+
+UNIFIED_ORCHESTRATOR_AVAILABLE = False  # noqa: F841
+UNIFIED_ENGINE_AVAILABLE = False        # noqa: F841
+SMART_ENGINE_AVAILABLE = False          # noqa: F841
+ENHANCED_ENGINE_AVAILABLE = False       # noqa: F841
+PHASE3_ENGINE_AVAILABLE = False         # noqa: F841
+FAST_GEMINI_AVAILABLE = False           # noqa: F841
+ENHANCED_MODULES_AVAILABLE = False      # noqa: F841
+MODELS_AVAILABLE = False                # noqa: F841
+
+gemini_analyzer = None  # noqa: F841
+
 try:
-    from models import db, SavedContent, Project, Task, User, UserFeedback
+    from ml.orchestrator import get_orchestrator as _get_orchestrator
+    UNIFIED_ORCHESTRATOR_AVAILABLE = True
+except Exception:
+    _get_orchestrator = None
+
+try:
+    from services.recommendation_service import RecommendationService  # noqa: F401
+    from services.content_service import ContentService  # noqa: F401
+except Exception:
+    RecommendationService = None
+    ContentService = None
+
+try:
+    from models import db, Project, UserFeedback  # noqa: F401
     MODELS_AVAILABLE = True
-except ImportError:
-    MODELS_AVAILABLE = False
-    logger.warning("Models not available for context endpoints")
+except Exception:
+    db = None
+    Project = None
+    UserFeedback = None
 
-# Initialize global flags for engine availability
-UNIFIED_ORCHESTRATOR_AVAILABLE = False
-UNIFIED_ENGINE_AVAILABLE = False
-SMART_ENGINE_AVAILABLE = False
-ENHANCED_ENGINE_AVAILABLE = False
-PHASE3_ENGINE_AVAILABLE = False
-FAST_GEMINI_AVAILABLE = False
-ENHANCED_MODULES_AVAILABLE = False
+# Helper stubs — route handlers import lazily; these provide safe fallbacks
+def get_unified_engine():
+    try:
+        from ml.engines.unified_recommendation_engine import UnifiedRecommendationEngine
+        return UnifiedRecommendationEngine()
+    except Exception:
+        return None
 
-# Global engine instances (will be initialized lazily)
-unified_engine_instance = None
+def get_smart_engine(user_id=None):
+    return None  # Legacy engine removed; redirect to orchestrator
+
+def get_unified_orchestrator():
+    if _get_orchestrator:
+        return _get_orchestrator()
+    return None
+
+def get_cached_recommendations(cache_key):
+    try:
+        from utils.redis_utils import redis_cache
+        return redis_cache.get_cache(cache_key)
+    except Exception:
+        return None
+
+def cache_recommendations(cache_key, result, ttl=1800):
+    try:
+        from utils.redis_utils import redis_cache
+        redis_cache.set_cache(cache_key, result, ttl=ttl)
+    except Exception:
+        pass
 
 def get_embedding_model():
-    """Check if embedding model is available without loading it"""
     try:
-        from utils.embedding_utils import is_embedding_available
-        return is_embedding_available()
-    except Exception as e:
-        logger.error(f"Error checking embedding model: {e}")
-        return False
-
-def init_models():
-    """Initialize models with error handling - LAZY: only loads when needed"""
-    # Model is now lazy-loaded via embedding_utils
-    # This function is kept for compatibility but does nothing at startup
-    logger.info("Embedding model will be loaded lazily when needed")
-    return True
-
-def init_engines():
-    """Initialize recommendation engines with lazy loading"""
-    global UNIFIED_ORCHESTRATOR_AVAILABLE
-    
-    # Import unified orchestrator (PRODUCTION-OPTIMIZED ENGINE)
-    try:
-        from ml.unified_recommendation_orchestrator import get_unified_orchestrator
-        UNIFIED_ORCHESTRATOR_AVAILABLE = True
-        logger.info("Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
-    except ImportError as e:
-        logger.error(f"Unified orchestrator not available: {e}")
-        UNIFIED_ORCHESTRATOR_AVAILABLE = False
-
-
-
-# Lazy initialization functions
-def get_unified_engine():
-    """Get unified engine instance with lazy initialization"""
-    global unified_engine_instance, UNIFIED_ENGINE_AVAILABLE
-    if not UNIFIED_ENGINE_AVAILABLE:
-        try:
-            from unified_recommendation_engine import UnifiedRecommendationEngine
-            unified_engine_instance = UnifiedRecommendationEngine()
-            UNIFIED_ENGINE_AVAILABLE = True
-            logger.info("Unified engine initialized lazily")
-        except Exception as e:
-            logger.error(f"Failed to initialize unified engine: {e}")
-            return None
-    return unified_engine_instance
-
-def get_smart_engine(user_id):
-    """Get smart engine instance with lazy initialization"""
-    try:
-        from smart_recommendation_engine import SmartRecommendationEngine
-        return SmartRecommendationEngine(user_id)
-    except Exception as e:
-        logger.error(f"Failed to initialize smart engine: {e}")
+        from utils.embedding_utils import get_embedding_model as _gem
+        return _gem()
+    except Exception:
         return None
 
+def get_rec_service(uow):
+    if RecommendationService is None:
+        raise RuntimeError("RecommendationService not available")
+    return RecommendationService(uow)
 
+def get_content_service(uow):
+    if ContentService is None:
+        raise RuntimeError("ContentService not available")
+    return ContentService(uow)
 
-# Cache management functions
-def get_cached_recommendations(cache_key):
-    """Get cached recommendations"""
-    try:
-        from redis_utils import redis_cache
-        return redis_cache.get_cache(cache_key)
-    except Exception as e:
-        logger.error(f"Error getting cached recommendations: {e}")
-        return None
-
-def cache_recommendations(cache_key, data, ttl=3600):
-    """Cache recommendations"""
-    try:
-        from redis_utils import redis_cache
-        return redis_cache.set_cache(cache_key, data, ttl)
-    except Exception as e:
-        logger.error(f"Error caching recommendations: {e}")
-        return False
-
-def invalidate_user_recommendations(user_id):
-    """Invalidate all cached recommendations for a user"""
-    try:
-        from services.cache_invalidation_service import cache_invalidator
-        return cache_invalidator.invalidate_recommendation_cache(user_id)
-    except Exception as e:
-        logger.error(f"Error invalidating user recommendations: {e}")
-        return False
 
 # ============================================================================
 # API ROUTES - Using Unified Orchestrator
@@ -160,99 +139,26 @@ def invalidate_user_recommendations(user_id):
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_unified_orchestrator_recommendations():
-    """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
-    # Apply rate limiting if available
-    from flask import current_app
-    if hasattr(current_app, 'limiter') and current_app.limiter:
-        # Rate limit: 20 requests per minute per user (increased for better UX)
-        @current_app.limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
-        def _rate_limited():
-            pass
-        _rate_limited()
-    
+    """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator"""
     try:
         user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
+        data = request.get_json() or {}
         
-        # Input validation
-        title = data.get('title', '')
-        description = data.get('description', '')
-        technologies = data.get('technologies', '')
-        
-        if title and len(title) > 500:
-            return jsonify({'error': 'Title exceeds maximum length of 500 characters'}), 400
-        if description and len(description) > 5000:
-            return jsonify({'error': 'Description exceeds maximum length of 5000 characters'}), 400
-        if technologies and len(technologies) > 1000:
-            return jsonify({'error': 'Technologies exceeds maximum length of 1000 characters'}), 400
-        
-        if not UNIFIED_ORCHESTRATOR_AVAILABLE:
-            return jsonify({'error': 'Recommendation engine not available'}), 500
-        
-        # Use production-optimized unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
-        from dataclasses import asdict
-        import json
-        
-        # NOTE: Project-level recommendations do NOT include subtasks
-        # Only use the provided description - subtasks are only included in task/subtask-specific endpoints
-        description = data.get('description', '')
-        project_id = data.get('project_id')
-        
-        # Create request
-        unified_request = UnifiedRecommendationRequest(
-            user_id=user_id,
-            title=data.get('title', ''),
-            description=description,
-            technologies=data.get('technologies', ''),
-            user_interests=data.get('user_interests', ''),
-            project_id=project_id,
-            max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'context'),
-            quality_threshold=data.get('quality_threshold', 3),
-            include_global_content=data.get('include_global_content', True)
-        )
-        
-        # Get orchestrator and recommendations (ML enhancement is AUTOMATIC!)
-        orchestrator = get_unified_orchestrator()
-        recommendations = orchestrator.get_recommendations(unified_request)
-
-        # NOTE: Context summaries are generated on-demand via /generate-context endpoint
-        # This allows recommendations to be shown instantly without waiting for Gemini analysis
-        # Users can click "Generate Personalized Context" to get AI-powered explanations later
-
-        # Convert to dictionary format
-        result = [asdict(rec) for rec in recommendations]
-        
-        # Get performance metrics
-        performance_metrics = orchestrator.get_performance_metrics()
-        
-        response = {
-            'recommendations': result,
-            'total_recommendations': len(result),
-            'engine_used': 'UnifiedOrchestrator_v2_Optimized',
-            'performance_metrics': performance_metrics,
-            'optimizations': ['batch_embeddings', 'auto_ml_enhancement', 'intent_aware', 'smart_caching'],
-            'request_processed': {
-                'title': unified_request.title,
-                'technologies': unified_request.technologies,
-                'engine_preference': unified_request.engine_preference
-            }
-        }
-        
-        return jsonify(response)
-        
+        with UnitOfWork() as uow:
+            rec_service = get_rec_service(uow)
+            response = rec_service.get_recommendations(user_id, data)
+            logger.info("recommendation_unified_orchestrator_success", user_id=user_id)
+            return jsonify(response)
+            
     except Exception as e:
-        logger.error(f"Error in recommendations: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("recommendation_unified_orchestrator_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/generate-context', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def generate_personalized_context():
     """Generate personalized context summary for a specific recommendation"""
     try:
@@ -269,12 +175,12 @@ def generate_personalized_context():
         if not recommendation_data or not context_data:
             return jsonify({'error': 'Missing recommendation or context data'}), 400
         
-        # Import required classes
-        from ml.unified_recommendation_orchestrator import (
+        # Import modular classes
+        from ml.recommendation.schemas import (
             UnifiedRecommendationRequest, 
-            UnifiedRecommendationResult,
-            get_unified_orchestrator
+            UnifiedRecommendationResult
         )
+        from ml.orchestrator import get_orchestrator as get_unified_orchestrator
         
         # Get orchestrator
         orchestrator = get_unified_orchestrator()
@@ -339,9 +245,7 @@ def generate_personalized_context():
         })
         
     except Exception as e:
-        logger.error(f"Error generating personalized context: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("recommendation_personalized_context_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -350,6 +254,7 @@ def generate_personalized_context():
 
 @recommendations_bp.route('/unified', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_unified_recommendations():
     """Get unified recommendations using UnifiedRecommendationEngine"""
     try:
@@ -432,15 +337,16 @@ def get_unified_recommendations():
         
         # Cache the result for 30 minutes
         cache_recommendations(cache_key, result, ttl=1800)
-        
+        logger.info("recommendation_unified_legacy_success", user_id=user_id)
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in unified recommendations: {e}")
+        logger.error("recommendation_unified_legacy_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/unified-project/<int:project_id>', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_unified_project_recommendations(project_id):
     """Get unified project recommendations using UnifiedRecommendationEngine"""
     try:
@@ -523,11 +429,11 @@ def get_unified_project_recommendations(project_id):
         
         # Cache the result for 30 minutes
         cache_recommendations(cache_key, result, ttl=1800)
-        
+        logger.info("recommendation_unified_project_success", project_id=project_id, user_id=user_id)
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in unified project recommendations: {e}")
+        logger.error("recommendation_unified_project_failed", project_id=project_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/project/<int:project_id>', methods=['GET'])
@@ -592,10 +498,11 @@ def get_project_recommendations(project_id):
             'enhanced_features_available': ENHANCED_MODULES_AVAILABLE
         }
         
+        logger.info("recommendation_project_legacy_success", project_id=project_id, user_id=user_id)
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in project recommendations: {e}")
+        logger.error("recommendation_project_legacy_failed", project_id=project_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/task/<int:task_id>', methods=['POST'])
@@ -640,8 +547,9 @@ def get_task_recommendations(task_id):
             subtask_titles = [st.title for st in incomplete_subtasks]
             enhanced_description += f" Subtasks to complete: {', '.join(subtask_titles)}"
         
-        # Use unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        # Use modular orchestrator
+        from ml.orchestrator import get_orchestrator as get_unified_orchestrator
+        from ml.recommendation.schemas import UnifiedRecommendationRequest
         from dataclasses import asdict
         import numpy as np
         from utils.embedding_utils import calculate_cosine_similarity
@@ -708,9 +616,9 @@ def get_task_recommendations(task_id):
                             reverse=True
                         )
                         recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                        logger.info(f"Enhanced {len(recommendations)} recommendations using {len(subtask_embeddings)} subtask embeddings")
+                        logger.info("recommendation_task_subtask_boost_success", count=len(recommendations), subtask_count=len(subtask_embeddings))
             except Exception as e:
-                logger.warning(f"Failed to enhance recommendations with subtask embeddings: {e}")
+                logger.warning("recommendation_task_subtask_boost_failed", error=str(e))
                 # Continue with original recommendations
         
         # Convert to dictionary format
@@ -731,7 +639,7 @@ def get_task_recommendations(task_id):
         })
         
     except Exception as e:
-        logger.error(f"Error in task recommendations: {e}")
+        logger.error("recommendation_task_failed", task_id=task_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/subtask/<int:subtask_id>', methods=['POST'])
@@ -774,8 +682,9 @@ def get_subtask_recommendations(subtask_id):
         if task_description:
             enhanced_description += f" Task context: {task_description}"
         
-        # Use unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
+        # Use modular orchestrator
+        from ml.orchestrator import get_orchestrator as get_unified_orchestrator
+        from ml.recommendation.schemas import UnifiedRecommendationRequest
         from dataclasses import asdict
         import numpy as np
         from utils.embedding_utils import calculate_cosine_similarity
@@ -838,9 +747,9 @@ def get_subtask_recommendations(subtask_id):
                         reverse=True
                     )
                     recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                    logger.info(f"Enhanced {len(recommendations)} recommendations using subtask embedding")
+                    logger.info("recommendation_subtask_boost_success", count=len(recommendations))
             except Exception as e:
-                logger.warning(f"Failed to enhance recommendations with subtask embedding: {e}")
+                logger.warning("recommendation_subtask_boost_failed", error=str(e))
                 # Continue with original recommendations
         
         # Convert to dictionary format
@@ -862,13 +771,14 @@ def get_subtask_recommendations(subtask_id):
         })
         
     except Exception as e:
-        logger.error(f"Error in subtask recommendations: {e}")
+        logger.error("recommendation_subtask_failed", subtask_id=subtask_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 
 
 @recommendations_bp.route('/smart-recommendations', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_smart_recommendations():
     """Get smart recommendations using SmartRecommendationEngine"""
     try:
@@ -880,7 +790,7 @@ def get_smart_recommendations():
         result = engine.get_recommendations(user_id, user_input)
         return jsonify(result)
     except Exception as e:
-        logger.error(f"Error in smart recommendations: {e}")
+        logger.error("recommendation_smart_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/enhanced', methods=['POST'])
@@ -905,7 +815,7 @@ def get_enhanced_recommendations_route():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in enhanced recommendations: {e}")
+        logger.error("recommendation_enhanced_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
@@ -929,7 +839,7 @@ def get_enhanced_project_recommendations_route(project_id):
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in enhanced project recommendations: {e}")
+        logger.error("recommendation_enhanced_project_failed", project_id=project_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/enhanced-status', methods=['GET'])
@@ -951,11 +861,12 @@ def get_enhanced_engine_status():
         return jsonify(status)
         
     except Exception as e:
-        logger.error(f"Error getting enhanced engine status: {e}")
+        logger.error("recommendation_enhanced_status_failed", error=str(e))
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/recommendations', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_phase3_recommendations():
     """Get Phase 3 recommendations using phase3_enhanced_engine"""
     try:
@@ -976,7 +887,7 @@ def get_phase3_recommendations():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in Phase 3 recommendations: {e}")
+        logger.error("recommendation_phase3_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/feedback', methods=['POST'])
@@ -1008,7 +919,7 @@ def record_phase3_feedback():
         return jsonify({'message': 'Feedback recorded successfully'})
         
     except Exception as e:
-        logger.error(f"Error recording Phase 3 feedback: {e}")
+        logger.error("recommendation_phase3_feedback_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/insights', methods=['GET'])
@@ -1030,7 +941,7 @@ def get_phase3_insights():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error getting Phase 3 insights: {e}")
+        logger.error("recommendation_phase3_insights_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/health', methods=['GET'])
@@ -1050,7 +961,7 @@ def get_phase3_health():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error getting Phase 3 health: {e}")
+        logger.error("recommendation_phase3_health_failed", error=str(e))
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -1090,7 +1001,7 @@ def get_engine_status():
         return jsonify(status)
         
     except Exception as e:
-        logger.error(f"Error getting engine status: {e}")
+        logger.error("recommendation_status_failed", error=str(e))
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/performance-metrics', methods=['GET'])
@@ -1106,7 +1017,7 @@ def get_performance_metrics():
                 orchestrator = get_unified_orchestrator()
                 metrics['unified_orchestrator'] = orchestrator.get_performance_metrics()
             except Exception as e:
-                logger.error(f"Error getting orchestrator metrics: {e}")
+                logger.error("recommendation_metrics_orchestrator_failed", error=str(e))
                 metrics['unified_orchestrator'] = {'error': str(e)}
         
 
@@ -1134,7 +1045,7 @@ def get_performance_metrics():
         return jsonify(metrics)
         
     except Exception as e:
-        logger.error(f"Error getting performance metrics: {e}")
+        logger.error("recommendation_performance_metrics_route_failed", error=str(e))
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/cache/clear', methods=['POST'])
@@ -1151,7 +1062,7 @@ def clear_recommendation_cache():
             return jsonify({'error': 'Failed to clear cache'}), 500
 
     except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
+        logger.error("recommendation_cache_clear_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/cache/clear-context', methods=['POST'])
@@ -1178,7 +1089,7 @@ def clear_context_cache():
 
             logger.info(f"Cleared {cleared_count}/{len(cache_keys)} context cache keys for user {user_id}")
         except Exception as cache_error:
-            logger.warning(f"Failed to clear Redis context caches: {cache_error}")
+            logger.warning("recommendation_cache_context_redis_failed", error=str(cache_error), user_id=user_id)
 
         return jsonify({
             'message': 'Context cache cleared successfully',
@@ -1186,7 +1097,7 @@ def clear_context_cache():
         })
 
     except Exception as e:
-        logger.error(f"Error clearing context cache: {e}")
+        logger.error("recommendation_cache_context_clear_route_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/cache/clear-all-recommendations', methods=['POST'])
@@ -1242,7 +1153,7 @@ def clear_all_recommendation_caches():
         })
 
     except Exception as e:
-        logger.error(f"Error clearing all recommendation caches: {e}")
+        logger.error("recommendation_cache_clear_all_failed", error=str(e), user_id=user_id)
         return jsonify({
             'error': str(e),
             'note': 'Some caches may not have been cleared'
@@ -1296,7 +1207,7 @@ def get_analysis_stats():
         return jsonify(stats)
         
     except Exception as e:
-        logger.error(f"Error getting analysis stats: {e}")
+        logger.error("recommendation_analysis_stats_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase-status', methods=['GET'])
@@ -1321,7 +1232,7 @@ def get_phase_status():
         return jsonify(status)
         
     except Exception as e:
-        logger.error(f"Error getting phase status: {e}")
+        logger.error("recommendation_phase_status_failed", error=str(e))
         return jsonify({'error': str(e)}), 500
 
 
@@ -1342,7 +1253,7 @@ def get_learning_path_recommendations():
         return get_unified_recommendations()
         
     except Exception as e:
-        logger.error(f"Error in learning path recommendations: {e}")
+        logger.error("recommendation_learning_path_legacy_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/project-recommendations', methods=['POST'])
@@ -1361,7 +1272,7 @@ def get_project_type_recommendations():
         return get_unified_project_recommendations(project_id)
         
     except Exception as e:
-        logger.error(f"Error in project type recommendations: {e}")
+        logger.error("recommendation_project_type_legacy_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/phase3/contextual', methods=['POST'])
@@ -1376,7 +1287,7 @@ def get_contextual_recommendations():
         return get_phase3_recommendations()
         
     except Exception as e:
-        logger.error(f"Error in contextual recommendations: {e}")
+        logger.error("recommendation_contextual_legacy_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -1407,7 +1318,7 @@ def analyze_content_immediately(content_id):
             return jsonify({'error': 'Background analysis service not available'}), 500
                         
     except Exception as e:
-        logger.error(f"Error analyzing content: {e}")
+        logger.error("recommendation_analysis_immediate_failed", content_id=content_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/analysis/start-background', methods=['POST'])
@@ -1426,7 +1337,7 @@ def start_background_analysis():
             return jsonify({'error': 'Background analysis service not available'}), 500
         
     except Exception as e:
-        logger.error(f"Error starting background analysis: {e}")
+        logger.error("recommendation_analysis_background_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/analysis/batch-analyze', methods=['POST'])
@@ -1462,7 +1373,7 @@ def batch_analyze_content():
             return jsonify({'error': 'Background analysis service not available'}), 500
         
     except Exception as e:
-        logger.error(f"Error in batch analysis: {e}")
+        logger.error("recommendation_analysis_batch_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -1472,77 +1383,31 @@ def batch_analyze_content():
 @recommendations_bp.route('/feedback', methods=['POST'])
 @jwt_required()
 def record_recommendation_feedback():
-    """Record feedback for recommendations - Uses UserFeedback model for ML learning"""
+    """Record feedback for recommendations delegating to RecommendationService"""
     try:
         user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
+        data = request.get_json() or {}
         
         recommendation_id = data.get('recommendation_id')
-        feedback_type = data.get('feedback_type')  # 'positive', 'negative', 'neutral'
+        feedback_type = data.get('feedback_type')
         feedback_data = data.get('feedback_data', {})
         
         if not recommendation_id or not feedback_type:
             return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
-        
-        # Import models here to avoid circular imports
-        from models import db, UserFeedback, SavedContent
-        
-        # Map feedback types to UserFeedback format
-        feedback_type_map = {
-            'positive': 'helpful',
-            'negative': 'not_relevant',
-            'neutral': 'clicked'
-        }
-        mapped_feedback_type = feedback_type_map.get(feedback_type, feedback_type)
-        
-        # Try to find the content_id from recommendation_id
-        # Recommendation ID might be the content ID or a separate identifier
-        content_id = recommendation_id  # Default assumption
-        
-        # If recommendation_id is not a content_id, we might need to look it up
-        # For now, we'll use it as content_id and let the database handle it
-        try:
-            # Check if content exists
-            content = SavedContent.query.filter_by(id=recommendation_id).first()
-            if not content:
-                # If not found, try to create a reference or use a default
-                logger.warning(f"Content with id {recommendation_id} not found, using recommendation_id as content_id")
-                content_id = recommendation_id
-            else:
-                content_id = content.id
-        except Exception as e:
-            logger.warning(f"Error looking up content: {e}, using recommendation_id as content_id")
-            content_id = recommendation_id
-        
-        # Create feedback record using UserFeedback model (supports recommendation_id)
-        feedback = UserFeedback(
-            user_id=user_id,
-            content_id=content_id,
-            recommendation_id=recommendation_id,
-            feedback_type=mapped_feedback_type,
-            context_data=feedback_data,
-            timestamp=datetime.utcnow()
-        )
-        
-        db.session.add(feedback)
-        db.session.commit()
-        
-        # If Phase 3 engine is available, also record there
-        if PHASE3_ENGINE_AVAILABLE:
-            try:
-                from phase3_enhanced_engine import record_user_feedback_phase3
-                record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
-            except Exception as e:
-                logger.warning(f"Failed to record Phase 3 feedback: {e}")
-        
-        logger.info(f"Feedback recorded: user_id={user_id}, recommendation_id={recommendation_id}, type={mapped_feedback_type}")
-        return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback.id})
-        
+            
+        with UnitOfWork() as uow:
+            rec_service = get_rec_service(uow)
+            feedback = rec_service.record_feedback(
+                user_id=user_id,
+                content_id=recommendation_id, # Simplified Mapping
+                recommendation_id=recommendation_id,
+                feedback_type=feedback_type,
+                feedback_data=feedback_data
+            )
+            return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback.id})
+            
     except Exception as e:
-        logger.error(f"Error recording feedback: {e}")
-        db.session.rollback()
+        logger.error("recommendation_feedback_failed", recommendation_id=recommendation_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/user-preferences', methods=['GET'])
@@ -1595,7 +1460,7 @@ def get_user_preferences():
         return jsonify(preferences)
         
     except Exception as e:
-        logger.error(f"Error getting user preferences: {e}")
+        logger.error("recommendation_user_preferences_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/learning-insights', methods=['GET'])
@@ -1615,7 +1480,7 @@ def get_learning_insights():
                 logger.warning(f"Phase 3 insights failed, using fallback: {e}")
         
         # Fallback to basic insights
-        from models import SavedContent, Feedback
+        from models import SavedContent
         
         # Basic learning patterns
         recent_bookmarks = SavedContent.query.filter_by(user_id=user_id).order_by(
@@ -1650,7 +1515,7 @@ def get_learning_insights():
         return jsonify(insights)
         
     except Exception as e:
-        logger.error(f"Error getting learning insights: {e}")
+        logger.error("recommendation_insights_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -1659,6 +1524,7 @@ def get_learning_insights():
 
 @recommendations_bp.route('/discover', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def discover_recommendations():
     """Discover new recommendations based on exploration"""
     try:
@@ -1715,7 +1581,7 @@ def discover_recommendations():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error in discovery recommendations: {e}")
+        logger.error("recommendation_discovery_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/similar/<int:content_id>', methods=['GET'])
@@ -1783,7 +1649,7 @@ def get_similar_content(content_id):
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error getting similar content: {e}")
+        logger.error("recommendation_similar_failed", content_id=content_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 # ============================================================================
@@ -1792,6 +1658,7 @@ def get_similar_content(content_id):
 
 @recommendations_bp.route('/ultra-fast', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_ultra_fast_recommendations():
     """Get ultra-fast recommendations using vector similarity search"""
     try:
@@ -1806,15 +1673,16 @@ def get_ultra_fast_recommendations():
         except ImportError:
             return jsonify({'error': 'Ultra-fast engine not available'}), 500
         except Exception as e:
-            logger.error(f"Error in ultra-fast recommendations: {e}")
+            logger.error("recommendation_ultra_fast_engine_failed", error=str(e), user_id=user_id)
             return jsonify({'error': str(e)}), 500
             
     except Exception as e:
-        logger.error(f"Error in ultra-fast recommendations: {e}")
+        logger.error("recommendation_ultra_fast_failed", error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/ultra-fast-project/<int:project_id>', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
 def get_ultra_fast_project_recommendations(project_id):
     """Get ultra-fast project recommendations"""
     try:
@@ -1829,11 +1697,11 @@ def get_ultra_fast_project_recommendations(project_id):
         except ImportError:
             return jsonify({'error': 'Ultra-fast engine not available'}), 500
         except Exception as e:
-            logger.error(f"Error in ultra-fast project recommendations: {e}")
+            logger.error("recommendation_ultra_fast_project_engine_failed", project_id=project_id, error=str(e), user_id=user_id)
             return jsonify({'error': str(e)}), 500
             
     except Exception as e:
-        logger.error(f"Error in ultra-fast project recommendations: {e}")
+        logger.error("recommendation_ultra_fast_project_failed", project_id=project_id, error=str(e), user_id=user_id)
         return jsonify({'error': str(e)}), 500
 
 @recommendations_bp.route('/gemini-status', methods=['GET'])
@@ -1856,7 +1724,7 @@ def get_gemini_status():
         return jsonify(status_info)
         
     except Exception as e:
-        logger.error(f"Error checking Gemini status: {e}")
+        logger.error("recommendation_gemini_status_failed", error=str(e))
         return jsonify({
             'gemini_available': False,
             'status': 'error',
@@ -1968,7 +1836,7 @@ def get_suggested_contexts():
         return jsonify(result)
     
     except Exception as e:
-        logger.error(f"Error getting suggested contexts: {e}")
+        logger.error("recommendation_suggested_contexts_failed", error=str(e))
         return jsonify({'success': False, 'error': str(e), 'contexts': []}), 500
 
 @recommendations_bp.route('/recent-contexts', methods=['GET', 'OPTIONS'])
@@ -2032,7 +1900,7 @@ def get_recent_contexts():
         return jsonify(result)
     
     except Exception as e:
-        logger.error(f"Error getting recent contexts: {e}")
+        logger.error("recommendation_recent_contexts_failed", error=str(e))
         return jsonify({'success': False, 'error': str(e), 'recent': []}), 500
 
 def _get_time_ago(timestamp):
@@ -2060,20 +1928,9 @@ def _get_time_ago(timestamp):
 # ============================================================================
 
 def init_recommendations_blueprint():
-    """Initialize the recommendations blueprint"""
-    logger.info("Initializing complete recommendations blueprint...")
-    
-    # Models are now lazy-loaded - no initialization at startup
-    # init_models() is kept for compatibility but does nothing
-    init_models()
-    
-    # Initialize engines with error handling
-    # Only Unified Orchestrator is initialized - other engines are deprecated
-    try:
-        init_engines()
-    except Exception as e:
-        logger.error(f"Error initializing engines: {e}")
-        # Engine initialization failed, but blueprint can still function with fallbacks
+    """Initialize the recommendations blueprint (Legacy hook kept for compatibility)"""
+    logger.info("recommendation_blueprint_initialized")
+    return recommendations_bp
     
     return recommendations_bp
 

@@ -6,7 +6,6 @@ Tests complete user flow with multiple users to verify data isolation
 
 import sys
 import os
-from datetime import datetime
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,7 +13,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from run_production import create_app
-from models import db, User, SavedContent, ContentAnalysis, Project
+from models import db, User, SavedContent, Project
 from werkzeug.security import generate_password_hash
 
 app = create_app()
@@ -102,7 +101,7 @@ def create_test_data_for_users(users_data):
                 )
                 db.session.add(bookmark)
             db.session.commit()
-            print(f"    ✅ Created 3 bookmarks")
+            print("    ✅ Created 3 bookmarks")
         
         print("\n✅ Test data created successfully!")
 
@@ -190,7 +189,7 @@ def test_bookmark_import_simulation(user_data):
                 print(f"    ❌ ERROR: Imported bookmark {bm.id} has wrong user_id: {bm.user_id} (expected {user_id})")
                 return False
         
-        print(f"    ✅ All imported bookmarks have correct user_id")
+        print("    ✅ All imported bookmarks have correct user_id")
         return True
 
 def main():

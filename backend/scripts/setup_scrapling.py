@@ -96,7 +96,6 @@ def main():
     # Step 3: Verify setup
     logger.info("\n Step 3: Verifying setup...")
     try:
-        from scrapling.fetchers import StealthyFetcher, DynamicFetcher, Fetcher
         logger.info(" Scrapling imports successfully")
         logger.info(" Setup complete! Scrapling is ready to use.")
         return True

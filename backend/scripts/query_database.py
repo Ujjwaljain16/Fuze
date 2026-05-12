@@ -6,7 +6,6 @@ Allows you to run SQL queries directly on the database
 
 import sys
 import os
-from datetime import datetime
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,7 +127,7 @@ def check_user_counts():
         result = db.session.execute(query)
         rows = result.fetchall()
         
-        print(f"\n📊 Bookmark counts by user:")
+        print("\n📊 Bookmark counts by user:")
         for row in rows:
             print(f"   User {row[0]}: {row[1]} bookmarks (first: {row[3]}, last: {row[2]})")
         

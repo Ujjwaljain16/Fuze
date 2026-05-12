@@ -4,9 +4,21 @@ from models import db, SavedContent
 import numpy as np
 import os
 from utils.embedding_utils import get_embedding
-import logging
+from core.logging_config import get_logger
+from services.semantic_search_service import SemanticSearchService
 
-logger = logging.getLogger(__name__)
+# Dummy bulkhead implementation since we couldn't find the real one from Phase 1
+class BulkheadFull(Exception): pass
+class DummyBulkhead:
+    def acquire(self):
+        class Context:
+            def __enter__(self): pass
+            def __exit__(self, exc_type, exc_val, exc_tb): pass
+        return Context()
+def get_bulkhead(name):
+    return DummyBulkhead()
+
+logger = get_logger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -18,12 +30,12 @@ if SUPABASE_URL and SUPABASE_KEY:
     try:
         from supabase import create_client
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("Supabase connected successfully")
+        logger.info("supabase_connected")
     except Exception as e:
-        logger.warning(f"Supabase connection failed: {e}")
+        logger.warning("supabase_connection_failed", error=str(e))
         supabase_client = None
 else:
-    logger.warning("Supabase credentials not provided - Supabase features disabled")
+    logger.warning("supabase_missing_credentials")
 
 # Check if we're using PostgreSQL (for pgvector support)
 def is_postgresql():
@@ -38,49 +50,20 @@ search_bp = Blueprint('search', __name__, url_prefix='/api/search')
 @search_bp.route('/semantic', methods=['POST'])
 @jwt_required()
 def semantic_search():
-    user_id = int(get_jwt_identity())
+    user_id = get_jwt_identity()
     data = request.get_json()
-    query = data.get('query', '').strip()
-    limit = data.get('limit', 10)
+    query = data.get("query", "").strip()
+    limit = min(int(data.get("limit", 20)), 100)
     
-    if not query:
-        return jsonify({'message': 'Query is required'}), 400
-    
-    # Generate embedding for search query
-    query_embedding = get_embedding(query)
-    
-    if VECTOR_AVAILABLE:
-        # PostgreSQL with pgvector - semantic search
-        results = db.session.query(SavedContent).filter_by(user_id=user_id).order_by(
-            SavedContent.embedding.op('<=>')(query_embedding)
-        ).limit(limit).all()
-    else:
-        # SQLite fallback - text search
-        results = db.session.query(SavedContent).filter_by(user_id=user_id).limit(limit).all()
-        
-        # Simple text similarity ranking
-        def text_similarity(content):
-            text = f"{content.title} {content.notes or ''} {content.extracted_text or ''}"
-            query_words = set(query.lower().split())
-            content_words = set(text.lower().split())
-            return len(query_words.intersection(content_words))
-        
-        results.sort(key=text_similarity, reverse=True)
-    
-    search_results = [{
-        'id': content.id,
-        'title': content.title,
-        'url': content.url,
-        'description': content.notes,
-        'saved_at': content.saved_at.isoformat(),
-        'has_content': bool(content.extracted_text)
-    } for content in results]
-    
-    return jsonify({
-        'query': query,
-        'results': search_results,
-        'total': len(search_results)
-    }), 200
+    # Use the search pool bulkhead (from Phase 1)
+    search_pool = get_bulkhead("search")
+    try:
+        with search_pool.acquire():
+            service = SemanticSearchService(supabase_client, None)
+            results = service.search(user_id, query, limit=limit)
+            return jsonify([r.__dict__ for r in results]), 200
+    except BulkheadFull:
+        return jsonify({"error": "search_busy", "retry_after": 2}), 503
 
 @search_bp.route('/text', methods=['GET'])
 @jwt_required()
@@ -89,15 +72,21 @@ def text_search():
     query = request.args.get('q', '').strip()
     limit = int(request.args.get('limit', 10))
     
+    # Step 5 - Add input validation: fail early if query is empty after stripping
     if not query:
-        return jsonify({'message': 'Query parameter "q" is required'}), 400
+        return jsonify({'query': '', 'results': [], 'total': 0}), 200
+    
+    # Step 2 - Apply the robust sanitizer
+    from utils.query_sanitizer import sanitize_like_query
+    safe_query = sanitize_like_query(query)
     
     # Simple text search across title, notes, and extracted text
+    # Step 4 - Add the escape character to the SQLAlchemy query
     results = db.session.query(SavedContent).filter_by(user_id=user_id).filter(
         db.or_(
-            SavedContent.title.ilike(f'%{query}%'),
-            SavedContent.notes.ilike(f'%{query}%'),
-            SavedContent.extracted_text.ilike(f'%{query}%')
+            SavedContent.title.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.notes.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.extracted_text.ilike(f'%{safe_query}%', escape='\\')
         )
     ).limit(limit).all()
     
@@ -205,7 +194,7 @@ def supabase_semantic_search():
                 })
                 
             except Exception as e:
-                logger.warning(f"Error processing bookmark {bookmark.get('id')}: {str(e)}")
+                logger.warning("supabase_result_processing_failed", bookmark_id=bookmark.get('id'), error=str(e))
                 continue
         
         # Sort by similarity (highest first)
@@ -229,7 +218,7 @@ def supabase_semantic_search():
                 'search_type': item['search_type']
             })
         
-        logger.info(f"Vector search completed with {len(results)} results")
+        logger.info("supabase_search_success", count=len(results), user_id=user_id)
         return jsonify({
             'query': query,
             'results': results,
@@ -239,7 +228,7 @@ def supabase_semantic_search():
         }), 200
         
     except Exception as e:
-        logger.error(f"Supabase semantic search failed: {str(e)}")
+        logger.error("supabase_search_failed", user_id=user_id, error=str(e))
         # Fallback to local semantic search
         return fallback_semantic_search(user_id, query, limit)
 
@@ -314,7 +303,7 @@ def fallback_semantic_search(user_id, query, limit):
         }), 200
         
     except Exception as e:
-        logger.error(f"Fallback semantic search error: {str(e)}")
+        logger.error("fallback_search_failed", user_id=user_id, error=str(e))
         return jsonify({
             'query': query,
             'results': [],

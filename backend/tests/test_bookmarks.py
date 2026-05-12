@@ -3,7 +3,7 @@ Unit tests for bookmarks blueprint
 """
 import pytest
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 @pytest.mark.unit
 @pytest.mark.requires_db
@@ -149,7 +149,7 @@ class TestBookmarks:
             try:
                 # Invalidate all bookmark caches for this user
                 redis_cache.invalidate_query_cache(f"bookmarks:{test_user['id']}:*")
-            except Exception as e:
+            except Exception:
                 # If Redis is not available or fails, continue (cache might not be used)
                 pass
         

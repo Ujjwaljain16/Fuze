@@ -1,26 +1,24 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, SavedContent, User, Project, ContentAnalysis
+from utils.query_sanitizer import sanitize_like_query
+from models import db, SavedContent, Project, ContentAnalysis
 import requests
-from readability import Document
 from bs4 import BeautifulSoup
-import numpy as np
-from sqlalchemy.exc import IntegrityError
 from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
-from urllib.parse import urlparse, urljoin, urlunparse
-import re
+from urllib.parse import urlparse, urlunparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
-import logging
-import traceback
 from datetime import datetime, timedelta
-from sqlalchemy import func
-
+from core.logging_config import get_logger
+from dataclasses import asdict
 # Import embedding function
-from utils.embedding_utils import get_embedding
+from utils.embedding_utils import get_embedding_artifact
+from rq import Queue, Retry
+from jobs.embedding_job import embed_content_job
+from services.task_queue import get_redis_connection
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
@@ -80,9 +78,11 @@ def is_duplicate_url(url, user_id):
     domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
     
     # Find bookmarks with same domain and path
+    from utils.query_sanitizer import sanitize_like_query
+    safe_domain_path = sanitize_like_query(domain_path)
     similar_bookmarks = SavedContent.query.filter(
         SavedContent.user_id == user_id,
-        SavedContent.url.like(f"{domain_path}%")
+        SavedContent.url.like(f"{safe_domain_path}%", escape='\\')
     ).all()
     
     for bookmark in similar_bookmarks:
@@ -138,17 +138,17 @@ def generate_comprehensive_embedding(title, description, meta_description, headi
     
     # Generate embedding
     try:
-        embedding = get_embedding(content_for_embedding)
-        return embedding
+        artifact = get_embedding_artifact(content_for_embedding)
+        return artifact
     except Exception as embed_error:
-        logger.error(f"Embedding generation failed: {embed_error}")
+        logger.error("embedding_generation_failed", error=str(embed_error), url=url)
         # Fallback: try with just title and URL
         try:
             fallback_content = f"{title or 'Unknown'} {url or ''}".strip()
             if fallback_content:
-                return get_embedding(fallback_content)
+                return get_embedding_artifact(fallback_content)
         except Exception as fallback_error:
-            logger.error(f"Fallback embedding also failed: {fallback_error}")
+            logger.error("fallback_embedding_failed", error=str(fallback_error), url=url)
             # Last resort: return None (will be handled by caller)
             return None
 
@@ -157,8 +157,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
     RQ Task function to process bookmark content extraction, embedding, and analysis
     This is called by RQ workers in the background
     """
-    import logging
-    task_logger = logging.getLogger(__name__)
+    # Use global logger
     
     try:
         # Get Flask app context for database operations
@@ -171,16 +170,16 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             except ImportError:
                 from backend.wsgi import app
         
-        task_logger.info(f"Starting background processing for bookmark {bookmark_id}")
+        logger.info("bg_processing_start_attempt", bookmark_id=bookmark_id)
         
         with app.app_context():
             # Get the bookmark
             bookmark = SavedContent.query.get(bookmark_id)
             if not bookmark:
-                logger.error(f"Bookmark {bookmark_id} not found for background processing")
+                logger.error("bg_processing_content_missing", bookmark_id=bookmark_id)
                 return
             
-            task_logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
+            logger.info("bg_processing_started", bookmark_id=bookmark_id, url=url)
             
             # Extract content from URL
             scraped = extract_article_content(url)
@@ -203,7 +202,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 bookmark.title = final_title
             
             # Generate comprehensive embedding
-            embedding = generate_comprehensive_embedding(
+            artifact = generate_comprehensive_embedding(
                 title=bookmark.title,
                 description=bookmark.notes or '',
                 meta_description=meta_description,
@@ -219,8 +218,9 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                     extracted_text = str(extracted_text)
                 bookmark.extracted_text = extracted_text
             
-            if embedding is not None:
-                bookmark.embedding = embedding
+            if artifact is not None:
+                bookmark.embedding = artifact.vector
+                bookmark.embedding_metadata = asdict(artifact)
             
             bookmark.quality_score = quality_score
             
@@ -232,18 +232,18 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             cache_invalidator.after_content_update(bookmark_id, user_id)
             redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
             
-            task_logger.info(f"Background processing completed for bookmark {bookmark_id}")
+            logger.info("bg_processing_complete", bookmark_id=bookmark_id)
             
             # Trigger background analysis
             try:
                 from services.background_analysis_service import analyze_content
                 analyze_content(bookmark_id, user_id)
-                task_logger.info(f"Background analysis triggered for bookmark {bookmark_id}")
+                logger.info("bg_analysis_triggered", bookmark_id=bookmark_id)
             except Exception as e:
-                task_logger.error(f"Error triggering background analysis for bookmark {bookmark_id}: {e}")
+                logger.error("bg_analysis_trigger_failed", bookmark_id=bookmark_id, error=str(e))
                 
     except Exception as e:
-        task_logger.error(f"Error in background processing for bookmark {bookmark_id}: {e}", exc_info=True)
+        logger.error("bg_processing_failed", bookmark_id=bookmark_id, error=str(e))
         raise  # Re-raise so RQ can handle retries
 
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
@@ -258,14 +258,13 @@ def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
         if is_rq_available():
             job = enqueue_bookmark_processing(bookmark_id, url, user_id)
             if job:
-                logger.info(f"Bookmark {bookmark_id} processing enqueued as job {job.id}")
+                logger.info("bookmark_enqueued_rq", bookmark_id=bookmark_id, job_id=job.id)
                 return
     except Exception as e:
-        logger.warning(f"Failed to enqueue with RQ: {e}, falling back to threading")
+        logger.warning("bookmark_enqueue_rq_failed", bookmark_id=bookmark_id, error=str(e))
     
     # Fallback to threading if RQ is not available
     import threading
-    from flask import current_app
     
     def process():
         # Call the task function directly
@@ -274,7 +273,7 @@ def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
     # Start background thread
     thread = threading.Thread(target=process, daemon=True)
     thread.start()
-    logger.info(f"Bookmark {bookmark_id} processing started in background thread (RQ unavailable)")
+    logger.info("bookmark_processing_threaded", bookmark_id=bookmark_id)
 
 @bookmarks_bp.route('/quick-save', methods=['POST'])
 @jwt_required()
@@ -350,6 +349,7 @@ def quick_save_bookmark():
         notes=description.strip() if isinstance(description, str) else '',
         extracted_text='',  # Will be filled by background processing
         embedding=None,  # Will be generated by background processing
+        embedding_metadata=None,
         quality_score=0  # Will be updated by background processing
     )
     
@@ -373,7 +373,7 @@ def quick_save_bookmark():
         }), 201
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in quick save: {e}", exc_info=True)
+        logger.error("bookmark_quick_save_failed", error=str(e), user_id=user_id)
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
 @bookmarks_bp.route('', methods=['POST'])
@@ -452,19 +452,8 @@ def save_bookmark():
         else:
             final_title = truncated + "..."
     
-    # Generate comprehensive embedding using optimized strategy
-    embedding = generate_comprehensive_embedding(
-        title=final_title,
-        description=description,
-        meta_description=meta_description,
-        headings=headings,
-        extracted_text=extracted_text,
-        url=url
-    )
-    
-    # If embedding generation failed, still save bookmark but log warning
-    if embedding is None:
-        logger.warning(f"Failed to generate embedding for {url}, saving bookmark without embedding")
+    # Embedding generation is handled asynchronously via RQ
+    artifact = None
     
     # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
     # Don't truncate - save the complete extracted content
@@ -481,7 +470,8 @@ def save_bookmark():
         title=final_title,  # Truncated to 200 chars max
         notes=description.strip() if isinstance(description, str) else '',
         extracted_text=extracted_text,  # Full extracted text - no truncation
-        embedding=embedding,
+        embedding=artifact.vector if artifact else None,
+        embedding_metadata=asdict(artifact) if artifact else None,
         quality_score=quality_score
         # Optionally: store headings/meta_description in new columns if desired
     )
@@ -495,6 +485,22 @@ def save_bookmark():
         # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
         redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
 
+        # Enqueue embedding job
+        try:
+            redis_conn = get_redis_connection()
+            if redis_conn:
+                high_queue = Queue('high', connection=redis_conn)
+                high_queue.enqueue(
+                    embed_content_job,
+                    args=(str(new_bm.id), extracted_text, str(user_id)),
+                    job_timeout=120,
+                    retry=Retry(max=3, interval=[10, 30, 60]),
+                    result_ttl=3600
+                )
+                logger.info("enqueued_embed_job", content_id=new_bm.id)
+        except Exception as e:
+            logger.warning("embed_job_enqueue_failed", error=str(e), content_id=new_bm.id)
+
         # Trigger background analysis for this new content (non-blocking)
         try:
             import threading
@@ -503,12 +509,12 @@ def save_bookmark():
                     from services.background_analysis_service import analyze_content
                     analyze_content(new_bm.id, user_id)
                 except Exception as e:
-                    logger.error(f"Error triggering background analysis for bookmark {new_bm.id}: {e}")
+                    logger.error("bg_analysis_async_failed", bookmark_id=new_bm.id, error=str(e))
 
             analysis_thread = threading.Thread(target=analyze_async, daemon=True)
             analysis_thread.start()
         except Exception as analysis_error:
-            logger.warning(f"Could not trigger background analysis: {analysis_error}")
+            logger.warning("bg_analysis_trigger_failed", error=str(analysis_error))
             # Don't fail the bookmark save if analysis fails
 
         return jsonify({
@@ -531,7 +537,7 @@ def save_bookmark():
 def bulk_import_bookmarks():
     """Bulk import bookmarks from Chrome extension (optimized with Redis and progress tracking)"""
     user_id = int(get_jwt_identity())
-    logger.info(f"[IMPORT] Starting bulk import for user {user_id} - received {len(request.get_json()) if isinstance(request.get_json(), list) else 0} bookmarks")
+    logger.info("bulk_import_start", user_id=user_id)
     data = request.get_json()
 
     if not isinstance(data, list):
@@ -561,13 +567,13 @@ def bulk_import_bookmarks():
     # Try to get cached user bookmarks first
     cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
     if cached_bookmarks:
-        logger.debug(f"Using cached bookmarks for user {user_id}")
+        logger.debug("bulk_import_using_cache", user_id=user_id)
         existing_urls = set(bm['url'] for bm in cached_bookmarks)
         normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
         url_to_bm = {bm['url']: bm for bm in cached_bookmarks}
     else:
         # Fallback to database query
-        logger.debug(f"Loading bookmarks from database for user {user_id}")
+        logger.debug("bulk_import_db_load", user_id=user_id)
         existing_bms = SavedContent.query.filter_by(user_id=user_id).all()
         existing_urls = set(bm.url for bm in existing_bms)
         normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
@@ -646,20 +652,20 @@ def bulk_import_bookmarks():
                             # Rate limited - wait longer before retry
                             import time
                             wait_time = 2 * (attempt + 1)  # 2s, 4s delays
-                            logger.warning(f"Rate limited for {url[:50]}, waiting {wait_time}s before retry...")
+                            logger.warning("bulk_import_rate_limited_retry", url_prefix=url[:50], wait_time=wait_time)
                             time.sleep(wait_time)
                         else:
-                            logger.error(f"Rate limited for {url[:50]} after {max_retries} attempts")
+                            logger.error("bulk_import_rate_limited_final", url_prefix=url[:50], max_retries=max_retries)
                     elif attempt < max_retries - 1:
                         # Other errors - shorter retry delay
                         import time
                         time.sleep(1 * (attempt + 1))  # 1s, 2s delays
                     else:
-                        logger.error(f"All scraping attempts failed for {url[:50]}: {scrape_error}")
+                        logger.error("bulk_import_scraping_failed_final", url_prefix=url[:50], error=str(scrape_error))
             
             # If scraping failed completely, use proper fallback (never save "Unable to extract")
             if not scraped or not scraped.get('content'):
-                logger.warning(f"Scraping failed for {url}, using proper fallback")
+                logger.warning("bulk_import_scraping_fallback", url=url)
                 parsed = urlparse(url)
                 domain = parsed.netloc.replace('www.', '')
                 path_parts = [p for p in parsed.path.strip('/').split('/') if p]
@@ -691,7 +697,7 @@ def bulk_import_bookmarks():
             # Replace them with proper fallback content
             if extracted_text and ('unable to extract' in extracted_text.lower() or 
                                  'extraction failed' in extracted_text.lower()):
-                logger.warning(f"Replacing 'Unable to extract' message for {url[:50]} with proper fallback")
+                logger.warning("bulk_import_replacing_failed_extraction_msg", url_prefix=url[:50])
                 parsed = urlparse(url)
                 domain = parsed.netloc.replace('www.', '')
                 extracted_text = f"Content from {domain}. URL: {url}"
@@ -718,7 +724,7 @@ def bulk_import_bookmarks():
             # Quality score is stored for reference but doesn't prevent saving
             
             # Generate comprehensive embedding using same optimized strategy
-            embedding = generate_comprehensive_embedding(
+            artifact = generate_comprehensive_embedding(
                 title=final_title,
                 description='',  # No description in bulk import
                 meta_description=meta_description,
@@ -728,8 +734,8 @@ def bulk_import_bookmarks():
             )
             
             # If embedding generation failed, still save bookmark but log warning
-            if embedding is None:
-                logger.warning(f"Failed to generate embedding for {url} during bulk import")
+            if artifact is None:
+                logger.warning("bulk_import_no_embedding", url=url)
             
             # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
             # Don't truncate - save the complete extracted content
@@ -747,13 +753,14 @@ def bulk_import_bookmarks():
                 notes='',
                 category=category,  # Set category from bookmark data
                 extracted_text=extracted_text,  # Full extracted text - no truncation
-                embedding=embedding,
+                embedding=artifact.vector if artifact else None,
+                embedding_metadata=asdict(artifact) if artifact else None,
                 quality_score=quality_score
             )
             # CRITICAL: Verify user_id is set correctly before returning
             if new_bm.user_id != user_id:
-                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark user_id mismatch! Expected {user_id}, got {new_bm.user_id}")
-                return ('error', url, f'Security error: user_id mismatch', 'security_error')
+                logger.error("bulk_import_security_user_mismatch", expected_user_id=user_id, actual_user_id=new_bm.user_id)
+                return ('error', url, 'Security error: user_id mismatch', 'security_error')
             return ('add', url, new_bm, None)
         except Exception as e:
             return ('error', bookmark_data.get('url', ''), str(e), 'exception')
@@ -794,7 +801,7 @@ def bulk_import_bookmarks():
                 # Track skip reasons
                 reason_code = reason_code or 'unknown'
                 skip_reasons[reason_code] = skip_reasons.get(reason_code, 0) + 1
-                logger.debug(f"Skipped bookmark {url[:50]}: {reason}")
+                logger.debug("bulk_import_skipped_item", url_prefix=url[:50], reason=reason)
             elif result[0] == 'error':
                 # Handle both 3-tuple (old) and 4-tuple (new) formats
                 if len(result) == 4:
@@ -820,18 +827,18 @@ def bulk_import_bookmarks():
         # CRITICAL: Verify all bookmarks have correct user_id before committing
         for bm in new_bookmarks:
             if bm.user_id != user_id:
-                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark has wrong user_id! Expected {user_id}, got {bm.user_id}. URL: {bm.url[:50]}")
+                logger.error("bulk_import_security_user_mismatch_pre_commit", expected_user_id=user_id, actual_user_id=bm.user_id, url_prefix=bm.url[:50])
                 db.session.rollback()
                 return jsonify({
                     'message': 'Security error: Bookmark user_id mismatch detected',
                     'error': 'Data integrity check failed'
                 }), 500
         
-        logger.info(f"[IMPORT] Committing {len(new_bookmarks)} bookmarks for user {user_id}")
+        logger.info("bulk_import_commit_start", count=len(new_bookmarks), user_id=user_id)
         for bm in new_bookmarks:
             db.session.add(bm)
         db.session.commit()
-        logger.info(f"[IMPORT] Successfully committed {len(new_bookmarks)} bookmarks for user {user_id}")
+        logger.info("bulk_import_commit_success", count=len(new_bookmarks), user_id=user_id)
         
         # CRITICAL: Extract IDs immediately after commit, before objects become detached
         # SQLAlchemy objects become detached after commit, so we need to extract IDs now
@@ -847,7 +854,6 @@ def bulk_import_bookmarks():
             # Trigger background analysis for newly imported content
             try:
                 import threading
-                from flask import current_app
                 
                 def analyze_bulk_async():
                     # CRITICAL: Create app context in the thread
@@ -861,14 +867,14 @@ def bulk_import_bookmarks():
                             from services.background_analysis_service import batch_analyze_content
                             # Use the pre-extracted IDs instead of accessing detached objects
                             result = batch_analyze_content(content_ids, user_id)
-                            logger.info(f"Bulk analysis completed: {result}")
+                            logger.info("bulk_analysis_complete", user_id=user_id)
                     except Exception as e:
-                        logger.error(f"Error triggering bulk background analysis: {e}", exc_info=True)
+                        logger.error("bulk_analysis_failed", user_id=user_id, error=str(e))
 
                 analysis_thread = threading.Thread(target=analyze_bulk_async, daemon=True)
                 analysis_thread.start()
             except Exception as analysis_error:
-                logger.warning(f"Could not trigger bulk background analysis: {analysis_error}")
+                logger.warning("bulk_analysis_trigger_failed", user_id=user_id, error=str(analysis_error))
         
         # Mark import as completed in Redis
         redis_cache.set_cache(import_key, {
@@ -894,9 +900,38 @@ def bulk_import_bookmarks():
             'cache_used': cached_bookmarks is not None
         }), 200
     except Exception as e:
-        logger.error(f"[IMPORT] Error during bulk import for user {user_id}: {e}", exc_info=True)
+        logger.error("bulk_import_failed", user_id=user_id, error=str(e))
         db.session.rollback()
         return jsonify({'message': f'Bulk import failed: {str(e)}'}), 500
+
+@bookmarks_bp.route('/search', methods=['GET'])
+@jwt_required()
+def search_bookmarks():
+    user_id = int(get_jwt_identity())
+    query = request.args.get('q', '').strip()
+    limit = int(request.args.get('limit', 10))
+    
+    # Guard: Fail early before DB hit
+    if not query:
+        return jsonify({'query': '', 'results': [], 'total': 0}), 200
+        
+    safe_query = sanitize_like_query(query)
+    
+    # Simple text search across title, notes, and tags
+    # Using explicit escape='\\' to prevent LIKE injection
+    results = SavedContent.query.filter_by(user_id=user_id).filter(
+        db.or_(
+            SavedContent.title.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.notes.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.tags.ilike(f'%{safe_query}%', escape='\\')
+        )
+    ).limit(limit).all()
+
+    return jsonify({
+        'query': query,
+        'results': [{'id': r.id, 'title': r.title, 'url': r.url} for r in results],
+        'total': len(results)
+    }), 200
 
 @bookmarks_bp.route('', methods=['GET'])
 @jwt_required()
@@ -920,13 +955,22 @@ def list_bookmarks():
     
     # Add search filter
     if search:
-        query = query.filter(
-            db.or_(
-                SavedContent.title.ilike(f'%{search}%'),
-                SavedContent.notes.ilike(f'%{search}%'),
-                SavedContent.url.ilike(f'%{search}%')
+        safe_search = sanitize_like_query(search)
+        if safe_search:
+            query = query.filter(
+                db.or_(
+                    SavedContent.title.ilike(f'%{safe_search}%', escape='\\'),
+                    SavedContent.notes.ilike(f'%{safe_search}%', escape='\\'),
+                    SavedContent.url.ilike(f'%{safe_search}%', escape='\\')
+                )
             )
-        )
+        else:
+            # If search is not empty but sanitizes to empty (e.g. only whitespace/special chars)
+            # return no results or ignore the filter - our implementation plan says return [] for search
+            # but list_bookmarks might just return everything else.
+            # However, the guard 'if search:' already handles empty strings.
+            # 'sanitize_sql_like' returns empty for whitespace-only too.
+            pass
     
     # Add category filter (only if category is provided and not 'all')
     # Handle None/empty categories by treating them as 'other'
@@ -1095,7 +1139,7 @@ def stream_import_progress():
         decoded = decode_token(token)
         user_id = int(decoded['sub'])
     except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
+        logger.error("sse_import_token_decode_failed", error=str(e))
         return Response('Invalid token', status=401, mimetype='text/plain')
     
     import_key = f"import_progress:{user_id}"
@@ -1149,14 +1193,14 @@ def stream_import_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active imports
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 
                 time.sleep(1)  # Check every second
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"Error in import progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                logger.error("sse_stream_error", attempt=consecutive_errors, max_errors=max_errors, error=str(e))
                 
                 # If too many consecutive errors, close connection
                 if consecutive_errors >= max_errors:
@@ -1217,7 +1261,7 @@ def get_analysis_progress():
                 'pending_items': unanalyzed_count
             }), 200
         except Exception as e:
-            logger.error(f"Error checking analysis status: {e}")
+            logger.error("analysis_status_check_failed", user_id=user_id, error=str(e))
             return jsonify({
                 'status': 'error',
                 'message': 'Unable to check analysis status'
@@ -1269,7 +1313,7 @@ def check_active_work():
             
             has_pending_analysis = unanalyzed_count > 0
         except Exception as e:
-            logger.error(f"Error checking pending analysis: {e}")
+            logger.error("pending_analysis_check_failed", user_id=user_id, error=str(e))
     
     has_active_work = has_import_work or has_analysis_work or has_pending_analysis
     
@@ -1308,7 +1352,7 @@ def stream_combined_progress():
         decoded = decode_token(token)
         user_id = int(decoded['sub'])
     except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
+        logger.error("sse_combined_token_decode_failed", error=str(e))
         return Response('Invalid token', status=401, mimetype='text/plain')
     
     import_key = f"import_progress:{user_id}"
@@ -1376,11 +1420,11 @@ def stream_combined_progress():
                 
             except GeneratorExit:
                 # Client disconnected - exit gracefully
-                logger.info(f"SSE client disconnected for user {user_id}")
+                logger.info("sse_disconnected", user_id=user_id)
                 break
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"Error in combined progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                logger.error("sse_combined_stream_error", attempt=consecutive_errors, max_errors=max_errors, error=str(e))
                 
                 if consecutive_errors >= max_errors:
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Too many errors - connection closed'})}\n\n"
@@ -1431,7 +1475,7 @@ def stream_analysis_progress():
         decoded = decode_token(token)
         user_id = int(decoded['sub'])
     except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
+        logger.error("sse_analysis_token_decode_failed", error=str(e))
         return Response('Invalid token', status=401, mimetype='text/plain')
     
     analysis_key = f"analysis_progress:{user_id}"
@@ -1490,7 +1534,7 @@ def stream_analysis_progress():
                                 yield f"data: {json.dumps({'status': 'idle', 'message': 'Closing connection - no activity'})}\n\n"
                                 break
                     except Exception as e:
-                        logger.error(f"Error checking analysis status: {e}")
+                        logger.error("sse_analysis_idle_status_check_failed", user_id=user_id, error=str(e))
                         error_status = {'status': 'error', 'message': str(e)}
                         if error_status != last_status:
                             yield f"data: {json.dumps(error_status)}\n\n"
@@ -1505,14 +1549,14 @@ def stream_analysis_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active analysis
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 
                 time.sleep(2)  # Check every 2 seconds (analysis is slower)
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"Error in analysis progress stream (attempt {consecutive_errors}/{max_errors}): {e}")
+                logger.error("sse_analysis_stream_error", attempt=consecutive_errors, max_errors=max_errors, error=str(e))
                 
                 # If too many consecutive errors, close connection
                 if consecutive_errors >= max_errors:
@@ -1757,4 +1801,4 @@ def delete_all_bookmarks():
         return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500 
+        return jsonify({'message': f'Error: {str(e)}'}), 500

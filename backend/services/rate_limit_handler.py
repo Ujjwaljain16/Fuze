@@ -4,13 +4,13 @@ Rate limiting handler for Gemini API to manage quota limits
 """
 
 import time
-import logging
 import random
-from typing import Optional, Callable, Any
+from typing import Callable, Any
 from functools import wraps
 from datetime import datetime, timedelta
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class RateLimitHandler:
     """
@@ -43,7 +43,7 @@ class RateLimitHandler:
         
         # Check daily limit
         if self.daily_requests >= self.requests_per_day:
-            logger.warning("Daily rate limit reached")
+            logger.warning("rate_limit_daily_reached", daily_requests=self.daily_requests)
             return False
         
         # Check per-minute limit
@@ -51,7 +51,7 @@ class RateLimitHandler:
         recent_requests = [t for t in self.request_times if t > minute_ago]
         
         if len(recent_requests) >= self.requests_per_minute:
-            logger.warning("Per-minute rate limit reached")
+            logger.warning("rate_limit_minute_reached", recent_count=len(recent_requests))
             return False
         
         return True
@@ -101,7 +101,7 @@ def rate_limited(func: Callable) -> Callable:
                 # Check if we can make a request
                 if not rate_handler.can_make_request():
                     wait_time = rate_handler.get_wait_time()
-                    logger.info(f"Rate limit reached, waiting {wait_time} seconds")
+                    logger.info("rate_limit_waiting", wait_seconds=wait_time)
                     time.sleep(wait_time)
                 
                 # Make the request
@@ -116,11 +116,11 @@ def rate_limited(func: Callable) -> Callable:
                 if "429" in error_str and "quota" in error_str.lower():
                     if attempt < rate_handler.max_retries:
                         wait_time = rate_handler.exponential_backoff(attempt)
-                        logger.warning(f"Rate limit error (attempt {attempt + 1}/{rate_handler.max_retries + 1}), waiting {wait_time} seconds")
+                        logger.warning("rate_limit_error_retrying", attempt=attempt + 1, wait_seconds=wait_time)
                         time.sleep(wait_time)
                         continue
                     else:
-                        logger.error("Max retries reached for rate limit")
+                        logger.error("rate_limit_max_retries_reached")
                         raise
                 else:
                     # Not a rate limit error, re-raise
@@ -184,10 +184,10 @@ def apply_rate_limiting_to_gemini():
         GeminiAnalyzer.generate_recommendation_reasoning = rate_limited(original_generate_reasoning)
         GeminiAnalyzer.rank_recommendations = rate_limited(original_rank_recommendations)
         
-        logger.info("Rate limiting applied to Gemini API methods")
+        logger.info("rate_limiting_applied_to_gemini")
         
     except ImportError:
-        logger.warning("GeminiAnalyzer not available for rate limiting")
+        logger.warning("gemini_analyzer_missing_for_rate_limiting")
 
 def create_rate_limit_config():
     """
@@ -216,10 +216,10 @@ ALERT_ON_QUOTA_REACHED = True
     try:
         with open("rate_limit_config.py", 'w') as f:
             f.write(config_content)
-        logger.info(" Created rate_limit_config.py")
+        logger.info("rate_limit_config_created")
         return True
     except Exception as e:
-        logger.error(f" Failed to create rate limit config: {e}")
+        logger.error("rate_limit_config_creation_failed", error=str(e))
         return False
 
 if __name__ == "__main__":

@@ -4,9 +4,7 @@ Pytest configuration and fixtures for backend tests
 import pytest
 import os
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from flask import Flask
-from flask_jwt_extended import JWTManager
+from unittest.mock import patch, MagicMock
 from dotenv import load_dotenv
 
 # Add backend directory to path
@@ -76,8 +74,12 @@ def app():
             'connect_args': {'check_same_thread': False}
         }
     
-    # Disable rate limiting in tests
-    app.limiter = None
+    # Ensure TESTING is True so we don't use real rate limits if not mocked
+    app.config['TESTING'] = True
+    # CRITICAL: disable rate limiting in CI — the 5/15min limit on /api/auth/login
+    # and /api/auth/register causes 429 cascades when auth_headers fires 86+ times.
+    app.config['RATELIMIT_ENABLED'] = False
+
     
     with app.app_context():
         from models import db
@@ -124,7 +126,7 @@ def app():
                     return  # Don't drop production database!
             
             db.drop_all()
-        except Exception as e:
+        except Exception:
             # Ignore teardown errors (like database timeouts) - tests already passed
             pass
 

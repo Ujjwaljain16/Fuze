@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useSidebar } from '../contexts/SidebarContext'
 import { useState } from 'react'
 import { 
   Bookmark, 
@@ -15,8 +16,9 @@ import {
 } from 'lucide-react'
 import './sidebar-styles.css'
 
-const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle }) => {
+const Sidebar = ({ isMobile }) => {
   const { isAuthenticated, user } = useAuth()
+  const { isOpen, isCollapsed, toggle, collapse, setOpen } = useSidebar()
   const location = useLocation()
 
   const navigation = [
@@ -45,24 +47,22 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
   // Clean class name construction with proper state management
   const sidebarClasses = [
     'sidebar',
-    isMobile ? (isOpen ? 'sidebar-open' : '') : (collapsed ? 'sidebar-collapsed' : 'sidebar-expanded')
+    isMobile ? (isOpen ? 'sidebar-open' : '') : (isCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded')
   ].filter(Boolean).join(' ')
-
-  // Debug logging removed for production
 
   const handleToggle = () => {
     setIsAnimating(true)
-    setCollapsed(!collapsed)
+    collapse()
     setTimeout(() => setIsAnimating(false), 400)
   }
 
   return (
     <>
       {/* Mobile Menu Button - Floating */}
-      {isMobile && !isOpen && onToggle && (
+      {isMobile && !isOpen && (
         <button
           className="mobile-sidebar-toggle"
-          onClick={onToggle}
+          onClick={toggle}
           aria-label="Open menu"
         >
           <Menu size={24} />
@@ -71,7 +71,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
 
       {/* Mobile backdrop */}
       {isMobile && isOpen && (
-        <div className="sidebar-backdrop" onClick={onClose} />
+        <div className="sidebar-backdrop" onClick={() => setOpen(false)} />
       )}
       
       <div className={sidebarClasses}>
@@ -79,7 +79,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
         {isMobile && isOpen && (
           <button
             className="mobile-close-btn"
-            onClick={onClose}
+            onClick={() => setOpen(false)}
             aria-label="Close menu"
           >
             <X size={24} />
@@ -92,7 +92,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
             <button
               className={`sidebar-toggle-btn ${isAnimating ? 'animating' : ''}`}
               onClick={handleToggle}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               <img 
                 src="/favicon.svg" 
@@ -106,7 +106,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
               />
             </button>
           )}
-          {(!collapsed || isMobile) && (
+          {(!isCollapsed || isMobile) && (
             <div className="brand-text-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
               <span className="text-xl font-bold brand-text" style={{ lineHeight: '1.2' }}>
                 Fuze
@@ -130,11 +130,11 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
                   <Link
                     to={item.href}
                     className={`nav-item ${isActive ? 'nav-item-active' : ''}`}
-                    onClick={onClose}
-                    title={collapsed && !isMobile ? item.name : undefined} // Tooltip for collapsed state
+                    onClick={isMobile ? () => setOpen(false) : undefined}
+                    title={isCollapsed && !isMobile ? item.name : undefined} // Tooltip for collapsed state
                   >
                     <Icon className="w-6 h-6" />
-                    {(!collapsed || isMobile) && <span>{item.name}</span>}
+                    {(!isCollapsed || isMobile) && <span>{item.name}</span>}
                   </Link>
                 </li>
               )
@@ -148,7 +148,7 @@ const Sidebar = ({ isOpen, onClose, collapsed, setCollapsed, isMobile, onToggle 
             <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500 rounded-full flex items-center justify-center flex-shrink-0">
               <User className="w-5 h-5 text-white" />
             </div>
-            {(!collapsed || isMobile) && (
+            {(!isCollapsed || isMobile) && (
               <div className="text-sm">
                 <div className="font-medium text-white truncate">
                   {user?.username || user?.name || 'User'}

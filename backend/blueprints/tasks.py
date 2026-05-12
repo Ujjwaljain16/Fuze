@@ -1,12 +1,11 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Task, Project, User, SavedContent, Subtask
+from models import db, Task, Project, SavedContent, Subtask
 from utils.gemini_utils import get_gemini_response
 import json
-import logging
-import numpy as np
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 
@@ -32,7 +31,10 @@ def create_task():
         # Generate embedding for task BEFORE committing
         try:
             from utils.embedding_utils import get_task_embedding
-            new_task.embedding = get_task_embedding(new_task)
+            from dataclasses import asdict
+            artifact = get_task_embedding(new_task)
+            new_task.embedding = artifact.vector
+            new_task.embedding_metadata = asdict(artifact)
             if new_task.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -43,9 +45,9 @@ def create_task():
                     is_zero_vector = isinstance(new_task.embedding, (list, tuple)) and all(x == 0.0 for x in new_task.embedding)
 
                 if not is_zero_vector:
-                    logger.info(f"Generated embedding for task: {title}")
+                    logger.info("task_embedding_success", task_title=title, project_id=project_id)
         except Exception as e:
-            logger.warning(f"Failed to generate embedding for task: {e}")
+            logger.warning("task_embedding_failed", error=str(e), task_title=title)
             # Continue without embedding - it can be generated later
 
         db.session.add(new_task)
@@ -144,7 +146,7 @@ Guidelines:
 Return ONLY the JSON array, no additional text.
 """
         
-        logger.info(f"Requesting Gemini task breakdown for project {project_id}")
+        logger.info("task_ai_breakdown_start", project_id=project_id, user_id=user_id)
         
         # Call Gemini
         user_id = int(get_jwt_identity())
@@ -199,7 +201,7 @@ Return ONLY the JSON array, no additional text.
             
             db.session.commit()
             
-            logger.info(f"Created {len(created_tasks)} AI-generated tasks for project {project_id}")
+            logger.info("task_ai_breakdown_success", count=len(created_tasks), project_id=project_id, user_id=user_id)
             
             return jsonify({
                 'success': True,
@@ -209,7 +211,7 @@ Return ONLY the JSON array, no additional text.
             }), 201
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Gemini response: {e}")
+            logger.error("task_ai_breakdown_parse_failed", project_id=project_id, error=str(e))
             logger.error(f"Response was: {response.get('response', '')[:200]}")
             return jsonify({
                 'success': False,
@@ -217,7 +219,7 @@ Return ONLY the JSON array, no additional text.
                 'details': str(e)
             }), 500
         except Exception as e:
-            logger.error(f"Error processing AI task breakdown: {e}")
+            logger.error("task_ai_breakdown_failed", project_id=project_id, error=str(e))
             db.session.rollback()
             return jsonify({
                 'success': False,
@@ -226,7 +228,7 @@ Return ONLY the JSON array, no additional text.
             }), 500
     
     except Exception as e:
-        logger.error(f"AI task breakdown error: {e}")
+        logger.error("task_ai_breakdown_endpoint_error", project_id=project_id, error=str(e))
         return jsonify({
             'success': False,
             'error': 'Internal server error',
@@ -259,7 +261,10 @@ def update_task(task_id):
         # Regenerate embedding for updated task
         try:
             from utils.embedding_utils import get_task_embedding
-            task.embedding = get_task_embedding(task)
+            from dataclasses import asdict
+            artifact = get_task_embedding(task)
+            task.embedding = artifact.vector
+            task.embedding_metadata = asdict(artifact)
             if task.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -270,9 +275,9 @@ def update_task(task_id):
                     is_zero_vector = isinstance(task.embedding, (list, tuple)) and all(x == 0.0 for x in task.embedding)
 
                 if not is_zero_vector:
-                    logger.info(f"Updated embedding for task: {task.title}")
+                    logger.info("task_update_embedding_success", task_title=task.title, task_id=task_id)
         except Exception as e:
-            logger.warning(f"Failed to update embedding for task: {e}")
+            logger.warning("task_update_embedding_failed", error=str(e), task_id=task_id)
 
         db.session.commit()
         
@@ -287,7 +292,7 @@ def update_task(task_id):
         })
     
     except Exception as e:
-        logger.error(f"Error updating task: {e}")
+        logger.error("task_update_failed", task_id=task_id, error=str(e))
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -316,7 +321,7 @@ def delete_task(task_id):
         })
     
     except Exception as e:
-        logger.error(f"Error deleting task: {e}")
+        logger.error("task_delete_failed", task_id=task_id, error=str(e))
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -357,7 +362,10 @@ def create_subtask(task_id):
         # Generate embedding for subtask for better semantic matching
         try:
             from utils.embedding_utils import get_subtask_embedding
-            new_subtask.embedding = get_subtask_embedding(new_subtask)
+            from dataclasses import asdict
+            artifact = get_subtask_embedding(new_subtask)
+            new_subtask.embedding = artifact.vector
+            new_subtask.embedding_metadata = asdict(artifact)
             if new_subtask.embedding is not None:
                 # Check if it's not a zero vector (fallback case)
                 try:
@@ -368,9 +376,9 @@ def create_subtask(task_id):
                     is_zero_vector = isinstance(new_subtask.embedding, (list, tuple)) and all(x == 0.0 for x in new_subtask.embedding)
 
                 if not is_zero_vector:
-                    logger.info(f"Generated embedding for subtask: {title}")
+                    logger.info("subtask_embedding_success", subtask_title=title, task_id=task_id)
         except Exception as e:
-            logger.warning(f"Failed to generate embedding for subtask: {e}")
+            logger.warning("subtask_embedding_failed", error=str(e), task_id=task_id)
             # Continue without embedding - it can be generated later
         
         db.session.add(new_subtask)
@@ -390,7 +398,7 @@ def create_subtask(task_id):
         }), 201
     
     except Exception as e:
-        logger.error(f"Error creating subtask: {e}")
+        logger.error("subtask_create_failed", task_id=task_id, error=str(e))
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -425,7 +433,7 @@ def get_subtasks(task_id):
         }), 200
     
     except Exception as e:
-        logger.error(f"Error fetching subtasks: {e}")
+        logger.error("subtasks_fetch_failed", task_id=task_id, error=str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @tasks_bp.route('/subtasks/<int:subtask_id>', methods=['PUT'])
@@ -466,7 +474,10 @@ def update_subtask(subtask_id):
         if title_changed or description_changed:
             try:
                 from utils.embedding_utils import get_subtask_embedding
-                subtask.embedding = get_subtask_embedding(subtask)
+                from dataclasses import asdict
+                artifact = get_subtask_embedding(subtask)
+                subtask.embedding = artifact.vector
+                subtask.embedding_metadata = asdict(artifact)
                 if subtask.embedding is not None:
                     # Check if it's not a zero vector (fallback case)
                     try:
@@ -477,9 +488,9 @@ def update_subtask(subtask_id):
                         is_zero_vector = isinstance(subtask.embedding, (list, tuple)) and all(x == 0.0 for x in subtask.embedding)
 
                     if not is_zero_vector:
-                        logger.info(f"Updated embedding for subtask: {subtask.title}")
+                        logger.info("subtask_update_embedding_success", subtask_id=subtask_id)
             except Exception as e:
-                logger.warning(f"Failed to update embedding for subtask: {e}")
+                logger.warning("subtask_update_embedding_failed", error=str(e), subtask_id=subtask_id)
         
         db.session.commit()
         
@@ -497,7 +508,7 @@ def update_subtask(subtask_id):
         }), 200
     
     except Exception as e:
-        logger.error(f"Error updating subtask: {e}")
+        logger.error("subtask_update_failed", subtask_id=subtask_id, error=str(e))
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -530,6 +541,6 @@ def delete_subtask(subtask_id):
         }), 200
     
     except Exception as e:
-        logger.error(f"Error deleting subtask: {e}")
+        logger.error("subtask_delete_failed", subtask_id=subtask_id, error=str(e))
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500

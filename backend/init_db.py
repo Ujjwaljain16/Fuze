@@ -1,10 +1,15 @@
 import sys
 import os
 
-# Add backend directory to path
 backend_dir = os.path.dirname(os.path.abspath(__file__))
+# Add parent directory to path to allow 'backend.core' imports
+parent_dir = os.path.dirname(backend_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
+
+os.environ['SKIP_BACKGROUND_SERVICES'] = 'true'
 
 from run_production import create_app
 from models import db
@@ -15,6 +20,18 @@ from sqlalchemy import text
 def init_database():
     with app.app_context():
         try:
+            # SAFETY CHECK: Prevent accidental data loss if tables already exist and have data
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            if 'users' in inspector.get_table_names():
+                # check if it has data
+                user_count = db.session.execute(text('SELECT count(*) FROM users')).scalar()
+                if user_count > 0:
+                    print(f"⚠️  DATA SAFETY ALERT: Found {user_count} existing users in the database.")
+                    print("   Aborting init_db to prevent potential data loss.")
+                    print("   Please use 'alembic upgrade head' for safe, additive schema updates.")
+                    return
+
             # Enable pgvector extension (for Supabase)
             db.session.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             db.session.commit()

@@ -5,6 +5,33 @@ import './index.css'
 import { AuthProvider } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import * as Sentry from "@sentry/react";
+
+// Initialize Sentry before any other application code
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.VITE_ENVIRONMENT || "production",
+    integrations: [
+      Sentry.browserTracingIntegration(),
+      Sentry.replayIntegration({
+        maskAllText: true,
+        blockAllMedia: true,
+      }),
+    ],
+    tracesSampleRate: 0.1,
+    replaysSessionSampleRate: 0.01,
+    replaysOnErrorSampleRate: 0.5,
+    
+    beforeSend(event) {
+      // Privacy: Filter sensitive headers
+      if (event.request?.headers?.Authorization) {
+        event.request.headers.Authorization = '[Filtered]';
+      }
+      return event;
+    },
+  });
+}
 
 // PWA Service Worker Registration
 if ('serviceWorker' in navigator) {
