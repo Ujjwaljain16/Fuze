@@ -686,7 +686,10 @@ def verify_token_status():
         }
     }), 200
 
-@auth_bp.route('/supabase-oauth', methods=['POST'])
+from flask_cors import cross_origin
+
+@auth_bp.route('/supabase-oauth', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True, origins=["https://itsfuze.vercel.app", "http://localhost:3000", "http://localhost:5173"])
 @retry_on_connection_error(max_retries=1, delay=1.0)
 def supabase_oauth():
     """Exchange a Supabase OAuth access token for a local application session.
