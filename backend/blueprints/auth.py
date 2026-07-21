@@ -339,11 +339,15 @@ def register():
             logger.info(f"Register blocked — email exists: {email[:3]}***")
             return jsonify({'message': 'An account already exists with those credentials.'}), 409
 
-        # Create user
+        # Create user via AuthService
         try:
-            user = User(username=username, email=email, password_hash=hash_password(password))
-            db.session.add(user)
-            db.session.commit()
+            from uow.unit_of_work import UnitOfWork
+            from services.auth_service import AuthService
+            
+            with UnitOfWork() as uow:
+                auth_service = AuthService(uow)
+                user = auth_service.register(username=username, email=email, password=password)
+                
             logger.info(f"User registered: {username}")
             return jsonify({'message': 'User registered successfully'}), 201
 
