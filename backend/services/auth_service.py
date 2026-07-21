@@ -142,6 +142,33 @@ class AuthService:
         user.password_hash = password_hash
         self.uow.users.add(user)
 
+    def create_oauth_user(
+        self,
+        username: str,
+        email: str,
+        provider_id: str,
+        provider_name: str = "google",
+        password_hash: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> User:
+        """
+        Pure persistence for OAuth user creation.
+        Hashing logic for placeholder passwords remains in the caller.
+        """
+        user = User(
+            username=username,
+            email=email.lower().strip(),
+            password_hash=password_hash,
+            user_metadata=metadata or {},
+            provider_name=provider_name,
+            provider_user_id=provider_id,
+        )
+        self.uow.users.add(user)
+        # Note: We do not emit UserRegistered here yet because OAuth
+        # flows might have different onboarding logic, or we could emit it.
+        # But keeping it aligned with just persistence for now.
+        return user
+
     def validate_password_strength(self, password: str) -> Tuple[bool, Optional[str]]:
         """Domain-level password complexity rules"""
         if len(password) < 8:
