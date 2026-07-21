@@ -91,52 +91,63 @@ def create_project():
     if not isinstance(description, str) or not description.strip():
         return jsonify({"message": "Project description is required and must be a non-empty string"}), 400
     
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-    
-    new_project = Project(
-        user_id=user_id,
-        title=title.strip(),
-        description=description.strip(),
-        technologies=technologies.strip() if isinstance(technologies, str) else ''
-    )
+    from uow.unit_of_work import UnitOfWork
+    from services.project_service import ProjectService
     
     try:
-        # Generate embedding for the new project BEFORE committing
-        try:
-            from utils.embedding_utils import get_project_embedding
-            new_project.embedding = get_project_embedding(new_project)
-            if new_project.embedding is not None:
-                # Check if it's not a zero vector (fallback case)
-                try:
-                    import numpy as np
-                    is_zero_vector = isinstance(new_project.embedding, np.ndarray) and np.all(new_project.embedding == 0)
-                except:
-                    # Fallback check for list/array
-                    is_zero_vector = isinstance(new_project.embedding, (list, tuple)) and all(x == 0.0 for x in new_project.embedding)
+        with UnitOfWork() as uow:
+            user = uow.users.get_by_id(user_id)
+            if not user:
+                return jsonify({"message": "User not found"}), 404
 
-                if not is_zero_vector:
-                    logger.info(f"Generated embedding for new project: {new_project.title}")
-        except Exception as embedding_error:
-            logger.warning(f"Embedding generation failed for new project: {str(embedding_error)}")
-            # Don't fail the project creation if embedding generation fails
-            # The embedding can be generated later when needed
+            service = ProjectService(uow)
+            new_project = service.create_project(
+                user_id=user_id,
+                title=title,
+                description=description,
+                technologies=technologies
+            )
+            
+            # Generate embedding for the new project BEFORE committing
+            try:
+                from utils.embedding_utils import get_project_embedding
+                new_project.embedding = get_project_embedding(new_project)
+                if new_project.embedding is not None:
+                    # Check if it's not a zero vector (fallback case)
+                    try:
+                        import numpy as np
+                        is_zero_vector = isinstance(new_project.embedding, np.ndarray) and np.all(new_project.embedding == 0)
+                    except:
+                        # Fallback check for list/array
+                        is_zero_vector = isinstance(new_project.embedding, (list, tuple)) and all(x == 0.0 for x in new_project.embedding)
 
-        db.session.add(new_project)
-        db.session.commit()
+                    if not is_zero_vector:
+                        logger.info(f"Generated embedding for new project: {new_project.title}")
+            except Exception as embedding_error:
+                logger.warning(f"Embedding generation failed for new project: {str(embedding_error)}")
+                # Don't fail the project creation if embedding generation fails
+                # The embedding can be generated later when needed
+
+            # Let uow commit automatically on exit (which is equivalent to db.session.commit())
+
+        # Extract values so we don't trigger DetachedInstanceError outside the session
+        new_project_id = new_project.id
+        new_project_title = new_project.title
+        new_project_description = new_project.description
+        new_project_technologies = new_project.technologies
+        new_project_created_at = new_project.created_at.isoformat()
 
         # Generate intent analysis for the new project (after commit so project.id exists)
         try:
             from ml.intent_analysis_engine import analyze_user_intent
 
             # Build user input from project data
-            user_input = f"{new_project.title} {new_project.description} {new_project.technologies}"
+            user_input = f"{new_project_title} {new_project_description} {new_project_technologies}"
 
             # Generate intent analysis
             intent = analyze_user_intent(
                 user_input=user_input,
-                project_id=new_project.id,
+                project_id=new_project_id,
                 force_analysis=True  # Force new analysis for new project
             )
 
@@ -151,24 +162,23 @@ def create_project():
         # Invalidate caches using comprehensive cache invalidation service
         try:
             from services.cache_invalidation_service import cache_invalidator
-            cache_invalidator.after_project_save(new_project.id, user_id)
+            cache_invalidator.after_project_save(new_project_id, user_id)
         except Exception as cache_error:
             logger.warning(f"Cache invalidation failed: {cache_error}")
             # Don't fail project creation if cache invalidation fails
         
         return jsonify({
             "message": "Project created successfully", 
-            "project_id": new_project.id,
+            "project_id": new_project_id,
             "project": {
-                "id": new_project.id,
-                "title": new_project.title,
-                "description": new_project.description,
-                "technologies": new_project.technologies,
-                "created_at": new_project.created_at.isoformat()
+                "id": new_project_id,
+                "title": new_project_title,
+                "description": new_project_description,
+                "technologies": new_project_technologies,
+                "created_at": new_project_created_at
             }
         }), 201
     except Exception as e:
-        db.session.rollback()
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
 @projects_bp.route('/<int:project_id>', methods=['GET'])
@@ -226,40 +236,34 @@ def update_project(project_id):
     user_id = int(get_jwt_identity())
     data = request.get_json()
     
-    # Find the project and ensure it belongs to the current user
-    project = Project.query.filter_by(id=project_id, user_id=user_id).first()
-    if not project:
-        return jsonify({"message": "Project not found"}), 404
-    
-    # Validate input data
-    title = data.get('title')
-    description = data.get('description')
-    technologies = data.get('technologies', '')
-    
-    if not isinstance(title, str) or not title.strip():
-        return jsonify({"message": "Project title is required and must be a non-empty string"}), 400
-    if not isinstance(description, str) or not description.strip():
-        return jsonify({"message": "Project description is required and must be a non-empty string"}), 400
-    
-    # Update project fields
-    project.title = title.strip()
-    project.description = description.strip()
-    project.technologies = technologies.strip() if isinstance(technologies, str) else ''
+    from uow.unit_of_work import UnitOfWork
+    from services.project_service import ProjectService
     
     try:
-        db.session.commit()
+        with UnitOfWork() as uow:
+            service = ProjectService(uow)
+            project = service.update_project(project_id, user_id, data)
+            
+            if not project:
+                return jsonify({"message": "Project not found"}), 404
+                
+            p_id = project.id
+            p_title = project.title
+            p_desc = project.description
+            p_tech = project.technologies
+            p_created_at = project.created_at.isoformat()
         
         # Regenerate intent analysis for the updated project
         try:
             from ml.intent_analysis_engine import analyze_user_intent
             
             # Build user input from updated project data
-            user_input = f"{project.title} {project.description} {project.technologies}"
+            user_input = f"{p_title} {p_desc} {p_tech}"
             
             # Generate fresh intent analysis
             intent = analyze_user_intent(
                 user_input=user_input,
-                project_id=project.id,
+                project_id=p_id,
                 force_analysis=True  # Force new analysis for updated project
             )
             
@@ -273,48 +277,41 @@ def update_project(project_id):
         # Regenerate embedding for the updated project
         try:
             from utils.embedding_utils import get_project_embedding
-            logger.info(f"Generating embedding for project: {project.title}")
-            embedding = get_project_embedding(project)
-            logger.info(f"Embedding generated, type: {type(embedding)}, is None: {embedding is None}")
+            logger.info(f"Generating embedding for project: {p_title}")
+            
+            with UnitOfWork() as uow2:
+                project2 = uow2.projects.get_by_id(p_id, user_id)
+                embedding = get_project_embedding(project2)
+                logger.info(f"Embedding generated, type: {type(embedding)}, is None: {embedding is None}")
 
-            if embedding is not None:
-                project.embedding = embedding
-                logger.info(f"Set embedding on project object, type: {type(project.embedding)}")
+                if embedding is not None:
+                    project2.embedding = embedding
+                    uow2.projects.update(project2)
+                    logger.info(f"Set embedding on project object, type: {type(project2.embedding)}")
 
-                # Check if it's not a zero vector (fallback case)
-                try:
-                    import numpy as np
-                    is_zero_vector = isinstance(project.embedding, np.ndarray) and np.all(project.embedding == 0)
-                except:
-                    # Fallback check for list/array
-                    is_zero_vector = isinstance(project.embedding, (list, tuple)) and all(x == 0.0 for x in project.embedding)
+                    # Check if it's not a zero vector (fallback case)
+                    try:
+                        import numpy as np
+                        is_zero_vector = isinstance(project2.embedding, np.ndarray) and np.all(project2.embedding == 0)
+                    except:
+                        # Fallback check for list/array
+                        is_zero_vector = isinstance(project2.embedding, (list, tuple)) and all(x == 0.0 for x in project2.embedding)
 
-                logger.info(f"Is zero vector: {is_zero_vector}")
-                if not is_zero_vector:
-                    logger.info(f" Regenerated embedding for updated project: {project.title}")
-                else:
-                    logger.warning(f"Generated zero vector embedding for project: {project.title}")
+                    logger.info(f"Is zero vector: {is_zero_vector}")
+                    if not is_zero_vector:
+                        logger.info(f" Regenerated embedding for updated project: {p_title}")
+                    else:
+                        logger.warning(f"Generated zero vector embedding for project: {p_title}")
+                        
         except Exception as embedding_error:
             logger.warning(f" Embedding regeneration failed for updated project: {str(embedding_error)}")
             logger.warning(f"Error details: {repr(embedding_error)}")
             # Don't fail the project update if embedding regeneration fails
 
-        # Commit all changes (project updates + embedding)
-        logger.info(f"Committing changes for project: {project.title}, embedding exists: {project.embedding is not None}")
-        db.session.commit()
-        logger.info(f" Commit successful, checking if embedding persisted...")
-
-        # Verify embedding was saved
-        committed_project = Project.query.get(project.id)
-        if committed_project and committed_project.embedding is not None:
-            logger.info(f" Embedding successfully saved to database for project: {project.title}")
-        else:
-            logger.error(f" Embedding NOT saved to database for project: {project.title}")
-
         # Invalidate caches using comprehensive cache invalidation service
         try:
             from services.cache_invalidation_service import cache_invalidator
-            cache_invalidator.after_project_update(project.id, user_id)
+            cache_invalidator.after_project_update(p_id, user_id)
         except Exception as cache_error:
             logger.warning(f"Cache invalidation failed: {cache_error}")
             # Don't fail project update if cache invalidation fails
@@ -322,15 +319,14 @@ def update_project(project_id):
         return jsonify({
             "message": "Project updated successfully",
             "project": {
-                "id": project.id,
-                "title": project.title,
-                "description": project.description,
-                "technologies": project.technologies,
-                "created_at": project.created_at.isoformat()
+                "id": p_id,
+                "title": p_title,
+                "description": p_desc,
+                "technologies": p_tech,
+                "created_at": p_created_at
             }
         }), 200
     except Exception as e:
-        db.session.rollback()
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
 @projects_bp.route('/<int:project_id>', methods=['DELETE'])
@@ -339,31 +335,26 @@ def delete_project(project_id):
     """Delete a specific project by ID"""
     user_id = int(get_jwt_identity())
     
-    # Find the project and ensure it belongs to the current user
-    project = Project.query.filter_by(id=project_id, user_id=user_id).first()
-    if not project:
-        return jsonify({"message": "Project not found"}), 404
+    from uow.unit_of_work import UnitOfWork
+    from services.project_service import ProjectService
     
     try:
-        # Store project_id and user_id before deletion for cache invalidation
-        project_id_for_cache = project.id
-        user_id_for_cache = project.user_id
-        
-        db.session.delete(project)
-        db.session.commit()
-        
+        with UnitOfWork() as uow:
+            service = ProjectService(uow)
+            if not service.delete_project(project_id, user_id):
+                return jsonify({"message": "Project not found"}), 404
+                
         # Invalidate caches using comprehensive cache invalidation service
         try:
             from services.cache_invalidation_service import cache_invalidator
-            cache_invalidator.invalidate_project_cache(project_id_for_cache)
-            cache_invalidator.invalidate_user_cache(user_id_for_cache)
+            cache_invalidator.invalidate_project_cache(project_id)
+            cache_invalidator.invalidate_user_cache(user_id)
         except Exception as cache_error:
             logger.warning(f"Cache invalidation failed: {cache_error}")
             # Don't fail project deletion if cache invalidation fails
         
         return jsonify({"message": "Project deleted successfully"}), 200
     except Exception as e:
-        db.session.rollback()
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
 @projects_bp.route('/<int:user_id>', methods=['GET'])
