@@ -410,11 +410,14 @@ def login():
         if not identifier:
             return jsonify({'message': 'Invalid input format'}), 400
 
-        # DB lookup
+        # DB lookup via AuthService
         try:
-            user = User.query.filter(
-                (func.lower(User.username) == identifier) | (func.lower(User.email) == identifier)
-            ).first()
+            from uow.unit_of_work import UnitOfWork
+            from services.auth_service import AuthService
+            
+            with UnitOfWork() as uow:
+                auth_service = AuthService(uow)
+                user = auth_service.get_user_for_login(identifier)
         except Exception as db_error:
             logger.error(f"DB error during login: {db_error}")
             return jsonify({'message': 'Database connection failed. Please try again.'}), 503
