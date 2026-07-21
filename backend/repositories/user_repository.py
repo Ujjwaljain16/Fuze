@@ -18,14 +18,16 @@ class UserRepository:
         if not identifier:
             return None
             
+        from sqlalchemy import func
+        
         # Try email match first (strict precedence)
         identifier_clean = identifier.lower().strip()
-        user = self.session.query(User).filter(User.email == identifier_clean).first()
+        user = self.session.query(User).filter(func.lower(User.email) == identifier_clean).first()
         if user:
             return user
             
         # Fallback to username match
-        return self.session.query(User).filter(User.username == identifier_clean).first()
+        return self.session.query(User).filter(func.lower(User.username) == identifier_clean).first()
 
     def is_email_available(self, email: str) -> bool:
         if not email:

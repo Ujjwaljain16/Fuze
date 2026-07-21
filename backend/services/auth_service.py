@@ -65,6 +65,13 @@ class AuthService:
         # but we prioritize making the system move toward bcrypt.
         return False
 
+    def get_user_for_login(self, identifier: str) -> Optional[User]:
+        """
+        Pure persistence lookup for authentication workflows.
+        Security checks remain in the authentication boundary.
+        """
+        return self.uow.users.get_by_identifier(identifier)
+
     def authenticate(self, identifier: str, password: str) -> User:
         """
         Verify credentials. 
