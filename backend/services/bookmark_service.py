@@ -60,3 +60,31 @@ class BookmarkService:
             'trend': trend,
             'top_categories': [{'name': c[0], 'count': c[1]} for c in top_categories]
         }
+
+    # --- Writes ---
+    
+    def create_bookmark(self, user_id: int, url: str, title: str = None, 
+                        notes: str = None, tags: str = None, category: str = None,
+                        extracted_text: str = None) -> SavedContent:
+        """Create a new bookmark in the repository"""
+        bookmark = SavedContent(
+            user_id=user_id,
+            url=url,
+            title=title or '',
+            notes=notes or '',
+            tags=tags or '',
+            category=category or 'other',
+            extracted_text=extracted_text,
+            quality_score=0
+        )
+        self.uow.bookmarks.add(bookmark)
+        self.uow.flush()
+        return bookmark
+
+    def delete_bookmark(self, bookmark: SavedContent):
+        """Delete a single bookmark"""
+        self.uow.bookmarks.delete(bookmark)
+
+    def delete_all_for_user(self, user_id: int) -> int:
+        """Delete all bookmarks for a user"""
+        return self.uow.bookmarks.delete_all_for_user(user_id)

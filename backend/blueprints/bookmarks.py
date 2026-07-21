@@ -60,20 +60,14 @@ def normalize_url(url):
     
     return normalized.lower()
 
-def is_duplicate_url(url, user_id):
+def is_duplicate_url(service, url, user_id):
     """Check if URL is a duplicate (exact match or normalized match)"""
     normalized_url = normalize_url(url)
     
-    from uow.unit_of_work import UnitOfWork
-    from services.bookmark_service import BookmarkService
-    
-    with UnitOfWork() as uow:
-        service = BookmarkService(uow)
-        
-        # Check exact match first
-        existing_exact = service.get_bookmark_by_url(user_id, url)
-        if existing_exact:
-            return existing_exact, 'exact'
+    # Check exact match first
+    existing_exact = service.get_bookmark_by_url(user_id, url)
+    if existing_exact:
+        return existing_exact, 'exact'
         
         # Check normalized match
         if normalized_url != url:
@@ -87,7 +81,7 @@ def is_duplicate_url(url, user_id):
         
         from utils.query_sanitizer import sanitize_like_query
         safe_domain_path = sanitize_like_query(domain_path)
-        similar_bookmarks = uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
+        similar_bookmarks = service.uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
     
     for bookmark in similar_bookmarks:
         bookmark_parsed = urlparse(bookmark.url)
@@ -178,13 +172,24 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         task_logger.info(f"Starting background processing for bookmark {bookmark_id}")
         
         with app.app_context():
-            # Get the bookmark
-            bookmark = SavedContent.query.get(bookmark_id)
-            if not bookmark:
-                logger.error(f"Bookmark {bookmark_id} not found for background processing")
-                return
+            from uow.unit_of_work import UnitOfWork
+            from services.bookmark_service import BookmarkService
+            
+            # First UoW: Fetch bookmark info to check existence and get initial context
+            with UnitOfWork() as uow:
+                service = BookmarkService(uow)
+                bookmark = service.get_bookmark(bookmark_id)
+                if not bookmark:
+                    logger.error(f"Bookmark {bookmark_id} not found for background processing")
+                    return
+                
+                # Extract primitives needed for ML tasks
+                bookmark_title = bookmark.title
+                bookmark_notes = bookmark.notes or ''
             
             task_logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
+            
+            # --- OUTSIDE UoW: Heavy side effects (scraping, ML) ---
             
             # Extract content from URL
             scraped = extract_article_content(url)
@@ -195,7 +200,8 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             quality_score = scraped.get('quality_score', 10)
             
             # Update title if we got a better one from scraping
-            if scraped_title and (not bookmark.title or bookmark.title == 'Untitled Bookmark'):
+            final_title = bookmark_title
+            if scraped_title and (not bookmark_title or bookmark_title == 'Untitled Bookmark'):
                 final_title = scraped_title.strip()
                 if len(final_title) > 200:
                     truncated = final_title[:197]
@@ -204,32 +210,40 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                         final_title = truncated[:last_space] + "..."
                     else:
                         final_title = truncated + "..."
-                bookmark.title = final_title
             
             # Generate comprehensive embedding
             embedding = generate_comprehensive_embedding(
-                title=bookmark.title,
-                description=bookmark.notes or '',
+                title=final_title,
+                description=bookmark_notes,
                 meta_description=meta_description,
                 headings=headings,
                 extracted_text=extracted_text,
                 url=url
             )
             
-            # Update bookmark with extracted content and embedding
+            # Clean up extracted text
             if extracted_text:
                 extracted_text = extracted_text.replace('\x00', '')
                 if not isinstance(extracted_text, str):
                     extracted_text = str(extracted_text)
+                    
+            # --- SECOND UoW: Save results ---
+            with UnitOfWork() as uow:
+                service = BookmarkService(uow)
+                # Re-fetch because previous instance is detached
+                bookmark = service.get_bookmark(bookmark_id)
+                if not bookmark:
+                    logger.error(f"Bookmark {bookmark_id} was deleted during background processing")
+                    return
+                    
+                bookmark.title = final_title
                 bookmark.extracted_text = extracted_text
-            
-            if embedding is not None:
-                bookmark.embedding = embedding
-            
-            bookmark.quality_score = quality_score
-            
-            # Commit the updates
-            db.session.commit()
+                
+                if embedding is not None:
+                    bookmark.embedding = embedding
+                    
+                bookmark.quality_score = quality_score
+                # Commit happens automatically on exit
             
             # Invalidate caches
             from services.cache_invalidation_service import cache_invalidator
@@ -306,79 +320,84 @@ def quick_save_bookmark():
     if not url:
         return jsonify({'message': 'URL is required'}), 400
     
-    # Check if bookmark already exists
-    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
     
-    if existing_bookmark:
-        # Update existing bookmark with new title/description if provided
-        if title:
-            existing_bookmark.title = title.strip()
-        if description:
-            existing_bookmark.notes = description.strip()
-        db.session.commit()
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
         
+        if existing_bookmark:
+            # Update existing bookmark with new title/description if provided
+            if title:
+                existing_bookmark.title = title.strip()
+            if description:
+                existing_bookmark.notes = description.strip()
+            # It will commit when UoW exits.
+            
+            existing_bookmark_id = existing_bookmark.id
+            existing_bookmark_url = existing_bookmark.url
+            
+            uow.flush() # flush to ensure update is ready for cache invalidate
+        else:
+            existing_bookmark_id = None
+            
+            # Ensure title is not empty
+            if not title or not title.strip():
+                title = 'Untitled Bookmark'
+            
+            # Truncate title if needed
+            final_title = title.strip() if title else 'Untitled Bookmark'
+            if len(final_title) > 200:
+                truncated = final_title[:197]
+                last_space = truncated.rfind(' ')
+                if last_space > 150:
+                    final_title = truncated[:last_space] + "..."
+                else:
+                    final_title = truncated + "..."
+            
+            # Save bookmark immediately with minimal data
+            new_bm = service.create_bookmark(
+                user_id=user_id,
+                url=url.strip(),
+                title=final_title,
+                notes=description.strip() if isinstance(description, str) else ''
+            )
+            
+            new_bm_id = new_bm.id
+            
+    # Outside UoW block: Side effects
+    if existing_bookmark_id:
         # Invalidate caches
         from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_update(existing_bookmark.id, user_id)
+        cache_invalidator.after_content_update(existing_bookmark_id, user_id)
         
         # Still trigger background processing in case content needs updating
-        process_bookmark_content_async(existing_bookmark.id, url, user_id)
+        process_bookmark_content_async(existing_bookmark_id, existing_bookmark_url, user_id)
         
         return jsonify({
             'message': 'Bookmark updated',
-            'bookmark': {'id': existing_bookmark.id, 'url': existing_bookmark.url},
+            'bookmark': {'id': existing_bookmark_id, 'url': existing_bookmark_url},
             'wasDuplicate': True,
             'duplicateType': duplicate_type,
             'processing': 'background'
         }), 200
     
-    # Ensure title is not empty
-    if not title or not title.strip():
-        title = 'Untitled Bookmark'
-    
-    # Truncate title if needed
-    final_title = title.strip() if title else 'Untitled Bookmark'
-    if len(final_title) > 200:
-        truncated = final_title[:197]
-        last_space = truncated.rfind(' ')
-        if last_space > 150:
-            final_title = truncated[:last_space] + "..."
-        else:
-            final_title = truncated + "..."
-    
-    # Save bookmark immediately with minimal data (no scraping/embedding yet)
-    new_bm = SavedContent(
-        user_id=user_id,
-        url=url.strip(),
-        title=final_title,
-        notes=description.strip() if isinstance(description, str) else '',
-        extracted_text='',  # Will be filled by background processing
-        embedding=None,  # Will be generated by background processing
-        quality_score=0  # Will be updated by background processing
-    )
-    
-    try:
-        db.session.add(new_bm)
-        db.session.commit()
-        
+    else:
         # Invalidate caches
         from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_save(new_bm.id, user_id)
+        cache_invalidator.after_content_save(new_bm_id, user_id)
         redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
         
         # Start background processing (non-blocking)
-        process_bookmark_content_async(new_bm.id, url, user_id)
+        process_bookmark_content_async(new_bm_id, url.strip(), user_id)
         
         return jsonify({
             'message': 'Bookmark saved',
-            'bookmark': {'id': new_bm.id, 'url': new_bm.url},
+            'bookmark': {'id': new_bm_id, 'url': url.strip()},
             'processing': 'background',
             'wasDuplicate': False
         }), 201
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error in quick save: {e}", exc_info=True)
-        return jsonify({'message': f'Error: {str(e)}'}), 500
 
 @bookmarks_bp.route('', methods=['POST'])
 @jwt_required()
@@ -407,20 +426,31 @@ def save_bookmark():
     if not url:
         return jsonify({'message': 'URL is required'}), 400
     
-    # Check if bookmark already exists
-    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
     
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
+        
+        if existing_bookmark:
+            # Update existing bookmark
+            existing_bookmark.title = title.strip() if title else existing_bookmark.title
+            existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
+            # Will commit when UoW exits
+            
+            existing_bookmark_id = existing_bookmark.id
+            existing_bookmark_url = existing_bookmark.url
+            uow.flush()
+            
+    # Outside UoW
     if existing_bookmark:
-        # Update existing bookmark
-        existing_bookmark.title = title.strip() if title else existing_bookmark.title
-        existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
-        db.session.commit()
         # Invalidate caches using comprehensive cache invalidation service
         from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_update(existing_bookmark.id, user_id)
+        cache_invalidator.after_content_update(existing_bookmark_id, user_id)
         return jsonify({
             'message': 'Bookmark updated',
-            'bookmark': {'id': existing_bookmark.id, 'url': existing_bookmark.url},
+            'bookmark': {'id': existing_bookmark_id, 'url': existing_bookmark_url},
             'wasDuplicate': True,
             'duplicateType': duplicate_type
         }), 200
@@ -479,22 +509,24 @@ def save_bookmark():
         if not isinstance(extracted_text, str):
             extracted_text = str(extracted_text)
     
-    new_bm = SavedContent(
-        user_id=user_id,
-        url=url.strip(),
-        title=final_title,  # Truncated to 200 chars max
-        notes=description.strip() if isinstance(description, str) else '',
-        extracted_text=extracted_text,  # Full extracted text - no truncation
-        embedding=embedding,
-        quality_score=quality_score
-        # Optionally: store headings/meta_description in new columns if desired
-    )
-    try:
-        db.session.add(new_bm)
-        db.session.commit()
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        new_bm = service.create_bookmark(
+            user_id=user_id,
+            url=url.strip(),
+            title=final_title,
+            notes=description.strip() if isinstance(description, str) else '',
+            extracted_text=extracted_text,
+            category=category
+        )
+        new_bm.embedding = embedding
+        new_bm.quality_score = quality_score
+        
+        new_bm_id = new_bm.id
+        new_bm_url = new_bm.url
         # Invalidate caches using comprehensive cache invalidation service
         from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_save(new_bm.id, user_id)
+        cache_invalidator.after_content_save(new_bm_id, user_id)
         
         # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
         redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
@@ -505,9 +537,9 @@ def save_bookmark():
             def analyze_async():
                 try:
                     from services.background_analysis_service import analyze_content
-                    analyze_content(new_bm.id, user_id)
+                    analyze_content(new_bm_id, user_id)
                 except Exception as e:
-                    logger.error(f"Error triggering background analysis for bookmark {new_bm.id}: {e}")
+                    logger.error(f"Error triggering background analysis for bookmark {new_bm_id}: {e}")
 
             analysis_thread = threading.Thread(target=analyze_async, daemon=True)
             analysis_thread.start()
@@ -517,7 +549,7 @@ def save_bookmark():
 
         return jsonify({
             'message': 'Bookmark saved',
-            'bookmark': {'id': new_bm.id, 'url': new_bm.url},
+            'bookmark': {'id': new_bm_id, 'url': new_bm_url},
             'content_extracted': len(extracted_text) > 0,
             'wasDuplicate': False,
             'scraped': {
@@ -527,7 +559,7 @@ def save_bookmark():
             }
         }), 201
     except Exception as e:
-        db.session.rollback()
+        logger.error(f"Error in save_bookmark: {e}", exc_info=True)
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
 @bookmarks_bp.route('/import', methods=['POST'])
@@ -572,13 +604,21 @@ def bulk_import_bookmarks():
     else:
         # Fallback to database query
         logger.debug(f"Loading bookmarks from database for user {user_id}")
-        existing_bms = SavedContent.query.filter_by(user_id=user_id).all()
-        existing_urls = set(bm.url for bm in existing_bms)
-        normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
-        url_to_bm = {bm.url: bm for bm in existing_bms}
         
-        # Cache the bookmarks for future use
-        bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
+        from uow.unit_of_work import UnitOfWork
+        from services.bookmark_service import BookmarkService
+        
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            existing_bms = service.uow.bookmarks.get_all_by_user(user_id)
+            
+            existing_urls = set(bm.url for bm in existing_bms)
+            normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
+            url_to_bm = {bm.url: bm for bm in existing_bms}
+            
+            # Cache the bookmarks for future use
+            bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
+            
         redis_cache.cache_user_bookmarks(user_id, bookmarks_data)
 
     def process_bookmark(bookmark_data):
@@ -825,22 +865,25 @@ def bulk_import_bookmarks():
         for bm in new_bookmarks:
             if bm.user_id != user_id:
                 logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark has wrong user_id! Expected {user_id}, got {bm.user_id}. URL: {bm.url[:50]}")
-                db.session.rollback()
                 return jsonify({
                     'message': 'Security error: Bookmark user_id mismatch detected',
                     'error': 'Data integrity check failed'
                 }), 500
         
         logger.info(f"[IMPORT] Committing {len(new_bookmarks)} bookmarks for user {user_id}")
-        for bm in new_bookmarks:
-            db.session.add(bm)
-        db.session.commit()
+        
+        from uow.unit_of_work import UnitOfWork
+        new_bookmark_ids = []
+        with UnitOfWork() as uow:
+            for bm in new_bookmarks:
+                uow.bookmarks.add(bm)
+            uow.flush()
+            new_bookmark_ids = [bm.id for bm in new_bookmarks]
+            
         logger.info(f"[IMPORT] Successfully committed {len(new_bookmarks)} bookmarks for user {user_id}")
         
-        # CRITICAL: Extract IDs immediately after commit, before objects become detached
-        # SQLAlchemy objects become detached after commit, so we need to extract IDs now
-        content_ids = [bm.id for bm in new_bookmarks]
-        
+        # IDs were extracted into new_bookmark_ids inside the UoW
+        content_ids = new_bookmark_ids
         # Invalidate caches after adding new bookmarks
         if new_bookmarks:
             redis_cache.invalidate_user_bookmarks(user_id)
@@ -963,25 +1006,27 @@ def delete_bookmark(bookmark_id):
     
     # PRODUCTION OPTIMIZATION: Invalidate query cache before deletion
     redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
-    bm = SavedContent.query.get(bookmark_id)
-    if not bm or bm.user_id != user_id:
-        return jsonify({'message': 'Bookmark not found or unauthorized'}), 404
-    try:
+    
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
+    
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        bm = service.get_bookmark(bookmark_id)
+        if not bm or bm.user_id != user_id:
+            return jsonify({'message': 'Bookmark not found or unauthorized'}), 404
+            
         # Store user_id and bookmark_id before deletion for cache invalidation
         user_id_for_cache = bm.user_id
         bookmark_id_for_cache = bm.id
         
-        db.session.delete(bm)
-        db.session.commit()
+        service.delete_bookmark(bm)
         
-        # Invalidate caches using comprehensive cache invalidation service
-        from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
-        
-        return jsonify({'message': 'Bookmark deleted'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500
+    # Invalidate caches using comprehensive cache invalidation service (outside UoW)
+    from services.cache_invalidation_service import cache_invalidator
+    cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
+    
+    return jsonify({'message': 'Bookmark deleted'}), 200
 
 @bookmarks_bp.route('/url/<path:url>', methods=['DELETE'])
 @jwt_required()
@@ -991,25 +1036,29 @@ def delete_bookmark_by_url(url):
     from urllib.parse import unquote
     decoded_url = unquote(url)
     
-    bm = SavedContent.query.filter_by(user_id=user_id, url=decoded_url).first()
-    if not bm:
-        return jsonify({'message': 'Bookmark not found'}), 404
-    try:
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
+    
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        bm = service.get_bookmark_by_url(user_id, decoded_url)
+        if not bm:
+            return jsonify({'message': 'Bookmark not found'}), 404
+            
         # Store user_id and bookmark_id before deletion for cache invalidation
         user_id_for_cache = bm.user_id
         bookmark_id_for_cache = bm.id
         
-        db.session.delete(bm)
-        db.session.commit()
+        service.delete_bookmark(bm)
         
-        # Invalidate caches using comprehensive cache invalidation service
-        from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
-        
-        return jsonify({'message': 'Bookmark deleted'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500
+    # Invalidate caches using comprehensive cache invalidation service (outside UoW)
+    from services.cache_invalidation_service import cache_invalidator
+    cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
+    
+    # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
+    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+    
+    return jsonify({'message': 'Bookmark deleted'}), 200
 
 @bookmarks_bp.route('/check-duplicate', methods=['POST'])
 @jwt_required()
@@ -1729,10 +1778,11 @@ def extract_url_content():
 @jwt_required()
 def delete_all_bookmarks():
     user_id = int(get_jwt_identity())
-    try:
-        num_deleted = SavedContent.query.filter_by(user_id=user_id).delete()
-        db.session.commit()
-        return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'message': f'Error: {str(e)}'}), 500 
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
+    
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        num_deleted = service.delete_all_for_user(user_id)
+        
+    return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200 
