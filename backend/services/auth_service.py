@@ -115,6 +115,14 @@ class AuthService:
         
         return user
 
+    def update_username(self, user: User, new_username: str) -> None:
+        """
+        Updates a user's username.
+        Uniqueness validation and DB constraints are handled via UoW boundary.
+        """
+        user.username = new_username.lower().strip()
+        self.uow.users.add(user)
+
     def validate_password_strength(self, password: str) -> Tuple[bool, Optional[str]]:
         """Domain-level password complexity rules"""
         if len(password) < 8:
