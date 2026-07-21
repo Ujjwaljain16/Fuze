@@ -843,17 +843,20 @@ def supabase_oauth():
             random_pw    = ''.join(random.choices(string.ascii_letters + string.digits, k=24))
             provider_id  = supa_user.get('id') or (supa_user.get('user') or {}).get('id')
 
-            user = User(
-                username=username,
-                email=email,
-                password_hash=hash_password(random_pw),   # bcrypt placeholder
-                user_metadata={'supabase_user_id': provider_id},
-                provider_name='google',
-                provider_user_id=provider_id
-            )
             try:
-                db.session.add(user)
-                db.session.commit()
+                from uow.unit_of_work import UnitOfWork
+                from services.auth_service import AuthService
+                
+                with UnitOfWork() as uow:
+                    auth_service = AuthService(uow)
+                    user = auth_service.create_oauth_user(
+                        username=username,
+                        email=email,
+                        provider_id=provider_id,
+                        provider_name='google',
+                        password_hash=hash_password(random_pw),
+                        metadata={'supabase_user_id': provider_id}
+                    )
             except IntegrityError as e:
                 db.session.rollback()
                 logger.warning(f"IntegrityError creating OAuth user: {e}")
