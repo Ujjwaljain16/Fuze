@@ -109,6 +109,11 @@ class RedisCache:
                 self.connected = False
                 self.redis_client = None
     
+    @property
+    def client(self):
+        """Compatibility property for raw redis client access"""
+        return self.redis_client
+
     def _get_key(self, prefix: str, identifier: str) -> str:
         """Generate Redis key with prefix"""
         return f"fuze:{prefix}:{identifier}"
