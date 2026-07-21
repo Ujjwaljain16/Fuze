@@ -25,45 +25,51 @@ def get_projects():
     if cached_projects:
         return jsonify(cached_projects), 200
     
-    pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    projects_data = []
+    from uow.unit_of_work import UnitOfWork
     
-    for project in pagination.items:
-        project_dict = {
-            "id": project.id,
-            "title": project.title,
-            "description": project.description,
-            "technologies": project.technologies,
-            "created_at": project.created_at.isoformat()
+    try:
+        uow = UnitOfWork()
+        pagination = uow.projects.list_by_user(user_id, page, per_page)
+        
+        projects_data = []
+        for project in pagination.items:
+            project_dict = {
+                "id": project.id,
+                "title": project.title,
+                "description": project.description,
+                "technologies": project.technologies,
+                "created_at": project.created_at.isoformat()
+            }
+            
+            if include_tasks:
+                tasks = uow.projects.get_tasks(project.id)
+                project_dict["tasks"] = [{
+                    "id": t.id,
+                    "title": t.title,
+                    "description": t.description,
+                    "created_at": t.created_at.isoformat(),
+                    "subtasks": [{
+                        "id": st.id,
+                        "title": st.title,
+                        "description": st.description,
+                        "completed": bool(st.completed),
+                        "created_at": st.created_at.isoformat(),
+                        "updated_at": st.updated_at.isoformat() if st.updated_at else None
+                    } for st in t.subtasks]
+                } for t in tasks]
+            
+            projects_data.append(project_dict)
+        
+        response_data = {
+            "projects": projects_data,
+            "total": pagination.total,
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "pages": pagination.pages
         }
-        
-        # Include tasks if requested
-        if include_tasks:
-            tasks = Task.query.filter_by(project_id=project.id).all()
-            project_dict["tasks"] = [{
-                "id": task.id,
-                "title": task.title,
-                "description": task.description,
-                "created_at": task.created_at.isoformat(),
-                "subtasks": [{
-                    "id": st.id,
-                    "title": st.title,
-                    "description": st.description,
-                    "completed": bool(st.completed),
-                    "created_at": st.created_at.isoformat(),
-                    "updated_at": st.updated_at.isoformat() if st.updated_at else None
-                } for st in task.subtasks]
-            } for task in tasks]
-        
-        projects_data.append(project_dict)
-    
-    response_data = {
-        "projects": projects_data,
-        "total": pagination.total,
-        "page": pagination.page,
-        "per_page": pagination.per_page,
-        "pages": pagination.pages
-    }
+    except Exception as e:
+        logger.error(f"project_list_failed user_id={user_id} error={str(e)}")
+        return jsonify({"message": "Failed to fetch projects"}), 500
     
     # Cache for 1 minute (projects don't change frequently)
     if redis_cache:
@@ -170,8 +176,10 @@ def create_project():
 def get_project(project_id):
     """Get a specific project by ID"""
     user_id = int(get_jwt_identity())
+    from uow.unit_of_work import UnitOfWork
     
-    project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+    uow = UnitOfWork()
+    project = uow.projects.get_by_id(project_id, user_id)
     if not project:
         return jsonify({"message": "Project not found"}), 404
     
@@ -188,12 +196,14 @@ def get_project(project_id):
 def get_project_tasks(project_id):
     """Get tasks for a specific project"""
     user_id = int(get_jwt_identity())
+    from uow.unit_of_work import UnitOfWork
     
-    project = Project.query.filter_by(id=project_id, user_id=user_id).first()
+    uow = UnitOfWork()
+    project = uow.projects.get_by_id(project_id, user_id)
     if not project:
         return jsonify({"message": "Project not found"}), 404
     
-    tasks = Task.query.filter_by(project_id=project_id).all()
+    tasks = uow.projects.get_tasks(project_id)
     return jsonify({'tasks': [{
         'id': t.id,
         'title': t.title,
@@ -361,10 +371,12 @@ def delete_project(project_id):
 def get_user_projects(user_id):
     page = request.args.get('page', default=1, type=int)
     per_page = request.args.get('per_page', default=10, type=int)
-    user = User.query.get(user_id)
+    from uow.unit_of_work import UnitOfWork
+    uow = UnitOfWork()
+    user = uow.users.get_by_id(user_id)
     if not user:
         return jsonify({"message": "User not found"}), 404
-    pagination = Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    pagination = uow.projects.list_by_user(user_id, page, per_page)
     projects_data = [{
         "id": project.id,
         "title": project.title,
