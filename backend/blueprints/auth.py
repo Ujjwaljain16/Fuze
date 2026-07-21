@@ -724,14 +724,11 @@ def logout():
         # Revoke token family → invalidates all refresh tokens for this session
         if family_id:
             try:
-                family = TokenFamily.query.filter_by(family_id=family_id).first()
-                if family and not family.revoked:
-                    family.revoked        = True
-                    family.revoked_reason = 'logout'
-                    db.session.commit()
+                from uow.unit_of_work import UnitOfWork
+                with UnitOfWork() as uow:
+                    uow.token_families.revoke_family(family_id, 'logout')
             except Exception as e:
                 logger.warning(f"Could not revoke token family on logout: {e}")
-                db.session.rollback()
 
         response = jsonify({'message': 'Logout successful'})
         unset_jwt_cookies(response)
