@@ -108,26 +108,6 @@ def create_project():
                 technologies=technologies
             )
             
-            # Generate embedding for the new project BEFORE committing
-            try:
-                from utils.embedding_utils import get_project_embedding
-                new_project.embedding = get_project_embedding(new_project)
-                if new_project.embedding is not None:
-                    # Check if it's not a zero vector (fallback case)
-                    try:
-                        import numpy as np
-                        is_zero_vector = isinstance(new_project.embedding, np.ndarray) and np.all(new_project.embedding == 0)
-                    except:
-                        # Fallback check for list/array
-                        is_zero_vector = isinstance(new_project.embedding, (list, tuple)) and all(x == 0.0 for x in new_project.embedding)
-
-                    if not is_zero_vector:
-                        logger.info(f"Generated embedding for new project: {new_project.title}")
-            except Exception as embedding_error:
-                logger.warning(f"Embedding generation failed for new project: {str(embedding_error)}")
-                # Don't fail the project creation if embedding generation fails
-                # The embedding can be generated later when needed
-
             # Let uow commit automatically on exit (which is equivalent to db.session.commit())
 
         # Extract values so we don't trigger DetachedInstanceError outside the session
@@ -136,6 +116,32 @@ def create_project():
         new_project_description = new_project.description
         new_project_technologies = new_project.technologies
         new_project_created_at = new_project.created_at.isoformat()
+
+        # Generate embedding for the new project in a separate transaction
+        try:
+            from utils.embedding_utils import get_project_embedding
+            logger.info(f"Generating embedding for new project: {new_project_title}")
+            
+            with UnitOfWork() as uow2:
+                project2 = uow2.projects.get_by_id(new_project_id, user_id)
+                embedding = get_project_embedding(project2)
+                
+                if embedding is not None:
+                    project2.embedding = embedding
+                    uow2.projects.update(project2)
+                    
+                    # Check if it's not a zero vector (fallback case)
+                    try:
+                        import numpy as np
+                        is_zero_vector = isinstance(project2.embedding, np.ndarray) and np.all(project2.embedding == 0)
+                    except:
+                        is_zero_vector = isinstance(project2.embedding, (list, tuple)) and all(x == 0.0 for x in project2.embedding)
+
+                    if not is_zero_vector:
+                        logger.info(f"Generated and saved embedding for new project: {new_project_title}")
+        except Exception as embedding_error:
+            logger.warning(f"Embedding generation failed for new project: {str(embedding_error)}")
+            # Don't fail the project creation if embedding generation fails
 
         # Generate intent analysis for the new project (after commit so project.id exists)
         try:
