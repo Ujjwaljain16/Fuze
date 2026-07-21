@@ -13,12 +13,17 @@ class ProjectRepository:
 
     def list_by_user(self, user_id: int, page: int = 1, per_page: int = 10):
         """Paginated list of projects for a user"""
-        return Project.query.filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(
+        return self.session.query(Project).filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(
             page=page, per_page=per_page, error_out=False
         )
 
     def add(self, project: Project):
         """Persist a new project"""
+        self.session.add(project)
+        return project
+
+    def update(self, project: Project):
+        """Update a project"""
         self.session.add(project)
         return project
 
