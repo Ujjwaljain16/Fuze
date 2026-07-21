@@ -662,47 +662,41 @@ def refresh():
         new_access = create_access_token(identity=identity)
         return jsonify({'access_token': new_access}), 200
 
-    # Load family
-    family = TokenFamily.query.filter_by(family_id=family_id).first()
-    if not family or family.revoked:
-        logger.warning(f"Refresh on revoked/missing family: user={identity} family={family_id}")
-        return jsonify({'message': 'Session expired. Please log in again.'}), 401
+    # Single transactional boundary for lookup, verification, and rotation
+    from uow.unit_of_work import UnitOfWork
+    
+    with UnitOfWork() as uow:
+        family = uow.token_families.get_family(family_id)
+        if not family or family.revoked:
+            logger.warning(f"Refresh on revoked/missing family: user={identity} family={family_id}")
+            return jsonify({'message': 'Session expired. Please log in again.'}), 401
 
-    # Reuse detection: token jti doesn't match current valid jti → replay attack
-    if family.current_jti != old_jti:
-        family.revoked        = True
-        family.revoked_reason = 'reuse_detected'
+        # Reuse detection: token jti doesn't match current valid jti → replay attack
+        if family.current_jti != old_jti:
+            uow.token_families.revoke_family(family_id, 'reuse_detected')
+            logger.warning(f"Refresh token reuse — family revoked: user={identity} family={family_id}")
+            # returning here will trigger uow.__exit__, committing the revocation
+            return jsonify({'message': 'Session compromised. Please log in again.'}), 401
+
+        # Issue new tokens (same family)
+        new_access  = create_access_token(
+            identity=identity,
+            additional_claims={'family_id': family_id}
+        )
+        new_refresh = create_refresh_token(
+            identity=identity,
+            additional_claims={'family_id': family_id}
+        )
+        new_jti = decode_token(new_refresh)['jti']
+
+        # Blacklist old refresh jti + update family
         try:
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-        logger.warning(f"Refresh token reuse — family revoked: user={identity} family={family_id}")
-        return jsonify({'message': 'Session compromised. Please log in again.'}), 401
+            from utils.redis_utils import redis_cache
+            redis_cache.client.setex(f"revoked_jti:{old_jti}", 60 * 60 * 24 * 30, "1")
+        except Exception as e:
+            logger.warning(f"Could not blacklist old refresh jti: {e}")
 
-    # Issue new tokens (same family)
-    new_access  = create_access_token(
-        identity=identity,
-        additional_claims={'family_id': family_id}
-    )
-    new_refresh = create_refresh_token(
-        identity=identity,
-        additional_claims={'family_id': family_id}
-    )
-    new_jti = decode_token(new_refresh)['jti']
-
-    # Blacklist old refresh jti + update family
-    try:
-        from utils.redis_utils import redis_cache
-        redis_cache.client.setex(f"revoked_jti:{old_jti}", 60 * 60 * 24 * 30, "1")
-    except Exception as e:
-        logger.warning(f"Could not blacklist old refresh jti: {e}")
-
-    try:
-        family.current_jti  = new_jti
-        family.last_used_at = datetime.utcnow()
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+        uow.token_families.update_current_jti(family_id, new_jti)
 
     response = jsonify({'access_token': new_access})
     set_refresh_cookies(response, new_refresh)
