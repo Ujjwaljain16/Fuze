@@ -123,6 +123,19 @@ class AuthService:
         user.username = new_username.lower().strip()
         self.uow.users.add(user)
 
+    def update_password(self, user_id: int, password_hash: str) -> None:
+        """
+        Pure persistence for password updates.
+        Hashing and security checks (current password verification, timing attacks)
+        MUST be handled by the authentication boundary before calling this.
+        """
+        user = self.uow.users.get_by_id(user_id)
+        if not user:
+            raise AuthenticationFailed("User not found")
+            
+        user.password_hash = password_hash
+        self.uow.users.add(user)
+
     def validate_password_strength(self, password: str) -> Tuple[bool, Optional[str]]:
         """Domain-level password complexity rules"""
         if len(password) < 8:
