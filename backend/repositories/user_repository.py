@@ -10,6 +10,12 @@ class UserRepository:
     def get_by_id(self, user_id: int) -> Optional[User]:
         return self.session.query(User).get(user_id)
 
+    def get_by_email(self, email: str) -> Optional[User]:
+        if not email:
+            return None
+        from sqlalchemy import func
+        return self.session.query(User).filter(func.lower(User.email) == email.lower().strip()).first()
+
     def get_by_identifier(self, identifier: str) -> Optional[User]:
         """
         Robust lookup by either email or username.

@@ -72,6 +72,12 @@ class AuthService:
         """
         return self.uow.users.get_by_identifier(identifier)
 
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """
+        Pure persistence lookup for OAuth identity matching.
+        """
+        return self.uow.users.get_by_email(email.lower().strip())
+
     def authenticate(self, identifier: str, password: str) -> User:
         """
         Verify credentials. 
