@@ -582,9 +582,15 @@ def set_password():
         if not is_valid:
             return jsonify({'message': error_msg}), 400
 
-        user.password_hash = hash_password(new_password)   # bcrypt — not werkzeug
-        db.session.add(user)
-        db.session.commit()
+        new_hash = hash_password(new_password)   # bcrypt — not werkzeug
+        
+        from uow.unit_of_work import UnitOfWork
+        from services.auth_service import AuthService
+        
+        with UnitOfWork() as uow:
+            auth_service = AuthService(uow)
+            auth_service.update_password(user_id, new_hash)
+            
         return jsonify({'message': 'Password updated successfully'}), 200
 
     except Exception as e:
