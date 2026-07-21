@@ -64,26 +64,30 @@ def is_duplicate_url(url, user_id):
     """Check if URL is a duplicate (exact match or normalized match)"""
     normalized_url = normalize_url(url)
     
-    # Check exact match first
-    existing_exact = SavedContent.query.filter_by(user_id=user_id, url=url).first()
-    if existing_exact:
-        return existing_exact, 'exact'
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
     
-    # Check normalized match
-    if normalized_url != url:
-        existing_normalized = SavedContent.query.filter_by(user_id=user_id, url=normalized_url).first()
-        if existing_normalized:
-            return existing_normalized, 'normalized'
-    
-    # Check for similar URLs (same domain and path, different query params)
-    parsed = urlparse(url)
-    domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-    
-    # Find bookmarks with same domain and path
-    similar_bookmarks = SavedContent.query.filter(
-        SavedContent.user_id == user_id,
-        SavedContent.url.like(f"{domain_path}%")
-    ).all()
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        
+        # Check exact match first
+        existing_exact = service.get_bookmark_by_url(user_id, url)
+        if existing_exact:
+            return existing_exact, 'exact'
+        
+        # Check normalized match
+        if normalized_url != url:
+            existing_normalized = service.get_bookmark_by_normalized_url(user_id, normalized_url)
+            if existing_normalized:
+                return existing_normalized, 'normalized'
+        
+        # Check for similar URLs (same domain and path, different query params)
+        parsed = urlparse(url)
+        domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        
+        from utils.query_sanitizer import sanitize_like_query
+        safe_domain_path = sanitize_like_query(domain_path)
+        similar_bookmarks = uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
     
     for bookmark in similar_bookmarks:
         bookmark_parsed = urlparse(bookmark.url)
@@ -915,36 +919,18 @@ def list_bookmarks():
     
     # Build query - SECURITY: Always filter by user_id
     # PRODUCTION OPTIMIZATION: Use eager loading to prevent N+1 queries
-    from sqlalchemy.orm import joinedload
-    query = SavedContent.query.options(joinedload(SavedContent.analyses)).filter_by(user_id=user_id)
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
     
-    # Add search filter
-    if search:
-        query = query.filter(
-            db.or_(
-                SavedContent.title.ilike(f'%{search}%'),
-                SavedContent.notes.ilike(f'%{search}%'),
-                SavedContent.url.ilike(f'%{search}%')
-            )
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        pagination = service.list_bookmarks(
+            user_id=user_id,
+            search=search,
+            category=category,
+            page=page,
+            per_page=per_page
         )
-    
-    # Add category filter (only if category is provided and not 'all')
-    # Handle None/empty categories by treating them as 'other'
-    if category and category != 'all':
-        # Filter by category, but also include bookmarks with None/empty category if filtering for 'other'
-        if category == 'other':
-            query = query.filter(
-                db.or_(
-                    SavedContent.category == category,
-                    SavedContent.category.is_(None),
-                    SavedContent.category == ''
-                )
-            )
-        else:
-            query = query.filter(SavedContent.category == category)
-    
-    # Order by saved date and paginate
-    pagination = query.order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     
     bookmarks = [{
         'id': b.id,
@@ -1565,21 +1551,27 @@ def get_dashboard_stats():
         week_ago = now - timedelta(days=7)
         two_weeks_ago = now - timedelta(days=14)
         month_ago = now - timedelta(days=30)
+        week_ago = now - timedelta(days=7)
+        two_weeks_ago = now - timedelta(days=14)
         
+        from uow.unit_of_work import UnitOfWork
+        from services.bookmark_service import BookmarkService
+        
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            stats_data = service.get_bookmark_stats(user_id, month_ago, week_ago, two_weeks_ago)
+            
         # Total Bookmarks - compare current vs 30 days ago
-        total_bookmarks = SavedContent.query.filter_by(user_id=user_id).count()
-        bookmarks_month_ago = SavedContent.query.filter(
-            SavedContent.user_id == user_id,
-            SavedContent.saved_at <= month_ago
-        ).count()
+        total_bookmarks = stats_data['total']
+        bookmarks_month_ago = stats_data['month']
         
         bookmarks_change = 0
         if bookmarks_month_ago > 0:
             bookmarks_change = ((total_bookmarks - bookmarks_month_ago) / bookmarks_month_ago) * 100
         elif total_bookmarks > 0:
             bookmarks_change = 100  # New user, 100% increase
-        
-        # Active Projects - compare current vs 30 days ago
+            
+        # Active Projects - compare current vs 30 days ago (Keep Project queries in blueprint for now)
         total_projects = Project.query.filter_by(user_id=user_id).count()
         projects_month_ago = Project.query.filter(
             Project.user_id == user_id,
@@ -1592,24 +1584,10 @@ def get_dashboard_stats():
             projects_change_display = f"+{projects_change_percent:.0f}%" if projects_change_percent > 0 else f"{projects_change_percent:.0f}%"
         else:
             projects_change_display = f"+{projects_change}" if projects_change > 0 else str(projects_change)
-        
-        # Weekly Saves - compare this week vs last week
-        weekly_saves = SavedContent.query.filter(
-            SavedContent.user_id == user_id,
-            SavedContent.saved_at >= week_ago
-        ).count()
-        
-        last_week_saves = SavedContent.query.filter(
-            SavedContent.user_id == user_id,
-            SavedContent.saved_at >= two_weeks_ago,
-            SavedContent.saved_at < week_ago
-        ).count()
-        
-        weekly_change = 0
-        if last_week_saves > 0:
-            weekly_change = ((weekly_saves - last_week_saves) / last_week_saves) * 100
-        elif weekly_saves > 0:
-            weekly_change = 100  # First week with saves
+            
+        # Weekly Saves
+        weekly_saves = stats_data['weekly']
+        weekly_change = stats_data['trend']
         
         # Success Rate - based on quality scores and analysis completion
         # Success = bookmarks with quality_score >= 5 and have analysis
