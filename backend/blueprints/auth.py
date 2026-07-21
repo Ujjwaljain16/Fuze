@@ -620,12 +620,20 @@ def update_username():
             return jsonify(response), 409
 
         try:
-            user.username = new_username
-            db.session.add(user)
-            db.session.commit()
+            from uow.unit_of_work import UnitOfWork
+            from services.auth_service import AuthService
+            
+            with UnitOfWork() as uow:
+                user = uow.users.get_by_id(user_id)
+                if not user:
+                    return jsonify({'message': 'User not found'}), 404
+                    
+                auth_service = AuthService(uow)
+                auth_service.update_username(user, new_username)
+                
             return jsonify({'message': 'Username updated successfully', 'username': new_username}), 200
         except IntegrityError:
-            db.session.rollback()
+            # db.session.rollback() is handled by UoW
             suggestions = generate_username_suggestions(new_username, 3)
             return jsonify({'message': 'An account already exists with those credentials.', 'suggestions': suggestions}), 409
 
