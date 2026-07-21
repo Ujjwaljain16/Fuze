@@ -831,7 +831,13 @@ def supabase_oauth():
         )
 
         # Find or create local user
-        user = User.query.filter(func.lower(User.email) == email).first()
+        from uow.unit_of_work import UnitOfWork
+        from services.auth_service import AuthService
+        
+        with UnitOfWork() as uow:
+            auth_service = AuthService(uow)
+            user = auth_service.get_user_by_email(email)
+            
         if not user:
             username     = _generate_unique_username(email)
             random_pw    = ''.join(random.choices(string.ascii_letters + string.digits, k=24))
