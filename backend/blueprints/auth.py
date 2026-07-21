@@ -485,11 +485,11 @@ def login():
                 family_id=family_id,
                 current_jti=decode_token(refresh_token)['jti']
             )
-            db.session.add(family)
-            db.session.commit()
+            from uow.unit_of_work import UnitOfWork
+            with UnitOfWork() as uow:
+                uow.token_families.add(family)
         except Exception as tf_err:
             logger.error(f"TokenFamily persist failed: {tf_err}")
-            db.session.rollback()
             # Non-fatal — proceed without family tracking this time
 
         response = jsonify({
@@ -906,11 +906,11 @@ def supabase_oauth():
                 family_id=family_id,
                 current_jti=decode_token(refresh)['jti']
             )
-            db.session.add(family)
-            db.session.commit()
+            from uow.unit_of_work import UnitOfWork
+            with UnitOfWork() as uow:
+                uow.token_families.add(family)
         except Exception as e:
             logger.warning(f"TokenFamily persist failed in OAuth: {e}")
-            db.session.rollback()
 
         response = jsonify({
             'access_token': access,
