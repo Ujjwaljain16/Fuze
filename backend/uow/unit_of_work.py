@@ -22,6 +22,7 @@ class UnitOfWork:
         self._recommendation_repo = None
         self._bookmark_repo = None
         self._analysis_repo = None
+        self._token_families = None
 
     @property
     def users(self):
@@ -63,6 +64,13 @@ class UnitOfWork:
                     self.session.add(analysis)
             self._analysis_repo = AnalysisRepo(self.session)
         return self._analysis_repo
+
+    @property
+    def token_families(self):
+        if self._token_families is None:
+            from repositories.token_family_repository import TokenFamilyRepository
+            self._token_families = TokenFamilyRepository(self.session)
+        return self._token_families
 
     def flush(self):
         """Flush session to get IDs without committing"""
