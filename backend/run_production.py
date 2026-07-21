@@ -239,7 +239,9 @@ def _validate_production_env():
 
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
-if os.environ.get('FLASK_ENV') != 'development' and '__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True:
+_main_mod = sys.modules.get('__main__')
+_main_file = getattr(_main_mod, '__file__', '') if _main_mod else ''
+if os.environ.get('FLASK_ENV') != 'development' and 'run_production' not in _main_file:
     os.environ.setdefault('FLASK_ENV', 'production')
     os.environ.setdefault('FLASK_DEBUG', 'False')
 else:
@@ -303,18 +305,12 @@ def create_app():
          max_age=cors_config.max_age)
     
     # Initialize rate limiting
-    limiter = None
     if RATE_LIMITING_AVAILABLE:
-        limiter = init_rate_limiter(app)
-        if limiter:
-            logger.info("[OK] Rate limiting initialized")
-        else:
-            logger.warning("[WARNING] Rate limiting initialization failed")
+        init_rate_limiter(app)
+        logger.info("[OK] Rate limiting initialized")
     else:
         logger.warning("[WARNING] Rate limiting not available")
     
-    # Make limiter available to blueprints
-    app.limiter = limiter
     
     # Initialize response compression for better performance
     compress = Compress()
@@ -374,7 +370,23 @@ def create_app():
             'message': 'Request does not contain an access token',
             'error': 'authorization_required'
         }), 401
-    
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        """Check Redis for revoked JTIs (access token logout, refresh rotation)."""
+        jti = jwt_payload.get('jti')
+        if not jti:
+            return False
+        try:
+            from utils.redis_utils import redis_cache
+            return redis_cache.client.exists(f"revoked_jti:{jti}") == 1
+        except Exception:
+            return False  # Fail open on Redis error — never lock out all users
+
+    @jwt.revoked_token_loader
+    def revoked_token_callback(jwt_header, jwt_payload):
+        return jsonify({'message': 'Token has been revoked', 'error': 'token_revoked'}), 401
+
     # Skip database connection test during startup to avoid blocking
     # Database will be tested and connected on first request
     global database_available

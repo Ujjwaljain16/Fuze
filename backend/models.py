@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, Boolean
 from sqlalchemy.dialects.postgresql import TEXT
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
@@ -14,15 +14,22 @@ def configure_database():
         from utils.database_connection_manager import get_database_engine
         engine = get_database_engine()
         
-        # Update the SQLAlchemy engine
-        db.engine = engine
+        try:
+            # Try to update the SQLAlchemy engine (may fail in Flask-SQLAlchemy 3.x)
+            db.engine = engine
+            # Configure session
+            db.session.configure(bind=engine)
+        except AttributeError:
+            # Flask-SQLAlchemy 3.x makes db.engine read-only, which is fine since init_app handles it
+            pass
+
         
-        # Configure session
-        db.session.configure(bind=engine)
-        
-        # Ensure user_metadata column exists (migration helper)
+        # Ensure all columns and tables exist (idempotent migration helpers)
         ensure_user_metadata_column()
         ensure_provider_columns()
+        ensure_lockout_columns()
+        ensure_token_families_table()
+        ensure_case_insensitive_indexes()
         
         return True
     except Exception as e:
@@ -62,36 +69,133 @@ def ensure_user_metadata_column():
         except:
             pass
 
-    def ensure_provider_columns():
-        """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
-        try:
-            from sqlalchemy import inspect, text
-            inspector = inspect(db.engine)
-            columns = [col['name'] for col in inspector.get_columns('users')]
-            # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
-            stmts = []
-            if 'provider_name' not in columns:
-                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
-            if 'provider_user_id' not in columns:
-                stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
 
-            for s in stmts:
-                try:
-                    db.session.execute(text(s))
-                    db.session.commit()
-                except Exception as e:
-                    # If column was added by a concurrent process, ignore
-                    err = str(e).lower()
-                    if 'already exists' in err or 'duplicate' in err:
-                        db.session.rollback()
-                    else:
-                        raise
-        except Exception as e:
-            print(f"Note: Could not ensure provider columns: {e}")
+def ensure_provider_columns():
+    """Ensure provider_name and provider_user_id columns exist on users table (migration helper)"""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('users')]
+        # Use PostgreSQL's IF NOT EXISTS to make this idempotent and avoid errors
+        stmts = []
+        if 'provider_name' not in columns:
+            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50);")
+        if 'provider_user_id' not in columns:
+            stmts.append("ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id VARCHAR(200);")
+
+        for s in stmts:
             try:
-                db.session.rollback()
-            except:
-                pass
+                db.session.execute(text(s))
+                db.session.commit()
+            except Exception as e:
+                # If column was added by a concurrent process, ignore
+                err = str(e).lower()
+                if 'already exists' in err or 'duplicate' in err:
+                    db.session.rollback()
+                else:
+                    raise
+    except Exception as e:
+        print(f"Note: Could not ensure provider columns: {e}")
+        try:
+            db.session.rollback()
+        except:
+            pass
+
+def ensure_lockout_columns():
+    """Ensure account-lockout columns exist on the users table (idempotent)."""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('users')]
+        stmts = []
+        if 'failed_login_count' not in columns:
+            stmts.append(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0;"
+            )
+        if 'last_failed_login' not in columns:
+            stmts.append(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login TIMESTAMP;"
+            )
+        if 'account_locked_until' not in columns:
+            stmts.append(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_locked_until TIMESTAMP;"
+            )
+        for stmt in stmts:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception as e:
+                err = str(e).lower()
+                if 'already exists' in err or 'duplicate' in err:
+                    db.session.rollback()
+                else:
+                    raise
+    except Exception as e:
+        print(f"Note: Could not ensure lockout columns: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def ensure_token_families_table():
+    """Ensure the token_families table exists for refresh token rotation (idempotent)."""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        if 'token_families' not in inspector.get_table_names():
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS token_families (
+                    id              SERIAL PRIMARY KEY,
+                    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    family_id       VARCHAR(36) NOT NULL UNIQUE,
+                    current_jti     VARCHAR(36) NOT NULL,
+                    created_at      TIMESTAMP DEFAULT NOW(),
+                    last_used_at    TIMESTAMP DEFAULT NOW(),
+                    revoked         BOOLEAN NOT NULL DEFAULT FALSE,
+                    revoked_reason  VARCHAR(50)
+                );
+            """))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_token_families_user_id ON token_families(user_id);"
+            ))
+            db.session.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_token_families_family_id ON token_families(family_id);"
+            ))
+            db.session.commit()
+    except Exception as e:
+        print(f"Note: Could not ensure token_families table: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def ensure_case_insensitive_indexes():
+    """Ensure case-insensitive unique indexes on email and username (idempotent)."""
+    try:
+        from sqlalchemy import text
+        stmts = [
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique_lower ON users (lower(email));",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique_lower ON users (lower(username));",
+        ]
+        for stmt in stmts:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception as e:
+                err = str(e).lower()
+                if 'already exists' in err or 'duplicate' in err:
+                    db.session.rollback()
+                else:
+                    raise
+    except Exception as e:
+        print(f"Note: Could not ensure case-insensitive indexes: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
 
 class Base(db.Model):
     __abstract__ = True
@@ -107,11 +211,15 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=False, index=True)  # Added index for performance
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
-    user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted) - renamed from 'metadata' to avoid SQLAlchemy conflict
+    user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted)
     # OAuth provider info
     provider_name = Column(String(50), nullable=True, index=True)
     provider_user_id = Column(String(200), nullable=True, index=True)
     created_at = Column(DateTime, default=func.now())
+    # Account lockout fields
+    failed_login_count  = Column(Integer, default=0, nullable=False, server_default='0')
+    last_failed_login   = Column(DateTime, nullable=True)
+    account_locked_until = Column(DateTime, nullable=True)
 
     # Additional indexes for optimized username queries
     __table_args__ = (
@@ -122,6 +230,7 @@ class User(Base):
 
     saved_content = relationship('SavedContent', backref='user', lazy=True, cascade='all, delete-orphan')
     projects = relationship('Project', backref='user', lazy=True, cascade='all, delete-orphan')
+    token_families = relationship('TokenFamily', backref='user', lazy=True, cascade='all, delete-orphan')
 
 class Project(Base):
     __tablename__ = 'projects'
@@ -235,3 +344,20 @@ class Subtask(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     embedding = Column(Vector(384))  # Embedding for semantic matching in recommendations
+
+
+class TokenFamily(Base):
+    """
+    Tracks refresh token rotation families.
+    When a refresh token is used, its jti is compared against current_jti.
+    If they differ, it means a previously-rotated token was replayed → revoke entire family.
+    """
+    __tablename__ = 'token_families'
+    id             = Column(Integer, primary_key=True)
+    user_id        = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    family_id      = Column(String(36), unique=True, nullable=False, index=True)
+    current_jti    = Column(String(36), nullable=False)
+    created_at     = Column(DateTime, default=func.now())
+    last_used_at   = Column(DateTime, default=func.now())
+    revoked        = Column(Boolean, default=False, nullable=False)
+    revoked_reason = Column(String(50), nullable=True)  # 'logout', 'reuse_detected', 'expired'

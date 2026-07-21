@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-import api, { initializeCSRF, handleApiError } from '../services/api'
+import api, { handleApiError } from '../services/api'
 import { useToast } from './ToastContext'
 
 const AuthContext = createContext()
@@ -34,8 +34,6 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initializeAuth = async () => {
-      // Initialize CSRF token in background (non-blocking)
-      initializeCSRF().catch(console.warn)
       
       if (token) {
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`

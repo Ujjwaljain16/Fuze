@@ -144,30 +144,14 @@ export const refreshTokenIfNeeded = async () => {
   }
 }
 
-// Initialize CSRF token on app startup - optimized for performance
+// initializeCSRF is no longer needed:
+// The /csrf-token endpoint was removed. JWT cookie CSRF protection is handled
+// automatically by flask-jwt-extended via the JWT_COOKIE_CSRF_PROTECT setting.
+// This stub is kept to avoid breaking imports in tests.
 export const initializeCSRF = async () => {
-  try {
-    // Increased timeout for Hugging Face Spaces (may have higher latency)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-    
-    const response = await axios.get(`${baseURL}/api/auth/csrf-token`, {
-      withCredentials: true,
-      signal: controller.signal,
-      timeout: 10000 // Also set axios timeout
-    })
-    
-    clearTimeout(timeoutId)
-    csrfToken = response.data.csrf_token
-  } catch (error) {
-    if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
-      console.warn('CSRF token request timed out, continuing without CSRF')
-    } else {
-      console.warn('CSRF token initialization failed, continuing without CSRF:', error.message)
-    }
-    csrfToken = 'csrf_disabled'
-  }
+  return Promise.resolve()
 }
+
 
 // ============================================================================
 // COMPREHENSIVE ERROR HANDLING SYSTEM

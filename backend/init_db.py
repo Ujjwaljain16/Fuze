@@ -20,6 +20,14 @@ def init_database():
             db.session.commit()
             print("✅ pgvector extension enabled")
             
+            # Run idempotent schema migrations (columns, token families table, etc.)
+            from models import configure_database
+            print("\n🔄 Running idempotent schema migrations...")
+            if configure_database():
+                print("✅ Schema migrations completed successfully")
+            else:
+                print("⚠️  Some schema migrations may have failed")
+            
             # Create all tables
             db.create_all()
             print("✅ All database tables created successfully")
