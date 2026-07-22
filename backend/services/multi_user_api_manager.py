@@ -7,7 +7,9 @@ Manages API keys for multiple users with individual rate limiting
 import os
 import sys
 import time
-import logging
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from dataclasses import dataclass

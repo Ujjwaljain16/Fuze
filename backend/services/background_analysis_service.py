@@ -3,13 +3,18 @@
 Background Analysis Service for Gemini Content Analysis
 """
 
-import sys
-import os
-import threading
 import time
+import os
+import random
+import sys
+import threading
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set
+from flask import Flask, current_app
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

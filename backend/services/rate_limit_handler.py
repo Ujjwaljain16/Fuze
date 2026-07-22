@@ -4,13 +4,13 @@ Rate limiting handler for Gemini API to manage quota limits
 """
 
 import time
-import logging
 import random
 from typing import Optional, Callable, Any
 from functools import wraps
 from datetime import datetime, timedelta
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class RateLimitHandler:
     """
