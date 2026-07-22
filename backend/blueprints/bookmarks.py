@@ -521,46 +521,43 @@ def save_bookmark():
         )
         new_bm.embedding = embedding
         new_bm.quality_score = quality_score
-        
+        # Extract primitives inside session — avoids DetachedInstanceError post-exit
         new_bm_id = new_bm.id
         new_bm_url = new_bm.url
-        # Invalidate caches using comprehensive cache invalidation service
-        from services.cache_invalidation_service import cache_invalidator
-        cache_invalidator.after_content_save(new_bm_id, user_id)
-        
-        # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
-        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
 
-        # Trigger background analysis for this new content (non-blocking)
-        try:
-            import threading
-            def analyze_async():
-                try:
-                    from services.background_analysis_service import analyze_content
-                    analyze_content(new_bm_id, user_id)
-                except Exception as e:
-                    logger.error(f"Error triggering background analysis for bookmark {new_bm_id}: {e}")
+    # Post-commit: commit has completed on UoW __exit__.
+    # Cache invalidation must always run AFTER the write is durable.
+    from services.cache_invalidation_service import cache_invalidator
+    cache_invalidator.after_content_save(new_bm_id, user_id)
+    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
 
-            analysis_thread = threading.Thread(target=analyze_async, daemon=True)
-            analysis_thread.start()
-        except Exception as analysis_error:
-            logger.warning(f"Could not trigger background analysis: {analysis_error}")
-            # Don't fail the bookmark save if analysis fails
+    # Trigger background analysis for this new content (non-blocking)
+    try:
+        import threading
+        def analyze_async():
+            try:
+                from services.background_analysis_service import analyze_content
+                analyze_content(new_bm_id, user_id)
+            except Exception as e:
+                logger.error(f"Error triggering background analysis for bookmark {new_bm_id}: {e}")
 
-        return jsonify({
-            'message': 'Bookmark saved',
-            'bookmark': {'id': new_bm_id, 'url': new_bm_url},
-            'content_extracted': len(extracted_text) > 0,
-            'wasDuplicate': False,
-            'scraped': {
-                'title': scraped_title,
-                'headings': headings,
-                'meta_description': meta_description
-            }
-        }), 201
-    except Exception as e:
-        logger.error(f"Error in save_bookmark: {e}", exc_info=True)
-        return jsonify({'message': f'Error: {str(e)}'}), 500
+        analysis_thread = threading.Thread(target=analyze_async, daemon=True)
+        analysis_thread.start()
+    except Exception as analysis_error:
+        logger.warning(f"Could not trigger background analysis: {analysis_error}")
+        # Don't fail the bookmark save if analysis fails
+
+    return jsonify({
+        'message': 'Bookmark saved',
+        'bookmark': {'id': new_bm_id, 'url': new_bm_url},
+        'content_extracted': len(extracted_text) > 0,
+        'wasDuplicate': False,
+        'scraped': {
+            'title': scraped_title,
+            'headings': headings,
+            'meta_description': meta_description
+        }
+    }), 201
 
 @bookmarks_bp.route('/import', methods=['POST'])
 @jwt_required()
