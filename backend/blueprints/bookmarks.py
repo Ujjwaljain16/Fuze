@@ -69,19 +69,19 @@ def is_duplicate_url(service, url, user_id):
     if existing_exact:
         return existing_exact, 'exact'
         
-        # Check normalized match
-        if normalized_url != url:
-            existing_normalized = service.get_bookmark_by_normalized_url(user_id, normalized_url)
-            if existing_normalized:
-                return existing_normalized, 'normalized'
-        
-        # Check for similar URLs (same domain and path, different query params)
-        parsed = urlparse(url)
-        domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        
-        from utils.query_sanitizer import sanitize_like_query
-        safe_domain_path = sanitize_like_query(domain_path)
-        similar_bookmarks = service.uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
+    # Check normalized match
+    if normalized_url != url:
+        existing_normalized = service.get_bookmark_by_normalized_url(user_id, normalized_url)
+        if existing_normalized:
+            return existing_normalized, 'normalized'
+    
+    # Check for similar URLs (same domain and path, different query params)
+    parsed = urlparse(url)
+    domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    
+    from utils.query_sanitizer import sanitize_like_query
+    safe_domain_path = sanitize_like_query(domain_path)
+    similar_bookmarks = service.uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
     
     for bookmark in similar_bookmarks:
         bookmark_parsed = urlparse(bookmark.url)

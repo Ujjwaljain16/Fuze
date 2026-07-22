@@ -14,8 +14,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Module-level singleton — import and decorate routes with this
 # ---------------------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address)
-
+is_development = os.environ.get('FLASK_ENV', 'development') == 'development'
+default_limits = (
+    ["100000 per day", "10000 per hour", "1000 per minute"]
+    if is_development
+    else ["1000 per day", "200 per hour", "50 per minute"]
+)
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=default_limits,
+    headers_enabled=True,
+    swallow_errors=True
+)
 
 def init_rate_limiter(app) -> Limiter:
     """
@@ -25,15 +35,6 @@ def init_rate_limiter(app) -> Limiter:
     """
     try:
         redis_url = os.environ.get('REDIS_URL')
-
-        # Use lenient limits in development, strict in production
-        is_development = os.environ.get('FLASK_ENV', 'development') == 'development'
-        default_limits = (
-            ["100000 per day", "10000 per hour", "1000 per minute"]
-            if is_development
-            else ["1000 per day", "200 per hour", "50 per minute"]
-        )
-
         storage_uri = 'memory://'
         if redis_url:
             try:
@@ -52,14 +53,10 @@ def init_rate_limiter(app) -> Limiter:
                 )
         else:
             logger.warning("Rate limiter: no REDIS_URL configured, using memory storage")
+            
+        app.config["RATELIMIT_STORAGE_URI"] = storage_uri
 
-        limiter.init_app(
-            app,
-            default_limits=default_limits,
-            storage_uri=storage_uri,
-            headers_enabled=True,
-            swallow_errors=True,   # Never crash the app on limiter errors
-        )
+        limiter.init_app(app)
         logger.info("Rate limiter initialised successfully")
         return limiter
 

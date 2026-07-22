@@ -123,7 +123,7 @@ class UnitOfWork:
                     logger.exception(
                         "event_handler_failed",
                         handler=handler_name,
-                        event=event_type.__name__,
+                        event_type_name=event_type.__name__,
                         event_id=event.event_id,
                         error=str(e)
                     )
