@@ -5,10 +5,10 @@ Run this script to start background workers that process bookmark tasks
 
 Usage:
     python backend/worker.py
-
+    
     Or with specific queue:
     python backend/worker.py --queue default
-
+    
     Or with multiple workers:
     python backend/worker.py --workers 4
 """
@@ -56,9 +56,9 @@ def main():
         action='store_true',
         help='Run in burst mode (exit when queue is empty)'
     )
-
+    
     args = parser.parse_args()
-
+    
     # Get Redis connection (try existing, or create new)
     rq_redis = redis_conn
     if not rq_redis:
@@ -69,31 +69,31 @@ def main():
         except Exception as e:
             logger.error("worker_redis_not_available", error=str(e))
             sys.exit(1)
-
+    
     # Create queue
     queue = Queue(args.queue, connection=rq_redis)
-
+    
     logger.info("worker_starting", queue=args.queue, burst_mode=args.burst, redis_status="connected")
-
+    
     # Test that we can import the task function
     try:
         logger.info("worker_task_import_success")
     except Exception as e:
         logger.error("worker_task_import_failed", error=str(e))
         sys.exit(1)
-
+    
     # Create and start worker
     worker = Worker(
         [queue],
         connection=rq_redis,
         name=f"fuze-worker-{args.queue}"
     )
-
+    
     logger.info("worker_created", worker_name=worker.name)
     logger.info("worker_listening")
-
+    
     import signal
-
+    
     def handle_shutdown(signum, frame):
         logger.info("worker_shutdown_signal_received")
         worker.request_stop()
@@ -101,7 +101,7 @@ def main():
 
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
-
+    
     try:
         if args.burst:
             # Burst mode: process all jobs and exit
@@ -117,3 +117,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

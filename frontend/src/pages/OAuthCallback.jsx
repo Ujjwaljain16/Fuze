@@ -37,20 +37,12 @@ export default function OAuthCallback() {
         // Send the Supabase access token to our backend to exchange for local session
         const res = await api.post('/api/auth/supabase-oauth', { access_token })
         
-        const { access_token: localAccessToken, user } = res.data
+        const { user } = res.data
 
-        if (!localAccessToken) {
-          setError('Authentication failed: no token returned')
-          return
-        }
-
-        // Set local token and redirect
-        localStorage.setItem('token', localAccessToken)
+        // Set user profile in localStorage (non-sensitive)
         if (user) {
           localStorage.setItem('user', JSON.stringify(user))
         }
-        // Update axios default header for immediate use
-        api.defaults.headers.common['Authorization'] = `Bearer ${localAccessToken}`
 
         // Fetch user profile to ensure user data is loaded before navigation
         try {

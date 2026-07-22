@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
+import { sentryVitePlugin } from "@sentry/vite-plugin"
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -19,7 +20,14 @@ export default defineConfig({
           console.warn('⚠️ Failed to inject SW version:', err.message);
         }
       }
-    }
+    },
+    // Sentry plugin for source map uploads
+    sentryVitePlugin({
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      disable: !process.env.SENTRY_AUTH_TOKEN, // Disable if no token
+    }),
   ],
   server: {
     host: '0.0.0.0', // Allow external connections
