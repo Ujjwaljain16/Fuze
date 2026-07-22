@@ -4,9 +4,8 @@ Domain-specific content extractors for problematic sites
 Uses APIs and specialized methods for better extraction
 """
 
-import requests
 import logging
-from typing import Dict, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -175,4 +174,3 @@ class DomainSpecificExtractors:
             return DomainSpecificExtractors.extract_vercel_content(url)
         
         return None
-

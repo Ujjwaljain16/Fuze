@@ -9,13 +9,12 @@ from bs4 import BeautifulSoup
 from readability import Document
 import re
 import time
-import json
-from typing import Dict, Optional, List
+from typing import Dict
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse
-import logging
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class EnhancedWebScraper:
     """
