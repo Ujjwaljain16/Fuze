@@ -445,7 +445,6 @@ def save_bookmark():
             
     # Outside UoW
     if existing_bookmark:
-        # Invalidate caches using comprehensive cache invalidation service
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_update(existing_bookmark_id, user_id)
         return jsonify({
@@ -455,59 +454,18 @@ def save_bookmark():
             'duplicateType': duplicate_type
         }), 200
     
-    # Ensure title is not empty (required field)
+    # Ensure title is not empty
     if not title or not title.strip():
         title = 'Untitled Bookmark'
     
-    # Extract content from URL (now returns dict)
-    scraped = extract_article_content(url)
-    extracted_text = scraped.get('content', '')
-    scraped_title = scraped.get('title', '')
-    headings = scraped.get('headings', [])
-    meta_description = scraped.get('meta_description', '')
-    quality_score = scraped.get('quality_score', 10)
-
-    # Save all bookmarks regardless of quality score - embeddings are always generated
-    # Quality score is stored for reference but doesn't prevent saving
-    
-    # Prefer scraped title if not provided
-    if not title or title == 'Untitled Bookmark':
-        title = scraped_title or 'Untitled Bookmark'
-    
-    # Ensure title fits within database column limit (200 characters)
-    # Truncate if necessary, preserving meaningful content
-    final_title = title.strip() if title else 'Untitled Bookmark'
+    final_title = title.strip()
     if len(final_title) > 200:
-        # Try to truncate at a word boundary if possible
-        truncated = final_title[:197]  # Leave room for "..."
+        truncated = final_title[:197]
         last_space = truncated.rfind(' ')
-        if last_space > 150:  # Only use word boundary if it's not too early
+        if last_space > 150:
             final_title = truncated[:last_space] + "..."
         else:
             final_title = truncated + "..."
-    
-    # Generate comprehensive embedding using optimized strategy
-    embedding = generate_comprehensive_embedding(
-        title=final_title,
-        description=description,
-        meta_description=meta_description,
-        headings=headings,
-        extracted_text=extracted_text,
-        url=url
-    )
-    
-    # If embedding generation failed, still save bookmark but log warning
-    if embedding is None:
-        logger.warning(f"Failed to generate embedding for {url}, saving bookmark without embedding")
-    
-    # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
-    # Don't truncate - save the complete extracted content
-    if extracted_text:
-        # Remove null bytes that could cause issues
-        extracted_text = extracted_text.replace('\x00', '')
-        # Ensure it's a string
-        if not isinstance(extracted_text, str):
-            extracted_text = str(extracted_text)
     
     with UnitOfWork() as uow:
         service = BookmarkService(uow)
@@ -516,47 +474,25 @@ def save_bookmark():
             url=url.strip(),
             title=final_title,
             notes=description.strip() if isinstance(description, str) else '',
-            extracted_text=extracted_text,
             category=category
         )
-        new_bm.embedding = embedding
-        new_bm.quality_score = quality_score
         # Extract primitives inside session — avoids DetachedInstanceError post-exit
         new_bm_id = new_bm.id
         new_bm_url = new_bm.url
+        # Note: service.create_bookmark() automatically emits BookmarkCreated domain event.
+        # Upon UoW __exit__, commit completes and _dispatch_events() invokes handle_bookmark_created,
+        # which enqueues background scraping, text extraction, and embedding generation.
 
-    # Post-commit: commit has completed on UoW __exit__.
-    # Cache invalidation must always run AFTER the write is durable.
+    # Post-commit: Cache invalidation
     from services.cache_invalidation_service import cache_invalidator
     cache_invalidator.after_content_save(new_bm_id, user_id)
     redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
 
-    # Trigger background analysis for this new content (non-blocking)
-    try:
-        import threading
-        def analyze_async():
-            try:
-                from services.background_analysis_service import analyze_content
-                analyze_content(new_bm_id, user_id)
-            except Exception as e:
-                logger.error(f"Error triggering background analysis for bookmark {new_bm_id}: {e}")
-
-        analysis_thread = threading.Thread(target=analyze_async, daemon=True)
-        analysis_thread.start()
-    except Exception as analysis_error:
-        logger.warning(f"Could not trigger background analysis: {analysis_error}")
-        # Don't fail the bookmark save if analysis fails
-
     return jsonify({
         'message': 'Bookmark saved',
         'bookmark': {'id': new_bm_id, 'url': new_bm_url},
-        'content_extracted': len(extracted_text) > 0,
-        'wasDuplicate': False,
-        'scraped': {
-            'title': scraped_title,
-            'headings': headings,
-            'meta_description': meta_description
-        }
+        'processing': 'background',
+        'wasDuplicate': False
     }), 201
 
 @bookmarks_bp.route('/import', methods=['POST'])

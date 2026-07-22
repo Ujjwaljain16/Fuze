@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 from models import SavedContent
 from uow.unit_of_work import UnitOfWork
+from core.events import BookmarkCreated
 
 class BookmarkService:
     """
@@ -79,6 +80,13 @@ class BookmarkService:
         )
         self.uow.bookmarks.add(bookmark)
         self.uow.flush()
+
+        self.uow.emit(BookmarkCreated(
+            bookmark_id=bookmark.id,
+            user_id=user_id,
+            url=url
+        ))
+
         return bookmark
 
     def delete_bookmark(self, bookmark: SavedContent):

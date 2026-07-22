@@ -25,13 +25,16 @@ def _merge_handlers(source: Dict) -> None:
 from .project_handlers import HANDLERS as PROJECT_HANDLERS          # noqa: E402
 from .auth_handlers import HANDLERS as AUTH_HANDLERS                # noqa: E402
 from .recommendation_handlers import HANDLERS as REC_HANDLERS       # noqa: E402
+from .bookmark_handlers import HANDLERS as BOOKMARK_HANDLERS       # noqa: E402
 
 _merge_handlers(PROJECT_HANDLERS)
 _merge_handlers(AUTH_HANDLERS)
 _merge_handlers(REC_HANDLERS)
+_merge_handlers(BOOKMARK_HANDLERS)
 
 logger.debug(
     "event_bus_initialized",
     registered_event_types=len(EVENT_HANDLERS),
     event_types=[t.__name__ for t in EVENT_HANDLERS],
 )
+

@@ -19,6 +19,9 @@ class ProjectCreated(Event):
 class ProjectUpdated(Event):
     project_id: int
     user_id: int
+    title: str
+    description: str
+    technologies: str
     title_changed: bool = False
     description_changed: bool = False
     technologies_changed: bool = False
@@ -48,3 +51,12 @@ class RecommendationFeedbackRecorded(Event):
 class GeminiAnalysisTriggered(Event):
     user_id: int
     content_id: int
+
+# --- Bookmark Domain Events ---
+
+@dataclass(kw_only=True)
+class BookmarkCreated(Event):
+    bookmark_id: int
+    user_id: int
+    url: str
+
