@@ -242,6 +242,8 @@ def create_app():
     elif env == 'testing':
         # Use development config for testing but mark as testing
         app.config.from_object('config.DevelopmentConfig')
+        app.config['RATELIMIT_ENABLED'] = False
+        app.config['TESTING'] = True
     else:
         app.config.from_object('config.DevelopmentConfig')
     
