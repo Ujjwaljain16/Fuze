@@ -107,16 +107,12 @@ class UnitOfWork:
         Safe dispatch loop. Failures in handlers are caught and logged
         but do not bubble up to affect the request success.
         """
-        try:
-            from services.handlers import EVENT_HANDLERS
-        except ImportError:
-            logger.warning("event_handlers_not_found", reason="services.handlers module missing")
-            EVENT_HANDLERS = {}
-        
+        from services.handlers import EVENT_HANDLERS
+
         for event in self.events:
             event_type = type(event)
             event_handlers = EVENT_HANDLERS.get(event_type, [])
-            
+
             for handler in event_handlers:
                 try:
                     handler_name = getattr(handler, '__name__', str(handler))
@@ -124,10 +120,10 @@ class UnitOfWork:
                     handler(event)
                 except Exception as e:
                     # Failure is contained and observable, but not disruptive to the request
-                    logger.error(
+                    logger.exception(
                         "event_handler_failed",
                         handler=handler_name,
-                        event_type=event_type.__name__,
+                        event=event_type.__name__,
                         event_id=event.event_id,
                         error=str(e)
                     )
