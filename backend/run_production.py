@@ -51,30 +51,12 @@ except ImportError:
         'RedisError': Exception
     })()})()
 
-# Configure production logging first with UTC timezone
-import logging.handlers
-from logging import Formatter
+from core.logging_config import configure_logging, get_logger
+import uuid
 
-class UTCFormatter(Formatter):
-    """Formatter that converts timestamps to UTC"""
-    converter = time.gmtime  # Use UTC time instead of local time
-
-# Create handlers
-stream_handler = logging.StreamHandler()
-file_handler = logging.FileHandler('production.log', encoding='utf-8')
-
-# Set UTC formatter
-utc_formatter = UTCFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-stream_handler.setFormatter(utc_formatter)
-file_handler.setFormatter(utc_formatter)
-
-# Configure logging with UTC handlers
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[stream_handler, file_handler]
-)
-logger = logging.getLogger(__name__)
+# Configure production logging
+configure_logging(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
+logger = get_logger(__name__)
 
 # Import rate limiting middleware
 try:
@@ -387,6 +369,33 @@ def create_app():
     def revoked_token_callback(jwt_header, jwt_payload):
         return jsonify({'message': 'Token has been revoked', 'error': 'token_revoked'}), 401
 
+    from flask import g
+
+    @app.before_request
+    def set_correlation_id():
+        """Set correlation ID for request tracing and observability."""
+        correlation_id = request.headers.get('X-Request-ID') or uuid.uuid4().hex
+        g.correlation_id = correlation_id
+        
+        try:
+            import structlog
+            structlog.contextvars.clear_contextvars()
+            structlog.contextvars.bind_contextvars(
+                correlation_id=correlation_id,
+                method=request.method,
+                path=request.path,
+                ip=request.remote_addr
+            )
+        except Exception:
+            pass
+
+    @app.after_request
+    def add_correlation_header(response):
+        """Echo correlation ID for frontend tracing."""
+        if hasattr(g, 'correlation_id'):
+            response.headers['X-Request-ID'] = g.correlation_id
+        return response
+
     # Skip database connection test during startup to avoid blocking
     # Database will be tested and connected on first request
     global database_available
@@ -464,12 +473,15 @@ def create_app():
 
     # Initialize Background Analysis Service
     try:
-        from services.background_analysis_service import start_background_service
-        start_background_service()
-        logger.info("[OK] Background analysis service started")
+        if os.environ.get('SKIP_BACKGROUND_SERVICES', 'false').lower() != 'true':
+            from services.background_analysis_service import start_background_service
+            start_background_service()
+            logger.info("background_analysis_service_started")
+        else:
+            logger.info("background_analysis_service_skipped_by_env")
     except Exception as e:
-        logger.error(f"[ERROR] Error starting background analysis service: {e}")
-        logger.warning("[WARNING] Background content analysis will not be available")
+        logger.error("background_analysis_service_init_failed", error=str(e))
+        logger.warning("background_analysis_not_available")
     
     # Initialize Intent Analysis System for production with error handling
     with app.app_context():
