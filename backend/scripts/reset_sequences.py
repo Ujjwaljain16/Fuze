@@ -87,7 +87,7 @@ def reset_sequences():
                 # Reset it back since we just incremented it
                 db.session.execute(text(f"SELECT setval('{sequence_name}', 1, false);"))
                 print(f"  {table_name}: next ID will be {next_val}")
-            except Exception as e:
+            except Exception:
                 # Sequence might not exist or have different name
                 pass
         
