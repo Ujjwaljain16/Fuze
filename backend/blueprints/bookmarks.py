@@ -907,23 +907,28 @@ def list_bookmarks():
             page=page,
             per_page=per_page
         )
-    
-    bookmarks = [{
-        'id': b.id,
-        'url': b.url,
-        'title': b.title,
-        'description': b.notes,  # Map 'notes' to 'description' for API consistency
-        'saved_at': b.saved_at.isoformat(),
-        'category': b.category,
-        'has_content': bool(b.extracted_text)
-    } for b in pagination.items]
+        
+        bookmarks = [{
+            'id': b.id,
+            'url': b.url,
+            'title': b.title,
+            'description': b.notes,  # Map 'notes' to 'description' for API consistency
+            'saved_at': b.saved_at.isoformat(),
+            'category': b.category,
+            'has_content': bool(b.extracted_text)
+        } for b in pagination.items]
+        
+        total = pagination.total
+        page_num = pagination.page
+        per_page_num = pagination.per_page
+        pages = pagination.pages
     
     result = {
         'bookmarks': bookmarks,
-        'total': pagination.total,
-        'page': pagination.page,
-        'per_page': pagination.per_page,
-        'pages': pagination.pages
+        'total': total,
+        'page': page_num,
+        'per_page': per_page_num,
+        'pages': pages
     }
     
     # PRODUCTION OPTIMIZATION: Cache result (shorter TTL for search results)
