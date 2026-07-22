@@ -76,7 +76,9 @@ def app():
             'connect_args': {'check_same_thread': False}
         }
     
-    # Disable rate limiting in tests
+    # Disable rate limiting in tests to prevent 429 cascades
+    app.config['TESTING'] = True
+    app.config['RATELIMIT_ENABLED'] = False
     app.limiter = None
     
     with app.app_context():
