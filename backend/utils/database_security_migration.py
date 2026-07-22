@@ -15,7 +15,7 @@ Run this script after database initialization to enable RLS.
 import os
 import sys
 import logging
-from sqlalchemy import text, inspect
+from sqlalchemy import text
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -259,7 +259,7 @@ def fix_function_search_path(db, function_name: str):
         if func_result:
             logger.info(f"ℹ️  Function {function_name} exists but may need manual fix")
             logger.info(f"   To fix: ALTER FUNCTION public.{function_name} SET search_path = '';")
-            logger.info(f"   Or recreate with: SET search_path = ''; in function definition")
+            logger.info("   Or recreate with: SET search_path = ''; in function definition")
         
         # Try to set search_path to empty (most secure)
         try:
@@ -270,7 +270,7 @@ def fix_function_search_path(db, function_name: str):
             return True
         except Exception as fix_error:
             logger.warning(f"⚠️  Could not auto-fix {function_name}: {fix_error}")
-            logger.info(f"   Manual fix required - see Supabase dashboard or run SQL manually")
+            logger.info("   Manual fix required - see Supabase dashboard or run SQL manually")
             return False
             
     except Exception as e:
