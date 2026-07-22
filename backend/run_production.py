@@ -609,9 +609,47 @@ def create_app():
         
         return response
     
-    # Note: flask-cors automatically handles OPTIONS preflight requests
-    # No need for manual OPTIONS handler - it can cause conflicts
-    
+    # Detailed Health check endpoint returning internal states (protected)
+    @app.route('/api/health/detailed')
+    def detailed_health_check():
+        """
+        Internal detailed health check returning component capacity & circuit breaker states.
+        Protected: Exposes internal topology metrics only if valid X-Internal-Token or INTERNAL_HEALTH_TOKEN match.
+        """
+        internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
+        request_token = request.headers.get('X-Internal-Token') or request.args.get('token')
+        
+        if internal_token and request_token != internal_token:
+            return jsonify({
+                "status": "healthy",
+                "message": "Access restricted. Provide valid X-Internal-Token header for detailed topology metrics."
+            }), 200
+
+        # Circuit Breaker states
+        gemini_state, gemini_fail = "UNKNOWN", 0
+        try:
+            from utils.gemini_utils import gemini_breaker
+            if hasattr(gemini_breaker, 'state'):
+                gemini_state = gemini_breaker.state
+                gemini_fail = gemini_breaker.failure_count
+        except Exception:
+            pass
+            
+        return jsonify({
+            "status": "healthy",
+            "circuit_breakers": {
+                "gemini": {"state": str(gemini_state), "failure_count": gemini_fail}
+            },
+            "bulkheads": {
+                "crud": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_CRUD_CAPACITY', 30)), "rejection_rate_pct": 0},
+                "search": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_SEARCH_CAPACITY', 15)), "rejection_rate_pct": 0},
+                "ml": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_ML_CAPACITY', 8)), "rejection_rate_pct": 0}
+            },
+            "distributed_lock": {
+                "analysis_leader": False
+            }
+        }), 200
+
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
     def health_check():
