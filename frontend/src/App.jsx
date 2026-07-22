@@ -10,7 +10,6 @@ import OnboardingModal from './components/OnboardingModal';
 import Loader from './components/Loader';
 import OAuthCallback from './pages/OAuthCallback';
 import api from './services/api';
-import Maintenance from './pages/Maintenance';
 import './App.css';
 import * as Sentry from "@sentry/react";
 
@@ -24,8 +23,6 @@ const Bookmarks = lazy(() => import('./pages/Bookmarks'));
 const SaveContent = lazy(() => import('./pages/SaveContent'));
 const ShareHandler = lazy(() => import('./pages/ShareHandler'));
 const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
-
-const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === 'true';
 
 function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -173,10 +170,6 @@ function AppContent() {
     setShowOnboarding(false);
     localStorage.removeItem('show_onboarding');
   };
-
-  if (MAINTENANCE_MODE) {
-    return <Maintenance />;
-  }
 
   return (
     <div 
