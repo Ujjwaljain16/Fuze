@@ -7,8 +7,11 @@ class TokenFamilyRepository:
     def __init__(self, session):
         self.session = session
 
-    def get_family(self, family_id: str) -> Optional[TokenFamily]:
-        return self.session.query(TokenFamily).filter_by(family_id=family_id).first()
+    def get_family(self, family_id: str, lock: bool = False) -> Optional[TokenFamily]:
+        query = self.session.query(TokenFamily).filter_by(family_id=family_id)
+        if lock:
+            query = query.with_for_update()
+        return query.first()
 
     def add(self, token_family: TokenFamily):
         self.session.add(token_family)

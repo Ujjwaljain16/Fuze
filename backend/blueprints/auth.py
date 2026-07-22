@@ -666,7 +666,7 @@ def refresh():
     from uow.unit_of_work import UnitOfWork
     
     with UnitOfWork() as uow:
-        family = uow.token_families.get_family(family_id)
+        family = uow.token_families.get_family(family_id, lock=True)
         if not family or family.revoked:
             logger.warning(f"Refresh on revoked/missing family: user={identity} family={family_id}")
             return jsonify({'message': 'Session expired. Please log in again.'}), 401

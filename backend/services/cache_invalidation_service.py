@@ -121,21 +121,7 @@ class CacheInvalidationService:
                 redis_cache.delete_keys_pattern(f"*unified_project_recommendations:{user_id}*")
                 redis_cache.delete_keys_pattern(f"*context_extraction:{user_id}*")
 
-                try:
-                    from models import db, UserFeedback
-                    db.session.query(UserFeedback).filter_by(user_id=user_id).delete()
-                    db.session.commit()
-                    logger.info("cache_clear_db_feedback_success", user_id=user_id)
-                except Exception as e:
-                    logger.warning("cache_clear_db_feedback_failed", user_id=user_id, error=str(e))
 
-                try:
-                    from models import db, SavedContent
-                    db.session.query(SavedContent).filter_by(user_id=user_id).update({'intent_analysis': None})
-                    db.session.commit()
-                    logger.info("cache_clear_db_intent_analysis_success", user_id=user_id)
-                except Exception as e:
-                    logger.warning("cache_clear_db_intent_analysis_failed", user_id=user_id, error=str(e))
             else:
                 logger.info("cache_invalidate_rec_all_start")
                 redis_cache.invalidate_all_recommendations()
@@ -146,13 +132,7 @@ class CacheInvalidationService:
                 redis_cache.delete_keys_pattern("*project_embedding:*")
                 redis_cache.delete_keys_pattern("*task_embedding:*")
 
-                try:
-                    from models import db, Project
-                    db.session.query(Project).update({'intent_analysis': None, 'embedding_metadata': None})
-                    db.session.commit()
-                    logger.info("cache_clear_db_project_analysis_success")
-                except Exception as e:
-                    logger.warning("cache_clear_db_project_analysis_failed", error=str(e))
+
 
             return True
 

@@ -30,7 +30,7 @@ def get_multi_user_api_manager():
         raise
 
 # Create blueprint
-user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api')
+user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api/user')
 
 @user_api_key_bp.route('/api-key', methods=['POST'])
 @jwt_required()
