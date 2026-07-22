@@ -5,14 +5,13 @@ Handles asynchronous background job processing for bookmark content extraction
 
 import os
 import ssl
-import logging
 from typing import Optional
-from rq import Queue, Connection, Retry
+from rq import Queue, Retry
 from rq.job import Job
 from redis import Redis
-from utils.redis_utils import redis_cache
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Get Redis connection for RQ
 def get_redis_connection():
@@ -20,13 +19,13 @@ def get_redis_connection():
     # RQ needs a Redis connection with decode_responses=False for binary data
     # Create connection from environment variables (same config as redis_cache)
     redis_url = os.environ.get('REDIS_URL')
-    
+
     if redis_url:
         # Convert redis:// to rediss:// for Upstash TLS
         if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
             redis_url = redis_url.replace('redis://', 'rediss://', 1)
-            logger.info("Converted Upstash URL to use TLS (rediss://)")
-        
+            logger.info("rq_redis_url_tls_conversion", original="redis://upstash.io", updated="rediss://upstash.io")
+
         # Use REDIS_URL if available
         try:
             # Base connection parameters
@@ -39,27 +38,27 @@ def get_redis_connection():
                 'retry_on_timeout': True,
                 'retry_on_error': [ConnectionError, TimeoutError]
             }
-            
+
             # Add SSL parameters for rediss:// URLs
             if redis_url.startswith('rediss://'):
                 conn_params['ssl_cert_reqs'] = ssl.CERT_NONE
                 conn_params['ssl_check_hostname'] = False
-            
+
             return Redis.from_url(redis_url, **conn_params)
         except Exception as e:
-            logger.warning(f"Failed to create Redis connection from URL: {e}")
-    
+            logger.warning("rq_redis_conn_url_failed", error=str(e))
+
     # Use individual connection parameters
     redis_host = os.environ.get('REDIS_HOST', 'localhost')
     redis_port = int(os.environ.get('REDIS_PORT', 6379))
     redis_db = int(os.environ.get('REDIS_DB', 0))
     redis_password = os.environ.get('REDIS_PASSWORD')
     use_ssl = os.environ.get('REDIS_SSL', 'false').lower() == 'true'
-    
+
     # Auto-detect TLS for cloud providers
     if not use_ssl and any(provider in redis_host for provider in ['upstash.io', 'redislabs.com', 'redis.cache']):
         use_ssl = True
-    
+
     connection_params = {
         'host': redis_host,
         'port': redis_port,
@@ -73,16 +72,16 @@ def get_redis_connection():
         'retry_on_timeout': True,
         'retry_on_error': [ConnectionError, TimeoutError]
     }
-    
+
     if use_ssl:
         connection_params['ssl'] = True
         connection_params['ssl_cert_reqs'] = ssl.CERT_NONE
         connection_params['ssl_check_hostname'] = False
-    
+
     try:
         return Redis(**connection_params)
     except Exception as e:
-        logger.warning(f"Failed to create Redis connection: {e}")
+        logger.warning("rq_redis_conn_params_failed", error=str(e))
         # Final fallback: basic local connection
         return Redis(host='localhost', port=6379, db=0, decode_responses=False)
 
@@ -92,9 +91,9 @@ try:
     redis_conn = get_redis_connection()
     # Test connection
     redis_conn.ping()
-    logger.info("RQ Redis connection established successfully")
+    logger.info("rq_redis_conn_established")
 except Exception as e:
-    logger.warning(f"RQ Redis connection failed: {e}. Background jobs will use fallback threading.")
+    logger.warning("rq_redis_conn_failed_fallback", error=str(e))
     redis_conn = None
 
 # Create queue instances
@@ -107,37 +106,37 @@ if redis_conn:
     try:
         default_queue = Queue('default', connection=redis_conn)
         high_queue = Queue('high', connection=redis_conn)
-        logger.info("RQ queues initialized successfully")
+        logger.info("rq_queues_initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize RQ queues: {e}")
+        logger.error("rq_queues_init_failed", error=str(e))
         default_queue = None
         high_queue = None
 
 def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_name: str = 'default') -> Optional[Job]:
     """
     Enqueue a bookmark processing task
-    
+
     Args:
         bookmark_id: ID of the bookmark to process
         url: URL to scrape and process
         user_id: ID of the user who owns the bookmark
         queue_name: Queue name ('default' or 'high')
-    
+
     Returns:
         Job instance if enqueued successfully, None otherwise
     """
     if not redis_conn or not default_queue:
-        logger.warning("RQ not available, falling back to threading")
+        logger.warning("rq_not_available_fallback", bookmark_id=bookmark_id)
         return None
-    
+
     try:
         # Import the task function (avoid circular imports)
         # Use string reference for better RQ compatibility
         from blueprints.bookmarks import process_bookmark_content_task
-        
+
         # Select queue
         queue = high_queue if queue_name == 'high' else default_queue
-        
+
         # Enqueue the task with retry logic
         # Retry up to 2 times with exponential backoff
         job = queue.enqueue(
@@ -149,26 +148,26 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
             retry=Retry(max=2, interval=[60, 300]),  # Retry after 1min, then 5min
             job_id=f"bookmark_process_{bookmark_id}_{user_id}"  # Unique job ID
         )
-        
-        logger.info(f"Enqueued bookmark processing job {job.id} for bookmark {bookmark_id}")
+
+        logger.info("rq_job_enqueued", job_id=job.id, bookmark_id=bookmark_id, user_id=user_id)
         return job
     except Exception as e:
-        logger.error(f"Failed to enqueue bookmark processing job: {e}", exc_info=True)
+        logger.error("rq_job_enqueue_failed", bookmark_id=bookmark_id, error=str(e), exc_info=True)
         return None
 
 def get_job_status(job_id: str) -> Optional[dict]:
     """
     Get status of a job
-    
+
     Args:
         job_id: Job ID
-    
+
     Returns:
         Dictionary with job status info or None if job not found
     """
     if not redis_conn:
         return None
-    
+
     try:
         job = Job.fetch(job_id, connection=redis_conn)
         return {
@@ -181,10 +180,9 @@ def get_job_status(job_id: str) -> Optional[dict]:
             'exc_info': job.exc_info if job.is_failed else None
         }
     except Exception as e:
-        logger.error(f"Failed to get job status for {job_id}: {e}")
+        logger.error("rq_job_status_fetch_failed", job_id=job_id, error=str(e))
         return None
 
 def is_rq_available() -> bool:
     """Check if RQ is available and working"""
     return redis_conn is not None and default_queue is not None
-

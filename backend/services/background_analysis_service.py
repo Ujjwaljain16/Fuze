@@ -19,6 +19,10 @@ if backend_dir not in sys.path:
 from models import db, SavedContent, ContentAnalysis
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import RedisCache
+from core.distributed_lock import DistributedLock
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Import app for app_context - use lazy import to avoid circular dependencies
 _app_instance = None
@@ -52,12 +56,8 @@ def get_app():
             _app_instance = create_app()
             return _app_instance
         except Exception as e:
-            logger.error(f"Failed to get Flask app: {e}")
+            logger.error("bg_analysis_get_app_failed", error=str(e))
             raise
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class BackgroundAnalysisService:
     """Service to analyze content in the background and cache results"""
@@ -73,20 +73,20 @@ class BackgroundAnalysisService:
     def start_background_analysis(self):
         """Start the background analysis thread"""
         if self.running:
-            logger.info("Background analysis service is already running")
+            logger.info("bg_analysis_service_already_running")
             return
             
         self.running = True
         self.analysis_thread = threading.Thread(target=self._analysis_worker, daemon=True)
         self.analysis_thread.start()
-        logger.info("Background analysis service started")
+        logger.info("bg_analysis_service_started")
     
     def stop_background_analysis(self):
         """Stop the background analysis thread"""
         self.running = False
         if self.analysis_thread:
             self.analysis_thread.join()
-        logger.info("Background analysis service stopped")
+        logger.info("bg_analysis_service_stopped")
     
     def _analysis_worker(self):
         """Background worker that continuously checks for unanalyzed content"""
@@ -94,10 +94,19 @@ class BackgroundAnalysisService:
             try:
                 flask_app = get_app()
                 with flask_app.app_context():
-                    self._process_unanalyzed_content()
+                    # Attempt to acquire lock to prevent concurrent analysis runs
+                    # PRODUCTION HARDENING: Using the robust DistributedLock core utility
+                    lock = DistributedLock("background_analysis", ttl_ms=300000)
+                    if lock.acquire():
+                        try:
+                            self._process_unanalyzed_content()
+                        finally:
+                            lock.release()
+                    else:
+                        logger.debug("bg_analysis_worker_lock_skipped")
                 time.sleep(30)  # Check every 30 seconds
             except Exception as e:
-                logger.error(f"Error in background analysis worker: {e}")
+                logger.error("bg_analysis_worker_exception", error=str(e))
                 time.sleep(60)  # Wait longer on error
     
     def _process_unanalyzed_content(self):
