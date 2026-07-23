@@ -306,13 +306,16 @@ class ContentAnalysis(Base):
 class Feedback(Base):
     __tablename__ = 'feedback'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True)
-    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
     feedback_type = Column(String(20), nullable=False)  # e.g., 'relevant', 'not_relevant'
-    timestamp = Column(DateTime, default=func.now())
+    timestamp = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    __table_args__ = (UniqueConstraint('user_id', 'project_id', 'content_id', name='_user_project_content_uc'),)
+    __table_args__ = (
+        UniqueConstraint('user_id', 'content_id', name='_user_content_feedback_uc'),
+        db.Index('idx_feedback_lookup', 'user_id', 'content_id'),
+    )
 
 class UserFeedback(Base):
     """Enhanced feedback system for learning from user interactions"""
