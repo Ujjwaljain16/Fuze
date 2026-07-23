@@ -2,10 +2,9 @@ import requests
 from bs4 import BeautifulSoup
 from readability import Document
 import re
-from collections import Counter
 from playwright.sync_api import sync_playwright
 import time
-from redis_utils import redis_cache
+from utils.redis_utils import redis_cache
 
 def fetch_with_playwright(url, timeout=15):
     """

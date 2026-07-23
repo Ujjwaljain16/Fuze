@@ -6,7 +6,6 @@ Tests complete user flow with multiple users to verify data isolation
 
 import sys
 import os
-from datetime import datetime
 
 # Add backend directory to path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

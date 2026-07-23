@@ -14,8 +14,8 @@ vi.mock('../../services/api', async (importOriginal) => {
   return {
     ...actual,
     default: {
-      get: vi.fn(),
-      post: vi.fn(),
+      get: vi.fn(() => Promise.resolve({ data: {} })),
+      post: vi.fn(() => Promise.resolve({ data: {} })),
       defaults: {
         headers: {
           common: {}
@@ -59,9 +59,13 @@ describe('AuthContext', () => {
     // Ensure api.post is properly mocked - return a proper axios-like response
     api.post.mockResolvedValueOnce({
       data: {
-        access_token: 'mock-token',
         user: mockUser
       }
+    })
+
+    // Mock profile fetch which happens on mount
+    api.get.mockResolvedValueOnce({
+      data: mockUser
     })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
@@ -84,17 +88,14 @@ describe('AuthContext', () => {
     
     // Wait for state to update after login
     await waitFor(() => {
-      // Check token from context (primary check)
-      expect(result.current.token).toBe('mock-token')
       // Also verify user is set
       expect(result.current.user).toEqual(mockUser)
       // Verify isAuthenticated is true
       expect(result.current.isAuthenticated).toBe(true)
     }, { timeout: 2000 })
     
-    // localStorage should also be set (login function sets it synchronously)
-    // But in test environment, focus on context state which is what the app uses
-    expect(result.current.token).toBe('mock-token')
+    // User should be set
+    expect(result.current.user).toEqual(mockUser)
   })
 
   it('handles login failure', async () => {
@@ -113,19 +114,31 @@ describe('AuthContext', () => {
     expect(loginResult.error).toBeDefined()
   })
 
-  it('handles logout', () => {
-    localStorage.setItem('token', 'mock-token')
+  it('handles logout', async () => {
+    const mockUser = { id: 1, username: 'test' }
+    // Mock profile fetch on mount
+    api.get.mockResolvedValueOnce({ data: mockUser })
     
-    // Mock api.post to return a promise to prevent the .catch error
+    // Mock api.post for logout
     api.post.mockResolvedValueOnce({ data: {} })
     
     const { result } = renderHook(() => useAuth(), { wrapper })
     
+    // Wait for initial hydration
+    await waitFor(() => {
+      expect(result.current.user).toEqual(mockUser)
+    })
+
+    // Perform logout
     result.current.logout()
     
-    // localStorage.removeItem makes getItem return null
-    expect(localStorage.getItem('token')).toBeFalsy()
-    expect(result.current.isAuthenticated).toBe(false)
+    // Wait for state to clear
+    await waitFor(() => {
+      expect(result.current.user).toBeNull()
+      expect(result.current.isAuthenticated).toBe(false)
+    })
+    
+    expect(localStorage.getItem('user')).toBeFalsy()
   })
 })
 

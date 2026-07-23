@@ -6,16 +6,21 @@ Handles blocked sites, JavaScript-heavy content, and provides multiple fallback 
 
 import requests
 from bs4 import BeautifulSoup
-from readability import Document
+try:
+    from readability import Document
+except ImportError:
+    Document = None
 import re
 import time
-import json
-from typing import Dict, Optional, List
-from playwright.sync_api import sync_playwright
+from typing import Dict
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
 from urllib.parse import urlparse
-import logging
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class EnhancedWebScraper:
     """

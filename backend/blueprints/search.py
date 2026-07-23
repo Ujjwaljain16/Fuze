@@ -4,9 +4,10 @@ from models import db, SavedContent
 import numpy as np
 import os
 from utils.embedding_utils import get_embedding
-import logging
+from utils.query_sanitizer import sanitize_like_query
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -18,12 +19,12 @@ if SUPABASE_URL and SUPABASE_KEY:
     try:
         from supabase import create_client
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("Supabase connected successfully")
+        logger.info("supabase_connected")
     except Exception as e:
-        logger.warning(f"Supabase connection failed: {e}")
+        logger.warning("supabase_connection_failed", error=str(e))
         supabase_client = None
 else:
-    logger.warning("Supabase credentials not provided - Supabase features disabled")
+    logger.warning("supabase_missing_credentials")
 
 # Check if we're using PostgreSQL (for pgvector support)
 def is_postgresql():
@@ -90,14 +91,16 @@ def text_search():
     limit = int(request.args.get('limit', 10))
     
     if not query:
-        return jsonify({'message': 'Query parameter "q" is required'}), 400
+        return jsonify({'query': '', 'results': [], 'total': 0}), 200
     
-    # Simple text search across title, notes, and extracted text
+    safe_query = sanitize_like_query(query)
+    
+    # Simple text search across title, notes, and extracted text with LIKE escaping
     results = db.session.query(SavedContent).filter_by(user_id=user_id).filter(
         db.or_(
-            SavedContent.title.ilike(f'%{query}%'),
-            SavedContent.notes.ilike(f'%{query}%'),
-            SavedContent.extracted_text.ilike(f'%{query}%')
+            SavedContent.title.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.notes.ilike(f'%{safe_query}%', escape='\\'),
+            SavedContent.extracted_text.ilike(f'%{safe_query}%', escape='\\')
         )
     ).limit(limit).all()
     

@@ -9,15 +9,25 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
 from datetime import datetime
 from models import db, User
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Lazy imports to avoid import-time dependency issues
 def get_multi_user_api_manager():
-    """Lazy import of multi-user API manager"""
+    """Lazy import for MultiUserAPIManager functions"""
     try:
-        from services.multi_user_api_manager import add_user_api_key, get_user_api_stats, check_user_rate_limit, get_user_api_key, api_manager
+        from services.multi_user_api_manager import (
+            add_user_api_key,
+            get_user_api_stats,
+            check_user_rate_limit,
+            get_user_api_key,
+            api_manager
+        )
         return add_user_api_key, get_user_api_stats, check_user_rate_limit, get_user_api_key, api_manager
     except ImportError as e:
-        raise ImportError(f"Multi-user API manager not available: {e}")
+        logger.error("multi_user_api_manager_import_failed", error=str(e))
+        raise
 
 # Create blueprint
 user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api/user')
@@ -25,26 +35,28 @@ user_api_key_bp = Blueprint('user_api_key', __name__, url_prefix='/api/user')
 @user_api_key_bp.route('/api-key', methods=['POST'])
 @jwt_required()
 def add_api_key():
-    """Add or update user's API key"""
+    """Add or update user's Gemini API key"""
     try:
         # Lazy import
         add_user_api_key, _, _, _, _ = get_multi_user_api_manager()
 
-        data = request.get_json()
-
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
+        user_id = int(get_jwt_identity())
+        data = request.get_json(silent=True)
+        if not data or not isinstance(data, dict):
+            return jsonify({'error': 'JSON payload required'}), 400
 
         api_key = data.get('api_key')
-        api_key_name = data.get('api_key_name', 'My API Key')
-        user_id = int(get_jwt_identity())
+        api_key_name = data.get('api_key_name', 'Default Key')
 
-        if not api_key:
-            return jsonify({'error': 'API key is required'}), 400
+        if not api_key or not isinstance(api_key, str):
+            return jsonify({'error': 'API key is required and must be a string'}), 400
+
+        api_key = api_key.strip()
 
         # Validate API key format
-        if not api_key.startswith('AIza') or len(api_key) < 30:
-            return jsonify({'error': 'Invalid API key format'}), 400
+        if len(api_key) < 20 or not api_key.startswith('AIzaSy'):
+            logger.warning("invalid_api_key_format", user_id=user_id)
+            return jsonify({'error': 'Invalid API key format. Must be a valid Gemini API key starting with AIzaSy.'}), 400
 
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)

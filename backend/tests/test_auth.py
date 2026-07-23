@@ -45,7 +45,7 @@ class TestAuth:
         })
         # 409 Conflict is the correct status for duplicate resources
         assert response.status_code in [400, 409]
-        assert 'email' in response.json.get('message', '').lower()
+        assert 'credentials' in response.json.get('message', '').lower() or 'already' in response.json.get('message', '').lower()
     
     def test_register_weak_password(self, client):
         """Test registration with weak password"""

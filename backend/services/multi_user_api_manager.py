@@ -8,6 +8,9 @@ import os
 import sys
 import time
 import logging
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from dataclasses import dataclass
@@ -61,7 +64,7 @@ class MultiUserAPIManager:
     def __init__(self):
         self.user_api_keys: Dict[int, UserAPIKey] = {}
         self.rate_limit_cache: Dict[int, Dict] = {}  # user_id -> rate limit data
-        self.logger = logging.getLogger("MultiUserAPIManager")
+        self.logger = get_logger("MultiUserAPIManager")
         
         # Rate limiting settings
         self.REQUESTS_PER_MINUTE = 15

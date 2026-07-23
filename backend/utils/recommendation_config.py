@@ -7,7 +7,7 @@ NO HARDCODED VALUES - everything is here!
 This allows easy tuning without touching core engine logic.
 """
 
-from typing import Dict, List
+from typing import List
 import os
 
 

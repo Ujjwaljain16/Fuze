@@ -15,8 +15,8 @@ vi.mock('../../services/api', async (importOriginal) => {
   return {
     ...actual,
     default: {
-      get: vi.fn(),
-      post: vi.fn(),
+      get: vi.fn(() => Promise.resolve({ data: {} })),
+      post: vi.fn(() => Promise.resolve({ data: {} })),
       defaults: {
         headers: {
           common: {}
@@ -55,9 +55,7 @@ describe('ProtectedRoute', () => {
   })
 
   it('renders children when authenticated', async () => {
-    // Set token right before rendering (AuthContext reads it on mount)
-    localStorage.setItem('token', 'mock-token')
-    
+    // AuthContext will call /api/profile which is mocked to succeed in beforeEach
     render(
       <MemoryRouter>
         <ToastProvider>
@@ -78,7 +76,10 @@ describe('ProtectedRoute', () => {
   })
 
   it('redirects to login when not authenticated', () => {
-    localStorage.removeItem('token')
+    // Mock profile to fail with 401
+    api.get.mockImplementationOnce(() => Promise.reject({
+      response: { status: 401, data: { message: 'Unauthorized' } }
+    }))
     
     render(
       <MemoryRouter initialEntries={['/dashboard']}>

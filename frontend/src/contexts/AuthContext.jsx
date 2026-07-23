@@ -22,7 +22,6 @@ export const AuthProvider = ({ children }) => {
       return null
     }
   })
-  const [token, setToken] = useState(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
   const userRef = useRef(null) // Track user to avoid closure issues
   const { error: showErrorToast } = useToast()
@@ -37,40 +36,30 @@ export const AuthProvider = ({ children }) => {
       // Initialize CSRF token in background (non-blocking)
       initializeCSRF().catch(console.warn)
       
-      if (token) {
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-        // Fetch user data when token is available
-        // Only fetch if user is not already set (to avoid unnecessary calls after login)
-        // Use ref to get current value, not closure value
-        if (!userRef.current) {
-          await fetchUser()
-        }
-      } else {
-        // No token, ensure user is cleared
-        setUser(null)
-        userRef.current = null
-        localStorage.removeItem('user')
+      // Attempt to fetch user data on mount (session is in cookies)
+      // If user is not in localStorage, we must check the backend
+      if (!userRef.current) {
+        await fetchUser()
       }
+      
       setLoading(false)
     }
     
     initializeAuth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]) // Only depend on token, not user, to avoid loops
+  }, []) // Initialize once on mount
 
-  // Listen for OAuth login events to refresh token state
+  // Listen for login events to refresh user state
   useEffect(() => {
     const handleUserLoggedIn = (event) => {
-      const newToken = localStorage.getItem('token')
-      if (newToken && newToken !== token) {
-        setToken(newToken)
-      }
-
       // OAuth callback can provide user directly to avoid redirect races on mobile/PWA.
       if (event?.detail?.user) {
         setUser(event.detail.user)
         userRef.current = event.detail.user
         localStorage.setItem('user', JSON.stringify(event.detail.user))
+      } else {
+        // Otherwise just try to fetch the profile
+        fetchUser()
       }
     }
 
@@ -84,7 +73,8 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('userLoggedIn', handleUserLoggedIn)
       window.removeEventListener('authExpired', handleAuthExpired)
     }
-  }, [token])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const fetchUser = async () => {
     try {
@@ -116,14 +106,9 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      const { access_token, user: userData } = response.data
-      
-      // Set token first
-      localStorage.setItem('token', access_token)
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+      const { user: userData } = response.data
       
       // Set state atomically to avoid race conditions
-      setToken(access_token)
       setUser(userData)
       userRef.current = userData // Update ref immediately
       localStorage.setItem('user', JSON.stringify(userData))
@@ -172,12 +157,9 @@ export const AuthProvider = ({ children }) => {
   }
 
   const logout = () => {
-    setToken(null)
     setUser(null)
     userRef.current = null
-    localStorage.removeItem('token')
     localStorage.removeItem('user')
-    delete api.defaults.headers.common['Authorization']
     
     // Call logout endpoint to clear cookies
     api.post('/api/auth/logout').catch(console.error)
@@ -185,12 +167,11 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    token,
     loading,
     login,
     register,
     logout,
-    isAuthenticated: !!token && !!user
+    isAuthenticated: !!user
   }
 
   return (

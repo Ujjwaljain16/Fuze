@@ -11,7 +11,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from run_production import create_app
-from models import db, User, SavedContent, Project
+from models import User, SavedContent, Project
 
 app = create_app()
 

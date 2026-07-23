@@ -28,6 +28,11 @@ class Config:
     JWT_SECRET_KEY = _flask_config['JWT_SECRET_KEY']
     JWT_ACCESS_TOKEN_EXPIRES = _flask_config['JWT_ACCESS_TOKEN_EXPIRES']
     JWT_REFRESH_TOKEN_EXPIRES = _flask_config['JWT_REFRESH_TOKEN_EXPIRES']
+    JWT_TOKEN_LOCATION = _flask_config.get('JWT_TOKEN_LOCATION', ['headers', 'cookies'])
+    JWT_COOKIE_SECURE = _flask_config.get('JWT_COOKIE_SECURE', True)
+    JWT_COOKIE_HTTPONLY = _flask_config.get('JWT_COOKIE_HTTPONLY', True)
+    JWT_COOKIE_SAMESITE = _flask_config.get('JWT_COOKIE_SAMESITE', 'Lax')
+    JWT_COOKIE_CSRF_PROTECT = _flask_config.get('JWT_COOKIE_CSRF_PROTECT', True)
     
     SQLALCHEMY_DATABASE_URI = _flask_config['SQLALCHEMY_DATABASE_URI']
     SQLALCHEMY_TRACK_MODIFICATIONS = _flask_config['SQLALCHEMY_TRACK_MODIFICATIONS']

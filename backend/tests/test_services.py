@@ -147,7 +147,7 @@ class TestCacheInvalidationService:
         from services.cache_invalidation_service import CacheInvalidationService
         
         # Mock the redis_cache methods that are actually used
-        mock_redis_cache.invalidate_user_recommendations.return_value = True
+        mock_redis_cache.invalidate_recommendation_cache.return_value = True
         mock_redis_cache.delete_keys_pattern.return_value = 0
         mock_clear_gemini.return_value = 0
         
@@ -164,8 +164,8 @@ class TestCacheInvalidationService:
         
         result = CacheInvalidationService.invalidate_recommendation_cache(1)
         
-        # Should call invalidate_user_recommendations
-        assert mock_redis_cache.invalidate_user_recommendations.called
+        # Should call invalidate_recommendation_cache
+        assert mock_redis_cache.invalidate_recommendation_cache.called
         assert result is True
     
     @patch('services.cache_invalidation_service.redis_cache')
@@ -175,7 +175,7 @@ class TestCacheInvalidationService:
         
         # Mock the redis_cache methods that are actually used
         mock_redis_cache.invalidate_user_bookmarks.return_value = True
-        mock_redis_cache.invalidate_user_recommendations.return_value = True
+        mock_redis_cache.invalidate_recommendation_cache.return_value = True
         mock_redis_cache.invalidate_analysis_cache.return_value = True
         mock_redis_cache.delete_keys_pattern.return_value = 0
         

@@ -60,8 +60,8 @@ const ApiKeyManager = () => {
       return
     }
 
-    if (!apiKey.startsWith('AIza') || apiKey.length < 30) {
-      error('Invalid API key format. Gemini keys start with "AIza" and are at least 30 characters.')
+    if (apiKey.length < 20) {
+      error('Invalid API key format. API keys must be at least 20 characters.')
       return
     }
 
@@ -218,7 +218,7 @@ const ApiKeyManager = () => {
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="AIzaSy..."
+              placeholder="Enter your Gemini API key..."
               maxLength={100}
               className="w-full px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent pr-12"
             />

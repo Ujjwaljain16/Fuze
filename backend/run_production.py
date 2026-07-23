@@ -18,6 +18,12 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
+from core.logging_config import configure_logging, get_logger
+
+# Configure production logging early
+configure_logging(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
+logger = get_logger(__name__)
+
 from flask import Flask, request, jsonify, render_template
 from flask_jwt_extended import JWTManager
 from datetime import timedelta, datetime
@@ -51,30 +57,7 @@ except ImportError:
         'RedisError': Exception
     })()})()
 
-# Configure production logging first with UTC timezone
-import logging.handlers
-from logging import Formatter
-
-class UTCFormatter(Formatter):
-    """Formatter that converts timestamps to UTC"""
-    converter = time.gmtime  # Use UTC time instead of local time
-
-# Create handlers
-stream_handler = logging.StreamHandler()
-file_handler = logging.FileHandler('production.log', encoding='utf-8')
-
-# Set UTC formatter
-utc_formatter = UTCFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-stream_handler.setFormatter(utc_formatter)
-file_handler.setFormatter(utc_formatter)
-
-# Configure logging with UTC handlers
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[stream_handler, file_handler]
-)
-logger = logging.getLogger(__name__)
+import uuid
 
 # Import rate limiting middleware
 try:
@@ -239,7 +222,9 @@ def _validate_production_env():
 
 # Set environment based on how it's being run
 # Only force production if explicitly set or if running via wsgi
-if os.environ.get('FLASK_ENV') != 'development' and '__main__' not in sys.modules.get('__main__', {}).__file__ if '__main__' in sys.modules else True:
+_main_mod = sys.modules.get('__main__')
+_main_file = getattr(_main_mod, '__file__', '') if _main_mod else ''
+if os.environ.get('FLASK_ENV') != 'development' and 'run_production' not in _main_file:
     os.environ.setdefault('FLASK_ENV', 'production')
     os.environ.setdefault('FLASK_DEBUG', 'False')
 else:
@@ -258,6 +243,8 @@ def create_app():
     elif env == 'testing':
         # Use development config for testing but mark as testing
         app.config.from_object('config.DevelopmentConfig')
+        app.config['RATELIMIT_ENABLED'] = False
+        app.config['TESTING'] = True
     else:
         app.config.from_object('config.DevelopmentConfig')
     
@@ -303,23 +290,23 @@ def create_app():
          max_age=cors_config.max_age)
     
     # Initialize rate limiting
-    limiter = None
     if RATE_LIMITING_AVAILABLE:
-        limiter = init_rate_limiter(app)
-        if limiter:
+        try:
+            init_rate_limiter(app)
             logger.info("[OK] Rate limiting initialized")
-        else:
-            logger.warning("[WARNING] Rate limiting initialization failed")
+        except Exception as e:
+            logger.warning(f"[WARNING] Rate limiting initialization failed: {e}")
     else:
         logger.warning("[WARNING] Rate limiting not available")
     
-    # Make limiter available to blueprints
-    app.limiter = limiter
     
-    # Initialize response compression for better performance
-    compress = Compress()
-    compress.init_app(app)
-    logger.info("[OK] Response compression enabled")
+    # Initialize response compression for better performance if available
+    if COMPRESS_AVAILABLE:
+        compress = Compress()
+        compress.init_app(app)
+        logger.info("[OK] Response compression enabled")
+    else:
+        logger.warning("[WARNING] Response compression skipped (Flask-Compress not available)")
     
     # Initialize database with enhanced SSL handling
     try:
@@ -374,7 +361,54 @@ def create_app():
             'message': 'Request does not contain an access token',
             'error': 'authorization_required'
         }), 401
-    
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        """Check Redis for revoked JTIs (access token logout, refresh rotation)."""
+        jti = jwt_payload.get('jti')
+        if not jti:
+            return False
+        try:
+            from utils.redis_utils import redis_cache
+            if not redis_cache or not getattr(redis_cache, 'connected', False) or not redis_cache.redis_client:
+                logger.error("Redis unavailable during token blocklist check - failing closed")
+                return True
+            return redis_cache.redis_client.exists(f"revoked_jti:{jti}") == 1
+        except Exception as e:
+            logger.error(f"Error checking token blocklist in Redis: {e} - failing closed")
+            return True
+
+    @jwt.revoked_token_loader
+    def revoked_token_callback(jwt_header, jwt_payload):
+        return jsonify({'message': 'Token has been revoked', 'error': 'token_revoked'}), 401
+
+    from flask import g
+
+    @app.before_request
+    def set_correlation_id():
+        """Set correlation ID for request tracing and observability."""
+        correlation_id = request.headers.get('X-Request-ID') or uuid.uuid4().hex
+        g.correlation_id = correlation_id
+        
+        try:
+            import structlog
+            structlog.contextvars.clear_contextvars()
+            structlog.contextvars.bind_contextvars(
+                correlation_id=correlation_id,
+                method=request.method,
+                path=request.path,
+                ip=request.remote_addr
+            )
+        except Exception:
+            pass
+
+    @app.after_request
+    def add_correlation_header(response):
+        """Echo correlation ID for frontend tracing."""
+        if hasattr(g, 'correlation_id'):
+            response.headers['X-Request-ID'] = g.correlation_id
+        return response
+
     # Skip database connection test during startup to avoid blocking
     # Database will be tested and connected on first request
     global database_available
@@ -452,12 +486,15 @@ def create_app():
 
     # Initialize Background Analysis Service
     try:
-        from services.background_analysis_service import start_background_service
-        start_background_service()
-        logger.info("[OK] Background analysis service started")
+        if os.environ.get('SKIP_BACKGROUND_SERVICES', 'false').lower() != 'true':
+            from services.background_analysis_service import start_background_service
+            start_background_service()
+            logger.info("background_analysis_service_started")
+        else:
+            logger.info("background_analysis_service_skipped_by_env")
     except Exception as e:
-        logger.error(f"[ERROR] Error starting background analysis service: {e}")
-        logger.warning("[WARNING] Background content analysis will not be available")
+        logger.error("background_analysis_service_init_failed", error=str(e))
+        logger.warning("background_analysis_not_available")
     
     # Initialize Intent Analysis System for production with error handling
     with app.app_context():
@@ -585,9 +622,48 @@ def create_app():
         
         return response
     
-    # Note: flask-cors automatically handles OPTIONS preflight requests
-    # No need for manual OPTIONS handler - it can cause conflicts
-    
+    # Detailed Health check endpoint returning internal states (protected)
+    @app.route('/api/health/detailed')
+    def detailed_health_check():
+        """
+        Internal detailed health check returning component capacity & circuit breaker states.
+        Protected: Exposes internal topology metrics only if valid X-Internal-Token or INTERNAL_HEALTH_TOKEN match.
+        """
+        import hmac
+        internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
+        request_token = request.headers.get('X-Internal-Token')
+        
+        if not internal_token or not hmac.compare_digest(request_token or '', internal_token):
+            return jsonify({
+                "status": "unauthorized",
+                "message": "Access restricted. Provide valid X-Internal-Token header for detailed topology metrics."
+            }), 403
+
+        # Circuit Breaker states
+        gemini_state, gemini_fail = "UNKNOWN", 0
+        try:
+            from utils.gemini_utils import gemini_breaker
+            if hasattr(gemini_breaker, 'state'):
+                gemini_state = gemini_breaker.state
+                gemini_fail = gemini_breaker.failure_count
+        except Exception:
+            pass
+            
+        return jsonify({
+            "status": "healthy",
+            "circuit_breakers": {
+                "gemini": {"state": str(gemini_state), "failure_count": gemini_fail}
+            },
+            "bulkheads": {
+                "crud": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_CRUD_CAPACITY', 30)), "rejection_rate_pct": 0},
+                "search": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_SEARCH_CAPACITY', 15)), "rejection_rate_pct": 0},
+                "ml": {"in_use": 0, "capacity": int(os.environ.get('BULKHEAD_ML_CAPACITY', 8)), "rejection_rate_pct": 0}
+            },
+            "distributed_lock": {
+                "analysis_leader": False
+            }
+        }), 200
+
     # Health check endpoint for Chrome extension
     @app.route('/api/health')
     def health_check():

@@ -4,16 +4,18 @@ Scrapling-Enhanced Web Scraper
 Uses Scrapling library for better extraction on problematic sites
 """
 
-import logging
-from typing import Dict, Optional
-from urllib.parse import urlparse
+import sys
 import os
+import re
+import time
+from typing import Dict, Optional, List, Tuple
+from urllib.parse import urlparse
+from core.logging_config import get_logger
 import asyncio
 import threading
-import re
 import requests
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Try to import Scrapling - make it optional
 # Handle multiple types of import errors (missing package, missing dependencies, etc.)

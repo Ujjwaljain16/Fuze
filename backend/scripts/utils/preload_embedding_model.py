@@ -14,7 +14,6 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from utils.embedding_utils import embedding_model
 
 def preload_embedding_model():
     """Pre-load the embedding model to avoid startup delays"""
