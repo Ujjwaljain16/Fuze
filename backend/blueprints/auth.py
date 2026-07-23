@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timedelta
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
-    get_jwt, decode_token, set_refresh_cookies, unset_jwt_cookies
+    get_jwt, decode_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies
 )
 from models import db, User, TokenFamily
 from utils.database_utils import retry_on_connection_error
@@ -500,6 +500,7 @@ def login():
                 'email':    user.email
             }
         })
+        set_access_cookies(response, access_token)
         set_refresh_cookies(response, refresh_token)
 
         elapsed = (time.time() - start_time) * 1000
@@ -543,7 +544,7 @@ def login_with_retry(identifier, password):
                 'email': user.email
             }
         })
-        
+        set_access_cookies(response, access_token)
         set_refresh_cookies(response, refresh_token)
         return response, 200
         
@@ -699,6 +700,7 @@ def refresh():
         uow.token_families.update_current_jti(family_id, new_jti)
 
     response = jsonify({'access_token': new_access})
+    set_access_cookies(response, new_access)
     set_refresh_cookies(response, new_refresh)
     return response, 200
 
@@ -904,6 +906,7 @@ def supabase_oauth():
             logger.warning(f"TokenFamily persist failed in OAuth: {e}")
 
         response = jsonify({
+            'access_token': access,
             'user': {'id': user.id, 'username': user.username, 'email': user.email}
         })
         set_access_cookies(response, access)

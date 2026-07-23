@@ -46,7 +46,19 @@ api.interceptors.request.use(
     const requestId = uuidv4()
     config.headers['X-Request-ID'] = requestId
     
-    // Authorization header is now automatically handled by cookies (HttpOnly)
+    // Authorization header: Attach Bearer token if stored in localStorage (supports both header and cookie auth flows)
+    const storedUser = localStorage.getItem('user')
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser)
+        const token = parsed?.token || parsed?.access_token
+        if (token) {
+          config.headers['Authorization'] = `Bearer ${token}`
+        }
+      } catch {
+        // Ignore parse error
+      }
+    }
     
     // CSRF Protection: For mutating requests, extract the CSRF token from the cookie
     // Flask-JWT-Extended sets 'csrf_access_token' in a non-HttpOnly cookie

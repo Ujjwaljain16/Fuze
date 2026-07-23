@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     postgresql-client \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -27,6 +28,7 @@ COPY backend/ ./backend/
 COPY wsgi.py .
 COPY app.py .
 COPY start.sh .
+COPY supervisord.conf .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
