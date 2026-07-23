@@ -37,7 +37,7 @@ limiter = Limiter(
     key_func=get_user_rate_limit_key,
     default_limits=default_limits,
     headers_enabled=True,
-    swallow_errors=True
+    swallow_errors=is_development
 )
 
 def init_rate_limiter(app) -> Limiter:

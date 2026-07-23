@@ -56,7 +56,7 @@ def upgrade():
             CREATE INDEX CONCURRENTLY IF NOT EXISTS
             idx_saved_content_user_unanalyzed
             ON saved_content (user_id, id)
-            WHERE embedding IS NOT NULL 
+            WHERE extracted_text IS NOT NULL AND extracted_text != ''
         """)
 
 def downgrade():

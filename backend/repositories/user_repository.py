@@ -1,4 +1,5 @@
 from typing import Optional
+from sqlalchemy import func
 from models import User
 
 class UserRepository:

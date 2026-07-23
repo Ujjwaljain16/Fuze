@@ -629,10 +629,11 @@ def create_app():
         Internal detailed health check returning component capacity & circuit breaker states.
         Protected: Exposes internal topology metrics only if valid X-Internal-Token or INTERNAL_HEALTH_TOKEN match.
         """
+        import hmac
         internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
         request_token = request.headers.get('X-Internal-Token')
         
-        if not internal_token or request_token != internal_token:
+        if not internal_token or not hmac.compare_digest(request_token or '', internal_token):
             return jsonify({
                 "status": "unauthorized",
                 "message": "Access restricted. Provide valid X-Internal-Token header for detailed topology metrics."

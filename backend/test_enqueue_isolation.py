@@ -13,6 +13,9 @@ from models import db, User
 class TestEnqueueIsolation(unittest.TestCase):
     def setUp(self):
         os.environ['FUZE_ENV'] = 'testing'
+        os.environ['FLASK_ENV'] = 'testing'
+        os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+        from run_production import create_app
         self.app = create_app()
         self.app.config['TESTING'] = True
         self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
