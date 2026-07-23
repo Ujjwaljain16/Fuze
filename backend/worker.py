@@ -102,15 +102,23 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
     
+    # Instantiate Flask application context cleanly
     try:
-        if args.burst:
-            # Burst mode: process all jobs and exit
-            logger.info("worker_mode_burst")
-            worker.work(burst=True)
-        else:
-            # Normal mode: keep running
-            logger.info("worker_mode_continuous")
-            worker.work()
+        from run_production import create_app
+        app = create_app()
+        logger.info("worker_flask_app_context_created")
+    except Exception as e:
+        logger.error("worker_flask_app_creation_failed", error=str(e))
+        sys.exit(1)
+
+    try:
+        with app.app_context():
+            if args.burst:
+                logger.info("worker_mode_burst")
+                worker.work(burst=True)
+            else:
+                logger.info("worker_mode_continuous")
+                worker.work()
     except Exception as e:
         logger.error("worker_runtime_error", error=str(e))
         sys.exit(1)

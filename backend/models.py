@@ -278,8 +278,9 @@ class SavedContent(Base):
     notes = Column(TEXT)
     quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
     
-    # Production indexes (will be created by database_indexes.py script)
+    # Production indexes and unique constraints
     __table_args__ = (
+        UniqueConstraint('user_id', 'url', name='_user_url_uc'),
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
     )

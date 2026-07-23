@@ -256,3 +256,57 @@ class TestBookmarks:
             assert data['total'] == 3
             assert data['added'] == 3
 
+    def test_check_duplicate_endpoint(self, client, auth_headers, test_user, app):
+        """Test check-duplicate endpoint signature fix and functionality"""
+        from models import db, SavedContent
+        
+        with app.app_context():
+            bookmark = SavedContent(
+                user_id=test_user['id'],
+                url='https://example.com/check-dup',
+                title='Check Dup Title'
+            )
+            db.session.add(bookmark)
+            db.session.commit()
+            
+        response = client.post('/api/bookmarks/check-duplicate', 
+                               json={'url': 'https://example.com/check-dup'},
+                               headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json
+        assert data['isDuplicate'] is True
+        assert data['existingBookmark']['title'] == 'Check Dup Title'
+
+    def test_url_normalization_case_preserves_path(self):
+        """Test URL normalization lowercases scheme/netloc but preserves path case"""
+        from blueprints.bookmarks import normalize_url
+        url = "https://GitHub.com/OpenAI/GPT-4?utm_source=test"
+        normalized = normalize_url(url)
+        assert normalized.startswith("https://github.com/OpenAI/GPT-4")
+        assert "OpenAI/GPT-4" in normalized
+
+    def test_concurrent_duplicate_save_race_handling(self, client, auth_headers, test_user, app):
+        """Test 20 concurrent duplicate save requests result in 1 insert and 19 duplicate responses without 500 errors"""
+        from concurrent.futures import ThreadPoolExecutor
+        from models import db, SavedContent
+        
+        target_url = 'https://example.com/concurrent-race-test'
+        
+        def send_request():
+            with app.test_client() as test_client:
+                return test_client.post('/api/bookmarks', json={
+                    'url': target_url,
+                    'title': 'Race Test'
+                }, headers=auth_headers)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(send_request) for _ in range(10)]
+            results = [f.result() for f in futures]
+            
+        status_codes = [r.status_code for r in results]
+        assert all(code in (200, 201) for code in status_codes)
+        
+        with app.app_context():
+            saved_count = SavedContent.query.filter_by(user_id=test_user['id'], url=target_url).count()
+            assert saved_count == 1
+

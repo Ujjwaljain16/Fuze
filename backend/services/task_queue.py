@@ -140,9 +140,7 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
         return None
 
     try:
-        # Import the task function (avoid circular imports)
-        # Use string reference for better RQ compatibility
-        from blueprints.bookmarks import process_bookmark_content_task
+        from services.bookmark_processing_service import process_bookmark_content_task
 
         # Select queue
         queue = high_queue if queue_name == 'high' else default_queue

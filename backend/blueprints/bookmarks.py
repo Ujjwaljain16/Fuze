@@ -50,18 +50,18 @@ def normalize_url(url):
             if key.lower() not in tracking_params:
                 filtered_params.append(param)
     
-    # Reconstruct URL without tracking parameters
+    # Reconstruct URL without tracking parameters, lowercasing only scheme and netloc
     clean_query = '&'.join(filtered_params) if filtered_params else ''
     normalized = urlunparse((
-        parsed.scheme,
-        parsed.netloc,
+        parsed.scheme.lower(),
+        parsed.netloc.lower(),
         parsed.path,
         parsed.params,
         clean_query,
         ''  # Remove fragment
     ))
     
-    return normalized.lower()
+    return normalized
 
 def is_duplicate_url(service, url, user_id):
     """Check if URL is a duplicate (exact match or normalized match)"""
@@ -269,33 +269,21 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
 
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
     """
-    Enqueue bookmark processing task using RQ (or fallback to threading)
-    This function returns immediately after enqueueing, allowing fast API responses
+    Enqueue bookmark processing task using RQ.
+    Fails explicitly if background task queue is unavailable.
     """
-    # Try to use RQ first
-    try:
-        from services.task_queue import enqueue_bookmark_processing, is_rq_available
+    from services.task_queue import enqueue_bookmark_processing, is_rq_available
+    
+    if not is_rq_available():
+        logger.error(f"Background task queue unavailable for bookmark {bookmark_id}")
+        raise RuntimeError("Background task queue unavailable")
         
-        if is_rq_available():
-            job = enqueue_bookmark_processing(bookmark_id, url, user_id)
-            if job:
-                logger.info(f"Bookmark {bookmark_id} processing enqueued as job {job.id}")
-                return
-    except Exception as e:
-        logger.warning(f"Failed to enqueue with RQ: {e}, falling back to threading")
-    
-    # Fallback to threading if RQ is not available
-    import threading
-    from flask import current_app
-    
-    def process():
-        # Call the task function directly
-        process_bookmark_content_task(bookmark_id, url, user_id)
-    
-    # Start background thread
-    thread = threading.Thread(target=process, daemon=True)
-    thread.start()
-    logger.info(f"Bookmark {bookmark_id} processing started in background thread (RQ unavailable)")
+    job = enqueue_bookmark_processing(bookmark_id, url, user_id)
+    if not job:
+        logger.error(f"Failed to enqueue bookmark {bookmark_id} with RQ")
+        raise RuntimeError("Failed to enqueue background processing job")
+        
+    logger.info(f"Bookmark {bookmark_id} processing enqueued as job {job.id}")
 
 @bookmarks_bp.route('/quick-save', methods=['POST'])
 @jwt_required()
@@ -326,48 +314,59 @@ def quick_save_bookmark():
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
     
-    with UnitOfWork() as uow:
-        service = BookmarkService(uow)
-        existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
-        
-        if existing_bookmark:
-            # Update existing bookmark with new title/description if provided
-            if title:
-                existing_bookmark.title = title.strip()
-            if description:
-                existing_bookmark.notes = description.strip()
-            # It will commit when UoW exits.
+    try:
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
             
-            existing_bookmark_id = existing_bookmark.id
-            existing_bookmark_url = existing_bookmark.url
-            
-            uow.flush() # flush to ensure update is ready for cache invalidate
-        else:
-            existing_bookmark_id = None
-            
-            # Ensure title is not empty
-            if not title or not title.strip():
-                title = 'Untitled Bookmark'
-            
-            # Truncate title if needed
-            final_title = title.strip() if title else 'Untitled Bookmark'
-            if len(final_title) > 200:
-                truncated = final_title[:197]
-                last_space = truncated.rfind(' ')
-                if last_space > 150:
-                    final_title = truncated[:last_space] + "..."
-                else:
-                    final_title = truncated + "..."
-            
-            # Save bookmark immediately with minimal data
-            new_bm = service.create_bookmark(
-                user_id=user_id,
-                url=url.strip(),
-                title=final_title,
-                notes=description.strip() if isinstance(description, str) else ''
-            )
-            
-            new_bm_id = new_bm.id
+            if existing_bookmark:
+                # Update existing bookmark with new title/description if provided
+                if title:
+                    existing_bookmark.title = title.strip()
+                if description:
+                    existing_bookmark.notes = description.strip()
+                
+                existing_bookmark_id = existing_bookmark.id
+                existing_bookmark_url = existing_bookmark.url
+                uow.flush()
+            else:
+                existing_bookmark_id = None
+                
+                # Ensure title is not empty
+                if not title or not title.strip():
+                    title = 'Untitled Bookmark'
+                
+                # Truncate title if needed
+                final_title = title.strip() if title else 'Untitled Bookmark'
+                if len(final_title) > 200:
+                    truncated = final_title[:197]
+                    last_space = truncated.rfind(' ')
+                    if last_space > 150:
+                        final_title = truncated[:last_space] + "..."
+                    else:
+                        final_title = truncated + "..."
+                
+                # Save bookmark immediately with minimal data
+                new_bm = service.create_bookmark(
+                    user_id=user_id,
+                    url=url.strip(),
+                    title=final_title,
+                    notes=description.strip() if isinstance(description, str) else ''
+                )
+                new_bm_id = new_bm.id
+    except IntegrityError:
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            existing_bm = service.get_bookmark_by_url(user_id, url.strip())
+            existing_bm_id = existing_bm.id if existing_bm else None
+            existing_bm_url = existing_bm.url if existing_bm else url.strip()
+        return jsonify({
+            'message': 'Bookmark updated',
+            'bookmark': {'id': existing_bm_id, 'url': existing_bm_url},
+            'wasDuplicate': True,
+            'duplicateType': 'exact',
+            'processing': 'background'
+        }), 200
             
     # Outside UoW block: Side effects
     if existing_bookmark_id:
@@ -471,22 +470,31 @@ def save_bookmark():
         else:
             final_title = truncated + "..."
     
-    with UnitOfWork() as uow:
-        service = BookmarkService(uow)
-        new_bm = service.create_bookmark(
-            user_id=user_id,
-            url=url.strip(),
-            title=final_title,
-            notes=description.strip() if isinstance(description, str) else '',
-            tags=tags_str,
-            category=category
-        )
-        # Extract primitives inside session — avoids DetachedInstanceError post-exit
-        new_bm_id = new_bm.id
-        new_bm_url = new_bm.url
-        # Note: service.create_bookmark() automatically emits BookmarkCreated domain event.
-        # Upon UoW __exit__, commit completes and _dispatch_events() invokes handle_bookmark_created,
-        # which enqueues background scraping, text extraction, and embedding generation.
+    try:
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            new_bm = service.create_bookmark(
+                user_id=user_id,
+                url=url.strip(),
+                title=final_title,
+                notes=description.strip() if isinstance(description, str) else '',
+                tags=tags_str,
+                category=category
+            )
+            new_bm_id = new_bm.id
+            new_bm_url = new_bm.url
+    except IntegrityError:
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            existing_bm = service.get_bookmark_by_url(user_id, url.strip())
+            existing_bm_id = existing_bm.id if existing_bm else None
+            existing_bm_url = existing_bm.url if existing_bm else url.strip()
+        return jsonify({
+            'message': 'Bookmark updated',
+            'bookmark': {'id': existing_bm_id, 'url': existing_bm_url},
+            'wasDuplicate': True,
+            'processing': 'background'
+        }), 200
 
     # Post-commit: Cache invalidation
     from services.cache_invalidation_service import cache_invalidator
@@ -538,7 +546,6 @@ def bulk_import_bookmarks():
         logger.debug(f"Using cached bookmarks for user {user_id}")
         existing_urls = set(bm['url'] for bm in cached_bookmarks)
         normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
-        url_to_bm = {bm['url']: bm for bm in cached_bookmarks}
     else:
         # Fallback to database query
         logger.debug(f"Loading bookmarks from database for user {user_id}")
@@ -552,336 +559,108 @@ def bulk_import_bookmarks():
             
             existing_urls = set(bm.url for bm in existing_bms)
             normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
-            url_to_bm = {bm.url: bm for bm in existing_bms}
             
             # Cache the bookmarks for future use
             bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
             
         redis_cache.cache_user_bookmarks(user_id, bookmarks_data)
 
-    def process_bookmark(bookmark_data):
+    created_bookmarks = []
+    
+    for bm_data in data:
+        if not isinstance(bm_data, dict):
+            skipped_count += 1
+            continue
+            
+        url = (bm_data.get('url') or '').strip()
+        title = (bm_data.get('title') or '').strip() or 'Untitled Bookmark'
+        category = bm_data.get('category', 'other')
+        
+        if not url:
+            skipped_count += 1
+            skip_reasons['empty_url'] = skip_reasons.get('empty_url', 0) + 1
+            continue
+            
+        invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
+        if any(url.lower().startswith(s) for s in invalid_schemes):
+            skipped_count += 1
+            skip_reasons['invalid_scheme'] = skip_reasons.get('invalid_scheme', 0) + 1
+            continue
+            
         try:
-            url = bookmark_data.get('url', '').strip()
-            title = bookmark_data.get('title', '').strip()
-            category = bookmark_data.get('category', 'other')
-            if len(title) > 512:
-                title = title[:512]
-            if len(url) > 2048:
-                url = url[:2048]
-            if not url:
-                return ('skip', url, 'Empty URL', 'empty_url')
-
-            # Filter out invalid URL schemes that can't be scraped
-            invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
-            url_lower = url.lower()
-            if any(url_lower.startswith(scheme) for scheme in invalid_schemes):
-                return ('skip', url, f'Invalid URL scheme (cannot scrape {urlparse(url).scheme}:// URLs)', 'invalid_scheme')
-
-            # Validate URL format
-            try:
-                parsed = urlparse(url)
-                if not parsed.scheme or not parsed.netloc:
-                    # Allow relative URLs or URLs without scheme (will be treated as http)
-                    if not parsed.scheme and not parsed.netloc and not parsed.path:
-                        return ('skip', url, 'Invalid URL format', 'invalid_format')
-            except Exception:
-                return ('skip', url, 'Invalid URL format', 'invalid_format')
-
-            norm_url = normalize_url(url)
-            # Fast duplicate check using cached data
-            if url in existing_urls or norm_url in normalized_urls:
-                return ('skip', url, 'Duplicate bookmark', 'duplicate')
-
-            # Scrape and embed (same workflow as single save) with retry logic
-            # Use the same enhanced scraper that the test script uses
-            # This ensures GitHub API and other enhanced features are used
-            scraped = None
-            max_retries = 2
-            
-            for attempt in range(max_retries):
-                try:
-                    scraped = extract_article_content(url)
-                    
-                    if scraped:
-                        content_length = len(scraped.get('content', ''))
-                        quality = scraped.get('quality_score', 0)
-                        
-                        # Accept if we have reasonable content (even if quality is low)
-                        # The scraper handles GitHub API, Scrapling, etc. automatically
-                        if content_length > 50:
-                            break  # Got good content, exit retry loop
-                        elif attempt < max_retries - 1:
-                            # Content too short, retry with exponential backoff
-                            import time
-                            time.sleep(0.5 * (attempt + 1))  # 0.5s, 1s delays
-                    else:
-                        if attempt < max_retries - 1:
-                            import time
-                            time.sleep(0.5 * (attempt + 1))
-                            
-                except Exception as scrape_error:
-                    error_str = str(scrape_error).lower()
-                    # Check for rate limiting errors
-                    if any(rate_limit_indicator in error_str for rate_limit_indicator in 
-                           ['rate limit', '429', 'too many requests', 'quota exceeded']):
-                        if attempt < max_retries - 1:
-                            # Rate limited - wait longer before retry
-                            import time
-                            wait_time = 2 * (attempt + 1)  # 2s, 4s delays
-                            logger.warning(f"Rate limited for {url[:50]}, waiting {wait_time}s before retry...")
-                            time.sleep(wait_time)
-                        else:
-                            logger.error(f"Rate limited for {url[:50]} after {max_retries} attempts")
-                    elif attempt < max_retries - 1:
-                        # Other errors - shorter retry delay
-                        import time
-                        time.sleep(1 * (attempt + 1))  # 1s, 2s delays
-                    else:
-                        logger.error(f"All scraping attempts failed for {url[:50]}: {scrape_error}")
-            
-            # If scraping failed completely, use proper fallback (never save "Unable to extract")
-            if not scraped or not scraped.get('content'):
-                logger.warning(f"Scraping failed for {url}, using proper fallback")
-                parsed = urlparse(url)
-                domain = parsed.netloc.replace('www.', '')
-                path_parts = [p for p in parsed.path.strip('/').split('/') if p]
-                
-                # Generate meaningful fallback content (same as test script)
-                fallback_content = f"Content from {domain}"
-                if path_parts:
-                    meaningful_parts = [p.replace('-', ' ').replace('_', ' ') 
-                                      for p in path_parts[:3] 
-                                      if p.lower() not in {'www', 'index', 'home', 'page'}]
-                    if meaningful_parts:
-                        fallback_content += f". Topic: {' '.join(meaningful_parts)}"
-                
-                scraped = {
-                    'content': fallback_content,
-                    'title': title or f"Content from {domain}",
-                    'headings': [],
-                    'meta_description': f"Content from {domain}",
-                    'quality_score': 3  # Low but not zero
-                }
-            
-            extracted_text = scraped.get('content', '')
-            scraped_title = scraped.get('title', '')
-            headings = scraped.get('headings', [])
-            meta_description = scraped.get('meta_description', '')
-            quality_score = scraped.get('quality_score', 10)
-            
-            # Never save "Unable to extract" or "extraction failed" messages
-            # Replace them with proper fallback content
-            if extracted_text and ('unable to extract' in extracted_text.lower() or 
-                                 'extraction failed' in extracted_text.lower()):
-                logger.warning(f"Replacing 'Unable to extract' message for {url[:50]} with proper fallback")
-                parsed = urlparse(url)
-                domain = parsed.netloc.replace('www.', '')
-                extracted_text = f"Content from {domain}. URL: {url}"
-                scraped['content'] = extracted_text
-                scraped['quality_score'] = 3
-            
-            # Update title if scraped title is better
-            if scraped_title and scraped_title != title:
-                title = scraped_title
-            
-            # Ensure title fits within database column limit (200 characters)
-            # Truncate if necessary, preserving meaningful content
-            final_title = title if title else 'Untitled Bookmark'
-            if len(final_title) > 200:
-                # Try to truncate at a word boundary if possible
-                truncated = final_title[:197]  # Leave room for "..."
-                last_space = truncated.rfind(' ')
-                if last_space > 150:  # Only use word boundary if it's not too early
-                    final_title = truncated[:last_space] + "..."
-                else:
-                    final_title = truncated + "..."
-            
-            # Save all bookmarks regardless of quality score - embeddings are always generated
-            # Quality score is stored for reference but doesn't prevent saving
-            
-            # Generate comprehensive embedding using same optimized strategy
-            embedding = generate_comprehensive_embedding(
-                title=final_title,
-                description='',  # No description in bulk import
-                meta_description=meta_description,
-                headings=headings,
-                extracted_text=extracted_text,
-                url=url
-            )
-            
-            # If embedding generation failed, still save bookmark but log warning
-            if embedding is None:
-                logger.warning(f"Failed to generate embedding for {url} during bulk import")
-            
-            # Ensure extracted_text is saved in full (TEXT column supports unlimited length)
-            # Don't truncate - save the complete extracted content
-            if extracted_text:
-                # Remove null bytes that could cause issues
-                extracted_text = extracted_text.replace('\x00', '')
-                # Ensure it's a string
-                if not isinstance(extracted_text, str):
-                    extracted_text = str(extracted_text)
-            
-            new_bm = SavedContent(
-                user_id=user_id,
-                url=url,
-                title=final_title,  # Truncated to 200 chars max
-                notes='',
-                category=category,  # Set category from bookmark data
-                extracted_text=extracted_text,  # Full extracted text - no truncation
-                embedding=embedding,
-                quality_score=quality_score
-            )
-            # CRITICAL: Verify user_id is set correctly before returning
-            if new_bm.user_id != user_id:
-                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark user_id mismatch! Expected {user_id}, got {new_bm.user_id}")
-                return ('error', url, f'Security error: user_id mismatch', 'security_error')
-            return ('add', url, new_bm, None)
-        except Exception as e:
-            return ('error', bookmark_data.get('url', ''), str(e), 'exception')
-
-    # Use ThreadPoolExecutor for parallel scraping/embedding
-    # Keep full parallelism for speed - rate limiting is handled in the scraper
-    # Each worker adds a small random delay to spread out requests naturally
-    processed_count = 0
-    import time
-    import random
-    
-    def process_with_smart_delay(bookmark_data):
-        """Process bookmark with smart delay to avoid rate limiting"""
-        # Small random delay (0-200ms) to spread out requests naturally
-        # This prevents all workers from hitting APIs at exactly the same time
-        # while maintaining full parallelism
-        time.sleep(random.uniform(0, 0.2))
-        return process_bookmark(bookmark_data)
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_with_smart_delay, bm) for bm in data]
-        for future in as_completed(futures):
-            result = future.result()
-            processed_count += 1
-
-            if result[0] == 'add':
-                _, url, new_bm, _ = result
-                new_bookmarks.append(new_bm)
-                added_count += 1
-            elif result[0] == 'skip':
-                # Handle both 3-tuple (old) and 4-tuple (new) formats
-                if len(result) == 4:
-                    _, url, reason, reason_code = result
-                else:
-                    _, url, reason = result
-                    reason_code = 'unknown'
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
                 skipped_count += 1
-                # Track skip reasons
-                reason_code = reason_code or 'unknown'
-                skip_reasons[reason_code] = skip_reasons.get(reason_code, 0) + 1
-                logger.debug(f"Skipped bookmark {url[:50]}: {reason}")
-            elif result[0] == 'error':
-                # Handle both 3-tuple (old) and 4-tuple (new) formats
-                if len(result) == 4:
-                    _, url, err, _ = result
-                else:
-                    _, url, err = result
-                errors.append(f"Error processing {url}: {err}")
+                skip_reasons['invalid_format'] = skip_reasons.get('invalid_format', 0) + 1
+                continue
+        except Exception:
+            skipped_count += 1
+            skip_reasons['invalid_format'] = skip_reasons.get('invalid_format', 0) + 1
+            continue
+            
+        norm_url = normalize_url(url)
+        if url in existing_urls or norm_url in normalized_urls:
+            skipped_count += 1
+            skip_reasons['duplicate'] = skip_reasons.get('duplicate', 0) + 1
+            continue
+            
+        if len(title) > 200:
+            title = title[:197] + "..."
+            
+        new_bm = SavedContent(
+            user_id=user_id,
+            url=url[:2048],
+            title=title,
+            notes='',
+            category=category,
+            quality_score=0
+        )
+        created_bookmarks.append(new_bm)
+        existing_urls.add(url)
+        normalized_urls.add(norm_url)
 
-            # Update progress in Redis every 10 bookmarks or at the end
-            if processed_count % 10 == 0 or processed_count == total_count:
-                redis_cache.set_cache(import_key, {
-                    'total': total_count,
-                    'processed': processed_count,
-                    'added': added_count,
-                    'skipped': skipped_count,
-                    'updated': updated_count,
-                    'errors': len(errors),
-                    'skip_reasons': skip_reasons.copy(),  # Include skip reason breakdown
-                    'status': 'processing' if processed_count < total_count else 'completed'
-                }, ttl=3600)
-
-    try:
-        # CRITICAL: Verify all bookmarks have correct user_id before committing
-        for bm in new_bookmarks:
-            if bm.user_id != user_id:
-                logger.error(f"[IMPORT] SECURITY ISSUE: Bookmark has wrong user_id! Expected {user_id}, got {bm.user_id}. URL: {bm.url[:50]}")
-                return jsonify({
-                    'message': 'Security error: Bookmark user_id mismatch detected',
-                    'error': 'Data integrity check failed'
-                }), 500
-        
-        logger.info(f"[IMPORT] Committing {len(new_bookmarks)} bookmarks for user {user_id}")
-        
+    added_count = len(created_bookmarks)
+    
+    if created_bookmarks:
         from uow.unit_of_work import UnitOfWork
-        new_bookmark_ids = []
         with UnitOfWork() as uow:
-            for bm in new_bookmarks:
+            for bm in created_bookmarks:
                 uow.bookmarks.add(bm)
             uow.flush()
-            new_bookmark_ids = [bm.id for bm in new_bookmarks]
-            
-        logger.info(f"[IMPORT] Successfully committed {len(new_bookmarks)} bookmarks for user {user_id}")
-        
-        # IDs were extracted into new_bookmark_ids inside the UoW
-        content_ids = new_bookmark_ids
-        # Invalidate caches after adding new bookmarks
-        if new_bookmarks:
-            redis_cache.invalidate_user_bookmarks(user_id)
-            # Also invalidate recommendations since new bookmarks affect recommendations
-            from blueprints.recommendations import invalidate_user_recommendations
-            invalidate_user_recommendations(user_id)
+            created_ids_urls = [(bm.id, bm.url) for bm in created_bookmarks]
 
-            # Trigger background analysis for newly imported content
+        for bm_id, bm_url in created_ids_urls:
             try:
-                import threading
-                from flask import current_app
-                
-                def analyze_bulk_async():
-                    # CRITICAL: Create app context in the thread
-                    # Threads don't inherit Flask application context
-                    try:
-                        # Get the Flask app instance
-                        from run_production import create_app
-                        flask_app = create_app()
-                        
-                        with flask_app.app_context():
-                            from services.background_analysis_service import batch_analyze_content
-                            # Use the pre-extracted IDs instead of accessing detached objects
-                            result = batch_analyze_content(content_ids, user_id)
-                            logger.info(f"Bulk analysis completed: {result}")
-                    except Exception as e:
-                        logger.error(f"Error triggering bulk background analysis: {e}", exc_info=True)
+                process_bookmark_content_async(bm_id, bm_url, user_id)
+            except Exception as enqueue_err:
+                logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
 
-                analysis_thread = threading.Thread(target=analyze_bulk_async, daemon=True)
-                analysis_thread.start()
-            except Exception as analysis_error:
-                logger.warning(f"Could not trigger bulk background analysis: {analysis_error}")
-        
-        # Mark import as completed in Redis
-        redis_cache.set_cache(import_key, {
-            'total': total_count,
-            'processed': total_count,
-            'added': added_count,
-            'skipped': skipped_count,
-            'updated': updated_count,
-            'errors': len(errors),
-            'skip_reasons': skip_reasons.copy(),  # Include skip reason breakdown
-            'status': 'completed'
-        }, ttl=3600)
+        redis_cache.invalidate_user_bookmarks(user_id)
+        from blueprints.recommendations import invalidate_user_recommendations
+        invalidate_user_recommendations(user_id)
 
-        return jsonify({
-            'message': 'Bulk import completed (optimized with Redis)',
-            'total': total_count,
-            'added': added_count,
-            'skipped': skipped_count,
-            'updated': updated_count,
-            'errors': len(errors),
-            'skip_reasons': skip_reasons,  # Breakdown of why bookmarks were skipped
-            'error_details': errors[:10] if errors else [],  # Limit error details to first 10
-            'cache_used': cached_bookmarks is not None
-        }), 200
-    except Exception as e:
-        logger.error(f"[IMPORT] Error during bulk import for user {user_id}: {e}", exc_info=True)
-        db.session.rollback()
-        return jsonify({'message': f'Bulk import failed: {str(e)}'}), 500
+    redis_cache.set_cache(import_key, {
+        'total': total_count,
+        'processed': total_count,
+        'added': added_count,
+        'skipped': skipped_count,
+        'updated': 0,
+        'errors': 0,
+        'skip_reasons': skip_reasons,
+        'status': 'completed'
+    }, ttl=3600)
+
+    logger.info(f"[IMPORT] Completed bulk import for user {user_id}: added={added_count}, skipped={skipped_count}")
+    return jsonify({
+        'message': f'Bulk import queued. {added_count} bookmarks enqueued for background processing.',
+        'total': total_count,
+        'added': added_count,
+        'skipped': skipped_count,
+        'updated': 0,
+        'errors': 0,
+        'skip_reasons': skip_reasons,
+        'status': 'completed'
+    }), 200
 
 @bookmarks_bp.route('', methods=['GET'])
 @jwt_required()
@@ -1014,19 +793,28 @@ def check_duplicate():
     if not url:
         return jsonify({'message': 'URL is required'}), 400
     
-    existing_bookmark, duplicate_type = is_duplicate_url(url, user_id)
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
+
+    with UnitOfWork() as uow:
+        service = BookmarkService(uow)
+        existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
+        if existing_bookmark:
+            bookmark_data = {
+                'id': existing_bookmark.id,
+                'title': existing_bookmark.title,
+                'url': existing_bookmark.url,
+                'notes': existing_bookmark.notes,
+                'saved_at': existing_bookmark.saved_at.isoformat() if existing_bookmark.saved_at else None
+            }
+        else:
+            bookmark_data = None
     
     if existing_bookmark:
         return jsonify({
             'isDuplicate': True,
             'duplicateType': duplicate_type,
-            'existingBookmark': {
-                'id': existing_bookmark.id,
-                'title': existing_bookmark.title,
-                'url': existing_bookmark.url,
-                'notes': existing_bookmark.notes,
-                'saved_at': existing_bookmark.saved_at.isoformat()
-            }
+            'existingBookmark': bookmark_data
         }), 200
     else:
         return jsonify({
@@ -1059,12 +847,9 @@ def stream_import_progress():
     import json
     import time
     
-    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
+    # Get token strictly from Authorization header to prevent query parameter leaks
     auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        token = auth_header[7:]  # Remove 'Bearer ' prefix
-    else:
-        token = request.args.get('token')
+    token = auth_header[7:] if auth_header.startswith('Bearer ') else None
     
     if not token:
         return Response('Token required', status=401, mimetype='text/plain')
@@ -1272,12 +1057,9 @@ def stream_combined_progress():
     import json
     import time
     
-    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
+    # Get token strictly from Authorization header to prevent query parameter leaks
     auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        token = auth_header[7:]  # Remove 'Bearer ' prefix
-    else:
-        token = request.args.get('token')
+    token = auth_header[7:] if auth_header.startswith('Bearer ') else None
     
     if not token:
         return Response('Token required', status=401, mimetype='text/plain')
@@ -1543,8 +1325,6 @@ def get_dashboard_stats():
         week_ago = now - timedelta(days=7)
         two_weeks_ago = now - timedelta(days=14)
         month_ago = now - timedelta(days=30)
-        week_ago = now - timedelta(days=7)
-        two_weeks_ago = now - timedelta(days=14)
         
         from uow.unit_of_work import UnitOfWork
         from services.bookmark_service import BookmarkService
