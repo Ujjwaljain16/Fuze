@@ -11,9 +11,13 @@ class ProjectRepository:
         """Fetch project by ID and UserID (RLS-like check)"""
         return self.session.query(Project).filter_by(id=project_id, user_id=user_id).first()
 
-    def list_by_user(self, user_id: int, page: int = 1, per_page: int = 10):
-        """Paginated list of projects for a user"""
-        return self.session.query(Project).filter_by(user_id=user_id).order_by(Project.created_at.desc()).paginate(
+    def list_by_user(self, user_id: int, page: int = 1, per_page: int = 10, eager_load_tasks: bool = False):
+        """Paginated list of projects for a user with optional eager task loading"""
+        query = self.session.query(Project).filter_by(user_id=user_id).order_by(Project.created_at.desc())
+        if eager_load_tasks:
+            from sqlalchemy.orm import selectinload
+            query = query.options(selectinload(Project.tasks).selectinload(Task.subtasks))
+        return query.paginate(
             page=page, per_page=per_page, error_out=False
         )
 
