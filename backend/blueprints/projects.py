@@ -249,7 +249,7 @@ def delete_project(project_id):
     except Exception as e:
         return jsonify({"message": f"An error occurred: {str(e)}"}), 500
 
-@projects_bp.route('/<int:user_id>', methods=['GET'])
+@projects_bp.route('/user/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_user_projects(user_id):
     page = request.args.get('page', default=1, type=int)

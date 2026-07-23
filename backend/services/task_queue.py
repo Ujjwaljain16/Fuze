@@ -41,8 +41,13 @@ def get_redis_connection():
 
             # Add SSL parameters for rediss:// URLs
             if redis_url.startswith('rediss://'):
-                conn_params['ssl_cert_reqs'] = ssl.CERT_NONE
-                conn_params['ssl_check_hostname'] = False
+                allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
+                if allow_unverified:
+                    conn_params['ssl_cert_reqs'] = ssl.CERT_NONE
+                    conn_params['ssl_check_hostname'] = False
+                else:
+                    conn_params['ssl_cert_reqs'] = ssl.CERT_REQUIRED
+                    conn_params['ssl_check_hostname'] = True
 
             return Redis.from_url(redis_url, **conn_params)
         except Exception as e:
@@ -75,8 +80,13 @@ def get_redis_connection():
 
     if use_ssl:
         connection_params['ssl'] = True
-        connection_params['ssl_cert_reqs'] = ssl.CERT_NONE
-        connection_params['ssl_check_hostname'] = False
+        allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
+        if allow_unverified:
+            connection_params['ssl_cert_reqs'] = ssl.CERT_NONE
+            connection_params['ssl_check_hostname'] = False
+        else:
+            connection_params['ssl_cert_reqs'] = ssl.CERT_REQUIRED
+            connection_params['ssl_check_hostname'] = True
 
     try:
         return Redis(**connection_params)

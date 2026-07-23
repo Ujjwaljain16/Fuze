@@ -21,7 +21,7 @@ def upgrade():
     DELETE FROM saved_content
     WHERE id IN (
         SELECT id FROM (
-            SELECT id, ROW_NUMBER() OVER(PARTITION BY user_id, url ORDER BY saved_at DESC) as rn
+            SELECT id, ROW_NUMBER() OVER(PARTITION BY user_id, url ORDER BY saved_at DESC NULLS LAST, id DESC) as rn
             FROM saved_content
         ) t WHERE t.rn > 1
     );

@@ -68,6 +68,43 @@ api.interceptors.request.use(
   }
 )
 
+// Single-flight refresh guard & helper
+let inFlightRefreshPromise = null
+
+const getCSRFHeader = (type = 'access') => {
+  const cookieName = type === 'refresh' ? 'csrf_refresh_token=' : 'csrf_access_token='
+  const csrfCookie = document.cookie
+    .split('; ')
+    .find(row => row.startsWith(cookieName))
+  return csrfCookie ? csrfCookie.split('=')[1] : null
+}
+
+const executeTokenRefresh = async () => {
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise
+  }
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      const headers = {}
+      const refreshCsrf = getCSRFHeader('refresh')
+      if (refreshCsrf) {
+        headers['X-CSRF-TOKEN'] = refreshCsrf
+      }
+
+      return await axios.post(
+        `${baseURL}/api/auth/refresh`,
+        {},
+        { withCredentials: true, headers }
+      )
+    } finally {
+      inFlightRefreshPromise = null
+    }
+  })()
+
+  return inFlightRefreshPromise
+}
+
 // Response interceptor to handle errors and token refresh
 api.interceptors.response.use(
   (response) => response,
@@ -98,12 +135,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/api/auth/login')) {
       originalRequest._retry = true
       try {
-        // Attempt to refresh the access token using the HttpOnly refresh cookie
-        await axios.post(
-          `${baseURL}/api/auth/refresh`,
-          {},
-          { withCredentials: true }
-        )
+        await executeTokenRefresh()
         // Refresh succeeded (backend set new access cookie) - retry the original request
         return api(originalRequest)
       } catch {
@@ -116,16 +148,10 @@ api.interceptors.response.use(
   }
 )
 
-// Proactive token refresh - now simplified as it just hits the refresh endpoint
+// Proactive token refresh - simplified using executeTokenRefresh
 export const refreshTokenIfNeeded = async () => {
   try {
-    // We can't decode HttpOnly cookies from JS, so we just hit the refresh endpoint
-    // to ensure we have a valid access cookie before starting long operations.
-    await axios.post(
-      `${baseURL}/api/auth/refresh`,
-      {},
-      { withCredentials: true }
-    )
+    await executeTokenRefresh()
   } catch (error) {
     console.warn('Proactive refresh failed:', error)
   }

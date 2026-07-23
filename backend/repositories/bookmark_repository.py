@@ -46,11 +46,15 @@ class BookmarkRepository:
     def search_bookmarks(self, user_id: int, safe_query: str, limit: int = 10) -> list[SavedContent]:
         """Simple text search across title, notes, and tags"""
         from models import db
+        from utils.query_sanitizer import sanitize_like_query
+        clean_query = sanitize_like_query(safe_query) if safe_query else ''
+        if not clean_query:
+            return []
         return self._session.query(SavedContent).filter_by(user_id=user_id).filter(
             db.or_(
-                SavedContent.title.ilike(f'%{safe_query}%', escape='\\'),
-                SavedContent.notes.ilike(f'%{safe_query}%', escape='\\'),
-                SavedContent.tags.ilike(f'%{safe_query}%', escape='\\')
+                SavedContent.title.ilike(f'%{clean_query}%', escape='\\'),
+                SavedContent.notes.ilike(f'%{clean_query}%', escape='\\'),
+                SavedContent.tags.ilike(f'%{clean_query}%', escape='\\')
             )
         ).limit(limit).all()
 

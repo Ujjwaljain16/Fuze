@@ -20,8 +20,21 @@ default_limits = (
     if is_development
     else ["1000 per day", "200 per hour", "50 per minute"]
 )
+def get_user_rate_limit_key():
+    """
+    Rate limit key function: uses JWT identity if available, falls back to remote IP address.
+    """
+    try:
+        from flask_jwt_extended import get_jwt_identity
+        identity = get_jwt_identity()
+        if identity:
+            return f"user:{identity}"
+    except Exception:
+        pass
+    return get_remote_address()
+
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=get_user_rate_limit_key,
     default_limits=default_limits,
     headers_enabled=True,
     swallow_errors=True
@@ -62,4 +75,4 @@ def init_rate_limiter(app) -> Limiter:
 
     except Exception as e:
         logger.error(f"Failed to initialise rate limiter: {e}")
-        return limiter  # Return the (un-initialised) limiter so imports don't break
+        raise

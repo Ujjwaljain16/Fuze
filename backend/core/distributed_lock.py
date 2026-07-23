@@ -75,7 +75,7 @@ class DistributedLock:
     def __enter__(self):
         if self.acquire():
             return self
-        return None
+        raise TimeoutError(f"Could not acquire distributed lock for key: {self.key}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.locked:

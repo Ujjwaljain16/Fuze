@@ -33,40 +33,35 @@ def upgrade():
     # Ensure pgvector extension exists (idempotent)
     op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS 
-        idx_saved_content_embedding_hnsw
-        ON saved_content 
-        USING hnsw (embedding vector_cosine_ops)
-        WITH (m = 16, ef_construction = 64)
-    """)
-    
-    # Subtask embeddings index (used in task recommendation queries)
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS
-        idx_subtask_embedding_hnsw
-        ON subtasks
-        USING hnsw (embedding vector_cosine_ops)
-        WITH (m = 16, ef_construction = 64)
-    """)
-    
-    # Project intent analysis queries — composite index for user+project lookups
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS
-        idx_saved_content_user_created
-        ON saved_content (user_id, saved_at DESC)
-    """)
-    
-    # Unanalyzed content fetch (background worker hot path)
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS
-        idx_saved_content_user_unanalyzed
-        ON saved_content (user_id, id)
-        WHERE embedding IS NOT NULL 
-    """)
+    with op.get_context().autocommit_block():
+        op.execute("""
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS 
+            idx_saved_content_embedding_hnsw
+            ON saved_content 
+            USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+        """)
+        
+        # Subtask embeddings index (used in task recommendation queries)
+        op.execute("""
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS
+            idx_subtask_embedding_hnsw
+            ON subtasks
+            USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+        """)
+        
+        # Unanalyzed content fetch (background worker hot path)
+        op.execute("""
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS
+            idx_saved_content_user_unanalyzed
+            ON saved_content (user_id, id)
+            WHERE embedding IS NOT NULL 
+        """)
 
 def downgrade():
-    op.execute('DROP INDEX IF EXISTS idx_saved_content_embedding_hnsw')
-    op.execute('DROP INDEX IF EXISTS idx_subtask_embedding_hnsw')
-    op.execute('DROP INDEX IF EXISTS idx_saved_content_user_created')
-    op.execute('DROP INDEX IF EXISTS idx_saved_content_user_unanalyzed')
+    with op.get_context().autocommit_block():
+        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_saved_content_embedding_hnsw')
+        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_subtask_embedding_hnsw')
+        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_saved_content_user_unanalyzed')
+

@@ -904,9 +904,9 @@ def supabase_oauth():
             logger.warning(f"TokenFamily persist failed in OAuth: {e}")
 
         response = jsonify({
-            'access_token': access,
             'user': {'id': user.id, 'username': user.username, 'email': user.email}
         })
+        set_access_cookies(response, access)
         set_refresh_cookies(response, refresh)
         return response, 200
 

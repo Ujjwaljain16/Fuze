@@ -18,6 +18,12 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
+from core.logging_config import configure_logging, get_logger
+
+# Configure production logging early
+configure_logging(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
+logger = get_logger(__name__)
+
 from flask import Flask, request, jsonify, render_template
 from flask_jwt_extended import JWTManager
 from datetime import timedelta, datetime
@@ -51,12 +57,7 @@ except ImportError:
         'RedisError': Exception
     })()})()
 
-from core.logging_config import configure_logging, get_logger
 import uuid
-
-# Configure production logging
-configure_logging(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
-logger = get_logger(__name__)
 
 # Import rate limiting middleware
 try:
@@ -290,16 +291,22 @@ def create_app():
     
     # Initialize rate limiting
     if RATE_LIMITING_AVAILABLE:
-        init_rate_limiter(app)
-        logger.info("[OK] Rate limiting initialized")
+        try:
+            init_rate_limiter(app)
+            logger.info("[OK] Rate limiting initialized")
+        except Exception as e:
+            logger.warning(f"[WARNING] Rate limiting initialization failed: {e}")
     else:
         logger.warning("[WARNING] Rate limiting not available")
     
     
-    # Initialize response compression for better performance
-    compress = Compress()
-    compress.init_app(app)
-    logger.info("[OK] Response compression enabled")
+    # Initialize response compression for better performance if available
+    if COMPRESS_AVAILABLE:
+        compress = Compress()
+        compress.init_app(app)
+        logger.info("[OK] Response compression enabled")
+    else:
+        logger.warning("[WARNING] Response compression skipped (Flask-Compress not available)")
     
     # Initialize database with enhanced SSL handling
     try:
@@ -363,9 +370,13 @@ def create_app():
             return False
         try:
             from utils.redis_utils import redis_cache
-            return redis_cache.client.exists(f"revoked_jti:{jti}") == 1
-        except Exception:
-            return False  # Fail open on Redis error — never lock out all users
+            if not redis_cache or not getattr(redis_cache, 'connected', False) or not redis_cache.redis_client:
+                logger.error("Redis unavailable during token blocklist check - failing closed")
+                return True
+            return redis_cache.redis_client.exists(f"revoked_jti:{jti}") == 1
+        except Exception as e:
+            logger.error(f"Error checking token blocklist in Redis: {e} - failing closed")
+            return True
 
     @jwt.revoked_token_loader
     def revoked_token_callback(jwt_header, jwt_payload):
@@ -619,13 +630,13 @@ def create_app():
         Protected: Exposes internal topology metrics only if valid X-Internal-Token or INTERNAL_HEALTH_TOKEN match.
         """
         internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
-        request_token = request.headers.get('X-Internal-Token') or request.args.get('token')
+        request_token = request.headers.get('X-Internal-Token')
         
-        if internal_token and request_token != internal_token:
+        if not internal_token or request_token != internal_token:
             return jsonify({
-                "status": "healthy",
+                "status": "unauthorized",
                 "message": "Access restricted. Provide valid X-Internal-Token header for detailed topology metrics."
-            }), 200
+            }), 403
 
         # Circuit Breaker states
         gemini_state, gemini_fail = "UNKNOWN", 0

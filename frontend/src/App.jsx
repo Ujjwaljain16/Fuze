@@ -174,8 +174,8 @@ function AppContent() {
   return (
     <div 
       className="App"
-      data-sidebar={isOpen ? 'open' : 'closed'}
-      data-sidebar-collapsed={isCollapsed ? 'true' : 'false'}
+      data-sidebar={showSidebar ? (isOpen ? 'open' : 'closed') : undefined}
+      data-sidebar-collapsed={showSidebar ? (isCollapsed ? 'true' : 'false') : undefined}
       data-mobile={isMobile ? 'true' : 'false'}
     >
       {/* Onboarding Modal */}
@@ -189,7 +189,7 @@ function AppContent() {
           />
         )}
         <main className="main-content">
-          <Sentry.ErrorBoundary fallback={<div className="p-8 text-center bg-white rounded-lg shadow"><h2 className="text-xl font-bold text-red-600">Something went wrong</h2><p className="mt-2 text-gray-600">Our team has been notified. Please refresh the page.</p></div>}>
+          <Sentry.ErrorBoundary fallback={<div className="p-8 text-center bg-white rounded-lg shadow"><h2 className="text-xl font-bold text-red-600">Something went wrong</h2><p className="mt-2 text-gray-600">An unexpected error occurred. Please refresh the page.</p></div>}>
             <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader fullScreen={false} message="Loading..." size="medium" /></div>}>
             <Routes>
               <Route 

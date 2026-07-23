@@ -32,6 +32,7 @@ def get_dashboard_summary():
     """
     import time
     start_time = time.time()
+    user_id = None
 
     try:
         user_id = int(get_jwt_identity())

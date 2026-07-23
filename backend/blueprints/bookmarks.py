@@ -2,7 +2,10 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent, User, Project, ContentAnalysis
 import requests
-from readability import Document
+try:
+    from readability import Document
+except ImportError:
+    Document = None
 from bs4 import BeautifulSoup
 import numpy as np
 from sqlalchemy.exc import IntegrityError
@@ -389,9 +392,6 @@ def quick_save_bookmark():
         cache_invalidator.after_content_save(new_bm_id, user_id)
         redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
         
-        # Start background processing (non-blocking)
-        process_bookmark_content_async(new_bm_id, url.strip(), user_id)
-        
         return jsonify({
             'message': 'Bookmark saved',
             'bookmark': {'id': new_bm_id, 'url': url.strip()},
@@ -429,6 +429,8 @@ def save_bookmark():
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
     
+    tags_str = ','.join(tags) if isinstance(tags, list) else (tags if isinstance(tags, str) else '')
+
     with UnitOfWork() as uow:
         service = BookmarkService(uow)
         existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
@@ -437,6 +439,8 @@ def save_bookmark():
             # Update existing bookmark
             existing_bookmark.title = title.strip() if title else existing_bookmark.title
             existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
+            if tags_str:
+                existing_bookmark.tags = tags_str
             # Will commit when UoW exits
             
             existing_bookmark_id = existing_bookmark.id
@@ -474,6 +478,7 @@ def save_bookmark():
             url=url.strip(),
             title=final_title,
             notes=description.strip() if isinstance(description, str) else '',
+            tags=tags_str,
             category=category
         )
         # Extract primitives inside session — avoids DetachedInstanceError post-exit

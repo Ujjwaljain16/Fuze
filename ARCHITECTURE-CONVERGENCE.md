@@ -32,7 +32,7 @@ Future work is standard production engineering:
 | **Async Processing** | `task_queue.py` + RQ Worker + `DistributedLock` atomic locks | ✅ **COMPLETE** |
 | **Logging & Tracing** | `core.logging_config.get_logger` + `X-Request-ID` correlation middleware | ✅ **COMPLETE** |
 | **Process Supervision** | `supervisord.conf` multi-process management for HuggingFace Spaces | ✅ **COMPLETE** |
-| **Database Migrations** | `alembic.ini` + `0003_hnsw_indexes.py` + `0004_add_user_url_unique_constraint.py` | ✅ **COMPLETE** |
+| **Database Migrations** | `alembic.ini` + `0003_hnsw_indexes.py` + `0004_add_user_url_unique_constraint.py` + `0005_add_embedding_metadata.py` | ✅ **COMPLETE** |
 | **Frontend State** | Decoupled `SidebarContext` preventing layout re-render cascades | ✅ **COMPLETE** |
 
 ---

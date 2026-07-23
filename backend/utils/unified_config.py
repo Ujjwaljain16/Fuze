@@ -284,7 +284,7 @@ class UnifiedConfig:
             'JWT_SECRET_KEY': self.security.jwt_secret_key,
             'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=self.security.jwt_access_token_expires_hours),
             'JWT_REFRESH_TOKEN_EXPIRES': timedelta(days=self.security.jwt_refresh_token_expires_days),
-            'JWT_TOKEN_LOCATION': ['cookies'],
+            'JWT_TOKEN_LOCATION': ['headers', 'cookies'],
             # JWT Cookie Security (Production-grade)
             'JWT_COOKIE_SECURE': not self.is_development(),  # HTTPS only in production
             'JWT_COOKIE_HTTPONLY': True,  # Prevent XSS attacks

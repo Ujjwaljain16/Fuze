@@ -44,26 +44,29 @@ class AuthService:
         return hashed.decode('utf-8')
 
     def verify_password(self, password_hash: str, password: str) -> bool:
-        """Verify password against hash, supporting both legacy and bcrypt"""
+        """Verify password against hash, supporting both legacy werkzeug and bcrypt"""
         if not password or not password_hash:
             return False
             
-        if isinstance(password, str):
-            password = password.encode('utf-8')
+        pass_bytes = password.encode('utf-8') if isinstance(password, str) else password
             
         # Standard bcrypt check
         if password_hash.startswith(('$2b$', '$2a$', '$2y$')):
-            if isinstance(password_hash, str):
-                password_hash = password_hash.encode('utf-8')
+            hash_bytes = password_hash.encode('utf-8') if isinstance(password_hash, str) else password_hash
             try:
-                return bcrypt.checkpw(password, password_hash)
+                return bcrypt.checkpw(pass_bytes, hash_bytes)
             except Exception as e:
                 logger.error("bcrypt_verification_error", error=str(e))
                 return False
         
-        # Fallback logic for legacy hashes should be handled here if strictly necessary,
-        # but we prioritize making the system move toward bcrypt.
-        return False
+        # Fallback logic for legacy werkzeug hashes
+        try:
+            from werkzeug.security import check_password_hash
+            pass_str = password.decode('utf-8') if isinstance(password, bytes) else password
+            return check_password_hash(password_hash, pass_str)
+        except Exception as e:
+            logger.error("legacy_password_verification_error", error=str(e))
+            return False
 
     def get_user_for_login(self, identifier: str) -> Optional[User]:
         """
@@ -92,9 +95,6 @@ class AuthService:
             logger.warning("auth_failed", reason="password_mismatch", username=user.username)
             raise AuthenticationFailed("Invalid credentials")
             
-        # Check if hash needs migration to latest bcrypt factor
-        # (Implementation omitted for brevity, but can be added here)
-        
         return user
 
     def register(self, username: str, email: str, password: str) -> User:
@@ -116,8 +116,9 @@ class AuthService:
         )
         
         self.uow.users.add(user)
-        # We record the fact of registration
-        self.uow.emit(UserRegistered(user_id=None, email=user.email)) # ID will be populated post-flush/commit
+        self.uow.flush()
+        # Record the fact of registration with populated user.id
+        self.uow.emit(UserRegistered(user_id=user.id, email=user.email))
         
         return user
 

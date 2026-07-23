@@ -106,6 +106,6 @@ interview/
 # AI agent and temp scripts
 backend/brain/
 backend/scratch/
-commit_script.ps1
-image.png
-test_output.txt
+/commit_script.ps1
+/image.png
+/test_output.txt

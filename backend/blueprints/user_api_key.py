@@ -41,7 +41,9 @@ def add_api_key():
         add_user_api_key, _, _, _, _ = get_multi_user_api_manager()
 
         user_id = int(get_jwt_identity())
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not data or not isinstance(data, dict):
+            return jsonify({'error': 'JSON payload required'}), 400
 
         api_key = data.get('api_key')
         api_key_name = data.get('api_key_name', 'Default Key')

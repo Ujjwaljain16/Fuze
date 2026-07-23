@@ -6,11 +6,17 @@ Handles blocked sites, JavaScript-heavy content, and provides multiple fallback 
 
 import requests
 from bs4 import BeautifulSoup
-from readability import Document
+try:
+    from readability import Document
+except ImportError:
+    Document = None
 import re
 import time
 from typing import Dict
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
 from urllib.parse import urlparse
 from core.logging_config import get_logger
 

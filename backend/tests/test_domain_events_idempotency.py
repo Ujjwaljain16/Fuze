@@ -80,8 +80,10 @@ def test_event_recording_and_dispatch_flow(test_app, test_user):
 
     with patch.dict('services.handlers.EVENT_HANDLERS', {ProjectCreated: [mock_handler]}):
         with test_app.app_context():
-            service = ProjectService(UnitOfWork(db.session))
-            project = service.create_project(test_user.id, "Fact Recording", "Recording a fact")
+            uow = UnitOfWork(db.session)
+            with uow:
+                service = ProjectService(uow)
+                project = service.create_project(test_user.id, "Fact Recording", "Recording a fact")
 
             mock_handler.assert_called_once()
             event = mock_handler.call_args[0][0]

@@ -50,9 +50,14 @@ class RedisCache:
                         }
                         
                         if redis_url.startswith('rediss://'):
-                            pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE
-                            pool_kwargs['ssl_check_hostname'] = False
-                        
+                            allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
+                            if allow_unverified:
+                                pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE
+                                pool_kwargs['ssl_check_hostname'] = False
+                            else:
+                                pool_kwargs['ssl_cert_reqs'] = ssl.CERT_REQUIRED
+                                pool_kwargs['ssl_check_hostname'] = True
+
                         _redis_connection_pool = redis.ConnectionPool.from_url(
                             redis_url,
                             **pool_kwargs
@@ -89,7 +94,13 @@ class RedisCache:
                 
                 if use_ssl:
                     connection_params['ssl'] = True
-                    connection_params['ssl_cert_reqs'] = None
+                    allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
+                    if allow_unverified:
+                        connection_params['ssl_cert_reqs'] = ssl.CERT_NONE
+                        connection_params['ssl_check_hostname'] = False
+                    else:
+                        connection_params['ssl_cert_reqs'] = ssl.CERT_REQUIRED
+                        connection_params['ssl_check_hostname'] = True
                 
                 self.redis_client = redis.Redis(**connection_params)
                 self.redis_client.ping()

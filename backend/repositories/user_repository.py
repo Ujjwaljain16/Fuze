@@ -38,12 +38,14 @@ class UserRepository:
     def is_email_available(self, email: str) -> bool:
         if not email:
             return False
-        return self.session.query(User).filter_by(email=email.lower().strip()).count() == 0
+        clean_email = email.lower().strip()
+        return self.session.query(User).filter(func.lower(User.email) == clean_email).count() == 0
 
     def is_username_available(self, username: str) -> bool:
         if not username:
             return False
-        return self.session.query(User).filter_by(username=username.lower().strip()).count() == 0
+        clean_username = username.lower().strip()
+        return self.session.query(User).filter(func.lower(User.username) == clean_username).count() == 0
 
     def add(self, user: User):
         self.session.add(user)

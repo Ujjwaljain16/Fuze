@@ -184,9 +184,16 @@ def ensure_case_insensitive_indexes():
                 db.session.execute(text(stmt))
                 db.session.commit()
             except Exception as e:
+                db.session.rollback()
                 err = str(e).lower()
-                if 'already exists' in err or 'duplicate' in err:
-                    db.session.rollback()
+                pgcode = getattr(getattr(e, 'orig', None), 'pgcode', None)
+                # 42P07: duplicate_table / duplicate_object ("already exists")
+                # 23505: unique_violation ("duplicate key value violates unique constraint")
+                if pgcode == '42P07' or ('already exists' in err and 'duplicate key' not in err and 'unique constraint' not in err):
+                    pass
+                elif pgcode == '23505' or 'duplicate key' in err or 'violates unique constraint' in err or 'could not create unique index' in err:
+                    print(f"Error: Pre-existing case-variant duplicates prevent creation of case-insensitive index: {e}")
+                    raise
                 else:
                     raise
     except Exception as e:
@@ -195,6 +202,7 @@ def ensure_case_insensitive_indexes():
             db.session.rollback()
         except Exception:
             pass
+        raise
 
 
 class Base(db.Model):
