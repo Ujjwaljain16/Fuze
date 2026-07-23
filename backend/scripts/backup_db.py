@@ -54,13 +54,39 @@ def backup_database():
     print(f"🔍 Starting backup to {backup_file}...")
     
     try:
-        # Use pg_dump to create a backup into temporary file
+        from urllib.parse import urlparse
+        parsed = urlparse(db_url)
+        env = os.environ.copy()
+        if parsed.password:
+            env['PGPASSWORD'] = parsed.password
+        if parsed.username:
+            env['PGUSER'] = parsed.username
+        if parsed.hostname:
+            env['PGHOST'] = parsed.hostname
+        if parsed.port:
+            env['PGPORT'] = str(parsed.port)
+        if parsed.path:
+            env['PGDATABASE'] = parsed.path.lstrip('/')
+
+        # Use pg_dump without passing credentials on command line
         process = subprocess.Popen(
-            ['pg_dump', db_url, '-f', tmp_file],
+            ['pg_dump', '-f', tmp_file],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
+            env=env
         )
-        stdout, stderr = process.communicate()
+        try:
+            stdout, stderr = process.communicate(timeout=300)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            print("❌ Error: pg_dump execution timed out after 300 seconds.")
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
+            return False
 
         if process.returncode == 0:
             os.replace(tmp_file, backup_file)
@@ -89,4 +115,5 @@ def backup_database():
         return False
 
 if __name__ == "__main__":
-    backup_database()
+    import sys
+    sys.exit(0 if backup_database() else 1)

@@ -48,13 +48,15 @@ def add_api_key():
         api_key = data.get('api_key')
         api_key_name = data.get('api_key_name', 'Default Key')
 
-        if not api_key:
-            return jsonify({'error': 'API key is required'}), 400
+        if not api_key or not isinstance(api_key, str):
+            return jsonify({'error': 'API key is required and must be a string'}), 400
+
+        api_key = api_key.strip()
 
         # Validate API key format
-        if len(api_key) < 20:
+        if len(api_key) < 20 or not api_key.startswith('AIzaSy'):
             logger.warning("invalid_api_key_format", user_id=user_id)
-            return jsonify({'error': 'Invalid API key format. Key is too short.'}), 400
+            return jsonify({'error': 'Invalid API key format. Must be a valid Gemini API key starting with AIzaSy.'}), 400
 
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)

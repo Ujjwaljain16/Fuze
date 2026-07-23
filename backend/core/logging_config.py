@@ -31,20 +31,11 @@ def configure_logging(debug: bool = False):
         structlog.processors.StackInfoRenderer(),
     ]
 
-    if debug:
-        # Development: human-readable colored output
-        processors = shared_processors + [
-            structlog.dev.ConsoleRenderer()
-        ]
-    else:
-        # Production: JSON lines for log aggregation (Datadog, CloudWatch, etc.)
-        processors = shared_processors + [
-            structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer()
-        ]
+    if not debug:
+        shared_processors.append(structlog.processors.dict_tracebacks)
 
     structlog.configure(
-        processors=processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        processors=shared_processors + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),

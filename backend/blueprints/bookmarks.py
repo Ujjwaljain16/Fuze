@@ -439,7 +439,7 @@ def save_bookmark():
             # Update existing bookmark
             existing_bookmark.title = title.strip() if title else existing_bookmark.title
             existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
-            if tags_str:
+            if 'tags' in data:
                 existing_bookmark.tags = tags_str
             # Will commit when UoW exits
             
