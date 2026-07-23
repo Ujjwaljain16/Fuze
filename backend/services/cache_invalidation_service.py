@@ -61,8 +61,9 @@ class CacheInvalidationService:
             redis_cache.delete_keys_pattern(f"*unified_recommendations:{user_id}*")
             redis_cache.delete_keys_pattern(f"*unified_project_recommendations:{user_id}*")
 
-            # Invalidate user profile cache
+            # Invalidate user profile and dashboard summary cache
             redis_cache.delete_keys_pattern(f"*user_profile:{user_id}*")
+            redis_cache.delete_keys_pattern(f"*dashboard:*summary:{user_id}*")
 
             logger.info("cache_invalidate_user_success", user_id=user_id)
             return True

@@ -1,65 +1,67 @@
 """
 Dashboard API Blueprint
-Combines multiple API calls into one to reduce latency and network overhead
+Combines multiple API queries into one aggregated endpoint to reduce latency and network overhead
 """
 
+import time
+import json
+from datetime import datetime, timedelta
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, User, SavedContent, Project
-from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, case
+from models import db, User, SavedContent, Project, Task
+from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
-from datetime import datetime, timedelta
 
 logger = get_logger(__name__)
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/api/dashboard')
 
+_DEFAULT_API_KEY_STATUS = {
+    'has_api_key': False,
+    'api_key_status': 'none',
+    'requests_today': 0,
+    'requests_this_month': 0,
+    'daily_limit': 1500,
+    'monthly_limit': 45000,
+    'can_make_request': False
+}
+
 @dashboard_bp.route('/summary', methods=['GET'])
 @jwt_required()
 def get_dashboard_summary():
     """
-    Aggregated dashboard endpoint - returns all dashboard data in ONE request
+    Aggregated dashboard endpoint - returns all dashboard metrics in ONE HTTP request.
 
     Combines:
-    - Profile info
-    - API key status
-    - Bookmark stats
-    - Recent bookmarks
-    - Recent projects
-
-    This replaces 5-6 separate API calls with 1 optimized query
+    - User Profile
+    - Gemini API Usage Stats
+    - Bookmark Aggregate Metrics
+    - Recent Bookmarks (without loading heavy TEXT blobs)
+    - Recent Projects (with SQL-aggregated task counts)
     """
-    import time
     start_time = time.time()
     user_id = None
 
     try:
         user_id = int(get_jwt_identity())
+        cache_key = f"dashboard:v1:summary:{user_id}"
 
-        # CRITICAL: Cache the entire dashboard response for 30 seconds
-        # This prevents duplicate calls from hammering the database
-        from utils.redis_utils import RedisCache
-        redis_cache = RedisCache()
-
-        cache_key = f"dashboard:summary:{user_id}"
-
-        # Try cache first
+        # 1. Try Cache First (Versioned)
         if redis_cache.connected:
             try:
-                import json
                 cached_summary = redis_cache.redis_client.get(cache_key)
                 if cached_summary:
                     cache_time = (time.time() - start_time) * 1000
                     logger.info("dashboard_cache_hit", latency_ms=round(cache_time), user_id=user_id)
                     return jsonify(json.loads(cached_summary)), 200
             except Exception as cache_error:
-                logger.warning("dashboard_cache_read_failed", error=str(cache_error), user_id=user_id)
+                logger.warning("dashboard_cache_read_failed", user_id=user_id, error=str(cache_error))
 
         response_data = {}
 
-        # 1. Get Profile (lightweight)
-        user = db.session.query(User).filter_by(id=user_id).first()
+        # 2. Profile Info (direct primary key lookup)
+        user = db.session.get(User, user_id)
         if user:
             response_data['profile'] = {
                 'id': user.id,
@@ -70,34 +72,19 @@ def get_dashboard_summary():
         else:
             response_data['profile'] = None
 
-        # 2. Get API Key Status (from existing function with caching)
+        # 3. API Key Status (Consistent error/fallback shape)
         try:
             from services.multi_user_api_manager import get_user_api_stats
             api_stats = get_user_api_stats(user_id)
+            response_data['apiKeyStatus'] = api_stats if api_stats else _DEFAULT_API_KEY_STATUS
+        except Exception:
+            logger.exception("dashboard_api_stats_failed", user_id=user_id)
+            response_data['apiKeyStatus'] = dict(_DEFAULT_API_KEY_STATUS, api_key_status='error')
 
-            if not api_stats:
-                response_data['apiKeyStatus'] = {
-                    'has_api_key': False,
-                    'api_key_status': 'none',
-                    'requests_today': 0,
-                    'requests_this_month': 0,
-                    'daily_limit': 1500,
-                    'monthly_limit': 45000,
-                    'can_make_request': False
-                }
-            else:
-                response_data['apiKeyStatus'] = api_stats
-        except Exception as e:
-            logger.error("dashboard_api_stats_failed", user_id=user_id, error=str(e))
-            response_data['apiKeyStatus'] = {'has_api_key': False, 'api_key_status': 'error'}
-
-        # 3. Get Dashboard Stats (OPTIMIZED: Single query instead of 5)
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 4. Bookmark Metrics (UTC Timezone + SQL aggregations)
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         week_ago = today - timedelta(days=7)
         last_week_start = week_ago - timedelta(days=7)
-
-        # Execute all stats in ONE query using conditional aggregations
-        from sqlalchemy import case
 
         stats_result = db.session.query(
             func.count(SavedContent.id).label('total_bookmarks'),
@@ -111,22 +98,19 @@ def get_dashboard_summary():
                 )
             ).label('bookmarks_last_week'),
             func.sum(
-                case((SavedContent.extracted_text != None, 1), else_=0)
+                case((SavedContent.extracted_text.isnot(None), 1), else_=0)
             ).label('successful_bookmarks')
         ).filter(SavedContent.user_id == user_id).first()
 
-        # Get project count (separate simple query)
         active_projects = db.session.query(func.count(Project.id)).filter_by(
             user_id=user_id
         ).scalar() or 0
 
-        # Extract results (handle None values from aggregations)
         total_bookmarks = int(stats_result.total_bookmarks or 0)
         bookmarks_this_week = int(stats_result.bookmarks_this_week or 0)
         bookmarks_last_week = int(stats_result.bookmarks_last_week or 0)
         successful_bookmarks = int(stats_result.successful_bookmarks or 0)
 
-        # Calculate change
         if bookmarks_last_week > 0:
             bookmark_change = ((bookmarks_this_week - bookmarks_last_week) / bookmarks_last_week) * 100
         else:
@@ -157,7 +141,7 @@ def get_dashboard_summary():
             }
         }
 
-        # 4. Get Recent Bookmarks (5 most recent) - optimized with column selection
+        # 5. Recent Bookmarks (DO NOT select extracted_text blob; compute has_content in SQL)
         recent_bookmarks = db.session.query(
             SavedContent.id,
             SavedContent.url,
@@ -165,7 +149,7 @@ def get_dashboard_summary():
             SavedContent.notes,
             SavedContent.saved_at,
             SavedContent.category,
-            SavedContent.extracted_text
+            case((SavedContent.extracted_text.isnot(None), True), else_=False).label('has_content')
         ).filter_by(
             user_id=user_id
         ).order_by(SavedContent.saved_at.desc()).limit(5).all()
@@ -178,15 +162,22 @@ def get_dashboard_summary():
                 'notes': b.notes,
                 'saved_at': b.saved_at.isoformat() if b.saved_at else None,
                 'category': b.category,
-                'has_content': b.extracted_text is not None
+                'has_content': bool(b.has_content)
             }
             for b in recent_bookmarks
         ]
 
-        # 5. Get Recent Projects (3 most recent)
-        recent_projects = db.session.query(Project).filter_by(
-            user_id=user_id
-        ).options(joinedload(Project.tasks)).order_by(Project.created_at.desc()).limit(3).all()
+        # 6. Recent Projects (SQL Outer Join + Count Aggregation instead of joinedload tasks)
+        recent_projects = db.session.query(
+            Project.id,
+            Project.title,
+            Project.description,
+            Project.created_at,
+            func.count(Task.id).label('task_count')
+        ).outerjoin(Task, Task.project_id == Project.id)\
+         .filter(Project.user_id == user_id)\
+         .group_by(Project.id)\
+         .order_by(Project.created_at.desc()).limit(3).all()
 
         response_data['recentProjects'] = [
             {
@@ -194,7 +185,7 @@ def get_dashboard_summary():
                 'title': p.title,
                 'description': p.description,
                 'created_at': p.created_at.isoformat() if p.created_at else None,
-                'task_count': len(p.tasks) if hasattr(p, 'tasks') else 0
+                'task_count': int(p.task_count or 0)
             }
             for p in recent_projects
         ]
@@ -202,24 +193,21 @@ def get_dashboard_summary():
         response_data['totalProjects'] = active_projects
         response_data['totalBookmarks'] = total_bookmarks
 
-        # Prepare final response
-        total_time = (time.time() - start_time) * 1000
-        logger.info("dashboard_generated", latency_ms=round(total_time), user_id=user_id)
-
-        # Cache for 30 seconds (balance between freshness and performance)
+        # 7. Write to Versioned Cache (30s TTL)
         if redis_cache.connected:
             try:
-                import json
                 redis_cache.redis_client.setex(
                     cache_key,
-                    30,  # 30 seconds TTL
-                    json.dumps(response_data)
+                    30,
+                    json.dumps(response_data, default=str)
                 )
             except Exception as cache_error:
-                logger.warning("dashboard_cache_write_failed", error=str(cache_error), user_id=user_id)
+                logger.warning("dashboard_cache_write_failed", user_id=user_id, error=str(cache_error))
 
+        total_time = (time.time() - start_time) * 1000
+        logger.info("dashboard_generated", latency_ms=round(total_time), user_id=user_id)
         return jsonify(response_data), 200
 
-    except Exception as e:
-        logger.error("dashboard_summary_failed", user_id=user_id, error=str(e))
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+    except Exception:
+        logger.exception("dashboard_summary_failed", user_id=user_id)
+        return jsonify({'error': 'Internal server error'}), 500
