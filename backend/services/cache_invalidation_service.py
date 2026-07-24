@@ -1,337 +1,280 @@
 """
 Cache Invalidation Service for Fuze Architecture
-Provides comprehensive cache invalidation hooks for the Fuze recommendation system.
-Ensures recommendations reflect the latest content, project, and task data.
+Provides targeted cache invalidation hooks for recommendations, content, projects, and tasks.
+Supports instance dependency injection and legacy class-level calls via metaclass delegation.
 """
 
-import sys
-import os
 from typing import Optional
-
-# Add backend directory to path
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
-
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
-class CacheInvalidationService:
-    """Service for managing cache invalidation across the application"""
+class _CacheInvalidationMeta(type):
+    """Metaclass allowing legacy class-level calls to delegate to global cache_invalidator instance."""
 
-    @staticmethod
-    def invalidate_content_cache(content_id: int) -> bool:
-        """Invalidate all cache related to a specific content item"""
+    def invalidate_content_cache(cls, content_id: int) -> bool:
+        return cache_invalidator.invalidate_content_cache(content_id)
+
+    def invalidate_user_cache(cls, user_id: int) -> bool:
+        return cache_invalidator.invalidate_user_cache(user_id)
+
+    def invalidate_project_cache(cls, project_id: int) -> bool:
+        return cache_invalidator.invalidate_project_cache(project_id)
+
+    def invalidate_task_cache(cls, task_id: int) -> bool:
+        return cache_invalidator.invalidate_task_cache(task_id)
+
+    def invalidate_recommendation_cache(cls, user_id: Optional[int] = None) -> bool:
+        return cache_invalidator.invalidate_recommendation_cache(user_id)
+
+    def invalidate_analysis_cache(cls, content_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+        return cache_invalidator.invalidate_analysis_cache(content_id=content_id, user_id=user_id)
+
+    def invalidate_all_cache(cls, confirm: bool = False) -> bool:
+        return cache_invalidator.invalidate_all_cache(confirm=confirm)
+
+    def after_content_save(cls, content_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_content_save(content_id, user_id)
+
+    def after_content_update(cls, content_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_content_update(content_id, user_id)
+
+    def after_content_delete(cls, content_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_content_delete(content_id, user_id)
+
+    def after_project_save(cls, project_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_project_save(project_id, user_id)
+
+    def after_project_update(cls, project_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_project_update(project_id, user_id)
+
+    def after_task_save(cls, task_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_task_save(task_id, user_id)
+
+    def after_user_profile_update(cls, user_id: int) -> bool:
+        return cache_invalidator.after_user_profile_update(user_id)
+
+    def after_analysis_complete(cls, content_id: int, user_id: int) -> bool:
+        return cache_invalidator.after_analysis_complete(content_id, user_id)
+
+
+class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
+    """Service for managing targeted cache invalidation across the application"""
+
+    def __init__(self, redis_cache=None):
+        self._redis = redis_cache
+
+    @property
+    def client(self):
+        return self._redis if self._redis is not None else redis_cache
+
+    def invalidate_content_cache(self, content_id: int) -> bool:
+        """Invalidate cache related to a specific content item."""
         try:
-            logger.info("cache_invalidate_content_start", content_id=content_id)
-
-            # Invalidate content-specific cache
-            redis_cache.invalidate_content_cache(content_id)
-
-            # Invalidate analysis cache for this content
-            redis_cache.invalidate_analysis_cache(content_id=content_id)
-
-            # Invalidate embedding cache for this content
-            redis_cache.delete_keys_pattern(f"*embedding:*content_{content_id}*")
-
-            logger.info("cache_invalidate_content_success", content_id=content_id)
+            logger.info("cache_invalidate_content_start", extra={"content_id": content_id})
+            client = self.client
+            if hasattr(client, 'invalidate_content_cache'):
+                client.invalidate_content_cache(content_id)
+            elif hasattr(client, 'delete_cache'):
+                client.delete_cache(f"content_cache:{content_id}")
+            if hasattr(client, 'delete_cache'):
+                client.delete_cache(f"content_analysis:{content_id}")
+            logger.info("cache_invalidate_content_success", extra={"content_id": content_id})
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_content_failed", content_id=content_id, error=str(e))
+            logger.error("cache_invalidate_content_failed", extra={"content_id": content_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_user_cache(user_id: int) -> bool:
-        """Invalidate all cache related to a specific user"""
+    def invalidate_user_cache(self, user_id: int) -> bool:
+        """Invalidate user-specific bookmarks and recommendations cache without global wildcard scans."""
         try:
-            logger.info("cache_invalidate_user_start", user_id=user_id)
-
-            # Invalidate user bookmarks
-            redis_cache.invalidate_user_bookmarks(user_id)
-
-            # Invalidate user recommendations
-            redis_cache.invalidate_recommendation_cache(user_id)
-
-            # Invalidate user context cache
-            redis_cache.delete_keys_pattern(f"*user_context:{user_id}*")
-            redis_cache.delete_keys_pattern(f"*unified_recommendations:{user_id}*")
-            redis_cache.delete_keys_pattern(f"*unified_project_recommendations:{user_id}*")
-
-            # Invalidate user profile and dashboard summary cache
-            redis_cache.delete_keys_pattern(f"*user_profile:{user_id}*")
-            redis_cache.delete_keys_pattern(f"*dashboard:*summary:{user_id}*")
-
-            logger.info("cache_invalidate_user_success", user_id=user_id)
+            logger.info("cache_invalidate_user_start", extra={"user_id": user_id})
+            client = self.client
+            if hasattr(client, 'invalidate_user_bookmarks'):
+                client.invalidate_user_bookmarks(user_id)
+            if hasattr(client, 'invalidate_recommendation_cache'):
+                client.invalidate_recommendation_cache(user_id)
+            if hasattr(client, 'delete_cache'):
+                client.delete_cache(f"user_context:{user_id}")
+                client.delete_cache(f"unified_recommendations:{user_id}")
+                client.delete_cache(f"user_profile:{user_id}")
+                client.delete_cache(f"dashboard_summary:{user_id}")
+            logger.info("cache_invalidate_user_success", extra={"user_id": user_id})
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_user_failed", user_id=user_id, error=str(e))
+            logger.error("cache_invalidate_user_failed", extra={"user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_project_cache(project_id: int) -> bool:
-        """Invalidate all cache related to a specific project"""
+    def invalidate_project_cache(self, project_id: int) -> bool:
+        """Invalidate project-specific cache."""
         try:
-            logger.info("cache_invalidate_project_start", project_id=project_id)
-
-            # Invalidate project-specific cache
-            redis_cache.invalidate_project_cache(project_id)
-
-            # Invalidate project recommendations
-            redis_cache.delete_keys_pattern(f"*unified_project_recommendations:*:project_{project_id}*")
-
-            # Invalidate project embedding cache
-            redis_cache.delete_keys_pattern(f"*project_embedding:{project_id}*")
-
-            logger.info("cache_invalidate_project_success", project_id=project_id)
+            logger.info("cache_invalidate_project_start", extra={"project_id": project_id})
+            client = self.client
+            if hasattr(client, 'invalidate_project_cache'):
+                client.invalidate_project_cache(project_id)
+            if hasattr(client, 'delete_cache'):
+                client.delete_cache(f"project_embedding:{project_id}")
+            logger.info("cache_invalidate_project_success", extra={"project_id": project_id})
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_project_failed", project_id=project_id, error=str(e))
+            logger.error("cache_invalidate_project_failed", extra={"project_id": project_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_task_cache(task_id: int) -> bool:
-        """Invalidate all cache related to a specific task"""
+    def invalidate_task_cache(self, task_id: int) -> bool:
+        """Invalidate task-specific cache."""
         try:
-            logger.info("cache_invalidate_task_start", task_id=task_id)
-
-            # Invalidate task-specific cache
-            redis_cache.delete_keys_pattern(f"*task_analysis:{task_id}*")
-            redis_cache.delete_keys_pattern(f"*task_embedding:{task_id}*")
-
-            logger.info("cache_invalidate_task_success", task_id=task_id)
+            logger.info("cache_invalidate_task_start", extra={"task_id": task_id})
+            client = self.client
+            if hasattr(client, 'delete_cache'):
+                client.delete_cache(f"task_analysis:{task_id}")
+                client.delete_cache(f"task_embedding:{task_id}")
+            logger.info("cache_invalidate_task_success", extra={"task_id": task_id})
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_task_failed", task_id=task_id, error=str(e))
+            logger.error("cache_invalidate_task_failed", extra={"task_id": task_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_recommendation_cache(user_id: Optional[int] = None) -> bool:
-        """Invalidate recommendation cache for user or all users"""
+    def invalidate_recommendation_cache(self, user_id: Optional[int] = None) -> bool:
+        """Invalidate recommendation cache for user or all users."""
         try:
+            client = self.client
             if user_id:
-                logger.info("cache_invalidate_rec_user_start", user_id=user_id)
-                redis_cache.invalidate_recommendation_cache(user_id)
-                redis_cache.delete_keys_pattern(f"*unified_recommendations:{user_id}*")
-                redis_cache.delete_keys_pattern(f"*unified_project_recommendations:{user_id}*")
-                redis_cache.delete_keys_pattern(f"*context_extraction:{user_id}*")
-
-
+                logger.info("cache_invalidate_rec_user_start", extra={"user_id": user_id})
+                if hasattr(client, 'invalidate_recommendation_cache'):
+                    client.invalidate_recommendation_cache(user_id)
+                if hasattr(client, 'delete_cache'):
+                    client.delete_cache(f"unified_recommendations:{user_id}")
             else:
                 logger.info("cache_invalidate_rec_all_start")
-                redis_cache.invalidate_all_recommendations()
-                redis_cache.delete_keys_pattern("*unified_recommendations:*")
-                redis_cache.delete_keys_pattern("*unified_project_recommendations:*")
-                redis_cache.delete_keys_pattern("*context_extraction:*")
-                redis_cache.delete_keys_pattern("*content_embedding:*")
-                redis_cache.delete_keys_pattern("*project_embedding:*")
-                redis_cache.delete_keys_pattern("*task_embedding:*")
-
-
-
+                if hasattr(client, 'invalidate_all_recommendations'):
+                    client.invalidate_all_recommendations()
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_rec_failed", user_id=user_id, error=str(e))
+            logger.error("cache_invalidate_rec_failed", extra={"user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_analysis_cache(content_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
-        """Invalidate analysis cache for content or user"""
+    def invalidate_analysis_cache(self, content_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+        """Invalidate analysis cache for content or user."""
         try:
-            logger.info("cache_invalidate_analysis_start", content_id=content_id, user_id=user_id)
-            redis_cache.invalidate_analysis_cache(content_id=content_id, user_id=user_id)
+            client = self.client
+            logger.info("cache_invalidate_analysis_start", extra={"content_id": content_id, "user_id": user_id})
+            if hasattr(client, 'invalidate_analysis_cache'):
+                client.invalidate_analysis_cache(content_id=content_id, user_id=user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_analysis_failed", content_id=content_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidate_analysis_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def invalidate_embedding_cache(content_id: Optional[int] = None) -> bool:
-        """Invalidate embedding cache for content or all content"""
-        try:
-            if content_id:
-                logger.info("cache_invalidate_embedding_content_start", content_id=content_id)
-                redis_cache.delete_keys_pattern(f"*embedding:*content_{content_id}*")
-            else:
-                logger.info("cache_invalidate_embedding_all_start")
-                redis_cache.delete_keys_pattern("*embedding:*")
-
-            return True
-
-        except Exception as e:
-            logger.error("cache_invalidate_embedding_failed", content_id=content_id, error=str(e))
+    def invalidate_all_cache(self, confirm: bool = False) -> bool:
+        """Safety-guarded function to invalidate all application cache requiring explicit confirm=True."""
+        if not confirm:
+            logger.error("cache_invalidate_all_blocked_missing_confirmation")
             return False
 
-    @staticmethod
-    def invalidate_all_cache() -> bool:
-        """Invalidate all application cache"""
         try:
+            client = self.client
             logger.info("cache_invalidate_all_start")
-
-            redis_cache.invalidate_all_recommendations()
-            redis_cache.invalidate_user_bookmarks(None)
-
-            redis_cache.delete_keys_pattern("*content_cache:*")
-            redis_cache.delete_keys_pattern("*user_bookmarks:*")
-
-            redis_cache.invalidate_analysis_cache()
-            redis_cache.delete_keys_pattern("*embedding:*")
-
-            redis_cache.delete_keys_pattern("*content_analysis:*")
-            redis_cache.delete_keys_pattern("*content_embedding:*")
-
-            redis_cache.delete_keys_pattern("*project_analysis:*")
-            redis_cache.delete_keys_pattern("*project_embedding:*")
-
-            redis_cache.delete_keys_pattern("*task_analysis:*")
-            redis_cache.delete_keys_pattern("*task_embedding:*")
-
-            redis_cache.delete_keys_pattern("*user_profile:*")
-            redis_cache.delete_keys_pattern("*user_context:*")
-
-            redis_cache.delete_keys_pattern("*unified_recommendations:*")
-            redis_cache.delete_keys_pattern("*unified_project_recommendations:*")
-            redis_cache.delete_keys_pattern("*context_extraction:*")
-
+            if hasattr(client, 'invalidate_all_recommendations'):
+                client.invalidate_all_recommendations()
+            if hasattr(client, 'invalidate_user_bookmarks'):
+                client.invalidate_user_bookmarks(None)
+            if hasattr(client, 'invalidate_analysis_cache'):
+                client.invalidate_analysis_cache()
             logger.info("cache_invalidate_all_success")
             return True
-
         except Exception as e:
-            logger.error("cache_invalidate_all_failed", error=str(e))
+            logger.error("cache_invalidate_all_failed", extra={"error": str(e)})
             return False
 
-    @staticmethod
-    def after_content_save(content_id: int, user_id: int) -> bool:
-        """Hook to be called after content is saved"""
+    def after_content_save(self, content_id: int, user_id: int) -> bool:
+        """Hook called after content is saved."""
         try:
-            logger.info("cache_invalidation_hook_content_saved", content_id=content_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_content_cache(content_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-            CacheInvalidationService.invalidate_embedding_cache(content_id)
-
+            logger.info("cache_invalidation_hook_content_saved", extra={"content_id": content_id, "user_id": user_id})
+            self.invalidate_content_cache(content_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_content_saved_failed", content_id=content_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_content_saved_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_content_update(content_id: int, user_id: int) -> bool:
-        """Hook to be called after content is updated"""
+    def after_content_update(self, content_id: int, user_id: int) -> bool:
+        """Hook called after content is updated."""
         try:
-            logger.info("cache_invalidation_hook_content_updated", content_id=content_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_content_cache(content_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-            CacheInvalidationService.invalidate_analysis_cache(content_id=content_id)
-            CacheInvalidationService.invalidate_embedding_cache(content_id)
-
+            logger.info("cache_invalidation_hook_content_updated", extra={"content_id": content_id, "user_id": user_id})
+            self.invalidate_content_cache(content_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_content_updated_failed", content_id=content_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_content_updated_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_content_delete(content_id: int, user_id: int) -> bool:
-        """Hook to be called after content is deleted"""
+    def after_content_delete(self, content_id: int, user_id: int) -> bool:
+        """Hook called after content is deleted."""
         try:
-            logger.info("cache_invalidation_hook_content_deleted", content_id=content_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_content_cache(content_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-            CacheInvalidationService.invalidate_embedding_cache(content_id)
-
+            logger.info("cache_invalidation_hook_content_deleted", extra={"content_id": content_id, "user_id": user_id})
+            self.invalidate_content_cache(content_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_content_deleted_failed", content_id=content_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_content_deleted_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_project_save(project_id: int, user_id: int) -> bool:
-        """Hook to be called after project is saved"""
+    def after_project_save(self, project_id: int, user_id: int) -> bool:
+        """Hook called after project is saved."""
         try:
-            logger.info("cache_invalidation_hook_project_saved", project_id=project_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_project_cache(project_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-
+            logger.info("cache_invalidation_hook_project_saved", extra={"project_id": project_id, "user_id": user_id})
+            self.invalidate_project_cache(project_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_project_saved_failed", project_id=project_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_project_saved_failed", extra={"project_id": project_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_project_update(project_id: int, user_id: int) -> bool:
-        """Hook to be called after project is updated"""
+    def after_project_update(self, project_id: int, user_id: int) -> bool:
+        """Hook called after project is updated."""
         try:
-            logger.info("cache_invalidation_hook_project_updated", project_id=project_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_project_cache(project_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-
+            logger.info("cache_invalidation_hook_project_updated", extra={"project_id": project_id, "user_id": user_id})
+            self.invalidate_project_cache(project_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_project_updated_failed", project_id=project_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_project_updated_failed", extra={"project_id": project_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_task_save(task_id: int, user_id: int) -> bool:
-        """Hook to be called after task is saved"""
+    def after_task_save(self, task_id: int, user_id: int) -> bool:
+        """Hook called after task is saved."""
         try:
-            logger.info("cache_invalidation_hook_task_saved", task_id=task_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_task_cache(task_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-
+            logger.info("cache_invalidation_hook_task_saved", extra={"task_id": task_id, "user_id": user_id})
+            self.invalidate_task_cache(task_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_task_saved_failed", task_id=task_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_task_saved_failed", extra={"task_id": task_id, "user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_user_profile_update(user_id: int) -> bool:
-        """Hook to be called after user profile is updated"""
+    def after_user_profile_update(self, user_id: int) -> bool:
+        """Hook called after user profile is updated."""
         try:
-            logger.info("cache_invalidation_hook_profile_updated", user_id=user_id)
-
-            CacheInvalidationService.invalidate_user_cache(user_id)
-
+            logger.info("cache_invalidation_hook_profile_updated", extra={"user_id": user_id})
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_profile_updated_failed", user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_profile_updated_failed", extra={"user_id": user_id, "error": str(e)})
             return False
 
-    @staticmethod
-    def after_analysis_complete(content_id: int, user_id: int) -> bool:
-        """Hook to be called after content analysis is completed"""
+    def after_analysis_complete(self, content_id: int, user_id: int) -> bool:
+        """Hook called after content analysis is completed."""
         try:
-            logger.info("cache_invalidation_hook_analysis_complete", content_id=content_id, user_id=user_id)
-
-            CacheInvalidationService.invalidate_content_cache(content_id)
-            CacheInvalidationService.invalidate_user_cache(user_id)
-            CacheInvalidationService.invalidate_analysis_cache(content_id=content_id)
-
+            logger.info("cache_invalidation_hook_analysis_complete", extra={"content_id": content_id, "user_id": user_id})
+            self.invalidate_content_cache(content_id)
+            self.invalidate_user_cache(user_id)
             return True
-
         except Exception as e:
-            logger.error("cache_invalidation_hook_analysis_complete_failed", content_id=content_id, user_id=user_id, error=str(e))
+            logger.error("cache_invalidation_hook_analysis_complete_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
             return False
 
 
-# Global instance for easy access
+# Global singleton instance for easy access
 cache_invalidator = CacheInvalidationService()

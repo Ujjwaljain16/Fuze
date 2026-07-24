@@ -1,58 +1,84 @@
-import logging
+import numpy as np
+from typing import Optional, Union, List, Tuple
 from uow.unit_of_work import UnitOfWork
 from utils.embedding_utils import get_project_embedding
 from ml.intent_analysis_engine import analyze_user_intent
-import numpy as np
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-def process_project_ml(project_id: int, user_id: int, title: str, description: str, technologies: str):
+EXPECTED_EMBEDDING_DIM = 384
+
+
+def is_zero_vector(embedding: Union[np.ndarray, List[float], Tuple[float, ...]]) -> bool:
+    """Safely check if an embedding vector is all zeros without broad exceptions."""
+    if embedding is None:
+        return True
+    try:
+        if isinstance(embedding, np.ndarray):
+            return not np.any(embedding)
+        if isinstance(embedding, (list, tuple)):
+            return not any(x != 0.0 for x in embedding)
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return False
+
+
+def validate_embedding(embedding, expected_dim: int = EXPECTED_EMBEDDING_DIM) -> bool:
+    """Validate embedding shape and dimensions."""
+    if embedding is None:
+        return False
+    if isinstance(embedding, (list, tuple, np.ndarray)):
+        return len(embedding) == expected_dim
+    return False
+
+
+def process_project_ml(project_id: int, user_id: int, title: Optional[str] = None, description: Optional[str] = None, technologies: Optional[str] = None):
     """
     Background job to generate embeddings and analyze user intent for a project.
+    Always uses the database as the single source of truth to avoid payload race conditions.
     """
-    logger.info(f"Starting background ML processing for project: {title} (ID: {project_id})")
+    logger.info("project_ml_job_started", extra={"project_id": project_id, "user_id": user_id})
 
-    # 1. Generate/Refresh Embedding
-    try:
-        with UnitOfWork() as uow:
-            project = uow.projects.get_by_id(project_id, user_id)
-            if not project:
-                logger.warning(f"process_project_ml: Project {project_id} not found.")
-                return
+    with UnitOfWork() as uow:
+        project = uow.projects.get_by_id(project_id, user_id)
+        if not project:
+            logger.warning("project_ml_job_project_not_found", extra={"project_id": project_id, "user_id": user_id})
+            return
 
+        # 1. Generate & Validate Project Embedding
+        try:
             embedding = get_project_embedding(project)
-            
-            if embedding is not None:
+            if embedding is not None and validate_embedding(embedding):
                 project.embedding = embedding
                 uow.projects.update(project)
-                
-                # Check if it's not a zero vector (fallback case)
-                try:
-                    is_zero_vector = isinstance(project.embedding, np.ndarray) and np.all(project.embedding == 0)
-                except:
-                    is_zero_vector = isinstance(project.embedding, (list, tuple)) and all(x == 0.0 for x in project.embedding)
 
-                if not is_zero_vector:
-                    logger.info(f"Generated and saved embedding for project: {title}")
+                if not is_zero_vector(embedding):
+                    logger.info("project_embedding_saved", extra={"project_id": project_id})
                 else:
-                    logger.warning(f"Generated zero vector embedding for project: {title}")
-    except Exception as embedding_error:
-        logger.warning(f"Embedding generation failed for project: {str(embedding_error)}")
-        logger.warning(f"Error details: {repr(embedding_error)}")
+                    logger.warning("project_embedding_zero_vector", extra={"project_id": project_id})
+            else:
+                logger.warning("project_embedding_invalid_or_none", extra={"project_id": project_id})
+        except Exception:
+            logger.exception("project_embedding_generation_failed", extra={"project_id": project_id, "user_id": user_id})
 
-    # 2. Trigger/Refresh Intent Analysis
-    try:
-        # Build user input from project data
-        user_input = f"{title} {description} {technologies}"
+        # 2. Perform Intent Analysis using Fresh DB Fields (Single Source of Truth)
+        try:
+            user_input = " ".join(filter(None, [project.title, project.description, project.technologies]))
 
-        # Generate intent analysis
-        # force_analysis=True bypasses the local engine cache to always regenerate
-        intent = analyze_user_intent(
-            user_input=user_input,
-            project_id=project_id,
-            force_analysis=True
-        )
+            if user_input.strip():
+                # force_analysis=True bypasses the local engine cache to always regenerate
+                intent = analyze_user_intent(
+                    user_input=user_input,
+                    project_id=project_id,
+                    force_analysis=True
+                )
 
-        logger.info(f"Intent analysis generated for project: {intent.primary_goal} - {intent.project_type}")
-    except Exception as intent_error:
-        logger.warning(f"Intent analysis failed for project: {str(intent_error)}")
+                if intent:
+                    primary_goal = getattr(intent, 'primary_goal', 'unknown')
+                    project_type = getattr(intent, 'project_type', 'unknown')
+                    logger.info("project_intent_analysis_completed", extra={"project_id": project_id, "primary_goal": primary_goal, "project_type": project_type})
+                else:
+                    logger.warning("project_intent_analysis_returned_none", extra={"project_id": project_id})
+        except Exception:
+            logger.exception("project_intent_analysis_failed", extra={"project_id": project_id, "user_id": user_id})
