@@ -1,764 +1,199 @@
 #!/usr/bin/env python3
 """
 Database Connection Manager
-Provides robust SSL connection handling and automatic recovery
+Provides production-grade SQLAlchemy engine management with RLock thread safety,
+pool recycling, pre-ping validation, and secure SSL configuration.
 """
 
 import os
-import time
 import threading
-import socket
-from urllib.parse import urlparse, urlunparse
 from contextlib import contextmanager
 from typing import Optional, Dict, Any
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.exc import OperationalError, DisconnectionError, TimeoutError
-# Load environment variables
 from dotenv import load_dotenv
-load_dotenv()
 
 from core.logging_config import get_logger
 
+load_dotenv()
 logger = get_logger(__name__)
 
-# IPv4 resolution helper - ensures we always get IPv4 addresses
-def resolve_hostname_to_ipv4(hostname: str, max_retries: int = 3) -> Optional[str]:
-    """
-    Resolve hostname to IPv4 address with multiple retry strategies.
-    Returns None if IPv4 resolution fails (will force using hostname, which may fail).
-    """
-    for attempt in range(max_retries):
-        try:
-            # Method 1: Use getaddrinfo with AF_INET to force IPv4 only
-            addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
-            if addresses:
-                ipv4_address = addresses[0][4][0]
-                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address, method=1)
-                return ipv4_address
-        except socket.gaierror as e:
-            logger.debug("db_hostname_resolution_ipv4_failed", hostname=hostname, method=1, error=str(e))
-        
-        try:
-            # Method 2: Use gethostbyname (legacy, but sometimes works when getaddrinfo fails)
-            ipv4_address = socket.gethostbyname(hostname)
-            if ipv4_address:
-                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address, method=2)
-                return ipv4_address
-        except socket.gaierror as e:
-            logger.debug("db_hostname_resolution_ipv4_failed", hostname=hostname, method=2, error=str(e))
-        
-        # Wait before retry
-        if attempt < max_retries - 1:
-            time.sleep(1)
-    
-    logger.warning("db_hostname_resolution_ipv4_exhausted", hostname=hostname, attempts=max_retries)
-    return None
 
 class DatabaseConnectionManager:
-    """Manages database connections with SSL error handling and automatic recovery"""
-    
+    """Manages database engine lifecycle and connection resilience."""
+
     def __init__(self):
         self._engine: Optional[Engine] = None
-        self._lock = threading.Lock()
-        self._connection_attempts = 0
-        self._max_retries = 3
-        self._last_connection_test = 0
-        self._connection_test_interval = 60  # Test connection every minute
-        
-    def _resolve_hostname(self, hostname: str) -> Optional[str]:
-        """Resolve hostname to IP address with IPv6 support and IPv4 fallback"""
-        try:
-            # Try to get all addresses (both IPv4 and IPv6)
-            addresses = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            
-            # Prefer IPv4 if available, otherwise use IPv6
-            ipv4_addresses = [addr[4][0] for addr in addresses if addr[0] == socket.AF_INET]
-            ipv6_addresses = [addr[4][0] for addr in addresses if addr[0] == socket.AF_INET6]
-            
-            if ipv4_addresses:
-                logger.info("db_hostname_resolved", hostname=hostname, ipv4=ipv4_addresses[0])
-                return ipv4_addresses[0]
-            elif ipv6_addresses:
-                logger.info("db_hostname_resolved", hostname=hostname, ipv6=ipv6_addresses[0])
-                return ipv6_addresses[0]
-            else:
-                logger.warning("db_hostname_resolution_empty", hostname=hostname)
-                return None
-                
-        except socket.gaierror as e:
-            logger.error("db_dns_resolution_failed", hostname=hostname, error=str(e))
-            return None
-        except Exception as e:
-            logger.error("db_dns_resolution_unexpected_error", hostname=hostname, error=str(e))
-            return None
-    
-    def _resolve_hostname_with_fallback(self, hostname: str) -> Optional[str]:
-        """Resolve hostname to IPv4 only (never use IPv6 as it causes connection issues)"""
-        try:
-            # Force IPv4 resolution only - never use IPv6
-            addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
-            if addresses:
-                ipv4_address = addresses[0][4][0]
-                logger.info("db_hostname_resolved_ipv4", hostname=hostname, ipv4=ipv4_address)
-                return ipv4_address
-        except Exception as e:
-            logger.warning("db_hostname_resolution_ipv4_fallback_failed", hostname=hostname, error=str(e))
-        
-        # Don't try IPv6 - it causes "Network is unreachable" errors on Render
-        logger.warning("db_hostname_resolution_ipv4_skipped_using_hostname", hostname=hostname)
-        return None
-    
-    def _validate_database_url(self, url: str) -> bool:
-        """Validate that the database URL is properly formatted"""
-        try:
-            # Basic validation - check if it looks like a valid PostgreSQL URL
-            if not url.startswith('postgresql://'):
-                return False
-            
-            # Check if it has the basic structure
-            if '@' not in url:
-                return False
-            
-            # Check if the host part looks reasonable
-            at_index = url.find('@')
-            slash_index = url.find('/', at_index)
-            
-            if slash_index == -1:
-                # No slash found, URL ends with host:port
-                host_port_part = url[at_index + 1:]
-            else:
-                host_port_part = url[at_index + 1:slash_index]
-            
-            # Host part should not be empty
-            if not host_port_part.strip():
-                return False
-            
-            # If there's a port, it should be a number
-            if ':' in host_port_part:
-                parts = host_port_part.split(':')
-                if len(parts) == 2:
-                    try:
-                        int(parts[1])
-                    except ValueError:
-                        return False
-            
-            return True
-            
-        except Exception as e:
-            logger.warning("db_url_validation_error", error=str(e))
-            return False
-    
+        self._lock = threading.RLock()
+
     def _get_database_url(self) -> str:
-        """Get database URL from environment and resolve hostname if needed"""
+        """Fetch DATABASE_URL from environment with validation."""
         database_url = os.environ.get('DATABASE_URL')
         if not database_url:
             raise ValueError("DATABASE_URL environment variable not set")
-        
-        # Check if this is a Supabase URL that needs hostname resolution
-        # Handle both direct db.*.supabase.co and pooler.*.pooler.supabase.co URLs
-        if 'supabase.co' in database_url and ('db.' in database_url or 'pooler.' in database_url):
-            try:
-                # Use urllib.parse for robust URL parsing
-                parsed = urlparse(database_url)
-                
-                # Extract hostname and port from netloc
-                # netloc format: user:password@host:port
-                netloc = parsed.netloc
-                if not netloc:
-                    logger.warning("db_url_netloc_missing_skipping_resolution")
-                    return database_url
-                
-                # Split credentials and host:port
-                # Note: password may contain @, so we need to find the LAST @ which separates credentials from host
-                # Format: username:password@host:port (password can contain @)
-                if '@' in netloc:
-                    # Find the last @ which should separate credentials from host
-                    # But we need to be careful - if there are multiple @, the last one is the separator
-                    # Count @ symbols to determine if password contains @
-                    at_count = netloc.count('@')
-                    if at_count == 1:
-                        # Simple case: user:pass@host:port
-                        creds_part, host_port_part = netloc.split('@', 1)
-                    else:
-                        # Password contains @ - find the last @ which is the separator
-                        # Format: user:pass@with@symbols@host:port
-                        # We need to find where hostname starts (after last @)
-                        # Hostname should start with a letter or number, not a digit followed by @
-                        # Actually, the safest is to find the last @ and check if what follows looks like a hostname
-                        last_at_index = netloc.rfind('@')
-                        potential_host = netloc[last_at_index + 1:]
-                        
-                        # Check if potential_host looks like a hostname (starts with letter, contains dots)
-                        if '.' in potential_host and potential_host.split(':')[0].replace('.', '').replace('-', '').isalnum():
-                            # This looks like a hostname, so last @ is the separator
-                            creds_part = netloc[:last_at_index]
-                            host_port_part = potential_host
-                        else:
-                            # Doesn't look like hostname, try second-to-last @
-                            if at_count >= 2:
-                                # Try finding @ before the last one
-                                second_last_at = netloc.rfind('@', 0, last_at_index)
-                                potential_host2 = netloc[second_last_at + 1:]
-                                if '.' in potential_host2.split(':')[0]:
-                                    creds_part = netloc[:second_last_at]
-                                    host_port_part = potential_host2
-                                else:
-                                    # Fallback: use last @ anyway
-                                    creds_part = netloc[:last_at_index]
-                                    host_port_part = potential_host
-                            else:
-                                # Fallback: use last @
-                                creds_part = netloc[:last_at_index]
-                                host_port_part = potential_host
-                else:
-                    # No credentials: host:port
-                    creds_part = ""
-                    host_port_part = netloc
-                
-                # Extract hostname and port from host_port_part
-                if ':' in host_port_part:
-                    # Handle IPv6 addresses (they have colons)
-                    if host_port_part.startswith('['):
-                        # IPv6 address in brackets: [::1]:5432
-                        bracket_end = host_port_part.find(']')
-                        if bracket_end != -1:
-                            hostname = host_port_part[1:bracket_end]
-                            port_part = host_port_part[bracket_end + 1:]  # Includes the ':'
-                        else:
-                            logger.warning("db_url_malformed_ipv6_skipping_resolution")
-                            return database_url
-                    else:
-                        # Regular hostname:port format - split from right
-                        parts = host_port_part.rsplit(':', 1)
-                        if len(parts) == 2:
-                            hostname = parts[0]
-                            port_part = ':' + parts[1]
-                        else:
-                            hostname = host_port_part
-                            port_part = ""
-                else:
-                    hostname = host_port_part
-                    port_part = ""
-                
-                # Validate hostname - should not contain @, :, or be empty
-                if '@' in hostname or ':' in hostname or hostname.strip() == '':
-                    logger.warning("db_hostname_extraction_invalid", hostname=hostname)
-                    return database_url
-                
-                # Try to resolve hostname to IPv4 only (avoid IPv6 which causes connection issues)
-                # This is critical for Render.com which has IPv6 connectivity issues
-                ip_address = resolve_hostname_to_ipv4(hostname)
-                
-                if ip_address:
-                    # Only use IPv4 addresses (never IPv6) - this prevents "Network is unreachable" errors
-                    # Reconstruct netloc with credentials if they existed
-                    if creds_part:
-                        new_netloc = f"{creds_part}@{ip_address}{port_part}"
-                    else:
-                        new_netloc = f"{ip_address}{port_part}"
-                    
-                    # Reconstruct the URL using urlunparse
-                    new_parsed = parsed._replace(netloc=new_netloc)
-                    new_url = urlunparse(new_parsed)
-                    
-                    # Validate the new URL
-                    if self._validate_database_url(new_url):
-                        logger.info("db_url_updated_ipv4", ip_address=ip_address)
-                        return new_url
-                    else:
-                        logger.warning("db_url_ipv4_malformed_using_original")
-                else:
-                    # IPv4 resolution failed - log warning but continue with hostname
-                    logger.warning("db_ipv4_resolution_failed", hostname=hostname)
-                
-                # If IPv4 resolution fails, we'll use hostname but it may resolve to IPv6 and fail
-                logger.info("db_using_hostname_directly", hostname=hostname)
-                        
-            except Exception as e:
-                logger.warning("db_url_processing_error", error=str(e))
-                import traceback
-                logger.debug("db_url_processing_traceback", traceback=traceback.format_exc())
-        
         return database_url
-    
+
     def _is_sqlite(self, database_url: str) -> bool:
-        """Check if the database URL is for SQLite"""
+        """Check if the database URL is for SQLite."""
         return database_url.startswith('sqlite:///') or database_url.startswith('sqlite://')
-    
-    def _create_engine(self, ssl_mode: str = 'prefer') -> Engine:
-        """Create database engine with specified SSL mode"""
+
+    def _create_engine(self) -> Engine:
+        """Create database engine with proper pooling and dialect-specific configuration."""
         database_url = self._get_database_url()
-        
-        # Check if using SQLite
         is_sqlite = self._is_sqlite(database_url)
-        
-        # Check if the URL contains IPv6 addresses (shouldn't happen with our new logic, but safety check)
-        if '[' in database_url and ']' in database_url:
-            logger.error("db_ipv6_detected_in_url")
-            # Extract hostname from original URL and use that instead
-            try:
-                # Try to extract the original hostname from the URL
-                if '@' in database_url:
-                    at_index = database_url.find('@')
-                    # Find the hostname part (before any brackets or slashes)
-                    host_part = database_url[at_index + 1:]
-                    if '/' in host_part:
-                        host_part = host_part.split('/')[0]
-                    # Extract hostname (before brackets)
-                    if '[' in host_part:
-                        # This is IPv6, we need to get the original hostname
-                        # Unfortunately we can't recover it, so we'll let it fail and log the error
-                        logger.error("db_hostname_recovery_failed_ipv6")
-            except Exception as e:
-                logger.warning("db_ipv6_processing_error", error=str(e))
-        
-        # Update SSL mode in connection string (only for PostgreSQL)
-        if not is_sqlite:
-            if 'sslmode=' in database_url:
-                # Replace existing SSL mode
-                base_url = database_url.split('sslmode=')[0]
-                remaining = database_url.split('sslmode=')[1]
-                if '&' in remaining:
-                    remaining = '&' + remaining.split('&', 1)[1]
-                else:
-                    remaining = ''
-                database_url = f"{base_url}sslmode={ssl_mode}{remaining}"
-            else:
-                # Add SSL mode
-                separator = '&' if '?' in database_url else '?'
-                database_url = f"{database_url}{separator}sslmode={ssl_mode}"
-        
-        # Enhanced connection configuration - database-specific
+
         if is_sqlite:
-            # SQLite doesn't support PostgreSQL connection arguments
             connect_args = {}
+            engine = create_engine(
+                database_url,
+                connect_args=connect_args,
+                echo=False
+            )
         else:
-            # PostgreSQL connection configuration with longer timeouts for Supabase
-            # Note: IPv4 enforcement is done at URL resolution level (hostname -> IPv4 IP)
+            statement_timeout = os.environ.get('DB_STATEMENT_TIMEOUT', '60000')
             connect_args = {
-                'connect_timeout': 30,  # Increased from 10 to 30 seconds for Supabase
+                'connect_timeout': 30,
                 'keepalives': 1,
                 'keepalives_idle': 30,
                 'keepalives_interval': 10,
                 'keepalives_count': 5,
-                'application_name': 'fuze_connection_manager',
-                'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
+                'application_name': 'fuze_app',
+                'options': f'-c statement_timeout={statement_timeout} -c idle_in_transaction_session_timeout={statement_timeout}'
             }
-            
-            # Add SSL-specific arguments
-            if ssl_mode in ['require', 'verify-ca', 'verify-full']:
-                connect_args.update({
-                    'sslcert': None,
-                    'sslkey': None,
-                    'sslrootcert': None
-                })
-        
-        engine = create_engine(
-            database_url,
-            poolclass=QueuePool,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=20,
-            pool_recycle=300,
-            pool_pre_ping=True,
-            echo=False,
-            connect_args=connect_args
-        )
-        
-        # Add event listeners for connection management
-        self._setup_engine_events(engine)
-        
-        return engine
-    
-    def _setup_engine_events(self, engine: Engine):
-        """Setup event listeners for the engine"""
-        
-        @event.listens_for(engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, connection_record):
-            """Set SQLite pragmas if using SQLite"""
-            if hasattr(dbapi_connection, 'execute'):
-                dbapi_connection.execute("PRAGMA journal_mode=WAL")
-        
-        @event.listens_for(engine, "checkout")
-        def receive_checkout(dbapi_connection, connection_record, connection_proxy):
-            """Handle connection checkout"""
-            logger.debug("db_connection_checkout")
-        
-        @event.listens_for(engine, "checkin")
-        def receive_checkin(dbapi_connection, connection_record):
-            """Handle connection checkin"""
-            logger.debug("db_connection_checkin")
-    
-    def _test_connection(self, engine: Engine) -> bool:
-        """Test if the engine connection works with retry logic"""
-        max_retries = 3
-        retry_delay = 2
-        
-        for attempt in range(max_retries):
-            try:
-                with engine.connect() as conn:
-                    # Use a simple, fast query with timeout
-                    result = conn.execute(text('SELECT 1'))
-                    result.fetchone()  # Actually fetch the result
-                    return True
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    logger.warning("db_connection_test_failed_retrying", attempt=attempt+1, error=str(e))
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    logger.warning("db_connection_test_exhausted", attempts=max_retries, error=str(e))
-                    return False
-        
-        return False
-    
-    def _find_working_ssl_mode(self) -> Optional[str]:
-        """Find a working SSL mode by testing different configurations"""
-        database_url = self._get_database_url()
-        is_sqlite = self._is_sqlite(database_url)
-        
-        # SQLite doesn't use SSL modes
-        if is_sqlite:
-            logger.info("db_ssl_mode_skipped_sqlite")
-            return 'none'
-        
-        ssl_modes = ['prefer', 'require', 'verify-ca', 'verify-full']
-        
-        for ssl_mode in ssl_modes:
-            try:
-                logger.info("db_ssl_mode_testing", mode=ssl_mode)
-                test_engine = self._create_engine(ssl_mode)
-                
-                if self._test_connection(test_engine):
-                    logger.info("db_ssl_mode_success", mode=ssl_mode)
-                    test_engine.dispose()
-                    return ssl_mode
-                
-                test_engine.dispose()
-                
-            except Exception as e:
-                logger.warning("db_ssl_mode_failed", mode=ssl_mode, error=str(e))
-                continue
-        
-        # If no SSL mode works, try 'allow' mode (less secure but more compatible)
-        try:
-            logger.info("db_ssl_mode_testing", mode="allow")
-            # Create a custom engine with 'allow' mode
-            database_url = self._get_database_url()
-            is_sqlite = self._is_sqlite(database_url)
-            
-            if not is_sqlite:
-                if 'sslmode=' in database_url:
-                    base_url = database_url.split('sslmode=')[0]
-                    remaining = database_url.split('sslmode=')[1]
-                    if '&' in remaining:
-                        remaining = '&' + remaining.split('&', 1)[1]
-                    else:
-                        remaining = ''
-                    database_url = f"{base_url}sslmode=allow{remaining}"
-                else:
-                    separator = '&' if '?' in database_url else '?'
-                    database_url = f"{database_url}{separator}sslmode=allow"
-            
-            # Use appropriate connect_args based on database type
-            if is_sqlite:
-                connect_args = {}
-            else:
-                connect_args = {
-                    'connect_timeout': 30,
-                    'application_name': 'fuze_connection_manager_allow_ssl'
-                }
-            
-            test_engine = create_engine(
+
+            engine = create_engine(
                 database_url,
                 poolclass=QueuePool,
-                pool_size=3,
-                max_overflow=5,
+                pool_size=int(os.environ.get('DB_POOL_SIZE', 5)),
+                max_overflow=int(os.environ.get('DB_MAX_OVERFLOW', 10)),
                 pool_timeout=30,
-                pool_recycle=300,
+                pool_recycle=int(os.environ.get('DB_POOL_RECYCLE', 300)),
                 pool_pre_ping=True,
                 echo=False,
                 connect_args=connect_args
             )
-            
-            if self._test_connection(test_engine):
-                logger.info("db_ssl_mode_success", mode="allow")
-                test_engine.dispose()
-                return 'allow'
-            
-            test_engine.dispose()
-            
-        except Exception as e:
-            logger.warning("db_ssl_mode_failed", mode="allow", error=str(e))
-        
-        return None
-    
+
+        self._setup_engine_events(engine)
+        return engine
+
+    def _setup_engine_events(self, engine: Engine):
+        """Setup dialect-scoped event listeners."""
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            if engine.dialect.name == "sqlite":
+                if hasattr(dbapi_connection, 'execute'):
+                    dbapi_connection.execute("PRAGMA journal_mode=WAL")
+
     def get_engine(self, force_refresh: bool = False) -> Engine:
-        """Get database engine, creating or refreshing as needed"""
+        """Get or initialize the database engine using reentrant RLock."""
         with self._lock:
-            current_time = time.time()
-            
-            # Check if we need to test the connection
-            if (self._engine and not force_refresh and 
-                current_time - self._last_connection_test < self._connection_test_interval):
+            if self._engine is not None and not force_refresh:
                 return self._engine
-            
-            # Dispose existing engine if any
-            if self._engine:
+
+            if self._engine is not None:
                 try:
                     self._engine.dispose()
                 except Exception as e:
-                    logger.warning("db_engine_dispose_failed", error=str(e))
+                    logger.warning("db_engine_dispose_failed", extra={"error": str(e)})
                 self._engine = None
-            
-            # Try to create new engine
-            working_ssl_mode = None
-            
-            # First try with current SSL mode from environment
-            try:
-                database_url = self._get_database_url()
-                if 'sslmode=' in database_url:
-                    current_ssl = database_url.split('sslmode=')[1].split('&')[0]
-                    logger.info("db_ssl_mode_testing_current", mode=current_ssl)
-                    
-                    test_engine = self._create_engine(current_ssl)
-                    if self._test_connection(test_engine):
-                        working_ssl_mode = current_ssl
-                        test_engine.dispose()
-                    else:
-                        test_engine.dispose()
-                        
-            except Exception as e:
-                logger.warning("db_current_ssl_mode_failed", error=str(e))
-            
-            # If current mode doesn't work, find a working one
-            if not working_ssl_mode:
-                working_ssl_mode = self._find_working_ssl_mode()
-            
-            # If no SSL mode works, try without SSL
-            if not working_ssl_mode:
-                logger.warning("db_no_ssl_mode_works_falling_back")
-                try:
-                    database_url = self._get_database_url()
-                    is_sqlite = self._is_sqlite(database_url)
-                    
-                    # Remove SSL mode completely (only for PostgreSQL)
-                    if not is_sqlite:
-                        if 'sslmode=' in database_url:
-                            base_url = database_url.split('sslmode=')[0]
-                            remaining = database_url.split('sslmode=')[1]
-                            if '&' in remaining:
-                                remaining = '&' + remaining.split('&', 1)[1]
-                            else:
-                                remaining = ''
-                            database_url = base_url + remaining
-                            database_url = database_url.rstrip('&?')
-                    
-                    # Use appropriate connect_args based on database type
-                    if is_sqlite:
-                        connect_args = {}
-                    else:
-                        connect_args = {
-                            'connect_timeout': 30,  # Increased from 10 to 30 seconds
-                            'application_name': 'fuze_connection_manager_no_ssl',
-                            'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-                        }
-                    
-                    # Create engine without SSL
-                    engine = create_engine(
-                        database_url,
-                        poolclass=QueuePool,
-                        pool_size=5,
-                        max_overflow=10,
-                        pool_timeout=20,
-                        pool_recycle=300,
-                        pool_pre_ping=True,
-                        echo=False,
-                        connect_args=connect_args
-                    )
-                    
-                    if self._test_connection(engine):
-                        working_ssl_mode = 'none'
-                        engine.dispose()
-                    else:
-                        engine.dispose()
-                        raise Exception("No SSL mode works and non-SSL also fails")
-                        
-                except Exception as e:
-                    logger.error("db_working_connection_failed", error=str(e))
-                    raise
-            
-            # Create the final working engine
-            if working_ssl_mode == 'none':
-                # Create engine without SSL
-                database_url = self._get_database_url()
-                is_sqlite = self._is_sqlite(database_url)
-                
-                if not is_sqlite:
-                    # Only remove sslmode for PostgreSQL
-                    if 'sslmode=' in database_url:
-                        base_url = database_url.split('sslmode=')[0]
-                        remaining = database_url.split('sslmode=')[1]
-                        if '&' in remaining:
-                            remaining = '&' + remaining.split('&', 1)[1]
-                        else:
-                            remaining = ''
-                        database_url = base_url + remaining
-                        database_url = database_url.rstrip('&?')
-                
-                # Use appropriate connect_args based on database type
-                if is_sqlite:
-                    connect_args = {}
-                else:
-                    connect_args = {
-                        'connect_timeout': 30,  # Increased from 10 to 30 seconds
-                        'application_name': 'fuze_connection_manager_no_ssl',
-                        'options': '-c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000'
-                    }
-                
-                self._engine = create_engine(
-                    database_url,
-                    poolclass=QueuePool,
-                    pool_size=5,
-                    max_overflow=10,
-                    pool_timeout=20,
-                    pool_recycle=300,
-                    pool_pre_ping=True,
-                    echo=False,
-                    connect_args=connect_args
-                )
-            else:
-                # Create engine with working SSL mode
-                self._engine = self._create_engine(working_ssl_mode)
-            
-            # Test the final engine
-            if not self._test_connection(self._engine):
-                raise Exception("Created engine but connection test failed")
-            
-            self._last_connection_test = current_time
-            logger.info("db_engine_created_successfully", ssl_mode=working_ssl_mode)
-            
+
+            self._engine = self._create_engine()
+            logger.info("db_engine_initialized_successfully")
             return self._engine
-    
+
     @contextmanager
     def get_connection(self):
-        """Get a database connection with automatic error handling"""
+        """Yield a database connection with error handling and automatic retry on disconnect."""
         engine = self.get_engine()
         connection = None
-        
         try:
             connection = engine.connect()
             yield connection
         except (OperationalError, DisconnectionError, TimeoutError) as e:
-            logger.warning("db_connection_error", error=str(e))
-            
-            # Try to refresh the engine
+            logger.warning("db_connection_error_retrying", extra={"error": str(e)})
             try:
                 engine = self.get_engine(force_refresh=True)
                 connection = engine.connect()
                 yield connection
-            except Exception as refresh_error:
-                logger.error("db_connection_refresh_failed", error=str(refresh_error))
+            except Exception as refresh_err:
+                logger.error("db_connection_refresh_failed", extra={"error": str(refresh_err)})
                 raise
         finally:
             if connection:
                 try:
                     connection.close()
-                except Exception as e:
-                    logger.warning("db_connection_close_failed", error=str(e))
-    
+                except Exception as close_err:
+                    logger.warning("db_connection_close_failed", extra={"error": str(close_err)})
+
     def test_connection(self) -> bool:
-        """Test if the database connection is working"""
+        """Test active database connectivity with a fast SELECT 1 query."""
         try:
             with self.get_connection() as conn:
                 conn.execute(text('SELECT 1'))
                 return True
         except Exception as e:
-            logger.error("db_connection_test_failed", error=str(e))
+            logger.error("db_connection_test_failed", extra={"error": str(e)})
             return False
-    
+
     def refresh_connections(self) -> bool:
-        """Force refresh of all database connections"""
-        try:
-            with self._lock:
-                if self._engine:
-                    self._engine.dispose()
-                    self._engine = None
-                
-                # Test new connection
+        """Force refresh of database connections without deadlock risk."""
+        with self._lock:
+            try:
                 engine = self.get_engine(force_refresh=True)
-                return self._test_connection(engine)
-                
-        except Exception as e:
-            logger.error("db_connection_refresh_failed", error=str(e))
-            return False
-    
+                with engine.connect() as conn:
+                    conn.execute(text('SELECT 1'))
+                return True
+            except Exception as e:
+                logger.error("db_connection_refresh_failed", extra={"error": str(e)})
+                return False
+
     def get_connection_info(self) -> Dict[str, Any]:
-        """Get information about the current database connection"""
+        """Get safe connection info with rendered URL and password masking."""
         try:
             database_url = self._get_database_url()
-            
+            url_obj = make_url(database_url)
+            safe_url = url_obj.render_as_string(hide_password=True)
+
             info = {
-                'has_ssl': 'sslmode=' in database_url,
-                'connection_string': database_url.replace(
-                    database_url.split('@')[0].split('://')[1], '***'
-                ) if '@' in database_url else database_url
+                'drivername': url_obj.drivername,
+                'database': url_obj.database,
+                'host': url_obj.host,
+                'port': url_obj.port,
+                'safe_url': safe_url
             }
-            
-            if 'sslmode=' in database_url:
-                info['ssl_mode'] = database_url.split('sslmode=')[1].split('&')[0]
-            else:
-                info['ssl_mode'] = 'Not specified'
-            
-            if self._engine:
+
+            if self._engine and hasattr(self._engine, 'pool'):
                 info['pool_size'] = self._engine.pool.size()
                 info['checked_out'] = self._engine.pool.checkedout()
                 info['overflow'] = self._engine.pool.overflow()
-            
+
             return info
-            
         except Exception as e:
             return {'error': str(e)}
+
 
 # Global instance
 connection_manager = DatabaseConnectionManager()
 
+
 def get_database_engine():
-    """Get database engine from the connection manager"""
     return connection_manager.get_engine()
 
+
 def get_database_connection():
-    """Get database connection from the connection manager"""
     return connection_manager.get_connection()
 
+
 def test_database_connection():
-    """Test database connection"""
     return connection_manager.test_connection()
 
+
 def refresh_database_connections():
-    """Refresh database connections"""
     return connection_manager.refresh_connections()
 
-def get_database_info():
-    """Get database connection information"""
-    return connection_manager.get_connection_info()
 
-if __name__ == "__main__":
-    # Test the connection manager
-    logger.info("db_manager_test_start")
-    
-    try:
-        # Test connection
-        if test_database_connection():
-            logger.info("db_manager_test_success")
-            
-            # Get connection info
-            info = get_database_info()
-            logger.info("db_manager_info", info=info)
-        else:
-            logger.error("db_manager_test_failed")
-            
-    except Exception as e:
-        logger.error("db_manager_error", error=str(e))
+def get_database_info():
+    return connection_manager.get_connection_info()
