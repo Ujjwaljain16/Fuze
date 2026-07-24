@@ -25,7 +25,7 @@ class TestSearch:
             db.session.add(bookmark)
             db.session.commit()
         
-        with patch('blueprints.search.get_embedding') as mock_embedding:
+        with patch('services.search_service.get_embedding') as mock_embedding:
             mock_embedding.return_value = [0.1] * 384
             
             response = client.post('/api/search/semantic', json={

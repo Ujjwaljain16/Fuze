@@ -5,28 +5,19 @@ Combines all features from both versions with proper circular import handling
 """
 
 import os
-import sys
+import hashlib
 import time
-import logging
 import json
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from dataclasses import asdict
+from core.logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Create blueprint FIRST to avoid circular imports
 recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/recommendations')
@@ -162,15 +153,8 @@ def invalidate_user_recommendations(user_id):
 @jwt_required()
 def get_unified_orchestrator_recommendations():
     """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
-    # Apply rate limiting if available
-    from flask import current_app
-    if hasattr(current_app, 'limiter') and current_app.limiter:
-        # Rate limit: 20 requests per minute per user (increased for better UX)
-        @current_app.limiter.limit("20 per minute", key_func=lambda: get_jwt_identity())
-        def _rate_limited():
-            pass
-        _rate_limited()
-    
+    # NOTE: Rate limiting is configured at the app level via Flask-Limiter.
+    # Inline decorator application inside route handlers is unsupported and ineffective.
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
@@ -245,11 +229,9 @@ def get_unified_orchestrator_recommendations():
         
         return jsonify(response)
         
-    except Exception as e:
-        logger.error(f"Error in recommendations: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("unified_orchestrator_recommendations_failed")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/generate-context', methods=['POST'])
 @jwt_required()
@@ -338,11 +320,9 @@ def generate_personalized_context():
             'context_summary': context_summary
         })
         
-    except Exception as e:
-        logger.error(f"Error generating personalized context: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("generate_personalized_context_failed")
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # API ROUTES - Using Standalone Engines (Legacy)
@@ -372,8 +352,9 @@ def get_unified_recommendations():
         user_interests = data.get('user_interests', '')
         max_recommendations = data.get('max_recommendations', 10)
 
-        # Create cache key based on request parameters
-        cache_key = f"unified_recommendations:{user_id}:{hash(f'{title}{description}{technologies}{user_interests}{max_recommendations}')}"
+        # Create cache key based on request parameters — use hashlib for deterministic cross-process keys
+        _hash_input = f'{title}{description}{technologies}{user_interests}{max_recommendations}'
+        cache_key = f"unified_recommendations:{user_id}:{hashlib.md5(_hash_input.encode()).hexdigest()[:16]}"
         
         # Check cache first
         cached_result = get_cached_recommendations(cache_key)
@@ -437,7 +418,7 @@ def get_unified_recommendations():
         
     except Exception as e:
         logger.error(f"Error in unified recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/unified-project/<int:project_id>', methods=['POST'])
 @jwt_required()
@@ -459,8 +440,9 @@ def get_unified_project_recommendations(project_id):
         if not engine:
             return jsonify({'error': 'Unified recommendation engine not available'}), 500
         
-        # Create cache key based on project and user
-        cache_key = f"unified_project_recommendations:{user_id}:{project_id}:{hash(f'{project.title}{project.description}{project.technologies}')}"
+        # Create cache key based on project and user — use hashlib for deterministic cross-process keys
+        _hash_input = f'{project.title}{project.description or ""}{project.technologies or ""}'
+        cache_key = f"unified_project_recommendations:{user_id}:{project_id}:{hashlib.md5(_hash_input.encode()).hexdigest()[:16]}"
         
         # Check cache first
         cached_result = get_cached_recommendations(cache_key)
@@ -528,7 +510,7 @@ def get_unified_project_recommendations(project_id):
         
     except Exception as e:
         logger.error(f"Error in unified project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/project/<int:project_id>', methods=['GET'])
 @jwt_required()
@@ -596,7 +578,7 @@ def get_project_recommendations(project_id):
         
     except Exception as e:
         logger.error(f"Error in project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/task/<int:task_id>', methods=['POST'])
 @jwt_required()
@@ -628,9 +610,9 @@ def get_task_recommendations(task_id):
             task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
             if isinstance(task_details, dict):
                 task_description = task_details.get('description', '')
-        except:
-            pass
-        
+        except Exception:
+            pass  # task.description may be plain text, not JSON
+
         enhanced_description = f"Task: {task.title}"
         if task_description:
             enhanced_description += f" - {task_description}"
@@ -671,46 +653,52 @@ def get_task_recommendations(task_id):
         if incomplete_subtasks and len(recommendations) > 0:
             try:
                 from models import SavedContent
-                # Get subtask embeddings and boost scores based on similarity
+                # Get subtask embeddings for re-ranking boost
                 subtask_embeddings = [st.embedding for st in incomplete_subtasks if st.embedding is not None]
-                
+
                 if subtask_embeddings:
+                    # Batch-load all recommendation content IDs to avoid N+1 DB round-trips
+                    rec_content_ids = [
+                        (rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None))
+                        for rec in recommendations
+                    ]
+                    rec_content_ids = [cid for cid in rec_content_ids if cid is not None]
+                    content_map = {}
+                    if rec_content_ids:
+                        content_rows = SavedContent.query.filter(
+                            SavedContent.id.in_(rec_content_ids),
+                            SavedContent.embedding.isnot(None)
+                        ).with_entities(SavedContent.id, SavedContent.embedding).all()
+                        content_map = {row.id: row.embedding for row in content_rows}
+
                     enhanced_recommendations = []
                     for rec in recommendations:
                         content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
-                        if content_id:
-                            content = SavedContent.query.get(content_id)
-                            if content and content.embedding is not None:
-                                # Calculate max similarity across all incomplete subtask embeddings
-                                max_similarity = max([
-                                    calculate_cosine_similarity(
-                                        np.array(subtask_emb),
-                                        np.array(content.embedding)
-                                    ) for subtask_emb in subtask_embeddings
-                                ])
-                                # Boost score by embedding similarity (weight: 15% for tasks with multiple subtasks)
-                                if isinstance(rec, dict):
-                                    original_score = rec.get('match_score', rec.get('score', 0))
-                                    embedding_boost = max_similarity * 0.15  # 15% weight
-                                    rec['match_score'] = min(100, original_score + (embedding_boost * 100))
-                                    rec['subtask_embedding_similarity'] = float(max_similarity)
-                                else:
-                                    original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
-                                    embedding_boost = max_similarity * 0.15
-                                    rec.match_score = min(100, original_score + (embedding_boost * 100))
-                                    rec.subtask_embedding_similarity = float(max_similarity)
+                        embedding = content_map.get(content_id)
+                        if content_id and embedding is not None:
+                            max_similarity = max(
+                                calculate_cosine_similarity(np.array(subtask_emb), np.array(embedding))
+                                for subtask_emb in subtask_embeddings
+                            )
+                            if isinstance(rec, dict):
+                                original_score = rec.get('match_score', rec.get('score', 0))
+                                rec['match_score'] = min(100, original_score + (max_similarity * 0.15 * 100))
+                                rec['subtask_embedding_similarity'] = float(max_similarity)
+                            else:
+                                original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
+                                rec.match_score = min(100, original_score + (max_similarity * 0.15 * 100))
+                                rec.subtask_embedding_similarity = float(max_similarity)
                         enhanced_recommendations.append(rec)
-                    
-                    # Re-sort by enhanced score
+
                     if enhanced_recommendations:
                         enhanced_recommendations.sort(
-                            key=lambda x: x.get('match_score', getattr(x, 'match_score', 0)) if isinstance(x, dict) else getattr(x, 'match_score', 0),
+                            key=lambda x: x.get('match_score', 0) if isinstance(x, dict) else getattr(x, 'match_score', 0),
                             reverse=True
                         )
                         recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                        logger.info(f"Enhanced {len(recommendations)} recommendations using {len(subtask_embeddings)} subtask embeddings")
+                        logger.info("task_embedding_enhanced", extra={"count": len(recommendations), "subtask_count": len(subtask_embeddings)})
             except Exception as e:
-                logger.warning(f"Failed to enhance recommendations with subtask embeddings: {e}")
+                logger.warning("task_embedding_enhancement_failed", extra={"error": str(e)})
                 # Continue with original recommendations
         
         # Convert to dictionary format
@@ -732,7 +720,7 @@ def get_task_recommendations(task_id):
         
     except Exception as e:
         logger.error(f"Error in task recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/subtask/<int:subtask_id>', methods=['POST'])
 @jwt_required()
@@ -764,8 +752,8 @@ def get_subtask_recommendations(subtask_id):
             task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
             if isinstance(task_details, dict):
                 task_description = task_details.get('description', '')
-        except:
-            pass
+        except Exception:
+            pass  # task.description may be plain text, not JSON
         
         enhanced_description = f"Subtask: {subtask.title}"
         if subtask.description:
@@ -805,42 +793,48 @@ def get_subtask_recommendations(subtask_id):
         if subtask.embedding is not None and len(recommendations) > 0:
             try:
                 from models import SavedContent
-                # Get content embeddings and boost scores based on subtask embedding similarity
+                # Batch-load all recommendation content IDs to avoid N+1 DB round-trips
+                rec_content_ids = [
+                    (rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None))
+                    for rec in recommendations
+                ]
+                rec_content_ids = [cid for cid in rec_content_ids if cid is not None]
+                content_map = {}
+                if rec_content_ids:
+                    content_rows = SavedContent.query.filter(
+                        SavedContent.id.in_(rec_content_ids),
+                        SavedContent.embedding.isnot(None)
+                    ).with_entities(SavedContent.id, SavedContent.embedding).all()
+                    content_map = {row.id: row.embedding for row in content_rows}
+
                 enhanced_recommendations = []
                 for rec in recommendations:
                     content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
-                    if content_id:
-                        content = SavedContent.query.get(content_id)
-                        if content and content.embedding is not None:
-                            # Calculate similarity between subtask embedding and content embedding
-                            similarity = calculate_cosine_similarity(
-                                np.array(subtask.embedding),
-                                np.array(content.embedding)
-                            )
-                            # Boost score by embedding similarity (weight: 20%)
-                            if isinstance(rec, dict):
-                                original_score = rec.get('match_score', rec.get('score', 0))
-                                embedding_boost = similarity * 0.2  # 20% weight for embedding similarity
-                                rec['match_score'] = min(100, original_score + (embedding_boost * 100))
-                                rec['subtask_embedding_similarity'] = float(similarity)
-                            else:
-                                # If it's a dataclass object
-                                original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
-                                embedding_boost = similarity * 0.2
-                                rec.match_score = min(100, original_score + (embedding_boost * 100))
-                                rec.subtask_embedding_similarity = float(similarity)
+                    embedding = content_map.get(content_id)
+                    if content_id and embedding is not None:
+                        similarity = calculate_cosine_similarity(
+                            np.array(subtask.embedding),
+                            np.array(embedding)
+                        )
+                        if isinstance(rec, dict):
+                            original_score = rec.get('match_score', rec.get('score', 0))
+                            rec['match_score'] = min(100, original_score + (similarity * 0.2 * 100))
+                            rec['subtask_embedding_similarity'] = float(similarity)
+                        else:
+                            original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
+                            rec.match_score = min(100, original_score + (similarity * 0.2 * 100))
+                            rec.subtask_embedding_similarity = float(similarity)
                     enhanced_recommendations.append(rec)
-                
-                # Re-sort by enhanced score
+
                 if enhanced_recommendations:
                     enhanced_recommendations.sort(
-                        key=lambda x: x.get('match_score', getattr(x, 'match_score', 0)) if isinstance(x, dict) else getattr(x, 'match_score', 0),
+                        key=lambda x: x.get('match_score', 0) if isinstance(x, dict) else getattr(x, 'match_score', 0),
                         reverse=True
                     )
                     recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                    logger.info(f"Enhanced {len(recommendations)} recommendations using subtask embedding")
+                    logger.info("subtask_embedding_enhanced", extra={"count": len(recommendations)})
             except Exception as e:
-                logger.warning(f"Failed to enhance recommendations with subtask embedding: {e}")
+                logger.warning("subtask_embedding_enhancement_failed", extra={"error": str(e)})
                 # Continue with original recommendations
         
         # Convert to dictionary format
@@ -863,7 +857,7 @@ def get_subtask_recommendations(subtask_id):
         
     except Exception as e:
         logger.error(f"Error in subtask recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 
@@ -881,7 +875,7 @@ def get_smart_recommendations():
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error in smart recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/enhanced', methods=['POST'])
 @jwt_required()
@@ -906,7 +900,7 @@ def get_enhanced_recommendations_route():
         
     except Exception as e:
         logger.error(f"Error in enhanced recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
 @jwt_required()
@@ -930,7 +924,7 @@ def get_enhanced_project_recommendations_route(project_id):
         
     except Exception as e:
         logger.error(f"Error in enhanced project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/enhanced-status', methods=['GET'])
 @jwt_required()
@@ -944,7 +938,7 @@ def get_enhanced_engine_status():
             'smart_engine_available': SMART_ENGINE_AVAILABLE,
             'fast_gemini_available': FAST_GEMINI_AVAILABLE,
             'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
-            'gemini_analyzer_available': gemini_analyzer is not None,
+            'gemini_analyzer_available': False,  # Per-request instantiation via get_user_api_key; no global instance
             'embedding_model_available': get_embedding_model() is not None
         }
         
@@ -952,7 +946,7 @@ def get_enhanced_engine_status():
         
     except Exception as e:
         logger.error(f"Error getting enhanced engine status: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase3/recommendations', methods=['POST'])
 @jwt_required()
@@ -977,7 +971,7 @@ def get_phase3_recommendations():
         
     except Exception as e:
         logger.error(f"Error in Phase 3 recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase3/feedback', methods=['POST'])
 @jwt_required()
@@ -1009,7 +1003,7 @@ def record_phase3_feedback():
         
     except Exception as e:
         logger.error(f"Error recording Phase 3 feedback: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase3/insights', methods=['GET'])
 @jwt_required()
@@ -1031,7 +1025,7 @@ def get_phase3_insights():
         
     except Exception as e:
         logger.error(f"Error getting Phase 3 insights: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase3/health', methods=['GET'])
 @jwt_required()
@@ -1051,7 +1045,7 @@ def get_phase3_health():
         
     except Exception as e:
         logger.error(f"Error getting Phase 3 health: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # UTILITY ENDPOINTS
@@ -1091,7 +1085,7 @@ def get_engine_status():
         
     except Exception as e:
         logger.error(f"Error getting engine status: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/performance-metrics', methods=['GET'])
 @jwt_required()
@@ -1107,7 +1101,7 @@ def get_performance_metrics():
                 metrics['unified_orchestrator'] = orchestrator.get_performance_metrics()
             except Exception as e:
                 logger.error(f"Error getting orchestrator metrics: {e}")
-                metrics['unified_orchestrator'] = {'error': str(e)}
+                metrics['unified_orchestrator'] = {'error': 'Internal server error'}
         
 
         
@@ -1117,7 +1111,7 @@ def get_performance_metrics():
             metrics['redis_cache'] = redis_cache.get_cache_stats()
         except Exception as e:
             logger.error(f"Error getting Redis metrics: {e}")
-            metrics['redis_cache'] = {'error': str(e)}
+            metrics['redis_cache'] = {'error': 'Internal server error'}
         
         # Get database stats
         try:
@@ -1129,13 +1123,13 @@ def get_performance_metrics():
             }
         except Exception as e:
             logger.error(f"Error getting database metrics: {e}")
-            metrics['database'] = {'error': str(e)}
+            metrics['database'] = {'error': 'Internal server error'}
         
         return jsonify(metrics)
         
     except Exception as e:
         logger.error(f"Error getting performance metrics: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/cache/clear', methods=['POST'])
 @jwt_required()
@@ -1152,7 +1146,7 @@ def clear_recommendation_cache():
 
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/cache/clear-context', methods=['POST'])
 @jwt_required()
@@ -1187,7 +1181,7 @@ def clear_context_cache():
 
     except Exception as e:
         logger.error(f"Error clearing context cache: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/cache/clear-all-recommendations', methods=['POST'])
 @jwt_required()
@@ -1244,7 +1238,7 @@ def clear_all_recommendation_caches():
     except Exception as e:
         logger.error(f"Error clearing all recommendation caches: {e}")
         return jsonify({
-            'error': str(e),
+            'error': 'Internal server error',
             'note': 'Some caches may not have been cleared'
         }), 500
 
@@ -1252,52 +1246,20 @@ def clear_all_recommendation_caches():
 @jwt_required()
 def get_analysis_stats():
     """Get content analysis statistics"""
+    user_id = int(get_jwt_identity())
     try:
-        user_id = get_jwt_identity()
-        
-        # Import models here to avoid circular imports
-        from models import SavedContent, ContentAnalysis
-        
-        # Get user-specific analysis stats
-        total_user_content = SavedContent.query.filter_by(user_id=user_id).count()
-        analyzed_user_content = ContentAnalysis.query.join(SavedContent).filter(
-            SavedContent.user_id == user_id
-        ).count()
-        
-        # Calculate pending analysis for this user
-        pending_analysis = total_user_content - analyzed_user_content
-        
-        # Only show batch processing if user has content that needs analysis
-        if pending_analysis > 0 and total_user_content > 0:
-            # Calculate coverage percentage for this user
-            coverage_percentage = round((analyzed_user_content / total_user_content) * 100, 1)
-            
-            stats = {
-                'total_content': total_user_content,
-                'analyzed_content': analyzed_user_content,
-                'pending_analysis': pending_analysis,
-                'coverage_percentage': coverage_percentage,
-                'analysis_percentage': coverage_percentage,  # Keep for backward compatibility
-                'batch_processing_active': True,
-                'batch_message': f"Processing {pending_analysis} items ({coverage_percentage}% complete)"
-            }
-        else:
-            # No batch processing needed for this user
-            stats = {
-                'total_content': total_user_content,
-                'analyzed_content': analyzed_user_content,
-                'pending_analysis': 0,
-                'coverage_percentage': 100.0 if total_user_content > 0 else 0.0,
-                'analysis_percentage': 100.0 if total_user_content > 0 else 0.0,  # Keep for backward compatibility
-                'batch_processing_active': False,
-                'batch_message': None
-            }
-        
+        from uow.unit_of_work import UnitOfWork
+        from services.recommendation_service import RecommendationService
+
+        with UnitOfWork() as uow:
+            service = RecommendationService(uow)
+            stats = service.get_analysis_stats(user_id)
+
         return jsonify(stats)
-        
-    except Exception as e:
-        logger.error(f"Error getting analysis stats: {e}")
-        return jsonify({'error': str(e)}), 500
+
+    except Exception:
+        logger.exception("get_analysis_stats_failed", extra={"user_id": user_id})
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase-status', methods=['GET'])
 def get_phase_status():
@@ -1322,7 +1284,7 @@ def get_phase_status():
         
     except Exception as e:
         logger.error(f"Error getting phase status: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 
@@ -1343,7 +1305,7 @@ def get_learning_path_recommendations():
         
     except Exception as e:
         logger.error(f"Error in learning path recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/project-recommendations', methods=['POST'])
 @jwt_required()
@@ -1362,7 +1324,7 @@ def get_project_type_recommendations():
         
     except Exception as e:
         logger.error(f"Error in project type recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/phase3/contextual', methods=['POST'])
 @jwt_required()
@@ -1377,7 +1339,7 @@ def get_contextual_recommendations():
         
     except Exception as e:
         logger.error(f"Error in contextual recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # ANALYSIS ENDPOINTS
@@ -1408,7 +1370,7 @@ def analyze_content_immediately(content_id):
                         
     except Exception as e:
         logger.error(f"Error analyzing content: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/analysis/start-background', methods=['POST'])
 @jwt_required()
@@ -1427,7 +1389,7 @@ def start_background_analysis():
         
     except Exception as e:
         logger.error(f"Error starting background analysis: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/analysis/batch-analyze', methods=['POST'])
 @jwt_required()
@@ -1463,7 +1425,7 @@ def batch_analyze_content():
         
     except Exception as e:
         logger.error(f"Error in batch analysis: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # FEEDBACK AND LEARNING ENDPOINTS
@@ -1472,186 +1434,116 @@ def batch_analyze_content():
 @recommendations_bp.route('/feedback', methods=['POST'])
 @jwt_required()
 def record_recommendation_feedback():
-    """Record feedback for recommendations - Uses UserFeedback model for ML learning"""
+    """Record feedback for recommendations. Routes through RecommendationService for cache invalidation."""
+    user_id = int(get_jwt_identity())
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
+
+    recommendation_id = data.get('recommendation_id')
+    feedback_type = data.get('feedback_type')  # 'positive', 'negative', 'neutral'
+    feedback_data = data.get('feedback_data', {})
+
+    if not recommendation_id or not feedback_type:
+        return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
+
+    # Map incoming types to canonical UserFeedback model types
+    FEEDBACK_TYPE_MAP = {
+        'positive': 'helpful',
+        'negative': 'not_relevant',
+        'neutral': 'clicked',
+    }
+    mapped_feedback_type = FEEDBACK_TYPE_MAP.get(feedback_type, feedback_type)
+
     try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        recommendation_id = data.get('recommendation_id')
-        feedback_type = data.get('feedback_type')  # 'positive', 'negative', 'neutral'
-        feedback_data = data.get('feedback_data', {})
-        
-        if not recommendation_id or not feedback_type:
-            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
-        
-        # Import models here to avoid circular imports
-        from models import db, UserFeedback, SavedContent
-        
-        # Map feedback types to UserFeedback format
-        feedback_type_map = {
-            'positive': 'helpful',
-            'negative': 'not_relevant',
-            'neutral': 'clicked'
-        }
-        mapped_feedback_type = feedback_type_map.get(feedback_type, feedback_type)
-        
-        # Try to find the content_id from recommendation_id
-        # Recommendation ID might be the content ID or a separate identifier
-        content_id = recommendation_id  # Default assumption
-        
-        # If recommendation_id is not a content_id, we might need to look it up
-        # For now, we'll use it as content_id and let the database handle it
+        from uow.unit_of_work import UnitOfWork
+        from services.recommendation_service import RecommendationService
+        from models import SavedContent
+
+        # Resolve content_id from recommendation_id (best-effort; may be the same value)
+        content_id = recommendation_id
         try:
-            # Check if content exists
             content = SavedContent.query.filter_by(id=recommendation_id).first()
-            if not content:
-                # If not found, try to create a reference or use a default
-                logger.warning(f"Content with id {recommendation_id} not found, using recommendation_id as content_id")
-                content_id = recommendation_id
-            else:
+            if content:
                 content_id = content.id
-        except Exception as e:
-            logger.warning(f"Error looking up content: {e}, using recommendation_id as content_id")
-            content_id = recommendation_id
-        
-        # Create feedback record using UserFeedback model (supports recommendation_id)
-        feedback = UserFeedback(
-            user_id=user_id,
-            content_id=content_id,
-            recommendation_id=recommendation_id,
-            feedback_type=mapped_feedback_type,
-            context_data=feedback_data,
-            timestamp=datetime.utcnow()
-        )
-        
-        db.session.add(feedback)
-        db.session.commit()
-        
-        # If Phase 3 engine is available, also record there
+            else:
+                logger.warning("feedback_content_not_found", extra={"recommendation_id": recommendation_id})
+        except Exception:
+            logger.warning("feedback_content_lookup_failed", extra={"recommendation_id": recommendation_id})
+
+        with UnitOfWork() as uow:
+            service = RecommendationService(uow)
+            feedback = service.record_feedback(
+                user_id=user_id,
+                content_id=content_id,
+                feedback_type=mapped_feedback_type,
+                recommendation_id=recommendation_id,
+                feedback_data=feedback_data,
+            )
+            uow.flush()  # Obtain feedback.id before commit
+            feedback_id = feedback.id
+
+        # Fire-and-forget: Phase 3 engine side-effect (non-critical)
         if PHASE3_ENGINE_AVAILABLE:
             try:
                 from phase3_enhanced_engine import record_user_feedback_phase3
                 record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
-            except Exception as e:
-                logger.warning(f"Failed to record Phase 3 feedback: {e}")
-        
-        logger.info(f"Feedback recorded: user_id={user_id}, recommendation_id={recommendation_id}, type={mapped_feedback_type}")
-        return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback.id})
-        
-    except Exception as e:
-        logger.error(f"Error recording feedback: {e}")
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+            except Exception:
+                logger.warning("phase3_feedback_recording_failed", extra={"recommendation_id": recommendation_id})
+
+        logger.info("recommendation_feedback_recorded", extra={"user_id": user_id, "recommendation_id": recommendation_id, "feedback_type": mapped_feedback_type})
+        return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback_id})
+
+    except Exception:
+        logger.exception("record_recommendation_feedback_failed", extra={"user_id": user_id})
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/user-preferences', methods=['GET'])
 @jwt_required()
 def get_user_preferences():
     """Get user preferences and learning patterns"""
+    user_id = int(get_jwt_identity())
     try:
-        user_id = get_jwt_identity()
-        
-        # Import models here to avoid circular imports
-        from models import User, Feedback, SavedContent
-        
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        # Get user's feedback patterns
-        feedback_stats = db.session.query(
-            Feedback.feedback_type,
-            db.func.count(Feedback.id).label('count')
-        ).filter_by(user_id=user_id).group_by(Feedback.feedback_type).all()
-        
-        # Get user's content statistics
-        content_stats = {
-            'total_bookmarks': SavedContent.query.filter_by(user_id=user_id).count(),
-            'avg_quality_score': db.session.query(
-                db.func.avg(SavedContent.quality_score)
-            ).filter_by(user_id=user_id).scalar() or 0
-        }
-        
-        # Get top technologies from tags
-        top_technologies = db.session.query(
-            SavedContent.tags,
-            db.func.count(SavedContent.id).label('count')
-        ).filter(
-            SavedContent.user_id == user_id,
-            SavedContent.tags.isnot(None)
-        ).group_by(SavedContent.tags).order_by(
-            db.func.count(SavedContent.id).desc()
-        ).limit(10).all()
-        
-        preferences = {
-            'user_id': user_id,
-            'feedback_patterns': {stat.feedback_type: stat.count for stat in feedback_stats},
-            'content_statistics': content_stats,
-            'top_technologies': [{'technology': tag, 'count': count} for tag, count in top_technologies if tag],
-            'learning_style': 'adaptive'  # Could be enhanced with ML
-        }
-        
+        from uow.unit_of_work import UnitOfWork
+        from services.recommendation_service import RecommendationService
+
+        with UnitOfWork() as uow:
+            service = RecommendationService(uow)
+            preferences = service.get_user_preferences(user_id)
+
         return jsonify(preferences)
-        
-    except Exception as e:
-        logger.error(f"Error getting user preferences: {e}")
-        return jsonify({'error': str(e)}), 500
+
+    except Exception:
+        logger.exception("get_user_preferences_failed", extra={"user_id": user_id})
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/learning-insights', methods=['GET'])
 @jwt_required()
 def get_learning_insights():
     """Get learning insights for user"""
+    user_id = int(get_jwt_identity())
     try:
-        user_id = get_jwt_identity()
-        
-        # If Phase 3 engine is available, use it
+        # Prefer Phase 3 engine if available; fall back to RecommendationService
         if PHASE3_ENGINE_AVAILABLE:
             try:
                 from phase3_enhanced_engine import get_user_learning_insights
                 result = get_user_learning_insights(user_id)
                 return jsonify(result)
-            except Exception as e:
-                logger.warning(f"Phase 3 insights failed, using fallback: {e}")
-        
-        # Fallback to basic insights
-        from models import SavedContent, Feedback
-        
-        # Basic learning patterns
-        recent_bookmarks = SavedContent.query.filter_by(user_id=user_id).order_by(
-            SavedContent.created_at.desc()
-        ).limit(20).all()
-        
-        # Analyze recent patterns
-        technologies = []
-        for bookmark in recent_bookmarks:
-            if bookmark.tags:
-                technologies.extend(bookmark.tags.split(','))
-        
-        tech_frequency = defaultdict(int)
-        for tech in technologies:
-            tech_frequency[tech.strip().lower()] += 1
-        
-        insights = {
-            'user_id': user_id,
-            'learning_trends': {
-                'recent_technologies': dict(list(tech_frequency.items())[:10]),
-                'learning_velocity': len(recent_bookmarks),
-                'engagement_score': 7.5  # Basic score
-            },
-            'recommendations': [
-                'Continue exploring your current technology stack',
-                'Consider diversifying into related technologies',
-                'Regular review sessions would be beneficial'
-            ],
-            'engine_used': 'basic_insights'
-        }
-        
+            except Exception:
+                logger.warning("phase3_insights_fallback", extra={"user_id": user_id})
+
+        from uow.unit_of_work import UnitOfWork
+        from services.recommendation_service import RecommendationService
+
+        with UnitOfWork() as uow:
+            service = RecommendationService(uow)
+            insights = service.get_learning_insights(user_id)
+
         return jsonify(insights)
-        
-    except Exception as e:
-        logger.error(f"Error getting learning insights: {e}")
-        return jsonify({'error': str(e)}), 500
+
+    except Exception:
+        logger.exception("get_learning_insights_failed", extra={"user_id": user_id})
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # SEARCH AND DISCOVERY ENDPOINTS
@@ -1716,7 +1608,7 @@ def discover_recommendations():
         
     except Exception as e:
         logger.error(f"Error in discovery recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/similar/<int:content_id>', methods=['GET'])
 @jwt_required()
@@ -1784,7 +1676,7 @@ def get_similar_content(content_id):
         
     except Exception as e:
         logger.error(f"Error getting similar content: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
 # GEMINI-ENHANCED ENDPOINTS
@@ -1807,11 +1699,11 @@ def get_ultra_fast_recommendations():
             return jsonify({'error': 'Ultra-fast engine not available'}), 500
         except Exception as e:
             logger.error(f"Error in ultra-fast recommendations: {e}")
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'Internal server error'}), 500
             
     except Exception as e:
         logger.error(f"Error in ultra-fast recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/ultra-fast-project/<int:project_id>', methods=['POST'])
 @jwt_required()
@@ -1830,11 +1722,11 @@ def get_ultra_fast_project_recommendations(project_id):
             return jsonify({'error': 'Ultra-fast engine not available'}), 500
         except Exception as e:
             logger.error(f"Error in ultra-fast project recommendations: {e}")
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'Internal server error'}), 500
             
     except Exception as e:
         logger.error(f"Error in ultra-fast project recommendations: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/gemini-status', methods=['GET'])
 @jwt_required()
@@ -1861,7 +1753,7 @@ def get_gemini_status():
             'gemini_available': False,
             'status': 'error',
             'details': {
-                'error_message': str(e)
+                'error_message': 'Internal server error'
             }
         }), 500
 
@@ -1922,9 +1814,9 @@ def get_suggested_contexts():
                                     'technologies': project.technologies or '',
                                     'timeAgo': time_ago
                                 })
-                    except:
+                    except Exception:
                         continue
-        except:
+        except Exception:
             pass
         
         # If no feedback, get most recent project
@@ -1969,7 +1861,7 @@ def get_suggested_contexts():
     
     except Exception as e:
         logger.error(f"Error getting suggested contexts: {e}")
-        return jsonify({'success': False, 'error': str(e), 'contexts': []}), 500
+        return jsonify({'success': False, 'error': 'Internal server error', 'contexts': []}), 500
 
 @recommendations_bp.route('/recent-contexts', methods=['GET', 'OPTIONS'])
 def get_recent_contexts():
@@ -2014,7 +1906,7 @@ def get_recent_contexts():
                     'technologies': project.technologies or '',
                     'timeAgo': _get_time_ago(project.created_at)
                 })
-        except:
+        except Exception:
             pass
 
         result = {
@@ -2033,7 +1925,7 @@ def get_recent_contexts():
     
     except Exception as e:
         logger.error(f"Error getting recent contexts: {e}")
-        return jsonify({'success': False, 'error': str(e), 'recent': []}), 500
+        return jsonify({'success': False, 'error': 'Internal server error', 'recent': []}), 500
 
 def _get_time_ago(timestamp):
     """Convert timestamp to readable time ago"""

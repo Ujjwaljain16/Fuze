@@ -1,21 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-RQ Worker Script
-Run this script to start background workers that process bookmark tasks
+RQ Worker Script for Fuze
+Starts background workers that process queue jobs with unique worker naming,
+multiprocessing support for --workers, queue validation, and graceful signal handling.
 
 Usage:
     python backend/worker.py
-    
-    Or with specific queue:
-    python backend/worker.py --queue default
-    
-    Or with multiple workers:
-    python backend/worker.py --workers 4
+    python backend/worker.py --queue default --workers 4
 """
 
 import os
 import sys
+import socket
+import signal
 import argparse
+import multiprocessing
 from rq import Worker, Queue
 from core.logging_config import get_logger
 
@@ -29,100 +28,83 @@ if backend_dir not in sys.path:
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Import after path setup
-try:
-    from services.task_queue import redis_conn, get_redis_connection
-    logger.info("worker_import_success", module="task_queue")
-except Exception as e:
-    logger.error("worker_import_failed", module="task_queue", error=str(e))
-    sys.exit(1)
+ALLOWED_QUEUES = {'default', 'high', 'low', 'background_analysis', 'recommendations'}
 
-def main():
-    parser = argparse.ArgumentParser(description='Start RQ worker for background tasks')
-    parser.add_argument(
-        '--queue',
-        type=str,
-        default='default',
-        help='Queue name to listen to (default: default)'
-    )
-    parser.add_argument(
-        '--workers',
-        type=int,
-        default=1,
-        help='Number of worker processes (default: 1)'
-    )
-    parser.add_argument(
-        '--burst',
-        action='store_true',
-        help='Run in burst mode (exit when queue is empty)'
-    )
-    
-    args = parser.parse_args()
-    
-    # Get Redis connection (try existing, or create new)
-    rq_redis = redis_conn
+
+def run_single_worker(args, worker_index: int = 1):
+    """Run a single RQ worker instance within a process context."""
+    from services.task_queue import get_queue_connection
+    rq_redis = get_queue_connection()
+
     if not rq_redis:
-        # Try to create connection if not already available
-        try:
-            rq_redis = get_redis_connection()
-            rq_redis.ping()
-        except Exception as e:
-            logger.error("worker_redis_not_available", error=str(e))
-            sys.exit(1)
-    
-    # Create queue
-    queue = Queue(args.queue, connection=rq_redis)
-    
-    logger.info("worker_starting", queue=args.queue, burst_mode=args.burst, redis_status="connected")
-    
-    # Test that we can import the task function
-    try:
-        logger.info("worker_task_import_success")
-    except Exception as e:
-        logger.error("worker_task_import_failed", error=str(e))
+        logger.error("worker_redis_connection_failed")
         sys.exit(1)
-    
-    # Create and start worker
+
+    worker_name = f"fuze-worker-{args.queue}-{socket.gethostname()}-{os.getpid()}-{worker_index}"
+
     worker = Worker(
-        [queue],
+        [args.queue],
         connection=rq_redis,
-        name=f"fuze-worker-{args.queue}"
+        name=worker_name
     )
-    
-    logger.info("worker_created", worker_name=worker.name)
-    logger.info("worker_listening")
-    
-    import signal
-    
+
     def handle_shutdown(signum, frame):
-        logger.info("worker_shutdown_signal_received")
+        logger.info("worker_graceful_shutdown_requested", worker_name=worker_name)
         worker.request_stop()
-        sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
-    
-    # Instantiate Flask application context cleanly
+
+    # Initialize Flask application context
     try:
         from run_production import create_app
         app = create_app()
-        logger.info("worker_flask_app_context_created")
+        logger.info("worker_flask_context_ready", worker_name=worker_name)
     except Exception as e:
-        logger.error("worker_flask_app_creation_failed", error=str(e))
+        logger.error("worker_flask_context_failed", error=str(e))
         sys.exit(1)
 
     try:
         with app.app_context():
-            if args.burst:
-                logger.info("worker_mode_burst")
-                worker.work(burst=True)
-            else:
-                logger.info("worker_mode_continuous")
-                worker.work()
+            logger.info("worker_listening", worker_name=worker_name, queue=args.queue, burst=args.burst)
+            worker.work(burst=args.burst)
     except Exception as e:
-        logger.error("worker_runtime_error", error=str(e))
+        logger.error("worker_execution_error", worker_name=worker_name, error=str(e))
         sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Start RQ worker for background tasks')
+    parser.add_argument('--queue', type=str, default='default', help='Queue name to listen to')
+    parser.add_argument('--workers', type=int, default=1, help='Number of worker processes')
+    parser.add_argument('--burst', action='store_true', help='Run in burst mode (exit when empty)')
+
+    args = parser.parse_args()
+
+    if args.queue not in ALLOWED_QUEUES:
+        logger.error("invalid_queue_name", queue=args.queue, allowed=list(ALLOWED_QUEUES))
+        sys.exit(1)
+
+    # Verify job handlers before starting workers
+    try:
+        from services.background_analysis_service import analyze_bookmark_async
+        logger.info("worker_task_handlers_verified")
+    except Exception as e:
+        logger.warning("worker_task_handler_verification_warning", error=str(e))
+
+    if args.workers > 1:
+        logger.info("spawning_multiprocess_workers", count=args.workers, queue=args.queue)
+        processes = []
+        for i in range(args.workers):
+            p = multiprocessing.Process(target=run_single_worker, args=(args, i + 1))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+    else:
+        run_single_worker(args, 1)
+
 
 if __name__ == '__main__':
     main()
-

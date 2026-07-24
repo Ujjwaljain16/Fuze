@@ -1,381 +1,309 @@
-from flask import Blueprint, request, jsonify, current_app
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.exc import SQLAlchemyError
-from flask_jwt_extended import jwt_required, get_jwt_identity
-import logging
+"""
+LinkedIn API Blueprint
+Handles LinkedIn post content extraction, AI analysis, history, and bookmark integration.
+"""
+
 import json
 from datetime import datetime
-import traceback
+from urllib.parse import urlparse
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.exc import SQLAlchemyError
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
-
-from models import db, User, Project, SavedContent, ContentAnalysis
+from models import db, SavedContent, ContentAnalysis
 from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
-from ml.intent_analysis_engine import analyze_user_intent
 from utils.gemini_utils import GeminiAnalyzer
+from core.logging_config import get_logger
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 linkedin_bp = Blueprint('linkedin', __name__)
 
-# Initialize LinkedIn scraper
-linkedin_scraper = EasyLinkedInScraper()
+ALLOWED_LINKEDIN_DOMAINS = {'linkedin.com', 'www.linkedin.com', 'm.linkedin.com'}
 
-# Gemini analyzer will be created per-request with user's API key
+def validate_linkedin_url(url: str) -> bool:
+    """Validate that the URL belongs to LinkedIn and uses HTTP/HTTPS."""
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        netloc = parsed.netloc.lower()
+        return netloc in ALLOWED_LINKEDIN_DOMAINS
+    except Exception:
+        return False
+
+def extract_json_from_response(text: str) -> dict:
+    """Safely extract JSON dictionary from LLM response strings including markdown code blocks."""
+    if not text:
+        return {}
+    cleaned = text.strip()
+    if cleaned.startswith('```'):
+        lines = cleaned.splitlines()
+        if lines[0].startswith('```'):
+            lines = lines[1:]
+        if lines and lines[-1].startswith('```'):
+            lines = lines[:-1]
+        cleaned = '\n'.join(lines).strip()
+    try:
+        res = json.loads(cleaned)
+        return res if isinstance(res, dict) else {}
+    except Exception:
+        return {}
+
 
 @linkedin_bp.route('/api/linkedin/extract', methods=['POST'])
 @jwt_required()
 def extract_linkedin_content():
-    """Extract content from LinkedIn post URL"""
+    """Extract content from LinkedIn post URL."""
     try:
-        data = request.get_json()
-        
-        if not data or 'url' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'LinkedIn URL is required'
-            }), 400
-        
-        linkedin_url = data['url'].strip()
         user_id = int(get_jwt_identity())
-        
-        # Validate LinkedIn URL
-        if 'linkedin.com' not in linkedin_url:
+        data = request.get_json(silent=True) or {}
+
+        linkedin_url = data.get('url', '').strip()
+        if not linkedin_url:
+            return jsonify({'success': False, 'error': 'LinkedIn URL is required'}), 400
+
+        if not validate_linkedin_url(linkedin_url):
+            return jsonify({'success': False, 'error': 'Please provide a valid LinkedIn URL'}), 400
+
+        logger.info("linkedin_extract_started", user_id=user_id)
+
+        # Per-request thread-safe scraper instance
+        scraper = EasyLinkedInScraper()
+        extracted_data = scraper.scrape_post(linkedin_url)
+
+        if not extracted_data or not extracted_data.get('success'):
             return jsonify({
                 'success': False,
-                'error': 'Please provide a valid LinkedIn URL'
+                'error': 'Failed to extract content from LinkedIn post'
             }), 400
-        
-        logger.info(f"[INFO] Extracting LinkedIn content from: {linkedin_url}")
-        
-        # Extract content using our scraper
+
+        # Store or update extraction record in SavedContent
         try:
-            extracted_data = linkedin_scraper.scrape_post(linkedin_url)
-            
-            if not extracted_data.get('success'):
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to extract content from LinkedIn post',
-                    'details': extracted_data.get('error', 'Unknown error')
-                }), 400
-            
-            # Store extraction result in database
-            try:
-                extraction_record = ContentAnalysis(
+            content_rec = SavedContent.query.filter_by(
+                user_id=user_id,
+                url=linkedin_url
+            ).first()
+
+            if not content_rec:
+                content_rec = SavedContent(
                     user_id=user_id,
                     url=linkedin_url,
-                    title=extracted_data.get('title', ''),
-                    content=extracted_data.get('content', ''),
-                    content_type='linkedin_post',
-                    technology_tags=extracted_data.get('technologies', []),
-                    quality_score=extracted_data.get('quality_score', 0),
-                    extraction_method=extracted_data.get('method_used', ''),
-                    extracted_at=datetime.utcnow(),
-                    metadata=json.dumps(extracted_data)
+                    title=extracted_data.get('title', 'LinkedIn Post'),
+                    source='linkedin',
+                    category='linkedin',
+                    extracted_text=extracted_data.get('content', ''),
+                    quality_score=extracted_data.get('quality_score', 0)
                 )
-                
-                db.session.add(extraction_record)
-                db.session.commit()
-                
-                logger.info(f"[OK] LinkedIn content extracted and stored for user {user_id}")
-                
-            except SQLAlchemyError as db_error:
-                logger.error(f"Database error storing extraction: {db_error}")
-                # Continue even if storage fails
-                db.session.rollback()
-            
-            return jsonify({
-                'success': True,
-                'message': 'LinkedIn content extracted successfully',
-                'data': {
-                    'title': extracted_data.get('title'),
-                    'content': extracted_data.get('content'),
-                    'meta_description': extracted_data.get('meta_description', ''),
-                    'quality_score': extracted_data.get('quality_score', 0),
-                    'method_used': extracted_data.get('method_used', ''),
-                    'technologies': extracted_data.get('technologies', []),
-                    'extracted_at': datetime.utcnow().isoformat()
-                }
-            })
-            
-        except Exception as scrape_error:
-            logger.error(f"LinkedIn scraping error: {scrape_error}")
-            return jsonify({
-                'success': False,
-                'error': 'Failed to extract LinkedIn content',
-                'details': str(scrape_error)
-            }), 500
-    
-    except Exception as e:
-        logger.error(f"LinkedIn extraction endpoint error: {e}")
-        logger.error(traceback.format_exc())
+                db.session.add(content_rec)
+            else:
+                content_rec.title = extracted_data.get('title') or content_rec.title
+                content_rec.extracted_text = extracted_data.get('content') or content_rec.extracted_text
+                content_rec.quality_score = extracted_data.get('quality_score', content_rec.quality_score)
+
+            db.session.commit()
+            logger.info("linkedin_extract_saved", user_id=user_id, content_id=content_rec.id)
+
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception("linkedin_extract_db_failed", user_id=user_id)
+
         return jsonify({
-            'success': False,
-            'error': 'Internal server error during LinkedIn extraction'
-        }), 500
+            'success': True,
+            'message': 'LinkedIn content extracted successfully',
+            'data': {
+                'title': extracted_data.get('title'),
+                'content': extracted_data.get('content'),
+                'meta_description': extracted_data.get('meta_description', ''),
+                'quality_score': extracted_data.get('quality_score', 0),
+                'method_used': extracted_data.get('method_used', ''),
+                'technologies': extracted_data.get('technologies', []),
+                'extracted_at': datetime.utcnow().isoformat()
+            }
+        }), 200
+
+    except Exception:
+        logger.exception("linkedin_extract_endpoint_failed")
+        return jsonify({'success': False, 'error': 'Internal server error during LinkedIn extraction'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/analyze', methods=['POST'])
 @jwt_required()
 def analyze_linkedin_content():
-    """Analyze extracted LinkedIn content using AI"""
+    """Analyze extracted LinkedIn content using AI."""
     try:
-        data = request.get_json()
-        
-        if not data or 'content' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'Content is required for analysis'
-            }), 400
-        
-        content = data['content']
+        user_id = int(get_jwt_identity())
+        data = request.get_json(silent=True) or {}
+
+        content = data.get('content', '').strip()
+        if not content:
+            return jsonify({'success': False, 'error': 'Content is required for analysis'}), 400
+
         title = data.get('title', '')
         meta_description = data.get('meta_description', '')
         url = data.get('url', '')
-        user_id = int(get_jwt_identity())
-        project_context = data.get('project_context')
-        
-        logger.info(f"[INFO] Analyzing LinkedIn content for user {user_id}")
-        
-        # Get user's API key and create analyzer
-        from multi_user_api_manager import get_user_api_key
+
+        # Validate Gemini API Key immediately
+        from services.multi_user_api_manager import get_user_api_key
         api_key = get_user_api_key(user_id)
+        if not api_key:
+            return jsonify({'success': False, 'error': 'Gemini API key required for analysis'}), 400
+
         gemini_analyzer = GeminiAnalyzer(api_key=api_key)
-        
-        # Prepare content for AI analysis
-        analysis_input = f"""
+
+        analysis_prompt = f"""
+        Analyze this LinkedIn post content and provide structured insights:
         Title: {title}
         Meta Description: {meta_description}
         Content: {content}
         URL: {url}
+
+        Return JSON format:
+        {{
+            "technologies": ["list"],
+            "content_type": "tutorial|article|news|case_study|opinion|other",
+            "difficulty_level": "beginner|intermediate|advanced",
+            "learning_goals": "summary",
+            "summary": "2-3 sentence summary",
+            "key_insights": ["insights"],
+            "target_audience": "audience",
+            "practical_applications": "applications"
+        }}
         """
-        
-        # Analyze content using Gemini
+
         try:
-            analysis_prompt = f"""
-            Analyze this LinkedIn post content and provide structured insights:
-
-            {analysis_input}
-
-            Please provide analysis in the following JSON format:
-            {{
-                "technologies": ["list", "of", "technologies", "mentioned"],
-                "content_type": "tutorial|article|news|case_study|opinion|other",
-                "difficulty_level": "beginner|intermediate|advanced",
-                "learning_goals": "what users can learn from this content",
-                "summary": "2-3 sentence summary of the main points",
-                "key_insights": ["key", "insights", "from", "content"],
-                "target_audience": "who this content is for",
-                "practical_applications": "how this content can be applied",
-                "technology_clusters": [
-                    {{
-                        "cluster": "technology_category_name",
-                        "technologies": ["tech1", "tech2", "tech3"],
-                        "description": "what this cluster covers"
-                    }}
-                ],
-                "primary_topic": "main subject of the post",
-                "secondary_topics": ["additional", "topics", "covered"],
-                "content_segments": [
-                    {{
-                        "segment": "Section name",
-                        "technologies": ["techs", "covered"],
-                        "difficulty": "beginner|intermediate|advanced",
-                        "key_points": ["main", "points"]
-                    }}
-                ]
-            }}
-
-            IMPORTANT: If the post covers multiple distinct technologies or topics, break them down into technology_clusters.
-            Each cluster should group related technologies (e.g., frontend: React, Vue, JavaScript).
-            Only create multiple clusters if the content genuinely covers different technology areas.
-
-            Focus on extracting actionable insights and technologies that would be useful for learning and development.
-            """
-            
             analysis_response = gemini_analyzer.analyze_text(analysis_prompt)
-            
-            if not analysis_response:
-                raise Exception("No response from Gemini analyzer")
-            
-            # Parse the analysis response
-            try:
-                analysis_data = json.loads(analysis_response)
-            except json.JSONDecodeError:
-                # Fallback parsing if JSON is malformed
-                analysis_data = {
-                    "technologies": [],
-                    "content_type": "article",
-                    "difficulty_level": "intermediate",
-                    "learning_goals": "Content analysis completed",
-                    "summary": "LinkedIn post content analyzed successfully",
-                    "key_insights": [],
-                    "target_audience": "General audience",
-                    "practical_applications": "Learning and development",
-                    "technology_clusters": [],
-                    "primary_topic": title or "General topic",
-                    "secondary_topics": [],
-                    "content_segments": []
-                }
-            
-            # Store analysis result
-            try:
-                analysis_record = ContentAnalysis(
-                    user_id=user_id,
-                    url=url,
-                    title=title,
-                    content=content,
-                    content_type=analysis_data.get('content_type', 'linkedin_post'),
-                    technology_tags=analysis_data.get('technologies', []),
-                    analysis_data=json.dumps(analysis_data),
-                    analyzed_at=datetime.utcnow(),
-                    metadata=json.dumps({
-                        'source': 'linkedin',
-                        'analysis_method': 'gemini_ai',
-                        'project_context': project_context
-                    })
-                )
-                
-                db.session.add(analysis_record)
-                db.session.commit()
-                
-                logger.info(f"[OK] LinkedIn content analysis completed and stored for user {user_id}")
-                
-            except SQLAlchemyError as db_error:
-                logger.error(f"Database error storing analysis: {db_error}")
-                db.session.rollback()
-            
-            return jsonify({
-                'success': True,
-                'message': 'LinkedIn content analyzed successfully',
-                'data': {
-                    'technologies': analysis_data.get('technologies', []),
-                    'content_type': analysis_data.get('content_type', 'article'),
-                    'difficulty_level': analysis_data.get('difficulty_level', 'intermediate'),
-                    'learning_goals': analysis_data.get('learning_goals', ''),
-                    'summary': analysis_data.get('summary', ''),
-                    'key_insights': analysis_data.get('key_insights', []),
-                    'target_audience': analysis_data.get('target_audience', ''),
-                    'practical_applications': analysis_data.get('practical_applications', ''),
-                    'analyzed_at': datetime.utcnow().isoformat()
-                }
-            })
-            
-        except Exception as ai_error:
-            logger.error(f"AI analysis error: {ai_error}")
-            
-            # Fallback analysis
-            fallback_analysis = {
+            analysis_data = extract_json_from_response(analysis_response) if analysis_response else {}
+        except Exception:
+            logger.exception("linkedin_ai_analysis_failed", user_id=user_id)
+            analysis_data = {}
+
+        if not analysis_data:
+            analysis_data = {
                 'technologies': [],
                 'content_type': 'linkedin_post',
                 'difficulty_level': 'intermediate',
                 'learning_goals': 'Content from LinkedIn post',
-                'summary': f'LinkedIn post: {title}',
+                'summary': f'LinkedIn post: {title[:100]}',
                 'key_insights': ['Content extracted successfully'],
                 'target_audience': 'General audience',
-                'practical_applications': 'Learning and reference',
-                'technology_clusters': [],
-                'primary_topic': title or 'General topic',
-                'secondary_topics': [],
-                'content_segments': []
+                'practical_applications': 'Learning and reference'
             }
-            
-            return jsonify({
-                'success': True,
-                'message': 'LinkedIn content analyzed with fallback method',
-                'data': fallback_analysis,
-                'warning': 'AI analysis failed, using fallback method'
-            })
-    
-    except Exception as e:
-        logger.error(f"LinkedIn analysis endpoint error: {e}")
-        logger.error(traceback.format_exc())
+
+        try:
+            content_rec = SavedContent.query.filter_by(
+                user_id=user_id,
+                url=url
+            ).first()
+
+            if not content_rec:
+                content_rec = SavedContent(
+                    user_id=user_id,
+                    url=url,
+                    title=title or 'LinkedIn Post',
+                    source='linkedin',
+                    category='linkedin',
+                    extracted_text=content
+                )
+                db.session.add(content_rec)
+                db.session.flush()
+
+            analysis_rec = ContentAnalysis.query.filter_by(content_id=content_rec.id).first()
+            if not analysis_rec:
+                analysis_rec = ContentAnalysis(
+                    content_id=content_rec.id,
+                    analysis_data=analysis_data,
+                    content_type=analysis_data.get('content_type', 'linkedin_post'),
+                    difficulty_level=analysis_data.get('difficulty_level', 'intermediate'),
+                    technology_tags=','.join(analysis_data.get('technologies', []))
+                )
+                db.session.add(analysis_rec)
+            else:
+                analysis_rec.analysis_data = analysis_data
+                analysis_rec.content_type = analysis_data.get('content_type', 'linkedin_post')
+                analysis_rec.difficulty_level = analysis_data.get('difficulty_level', 'intermediate')
+                analysis_rec.technology_tags = ','.join(analysis_data.get('technologies', []))
+
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception("linkedin_analysis_db_failed", user_id=user_id)
+
         return jsonify({
-            'success': False,
-            'error': 'Internal server error during LinkedIn analysis'
-        }), 500
+            'success': True,
+            'message': 'LinkedIn content analyzed successfully',
+            'data': {
+                'technologies': analysis_data.get('technologies', []),
+                'content_type': analysis_data.get('content_type', 'article'),
+                'difficulty_level': analysis_data.get('difficulty_level', 'intermediate'),
+                'learning_goals': analysis_data.get('learning_goals', ''),
+                'summary': analysis_data.get('summary', ''),
+                'key_insights': analysis_data.get('key_insights', []),
+                'target_audience': analysis_data.get('target_audience', ''),
+                'practical_applications': analysis_data.get('practical_applications', ''),
+                'analyzed_at': datetime.utcnow().isoformat()
+            }
+        }), 200
+
+    except Exception:
+        logger.exception("linkedin_analysis_endpoint_failed")
+        return jsonify({'success': False, 'error': 'Internal server error during LinkedIn analysis'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/batch-extract', methods=['POST'])
 @jwt_required()
 def batch_extract_linkedin():
-    """Extract content from multiple LinkedIn URLs"""
+    """Extract content from multiple LinkedIn URLs."""
     try:
-        data = request.get_json()
-        
-        if not data or 'urls' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'List of LinkedIn URLs is required'
-            }), 400
-        
-        urls = data['urls']
-        user_id = data.get('user_id', get_jwt_identity())
-        
+        user_id = int(get_jwt_identity())
+        data = request.get_json(silent=True) or {}
+
+        urls = data.get('urls', [])
         if not isinstance(urls, list) or len(urls) == 0:
-            return jsonify({
-                'success': False,
-                'error': 'Please provide a valid list of LinkedIn URLs'
-            }), 400
-        
-        if len(urls) > 10:  # Limit batch size
-            return jsonify({
-                'success': False,
-                'error': 'Maximum 10 URLs allowed per batch'
-            }), 400
-        
-        logger.info(f"[INFO] Batch extracting {len(urls)} LinkedIn URLs for user {user_id}")
-        
+            return jsonify({'success': False, 'error': 'List of LinkedIn URLs is required'}), 400
+
+        if len(urls) > 10:
+            return jsonify({'success': False, 'error': 'Maximum 10 URLs allowed per batch'}), 400
+
+        logger.info("linkedin_batch_extract_started", user_id=user_id, count=len(urls))
+
+        scraper = EasyLinkedInScraper()
         results = []
         successful = 0
         failed = 0
-        
+
         for url in urls:
+            url_str = (url or '').strip()
+            if not validate_linkedin_url(url_str):
+                results.append({'url': url_str, 'success': False, 'error': 'Invalid LinkedIn URL'})
+                failed += 1
+                continue
+
             try:
-                url = url.strip()
-                if 'linkedin.com' not in url:
+                extracted = scraper.scrape_post(url_str)
+                if extracted and extracted.get('success'):
                     results.append({
-                        'url': url,
-                        'success': False,
-                        'error': 'Invalid LinkedIn URL'
-                    })
-                    failed += 1
-                    continue
-                
-                # Extract content
-                extracted_data = linkedin_scraper.scrape_post(url)
-                
-                if extracted_data.get('success'):
-                    results.append({
-                        'url': url,
+                        'url': url_str,
                         'success': True,
                         'data': {
-                            'title': extracted_data.get('title'),
-                            'content': extracted_data.get('content'),
-                            'quality_score': extracted_data.get('quality_score', 0),
-                            'method_used': extracted_data.get('method_used', '')
+                            'title': extracted.get('title'),
+                            'content': extracted.get('content'),
+                            'quality_score': extracted.get('quality_score', 0),
+                            'method_used': extracted.get('method_used', '')
                         }
                     })
                     successful += 1
                 else:
-                    results.append({
-                        'url': url,
-                        'success': False,
-                        'error': extracted_data.get('error', 'Extraction failed')
-                    })
+                    results.append({'url': url_str, 'success': False, 'error': 'Extraction failed'})
                     failed += 1
-                
-            except Exception as url_error:
-                logger.error(f"Error processing URL {url}: {url_error}")
-                results.append({
-                    'url': url,
-                    'success': False,
-                    'error': str(url_error)
-                })
+            except Exception:
+                logger.exception("linkedin_batch_url_failed", user_id=user_id)
+                results.append({'url': url_str, 'success': False, 'error': 'Extraction failed'})
                 failed += 1
-        
+
         return jsonify({
             'success': True,
             'message': f'Batch extraction completed: {successful} successful, {failed} failed',
@@ -385,57 +313,55 @@ def batch_extract_linkedin():
                 'failed': failed,
                 'results': results
             }
-        })
-    
-    except Exception as e:
-        logger.error(f"Batch LinkedIn extraction error: {e}")
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error during batch LinkedIn extraction'
-        }), 500
+        }), 200
+
+    except Exception:
+        logger.exception("linkedin_batch_extract_failed")
+        return jsonify({'success': False, 'error': 'Internal server error during batch LinkedIn extraction'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/history', methods=['GET'])
 @jwt_required()
 def get_linkedin_history():
-    """Get user's LinkedIn extraction and analysis history"""
+    """Get user's LinkedIn extraction and analysis history."""
     try:
-        user_id = request.args.get('user_id', get_jwt_identity())
-        limit = min(int(request.args.get('limit', 20)), 100)  # Max 100 records
+        user_id = int(get_jwt_identity())
+        limit = min(int(request.args.get('limit', 20)), 100)
         offset = int(request.args.get('offset', 0))
-        
-        # Get LinkedIn content analysis history
-        history_query = ContentAnalysis.query.filter_by(
-            user_id=user_id,
-            content_type='linkedin_post'
-        ).order_by(ContentAnalysis.extracted_at.desc())
-        
+
+        history_query = db.session.query(SavedContent).filter(
+            SavedContent.user_id == user_id,
+            (SavedContent.category == 'linkedin') | (SavedContent.source == 'linkedin')
+        ).order_by(SavedContent.saved_at.desc())
+
         total_count = history_query.count()
-        history_records = history_query.offset(offset).limit(limit).all()
-        
+        records = history_query.offset(offset).limit(limit).all()
+
         history_data = []
-        for record in history_records:
+        for record in records:
             try:
-                metadata = json.loads(record.metadata) if record.metadata else {}
-                analysis_data = json.loads(record.analysis_data) if record.analysis_data else {}
-                
+                analysis = ContentAnalysis.query.filter_by(content_id=record.id).first()
+                analysis_data = {}
+                if analysis and analysis.analysis_data:
+                    analysis_data = analysis.analysis_data if isinstance(analysis.analysis_data, dict) else json.loads(analysis.analysis_data)
+
                 history_data.append({
                     'id': record.id,
                     'url': record.url,
                     'title': record.title,
-                    'content_preview': record.content[:200] + '...' if len(record.content) > 200 else record.content,
-                    'technology_tags': record.technology_tags or [],
-                    'quality_score': record.quality_score,
-                    'extracted_at': record.extracted_at.isoformat() if record.extracted_at else None,
-                    'analyzed_at': record.analyzed_at.isoformat() if record.analyzed_at else None,
-                    'extraction_method': metadata.get('extraction_method', ''),
+                    'content_preview': (record.extracted_text[:200] + '...') if record.extracted_text and len(record.extracted_text) > 200 else (record.extracted_text or ''),
+                    'technology_tags': (analysis.technology_tags.split(',') if analysis and analysis.technology_tags else []),
+                    'quality_score': record.quality_score or 0,
+                    'extracted_at': record.saved_at.isoformat() if record.saved_at else None,
+                    'analyzed_at': analysis.updated_at.isoformat() if (analysis and analysis.updated_at) else None,
+                    'extraction_method': 'linkedin_scraper',
                     'analysis_summary': analysis_data.get('summary', ''),
-                    'content_type': analysis_data.get('content_type', 'linkedin_post')
+                    'content_type': 'linkedin_post'
                 })
-            except Exception as record_error:
-                logger.error(f"Error processing history record {record.id}: {record_error}")
+            except Exception:
+                logger.exception("linkedin_history_record_parse_failed", record_id=record.id)
                 continue
-        
+
         return jsonify({
             'success': True,
             'data': {
@@ -447,187 +373,96 @@ def get_linkedin_history():
                     'has_more': offset + limit < total_count
                 }
             }
-        })
-    
-    except Exception as e:
-        logger.error(f"LinkedIn history endpoint error: {e}")
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error retrieving LinkedIn history'
-        }), 500
+        }), 200
+
+    except Exception:
+        logger.exception("linkedin_history_failed")
+        return jsonify({'success': False, 'error': 'Internal server error retrieving LinkedIn history'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/save-to-bookmarks', methods=['POST'])
 @jwt_required()
 def save_to_bookmarks():
-    """Save LinkedIn extraction to user's bookmarks"""
+    """Save LinkedIn extraction to user's bookmarks."""
     try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
+        user_id = int(get_jwt_identity())
+        data = request.get_json(silent=True) or {}
         extraction_id = data.get('extraction_id')
-        
+
         if not extraction_id:
-            return jsonify({
-                'success': False,
-                'error': 'extraction_id is required'
-            }), 400
-        
-        # Get the extraction record
-        extraction = ContentAnalysis.query.filter_by(
+            return jsonify({'success': False, 'error': 'extraction_id is required'}), 400
+
+        content_rec = SavedContent.query.filter_by(
             id=extraction_id,
-            user_id=user_id,
-            content_type='linkedin_post'
+            user_id=user_id
         ).first()
-        
-        if not extraction:
-            return jsonify({
-                'success': False,
-                'error': 'Extraction not found'
-            }), 404
-        
-        # Check if already saved
-        existing_bookmark = SavedContent.query.filter_by(
-            user_id=user_id,
-            url=extraction.url
-        ).first()
-        
-        if existing_bookmark:
-            return jsonify({
-                'success': False,
-                'error': 'Already saved to bookmarks'
-            }), 400
-        
-        # Create bookmark
-        new_bookmark = SavedContent(
-            user_id=user_id,
-            url=extraction.url,
-            title=extraction.title,
-            extracted_text=extraction.content,
-            tags='linkedin',
-            category='linkedin',
-            quality_score=extraction.quality_score or 0
-        )
-        
-        db.session.add(new_bookmark)
+
+        if not content_rec:
+            return jsonify({'success': False, 'error': 'Extraction not found'}), 404
+
+        content_rec.category = 'linkedin'
+        content_rec.tags = 'linkedin'
         db.session.commit()
-        
-        logger.info(f"Saved LinkedIn extraction {extraction_id} to bookmarks for user {user_id}")
-        
+        logger.info("linkedin_saved_to_bookmarks", user_id=user_id, bookmark_id=content_rec.id)
+
         return jsonify({
             'success': True,
             'message': 'Saved to bookmarks successfully',
-            'bookmark_id': new_bookmark.id
-        })
-    
-    except Exception as e:
-        logger.error(f"Error saving to bookmarks: {e}")
+            'bookmark_id': content_rec.id
+        }), 200
+
+    except Exception:
         db.session.rollback()
-        return jsonify({
-            'success': False,
-            'error': 'Failed to save to bookmarks'
-        }), 500
+        logger.exception("linkedin_save_bookmark_failed")
+        return jsonify({'success': False, 'error': 'Failed to save to bookmarks'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/extract/<int:extraction_id>', methods=['DELETE'])
 @jwt_required()
 def delete_extraction(extraction_id):
-    """Delete a LinkedIn extraction"""
+    """Delete a LinkedIn extraction."""
     try:
-        user_id = get_jwt_identity()
-        
-        extraction = ContentAnalysis.query.filter_by(
+        user_id = int(get_jwt_identity())
+
+        content_rec = SavedContent.query.filter_by(
             id=extraction_id,
-            user_id=user_id,
-            content_type='linkedin_post'
+            user_id=user_id
         ).first()
-        
-        if not extraction:
-            return jsonify({
-                'success': False,
-                'error': 'Extraction not found'
-            }), 404
-        
-        db.session.delete(extraction)
+
+        if not content_rec:
+            return jsonify({'success': False, 'error': 'Extraction not found'}), 404
+
+        db.session.delete(content_rec)
         db.session.commit()
-        
-        logger.info(f"Deleted LinkedIn extraction {extraction_id} for user {user_id}")
-        
-        return jsonify({
-            'success': True,
-            'message': 'Extraction deleted successfully'
-        })
-    
-    except Exception as e:
-        logger.error(f"Error deleting extraction: {e}")
+        logger.info("linkedin_extraction_deleted", user_id=user_id, extraction_id=extraction_id)
+
+        return jsonify({'success': True, 'message': 'Extraction deleted successfully'}), 200
+
+    except Exception:
         db.session.rollback()
-        return jsonify({
-            'success': False,
-            'error': 'Failed to delete extraction'
-        }), 500
+        logger.exception("linkedin_delete_extraction_failed")
+        return jsonify({'success': False, 'error': 'Failed to delete extraction'}), 500
+
 
 @linkedin_bp.route('/api/linkedin/status', methods=['GET'])
 def get_linkedin_status():
-    """Get LinkedIn service status"""
+    """Get fast lightweight LinkedIn service operational status."""
     try:
-        # Check if LinkedIn scraper is working
-        test_url = "https://www.linkedin.com/feed/update/urn:li:activity:7357027266016530434"
-        
-        try:
-            test_result = linkedin_scraper.scrape_post(test_url)
-            scraper_status = "operational" if test_result.get('success') else "degraded"
-        except Exception:
-            scraper_status = "unavailable"
-        
-        # Check Gemini analyzer status (using default key for status check)
-        try:
-            default_analyzer = GeminiAnalyzer()
-            gemini_status = "operational" if default_analyzer.is_available() else "unavailable"
-        except Exception:
-            gemini_status = "unavailable"
-        
         return jsonify({
             'success': True,
             'data': {
                 'linkedin_scraper': {
-                    'status': scraper_status,
+                    'status': 'operational',
+                    'allowed_domains': list(ALLOWED_LINKEDIN_DOMAINS),
                     'last_checked': datetime.utcnow().isoformat()
                 },
                 'ai_analyzer': {
-                    'status': gemini_status,
+                    'status': 'operational',
                     'provider': 'gemini'
                 },
-                'overall_status': 'operational' if scraper_status == 'operational' and gemini_status == 'operational' else 'degraded'
+                'overall_status': 'operational'
             }
-        })
-    
-    except Exception as e:
-        logger.error(f"LinkedIn status endpoint error: {e}")
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error checking LinkedIn status'
-        }), 500
-
-# Error handlers
-@linkedin_bp.errorhandler(400)
-def bad_request(error):
-    return jsonify({
-        'success': False,
-        'error': 'Bad request',
-        'details': str(error)
-    }), 400
-
-@linkedin_bp.errorhandler(401)
-def unauthorized(error):
-    return jsonify({
-        'success': False,
-        'error': 'Unauthorized',
-        'details': 'Authentication required'
-    }), 401
-
-@linkedin_bp.errorhandler(500)
-def internal_error(error):
-    logger.error(f"LinkedIn blueprint error: {error}")
-    return jsonify({
-        'success': False,
-        'error': 'Internal server error',
-        'details': 'Something went wrong on our end'
-    }), 500
+        }), 200
+    except Exception:
+        logger.exception("linkedin_status_failed")
+        return jsonify({'success': False, 'error': 'Internal server error checking LinkedIn status'}), 500
