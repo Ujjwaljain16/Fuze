@@ -848,10 +848,15 @@ class ScraplingEnhancedScraper:
         thread.start()
         
         # Wait for completion or timeout
+        t_start = time.perf_counter()
+        logger.info(f"[SCRAPER TIMING] thread_done.wait(timeout={timeout}) started for thread {thread.name}")
         if thread_done.wait(timeout=timeout):
+            t_elapsed = time.perf_counter() - t_start
+            logger.info(f"[SCRAPER TIMING] thread_done.wait completed in {t_elapsed:.4f}s")
             thread.join(timeout=1)  # Give thread a moment to finish
         else:
-            logger.warning(f"Fetcher timeout after {timeout}s")
+            t_elapsed = time.perf_counter() - t_start
+            logger.warning(f"[SCRAPER TIMING EXPIRED] Fetcher timeout after {timeout}s (elapsed={t_elapsed:.4f}s)")
             return None, TimeoutError("Fetcher operation timed out")
         
         return result, exception

@@ -295,6 +295,15 @@ def login():
         set_access_cookies(response, access_token)
         set_refresh_cookies(response, refresh_token)
 
+        # Fire-and-forget cache warming (ITEM 6)
+        try:
+            from core.feature_flags import is_enabled
+            if is_enabled('cache_warm_on_login', user_id=user_id):
+                from services.task_queue import enqueue_cache_warm_job
+                enqueue_cache_warm_job(user_id)
+        except Exception as warm_err:
+            logger.warning(f"cache_warm_enqueue_failed: {warm_err}")
+
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Login success: user_id={user_id} ({elapsed:.0f}ms)")
         return response, 200

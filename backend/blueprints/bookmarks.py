@@ -635,7 +635,7 @@ def bulk_import_bookmarks():
             except Exception as enqueue_err:
                 logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
 
-        redis_cache.invalidate_user_bookmarks(user_id)
+        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
         from blueprints.recommendations import invalidate_user_recommendations
         invalidate_user_recommendations(user_id)
 
@@ -673,7 +673,7 @@ def list_bookmarks():
     
     # PRODUCTION OPTIMIZATION: Check cache first
     cache_key = f"bookmarks:{user_id}:{page}:{per_page}:{search}:{category}"
-    cached_result = redis_cache.get_cached_query_result(cache_key)
+    cached_result = redis_cache.get_cache(cache_key)
     if cached_result:
         return jsonify(cached_result), 200
     

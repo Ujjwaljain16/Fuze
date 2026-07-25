@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from models import db, SavedContent, ContentAnalysis
 from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
 from utils.gemini_utils import GeminiAnalyzer
+from middleware.rate_limiting import limiter
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -255,6 +256,7 @@ def analyze_linkedin_content():
 
 @linkedin_bp.route('/api/linkedin/batch-extract', methods=['POST'])
 @jwt_required()
+@limiter.limit("5 per minute")
 def batch_extract_linkedin():
     """Extract content from multiple LinkedIn URLs."""
     try:

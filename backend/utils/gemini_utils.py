@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Any, Union
 import google.generativeai as genai
 from core.logging_config import get_logger
 
+from core.circuit_breaker import gemini_circuit_breaker
+
 logger = get_logger(__name__)
 
 
@@ -35,39 +37,59 @@ class GeminiAnalyzer:
     """
 
     def __init__(self, api_key: Optional[str] = None):
-        key = api_key or os.environ.get('GEMINI_API_KEY')
+        from utils.unified_config import get_config
+        config = get_config()
+        
+        key = api_key or config.ai.gemini_api_key
         if not key:
             raise ValueError("GEMINI_API_KEY environment variable is required")
 
         genai.configure(api_key=key)
 
-        model_candidates = ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-pro']
+        model_candidates = [
+            config.ai.gemini_model,
+            config.ai.gemini_fallback_model
+        ]
         self.model = None
+        self.active_model_name = None
 
         for model_name in model_candidates:
+            if not model_name:
+                continue
             try:
                 self.model = genai.GenerativeModel(model_name)
+                self.active_model_name = model_name
                 logger.info("gemini_model_initialized", extra={"model_name": model_name})
                 break
             except Exception:
                 continue
 
         if not self.model:
-            raise ValueError("Failed to initialize Gemini AI with candidate models")
+            raise ValueError(f"Failed to initialize Gemini AI with candidate models: {model_candidates}")
 
         self.generation_config = {
-            'temperature': 0.3,
+            'temperature': config.ai.gemini_temperature,
             'top_p': 0.8,
             'top_k': 40,
-            'max_output_tokens': 2048,
+            'max_output_tokens': config.ai.gemini_max_tokens,
         }
 
         self.max_retries = 3
         self.retry_delay = 1.0
 
     def _make_gemini_request(self, prompt: str) -> Optional[str]:
-        """Make an iterative request to Gemini with backoff and error handling."""
+        """Make an iterative request to Gemini with backoff and circuit breaker isolation."""
+        from core.metrics import gemini_calls_total
+
         if not prompt or not isinstance(prompt, str):
+            return None
+
+        if not gemini_circuit_breaker.allow_request():
+            logger.warning("gemini_request_blocked_by_circuit_breaker")
+            try:
+                gemini_calls_total.labels(model=self.active_model_name, status="circuit_breaker_blocked").inc()
+            except Exception:
+                pass
             return None
 
         for attempt in range(self.max_retries + 1):
@@ -81,10 +103,20 @@ class GeminiAnalyzer:
                     if attempt < self.max_retries:
                         time.sleep(self.retry_delay * (attempt + 1))
                         continue
+                    gemini_circuit_breaker.record_failure()
+                    try:
+                        gemini_calls_total.labels(model=self.active_model_name, status="empty_response").inc()
+                    except Exception:
+                        pass
                     return None
 
                 cleaned = response.text.strip()
                 if cleaned:
+                    gemini_circuit_breaker.record_success()
+                    try:
+                        gemini_calls_total.labels(model=self.active_model_name, status="success").inc()
+                    except Exception:
+                        pass
                     return cleaned
             except Exception as e:
                 logger.warning("gemini_request_failed_attempt", extra={"attempt": attempt + 1, "error": str(e)})
@@ -92,6 +124,11 @@ class GeminiAnalyzer:
                     time.sleep(self.retry_delay * (attempt + 1))
                     continue
 
+        gemini_circuit_breaker.record_failure()
+        try:
+            gemini_calls_total.labels(model=self.active_model_name, status="failed").inc()
+        except Exception:
+            pass
         return None
 
     def _extract_json_from_response(self, response_text: str) -> Optional[Union[Dict, List]]:
