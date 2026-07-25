@@ -1,0 +1,62 @@
+{
+  "version": "1.0.0",
+  "description": "FUZE Golden Dataset for Recommendation Quality Benchmarking (MRR & NDCG@10)",
+  "benchmark_queries": [
+    {
+      "id": "query_frontend_01",
+      "category": "frontend",
+      "request": {
+        "title": "React Dashboard with Tailwind CSS",
+        "description": "Building a high-performance analytics dashboard using React 19, TypeScript, and Tailwind v4",
+        "technologies": "React, TypeScript, Tailwind CSS, Vite"
+      },
+      "expected_relevant_candidates": [
+        {"id": 101, "title": "Advanced React 19 State Patterns", "expected_rank": 1},
+        {"id": 102, "title": "Tailwind CSS Design Systems", "expected_rank": 2},
+        {"id": 103, "title": "Vite Production Optimization Guide", "expected_rank": 3}
+      ]
+    },
+    {
+      "id": "query_backend_01",
+      "category": "backend",
+      "request": {
+        "title": "Flask SQLAlchemy Connection Pooling",
+        "description": "Optimizing PostgreSQL connection pool and session cleanup in Gunicorn background workers",
+        "technologies": "Python, Flask, SQLAlchemy, PostgreSQL, Redis"
+      },
+      "expected_relevant_candidates": [
+        {"id": 201, "title": "SQLAlchemy Connection Pool Architecture", "expected_rank": 1},
+        {"id": 202, "title": "PostgreSQL Performance Tuning for Python", "expected_rank": 2},
+        {"id": 203, "title": "Redis Cache Invalidation Patterns", "expected_rank": 3}
+      ]
+    },
+    {
+      "id": "query_aiml_01",
+      "category": "ai_ml",
+      "request": {
+        "title": "Sentence Transformers Vector Embeddings",
+        "description": "Generating dense vector embeddings for semantic search using sentence-transformers and pgvector",
+        "technologies": "Python, PyTorch, SentenceTransformers, pgvector, Vector DB"
+      },
+      "expected_relevant_candidates": [
+        {"id": 301, "title": "Dense Vector Embeddings Deep Dive", "expected_rank": 1},
+        {"id": 302, "title": "pgvector HNSW Indexing Strategies", "expected_rank": 2},
+        {"id": 303, "title": "Hybrid Search: BM25 + Vector Similarity", "expected_rank": 3}
+      ]
+    },
+    {
+      "id": "query_data_eng_01",
+      "category": "data_engineering",
+      "request": {
+        "title": "Redis Queue RQ Background Pipeline",
+        "description": "Distributed background task queue with failover tracking and supervisord supervision",
+        "technologies": "Python, Redis, RQ, Supervisord, Celery"
+      },
+      "expected_relevant_candidates": [
+        {"id": 401, "title": "Redis Queue RQ Production Hardening", "expected_rank": 1},
+        {"id": 402, "title": "Supervisord Process Supervision Best Practices", "expected_rank": 2},
+        {"id": 403, "title": "Distributed Locking with Redis SET NX", "expected_rank": 3}
+      ]
+    }
+  ]
+}

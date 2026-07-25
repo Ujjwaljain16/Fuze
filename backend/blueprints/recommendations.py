@@ -14,6 +14,7 @@ from collections import defaultdict
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from middleware.rate_limiting import limiter
 from dataclasses import asdict
 from core.logging_config import get_logger
 
@@ -151,6 +152,7 @@ def invalidate_user_recommendations(user_id):
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
+@limiter.limit("15 per minute")
 def get_unified_orchestrator_recommendations():
     """Get recommendations using PRODUCTION-OPTIMIZED Unified Orchestrator (Primary endpoint)"""
     # NOTE: Rate limiting is configured at the app level via Flask-Limiter.
@@ -235,6 +237,7 @@ def get_unified_orchestrator_recommendations():
 
 @recommendations_bp.route('/generate-context', methods=['POST'])
 @jwt_required()
+@limiter.limit("10 per minute")
 def generate_personalized_context():
     """Generate personalized context summary for a specific recommendation"""
     try:

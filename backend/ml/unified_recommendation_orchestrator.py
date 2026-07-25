@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Unified Recommendation Orchestrator
 Coordinates all recommendation engines with proper hierarchy and fallback strategies
@@ -69,6 +69,17 @@ try:
 except ImportError:
     UNIVERSAL_MATCHER_AVAILABLE = False
     logger.warning("ΓÜá∩╕Å UniversalSemanticMatcher not available, using fallback matching")
+
+# Import new RecommendationPipeline and ShadowEvaluator
+try:
+    from ml.recommendation.pipeline import RecommendationPipeline
+    from ml.recommendation.shadow_evaluator import ShadowEvaluator
+    from ml.recommendation.domain import RecommendationRequest as DomainRequest
+    PIPELINE_AVAILABLE = True
+    logger.info("✅ RecommendationPipeline and ShadowEvaluator imported successfully")
+except ImportError:
+    PIPELINE_AVAILABLE = False
+    logger.warning("⚠️ RecommendationPipeline not available, running legacy mode")
 
 # Global Gemini instance for caching
 # Per-user Gemini analyzer cache
@@ -2355,6 +2366,18 @@ class UnifiedRecommendationOrchestrator:
         self.fast_engine = FastSemanticEngine(self.data_layer)
         self.context_engine = ContextAwareEngine(self.data_layer)
         
+        # New Recommendation Pipeline & Shadow Evaluator
+        if PIPELINE_AVAILABLE:
+            self.recommendation_pipeline = RecommendationPipeline()
+            self.shadow_evaluator = ShadowEvaluator()
+        else:
+            self.recommendation_pipeline = None
+            self.shadow_evaluator = None
+
+        # Feature Flags
+        self.feature_pipeline_enabled = os.environ.get("RECOMMENDATION_PIPELINE_ENABLED", "false").lower() == "true"
+        self.feature_shadow_enabled = os.environ.get("RECOMMENDATION_SHADOW_MODE", "true").lower() == "true"
+
         # Engine registry
         self.engines = {
             'fast': self.fast_engine,
@@ -2372,6 +2395,38 @@ class UnifiedRecommendationOrchestrator:
         """Get recommendations using orchestrated approach with intent analysis - OPTIMIZED FOR PERFORMANCE"""
         start_time = time.time()
         
+        # Feature Flag Cutover: If pipeline enabled, serve directly via RecommendationPipeline
+        if self.feature_pipeline_enabled and self.recommendation_pipeline:
+            try:
+                dom_req = DomainRequest(
+                    user_id=request.user_id,
+                    title=request.title,
+                    description=request.description,
+                    technologies=request.technologies,
+                    project_id=request.project_id,
+                    max_recommendations=request.max_recommendations
+                )
+                pipeline_results = self.recommendation_pipeline.run(dom_req)
+                return [
+                    UnifiedRecommendationResult(
+                        id=r.candidate_id,
+                        title=r.title,
+                        url=r.url,
+                        score=r.score,
+                        reason=r.reason,
+                        content_type=r.content_type,
+                        difficulty="intermediate",
+                        technologies=r.technologies,
+                        key_concepts=r.technologies,
+                        quality_score=int(r.score * 10),
+                        engine_used="SmartEngine",
+                        confidence=r.score,
+                        metadata={}
+                    ) for r in pipeline_results
+                ]
+            except Exception as pipe_err:
+                logger.error(f"RecommendationPipeline cutover execution failed: {pipe_err}, falling back to legacy")
+
         try:
             # OPTIMIZATION 1: Check cache first for better performance
             cache_key = self._generate_cache_key(request)
@@ -2452,7 +2507,30 @@ class UnifiedRecommendationOrchestrator:
             # Log performance
             response_time = (time.time() - start_time) * 1000
             logger.info(f"Recommendations generated in {response_time:.2f}ms using {recommendations[0].engine_used if recommendations else 'no engine'} with intent: {intent.primary_goal}")
-            
+
+            # Shadow Mode Execution: Run RecommendationPipeline in background/shadow mode and evaluate overlap
+            if self.feature_shadow_enabled and self.recommendation_pipeline and self.shadow_evaluator:
+                try:
+                    p_start = time.time()
+                    dom_req = DomainRequest(
+                        user_id=request.user_id,
+                        title=request.title,
+                        description=request.description,
+                        technologies=request.technologies,
+                        project_id=request.project_id,
+                        max_recommendations=request.max_recommendations
+                    )
+                    shadow_results = self.recommendation_pipeline.run(dom_req)
+                    p_time = (time.time() - p_start) * 1000
+                    self.shadow_evaluator.evaluate_shadow_run(
+                        legacy_results=[asdict(r) for r in recommendations],
+                        new_results=shadow_results,
+                        legacy_latency_ms=response_time,
+                        new_latency_ms=p_time
+                    )
+                except Exception as shadow_err:
+                    logger.warning(f"Shadow evaluation failed: {shadow_err}")
+
             return recommendations
             
         except Exception as e:

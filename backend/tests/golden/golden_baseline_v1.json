@@ -1,0 +1,85 @@
+{
+  "version": "1",
+  "generated_at": "2026-07-24T13:45:02.977964+00:00",
+  "generated_from": "unified_recommendation_orchestrator.py (SmartEngine)",
+  "note": "FROZEN BASELINE \u2014 do not regenerate from live traffic. This is the permanent Gate 1 regression target per ADR-006. To update, generate golden_baseline_v2.json and amend the ADR.",
+  "queries": [
+    {
+      "query_id": "query_frontend_01",
+      "query": "React Dashboard with Tailwind CSS",
+      "legacy_top10": [
+        102,
+        101,
+        103,
+        900,
+        901,
+        902,
+        903,
+        904,
+        905,
+        906
+      ],
+      "legacy_mrr": 0.5,
+      "legacy_ndcg10": 0.842828
+    },
+    {
+      "query_id": "query_backend_01",
+      "query": "Flask SQLAlchemy Connection Pooling",
+      "legacy_top10": [
+        201,
+        202,
+        203,
+        900,
+        901,
+        902,
+        903,
+        904,
+        905,
+        906
+      ],
+      "legacy_mrr": 1.0,
+      "legacy_ndcg10": 1.0
+    },
+    {
+      "query_id": "query_aiml_01",
+      "query": "Sentence Transformers Vector Embeddings",
+      "legacy_top10": [
+        301,
+        302,
+        303,
+        900,
+        901,
+        902,
+        903,
+        904,
+        905,
+        906
+      ],
+      "legacy_mrr": 1.0,
+      "legacy_ndcg10": 1.0
+    },
+    {
+      "query_id": "query_data_eng_01",
+      "query": "Redis Queue RQ Background Pipeline",
+      "legacy_top10": [
+        401,
+        403,
+        402,
+        900,
+        901,
+        902,
+        903,
+        904,
+        905,
+        906
+      ],
+      "legacy_mrr": 1.0,
+      "legacy_ndcg10": 0.972121
+    }
+  ],
+  "aggregate": {
+    "avg_mrr": 0.875,
+    "avg_ndcg10": 0.953737,
+    "query_count": 4
+  }
+}
