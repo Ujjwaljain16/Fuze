@@ -111,15 +111,6 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         if scraped_title and (not bookmark_title or bookmark_title == 'Untitled Bookmark'):
             final_title = truncate_title(scraped_title.strip())
 
-        embedding = generate_comprehensive_embedding(
-            title=final_title,
-            description=bookmark_notes,
-            meta_description=meta_description,
-            headings=headings,
-            extracted_text=extracted_text_raw,
-            url=url
-        )
-
         # Null byte & type conversion
         extracted_text = None
         if extracted_text_raw is not None:
@@ -138,11 +129,33 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 bookmark.title = final_title
 
             bookmark.extracted_text = extracted_text
-
-            if validate_embedding(embedding):
-                bookmark.embedding = embedding
-
             bookmark.quality_score = quality_score
+            
+            # Feature flag check for asynchronous embeddings
+            from core.feature_flags import is_enabled
+            if is_enabled("async_embeddings", user_id=user_id):
+                logger.info("bg_bookmark_deferring_embedding", extra={"bookmark_id": bookmark_id})
+                should_enqueue_embedding = True
+            else:
+                embedding = generate_comprehensive_embedding(
+                    title=final_title,
+                    description=bookmark_notes,
+                    meta_description=meta_description,
+                    headings=headings,
+                    extracted_text=extracted_text_raw,
+                    url=url
+                )
+                if validate_embedding(embedding):
+                    bookmark.embedding = embedding
+                should_enqueue_embedding = False
+
+        # If async embeddings are enabled, queue the embedding job AFTER the UoW commits
+        if should_enqueue_embedding:
+            try:
+                from services.task_queue import enqueue_embedding_job
+                enqueue_embedding_job(bookmark_id)
+            except Exception as e:
+                logger.error("bg_bookmark_async_embed_dispatch_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
 
         # Safe cache invalidation
         try:

@@ -138,6 +138,11 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
 
     try:
         from services.bookmark_processing_service import process_bookmark_content_task
+        from core.metrics import rq_queue_depth
+        try:
+            rq_queue_depth.labels(queue=queue_name).set(len(queue))
+        except Exception:
+            pass
 
         unique_job_id = f"bookmark_process_{bookmark_id}_{uuid.uuid4().hex[:8]}"
 
@@ -191,6 +196,139 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def enqueue_embedding_job(bookmark_id: int, queue_name: str = 'default') -> Optional[Job]:
+    """
+    Enqueue an async embedding generation job for a single bookmark.
+    Idempotent at the job level — embed_bookmark_job checks IS NULL before generating.
+    Uses Retry(max=3) with exponential backoff: 60s, 300s, 900s.
+    """
+    queue = get_queue(queue_name)
+    if not queue:
+        logger.warning("rq_queue_unavailable_for_embedding", extra={"bookmark_id": bookmark_id})
+        return None
+
+    try:
+        from background.embed_worker import embed_bookmark_job
+        from core.metrics import rq_queue_depth
+        try:
+            rq_queue_depth.labels(queue=queue_name).set(len(queue))
+        except Exception:
+            pass
+
+        unique_job_id = f"embed_bookmark_{bookmark_id}_{uuid.uuid4().hex[:8]}"
+
+        job = queue.enqueue(
+            embed_bookmark_job,
+            bookmark_id,
+            job_timeout='5m',
+            retry=Retry(max=3, interval=[60, 300, 900]),
+            job_id=unique_job_id,
+        )
+
+        logger.info(
+            "rq_embedding_job_enqueued",
+            extra={"job_id": job.id, "bookmark_id": bookmark_id},
+        )
+        return job
+    except Exception as e:
+        logger.error(
+            "rq_embedding_job_enqueue_failed",
+            extra={"bookmark_id": bookmark_id, "error": str(e)},
+        )
+        return None
+
+def enqueue_project_ml_job(
+    project_id: int,
+    user_id: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    technologies: Optional[str] = None,
+    queue_name: str = 'default'
+) -> Optional[Job]:
+    """
+    Enqueue an async ML generation job for a project.
+    Generates embeddings and extracts intents.
+    """
+    queue = get_queue(queue_name)
+    if not queue:
+        logger.warning("rq_queue_unavailable_for_project_ml", extra={"project_id": project_id})
+        return None
+
+    try:
+        from jobs.project_ml_job import process_project_ml
+        from core.metrics import rq_queue_depth
+        try:
+            rq_queue_depth.labels(queue=queue_name).set(len(queue))
+        except Exception:
+            pass
+
+        unique_job_id = f"project_ml_{project_id}_{uuid.uuid4().hex[:8]}"
+
+        job = queue.enqueue(
+            process_project_ml,
+            project_id,
+            user_id,
+            title,
+            description,
+            technologies,
+            job_timeout='10m',
+            retry=Retry(max=3, interval=[60, 300, 900]),
+            job_id=unique_job_id,
+        )
+
+        logger.info(
+            "rq_project_ml_job_enqueued",
+            extra={"job_id": job.id, "project_id": project_id},
+        )
+        return job
+    except Exception as e:
+        logger.error(
+            "rq_project_ml_job_enqueue_failed",
+            extra={"project_id": project_id, "error": str(e)},
+        )
+        return None
+
+def enqueue_cache_warm_job(user_id: int, queue_name: str = 'high') -> Optional[Job]:
+    """
+    Enqueue a cache warming job for a user after login.
+    Uses the high-priority queue so it executes before regular bookmark jobs.
+    """
+    queue = get_queue(queue_name)
+    if not queue:
+        logger.warning("rq_queue_unavailable_for_cache_warm", extra={"user_id": user_id})
+        return None
+
+    try:
+        from background.cache_warmer import warm_user_cache
+
+        unique_job_id = f"cache_warm_{user_id}_{uuid.uuid4().hex[:8]}"
+
+        job = queue.enqueue(
+            warm_user_cache,
+            user_id,
+            job_timeout='30s',
+            retry=Retry(max=1, interval=[10]),
+            job_id=unique_job_id,
+        )
+
+        logger.info(
+            "rq_cache_warm_job_enqueued",
+            extra={"job_id": job.id, "user_id": user_id},
+        )
+        return job
+    except Exception as e:
+        logger.error(
+            "rq_cache_warm_job_enqueue_failed",
+            extra={"user_id": user_id, "error": str(e)},
+        )
+        return None
+
+
+def get_queue_connection() -> Optional[object]:
+    """Alias for get_redis_connection — used by worker.py."""
+    return get_redis_connection()
+
+
 def is_rq_available() -> bool:
     """Check if RQ is connected and operational by verifying connection ping."""
     conn = get_redis_connection()
@@ -202,3 +340,27 @@ def is_rq_available() -> bool:
         return False
     except Exception:
         return False
+
+
+def get_queue_stats(queue_name: str = 'default') -> Dict[str, Any]:
+    """Get metrics for a specific RQ queue including depth and active workers."""
+    conn = get_redis_connection()
+    if not conn:
+        return {'status': 'disconnected', 'depth': 0, 'failed': 0, 'active_workers': 0}
+    try:
+        from rq import Worker
+        q = Queue(queue_name, connection=conn)
+        failed_q = Queue('failed', connection=conn)
+        workers = Worker.all(connection=conn)
+        active_workers = len([w for w in workers if queue_name in w.queue_names()])
+
+        return {
+            'status': 'connected',
+            'queue_name': queue_name,
+            'depth': len(q),
+            'failed_count': len(failed_q),
+            'active_workers': active_workers
+        }
+    except Exception as e:
+        logger.error("rq_queue_stats_failed", extra={"error": str(e)})
+        return {'status': 'error', 'error': str(e), 'depth': 0, 'failed_count': 0, 'active_workers': 0}

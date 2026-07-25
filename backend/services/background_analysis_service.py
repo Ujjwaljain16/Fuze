@@ -85,10 +85,13 @@ class BackgroundAnalysisService:
 
     def stop_background_analysis(self):
         """Stop the background analysis thread."""
+        t_bg_0 = time.perf_counter()
+        logger.info("[BG ANALYSIS TIMING] Stopping background analysis thread...")
         self.running = False
         if self.analysis_thread:
             self.analysis_thread.join(timeout=5)
-        logger.info("bg_analysis_service_stopped")
+        t_bg_1 = time.perf_counter()
+        logger.info(f"[BG ANALYSIS TIMING] Stopped background analysis thread in {t_bg_1 - t_bg_0:.4f}s")
 
     def _is_failed(self, content_id: int) -> bool:
         """Check if content ID failed recently using Redis 24h TTL."""
@@ -124,10 +127,14 @@ class BackgroundAnalysisService:
                             lock.release()
                     else:
                         logger.debug("bg_analysis_worker_lock_skipped")
-                time.sleep(30)
             except Exception as e:
                 logger.error("bg_analysis_worker_exception", extra={"error": str(e)})
-                time.sleep(60)
+            finally:
+                try:
+                    db.session.remove()
+                except Exception:
+                    pass
+                time.sleep(30 if self.running else 1)
 
     def _process_unanalyzed_content(self):
         """Process content that hasn't been analyzed yet with round-robin multi-user fairness."""

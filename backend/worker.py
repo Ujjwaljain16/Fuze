@@ -31,6 +31,20 @@ if parent_dir not in sys.path:
 ALLOWED_QUEUES = {'default', 'high', 'low', 'background_analysis', 'recommendations'}
 
 
+class FuzeWorker(Worker):
+    """Custom RQ Worker that ensures SQLAlchemy session cleanup after every job."""
+
+    def perform_job(self, job, queue):
+        try:
+            return super().perform_job(job, queue)
+        finally:
+            try:
+                from models import db
+                db.session.remove()
+            except Exception:
+                pass
+
+
 def run_single_worker(args, worker_index: int = 1):
     """Run a single RQ worker instance within a process context."""
     from services.task_queue import get_queue_connection
@@ -42,7 +56,7 @@ def run_single_worker(args, worker_index: int = 1):
 
     worker_name = f"fuze-worker-{args.queue}-{socket.gethostname()}-{os.getpid()}-{worker_index}"
 
-    worker = Worker(
+    worker = FuzeWorker(
         [args.queue],
         connection=rq_redis,
         name=worker_name
