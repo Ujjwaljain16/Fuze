@@ -63,10 +63,10 @@ jobs:
           pip install -r ../requirements.txt
 
       - name: Run Alembic migrations and drift check
-        working-directory: backend
         env:
           DATABASE_URL: postgresql://fuze_test:fuze_test_password@localhost:5432/fuze_test_db
           ENVIRONMENT: test
+          PYTHONPATH: backend
         run: |
           python -m alembic upgrade head
           python -m alembic check
