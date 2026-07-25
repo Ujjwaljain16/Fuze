@@ -11,6 +11,7 @@ on:
       - 'app.py'
       - 'wsgi.py'
       - 'start.sh'
+      - 'supervisord.conf'
 
 jobs:
   sync:
@@ -44,6 +45,7 @@ jobs:
           cp app.py hf-space/
           cp wsgi.py hf-space/
           cp start.sh hf-space/
+          cp supervisord.conf hf-space/
 
       - name: Commit and Push to HF Space
         env:
