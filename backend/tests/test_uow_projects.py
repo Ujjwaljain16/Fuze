@@ -5,11 +5,11 @@ from unittest.mock import patch, MagicMock
 
 def _make_test_app():
     """Create a Flask app for testing without triggering production env validation."""
-    os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-ci')
-    os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-key-for-ci')
-    os.environ.setdefault('FLASK_ENV', 'testing')
-    os.environ.setdefault('TESTING', 'true')
-    os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
+    os.environ['SECRET_KEY'] = 'test-secret-key-for-ci'
+    os.environ['JWT_SECRET_KEY'] = 'test-jwt-secret-key-for-ci'
+    os.environ['FLASK_ENV'] = 'testing'
+    os.environ['TESTING'] = 'true'
+    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
     from run_production import create_app
     flask_app = create_app()
@@ -29,8 +29,15 @@ def test_app():
     with flask_app.app_context():
         db.create_all()
         yield flask_app
+        try:
+            db.session.rollback()
+        except:
+            pass
         db.session.remove()
-        db.drop_all()
+        try:
+            db.drop_all()
+        except Exception:
+            pass
 
 
 @pytest.fixture
@@ -48,9 +55,11 @@ def service(uow):
 
 @pytest.fixture
 def test_user(test_app):
+    import uuid
     from models import db, User
+    uid = uuid.uuid4().hex[:8]
     with test_app.app_context():
-        user = User(username='testuser', email='test@example.com', password_hash='hash')
+        user = User(username=f'user_{uid}', email=f'user_{uid}@example.com', password_hash='hash')
         db.session.add(user)
         db.session.commit()
         yield user

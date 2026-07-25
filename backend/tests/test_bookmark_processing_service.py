@@ -45,7 +45,8 @@ def test_process_bookmark_content_task_flow(app):
         }
         mock_emb.return_value = [0.1] * 384
 
-        with patch('services.background_analysis_service.analyze_content') as mock_analyze:
+        with patch('services.background_analysis_service.analyze_content') as mock_analyze, \
+             patch('core.feature_flags.is_enabled', return_value=False):
             process_bookmark_content_task(bookmark_id=1, url='https://example.com', user_id=10)
 
             assert mock_bookmark.title == 'Scraped Title'

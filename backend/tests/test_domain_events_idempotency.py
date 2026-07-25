@@ -4,11 +4,11 @@ from unittest.mock import patch, MagicMock
 
 def _make_test_app():
     """Create a Flask app for testing without triggering production env validation."""
-    os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-ci')
-    os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-key-for-ci')
-    os.environ.setdefault('FLASK_ENV', 'testing')
-    os.environ.setdefault('TESTING', 'true')
-    os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
+    os.environ['SECRET_KEY'] = 'test-secret-key-for-ci'
+    os.environ['JWT_SECRET_KEY'] = 'test-jwt-secret-key-for-ci'
+    os.environ['FLASK_ENV'] = 'testing'
+    os.environ['TESTING'] = 'true'
+    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 
     from run_production import create_app
     flask_app = create_app()
@@ -27,16 +27,25 @@ def test_app():
     with flask_app.app_context():
         db.create_all()
         yield flask_app
+        try:
+            db.session.rollback()
+        except:
+            pass
         db.session.remove()
-        db.drop_all()
+        try:
+            db.drop_all()
+        except Exception:
+            pass
 
 @pytest.fixture
 def test_user(test_app):
     from models import db, User
     with test_app.app_context():
-        user = User(username='testuser', email='test@example.com', password_hash='hash')
-        db.session.add(user)
-        db.session.commit()
+        user = User.query.filter_by(email='test_events_idempotency@example.com').first()
+        if not user:
+            user = User(username='testuser_events_idempotency', email='test_events_idempotency@example.com', password_hash='hash')
+            db.session.add(user)
+            db.session.commit()
         yield user
 
 def test_safe_event_dispatch_isolation(test_app, test_user):

@@ -11,6 +11,9 @@ from services.task_queue import (
 
 @pytest.mark.unit
 def test_task_queue_lazy_connection():
+    import services.task_queue as tq
+    tq._redis_conn = None  # Reset global state
+    
     with patch('services.task_queue._create_redis_connection') as mock_create:
         mock_conn = MagicMock()
         mock_create.return_value = mock_conn
