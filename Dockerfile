@@ -1,27 +1,70 @@
-# Dockerfile for Hugging Face Spaces deployment
-FROM python:3.11-slim
+# =============================================================================
+# FUZE — Multi-Stage Docker Build
+# =============================================================================
+# Stage 1 (builder): compile all Python wheels, fetch camoufox browser
+# Stage 2 (runtime): copy only compiled wheels + app code — no build toolchain
+#
+# Target: Hugging Face Spaces (port 7860)
+# Expected image size reduction: ~35-45% vs single-stage
+# =============================================================================
 
-# Set working directory
-WORKDIR /app
+# ---------------------------------------------------------------------------
+# STAGE 1 — builder
+# ---------------------------------------------------------------------------
+FROM python:3.11 AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+WORKDIR /build
+
+# Install build-time system dependencies (compilers, headers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and build all wheels into /wheels
+COPY requirements.txt .
+RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# Install packages into builder so we can run camoufox fetch
+RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
+    --root-user-action=ignore
+
+# Fetch camoufox browser artifacts (written to ~/.local/share/camoufox or similar)
+# The || true prevents build failure if camoufox is unavailable in CI
+RUN camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)"
+
+# Capture camoufox data directory for COPY in runtime stage
+RUN python -c "import camoufox; import os; print(os.path.dirname(camoufox.__file__))" \
+    > /tmp/camoufox_pkg_path.txt || echo "unknown" > /tmp/camoufox_pkg_path.txt
+
+# ---------------------------------------------------------------------------
+# STAGE 2 — runtime
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime-only system dependencies (no compilers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libgomp1 \
     postgresql-client \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Copy pre-built wheels from builder and install without index (no network needed)
+COPY --from=builder /wheels /wheels
 COPY requirements.txt .
+RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
+    --root-user-action=ignore && \
+    rm -rf /wheels
 
-# Install Python dependencies
-# Suppress pip root user warning (safe in Docker containers)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel --root-user-action=ignore && \
-    pip install --no-cache-dir --prefer-binary -r requirements.txt --root-user-action=ignore
-
-# Install Scrapling browsers (required for Scrapling to work)
-RUN camoufox fetch || echo "Camoufox fetch completed"
+# Copy camoufox browser data from builder
+# camoufox stores downloaded browser in the package directory
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /root/.camoufox /root/.camoufox 2>/dev/null || true
 
 # Copy application code
 COPY backend/ ./backend/
@@ -30,41 +73,13 @@ COPY app.py .
 COPY start.sh .
 COPY supervisord.conf .
 
-# Set environment variables
+# Environment
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
 
-# Make startup script executable
 RUN chmod +x start.sh
 
-# Expose port (Hugging Face Spaces uses 7860)
 EXPOSE 7860
 
-# Health check (optional - Spaces handles this)
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-#     CMD python -c "import requests; requests.get('http://localhost:7860/api/health')" || exit 1
-
-# Run the application
-# Use startup script to run both web server and RQ worker
-# 
-# The startup script (start.sh) runs:
-# 1. RQ worker in background (processes bookmark tasks)
-# 2. Gunicorn web server in foreground (handles API requests)
-#
-# Gunicorn Configuration with Gevent Worker:
-# - worker-class: gevent - Async worker that handles concurrent connections without blocking
-#   Gevent automatically monkey-patches standard library for async I/O
-# - workers: 1 - With gevent, 1 worker can handle 1000+ concurrent connections efficiently
-# - worker-connections: 1000 - Max concurrent connections per worker (gevent can handle this)
-# - timeout: 2000s - Long timeout for SSE streams (33 minutes max connection time)
-# - keep-alive: 5s - Keep connections alive for better performance
-#
-# This configuration allows:
-# ✅ Concurrent SSE streams + API calls without blocking
-# ✅ Multiple users with simultaneous requests
-# ✅ Long-lived SSE connections for real-time progress updates
-# ✅ Efficient resource usage (1 worker handles many connections)
-# ✅ Background job processing with RQ worker
 CMD ["./start.sh"]
-

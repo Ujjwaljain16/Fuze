@@ -22,6 +22,7 @@ filelock==3.18.0
 Flask==3.1.1
 flask-cors==6.0.1
 Flask-JWT-Extended==4.7.1
+sentry-sdk[flask]>=2.0.0
 gevent==24.2.1
 Flask-SQLAlchemy==3.1.1
 Flask-Limiter==3.5.0
@@ -114,3 +115,4 @@ camoufox[geoip]
 pybreaker==1.2.0
 structlog>=24.1.0
 sentry-sdk[flask]>=2.0.0
+prometheus-client>=0.19.0

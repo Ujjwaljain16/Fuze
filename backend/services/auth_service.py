@@ -39,6 +39,17 @@ class AuthService:
     def __init__(self, uow):
         self.uow = uow
 
+    @property
+    def work_factor(self) -> int:
+        import os
+        try:
+            from flask import current_app
+            if current_app and 'BCRYPT_LOG_ROUNDS' in current_app.config:
+                return int(current_app.config['BCRYPT_LOG_ROUNDS'])
+        except Exception:
+            pass
+        return int(os.environ.get('BCRYPT_LOG_ROUNDS', self.BCRYPT_WORK_FACTOR))
+
     def hash_password(self, password: str) -> str:
         """Generate memory-hard bcrypt hash"""
         if not password:
@@ -46,7 +57,7 @@ class AuthService:
         if isinstance(password, str):
             password = password.encode('utf-8')
 
-        salt = bcrypt.gensalt(rounds=self.BCRYPT_WORK_FACTOR)
+        salt = bcrypt.gensalt(rounds=self.work_factor)
         hashed = bcrypt.hashpw(password, salt)
         return hashed.decode('utf-8')
 

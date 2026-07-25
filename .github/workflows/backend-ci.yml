@@ -21,6 +21,20 @@ jobs:
     timeout-minutes: 20
     
     services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: fuze_test
+          POSTGRES_PASSWORD: fuze_test_password
+          POSTGRES_DB: fuze_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fuze_test -d fuze_test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
       redis:
         image: redis:7-alpine
         ports:
@@ -47,7 +61,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -r ../requirements.txt
-      
+
+      - name: Run Alembic migrations and drift check
+        env:
+          DATABASE_URL: postgresql://fuze_test:fuze_test_password@localhost:5432/fuze_test_db
+          ENVIRONMENT: test
+        run: |
+          alembic upgrade head
+          alembic check
+
       - name: Run tests with coverage
         working-directory: backend
         env:

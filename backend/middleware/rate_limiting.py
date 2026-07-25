@@ -39,12 +39,13 @@ def get_user_rate_limit_key() -> str:
     return get_remote_address()
 
 
-# Singleton Limiter instance using explicit moving-window strategy
+# Singleton Limiter instance using explicit moving-window strategy with swallow_errors=True for fail-open resilience
 limiter = Limiter(
     key_func=get_user_rate_limit_key,
     default_limits=get_default_limits(),
     strategy="moving-window",
     headers_enabled=True,
+    swallow_errors=True,
 )
 
 
@@ -91,14 +92,15 @@ def init_rate_limiter(app) -> Limiter:
 
     limiter.init_app(app)
 
-    # Register custom 429 JSON response handler
-    @app.errorhandler(429)
-    def ratelimit_exceeded_handler(e):
-        return jsonify({
-            "error": "rate_limit_exceeded",
-            "message": "Too many requests. Please slow down and try again later.",
-            "retry_after": getattr(e, "description", None) or "60"
-        }), 429
+    # Only register if we haven't handled requests yet to support testing environments
+    if not app._got_first_request:
+        @app.errorhandler(429)
+        def ratelimit_exceeded_handler(e):
+            return jsonify({
+                "error": "rate_limit_exceeded",
+                "message": "Too many requests. Please slow down and try again later.",
+                "retry_after": getattr(e, "description", None) or "60"
+            }), 429
 
     logger.info("rate_limiter_initialized_successfully", extra={"storage_uri": storage_uri.split('@')[-1] if '@' in storage_uri else storage_uri})
     return limiter

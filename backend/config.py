@@ -53,10 +53,16 @@ class DevelopmentConfig(Config):
 class ProductionConfig(Config):
     """Production configuration"""
     DEBUG = False
-    # Production settings are already handled in unified_config
+
+class TestingConfig(Config):
+    """Testing configuration"""
+    DEBUG = True
+    TESTING = True
+    RATELIMIT_ENABLED = False
+    SQLALCHEMY_DATABASE_URI = os.getenv('TEST_DATABASE_URL', 'sqlite:///:memory:')
 
 # Select config based on environment
 config = ProductionConfig if unified_config.is_production() else DevelopmentConfig
 
 # Export unified config for direct access if needed
-__all__ = ['Config', 'DevelopmentConfig', 'ProductionConfig', 'config', 'unified_config']
+__all__ = ['Config', 'DevelopmentConfig', 'ProductionConfig', 'TestingConfig', 'config', 'unified_config']

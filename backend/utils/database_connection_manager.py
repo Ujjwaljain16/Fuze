@@ -3,6 +3,14 @@
 Database Connection Manager
 Provides production-grade SQLAlchemy engine management with RLock thread safety,
 pool recycling, pre-ping validation, and secure SSL configuration.
+
+PgBouncer transaction-mode support:
+  Set DATABASE_POOLER_URL to the Supabase pooler URL (port 6543).
+  Set DATABASE_POOL_MODE=transaction to enable transaction-mode pooler optimisations:
+    - pool_pre_ping disabled (incompatible with transaction-mode pooler)
+    - SET commands removed from connect_args.options (break transaction pooler)
+    - pool_size reduced (pooler handles multiplexing server-side)
+    - prepared_statement_cache_size=0 added to psycopg2 connect_args
 """
 
 import os
@@ -22,6 +30,26 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+def _is_transaction_pooler_mode() -> bool:
+    """True when DATABASE_POOL_MODE=transaction (Supabase PgBouncer transaction mode)."""
+    return os.environ.get("DATABASE_POOL_MODE", "session").lower() == "transaction"
+
+
+def _get_active_db_url() -> str:
+    """
+    Return the active database URL.
+    Prefers DATABASE_POOLER_URL when set; falls back to DATABASE_URL.
+    """
+    pooler_url = os.environ.get("DATABASE_POOLER_URL", "").strip()
+    if pooler_url:
+        logger.debug("db_using_pooler_url")
+        return pooler_url
+    primary_url = os.environ.get("DATABASE_URL", "").strip()
+    if primary_url:
+        return primary_url
+    raise ValueError("Neither DATABASE_POOLER_URL nor DATABASE_URL is set")
+
+
 class DatabaseConnectionManager:
     """Manages database engine lifecycle and connection resilience."""
 
@@ -30,11 +58,8 @@ class DatabaseConnectionManager:
         self._lock = threading.RLock()
 
     def _get_database_url(self) -> str:
-        """Fetch DATABASE_URL from environment with validation."""
-        database_url = os.environ.get('DATABASE_URL')
-        if not database_url:
-            raise ValueError("DATABASE_URL environment variable not set")
-        return database_url
+        """Fetch active database URL from environment with validation."""
+        return _get_active_db_url()
 
     def _is_sqlite(self, database_url: str) -> bool:
         """Check if the database URL is for SQLite."""
@@ -44,6 +69,7 @@ class DatabaseConnectionManager:
         """Create database engine with proper pooling and dialect-specific configuration."""
         database_url = self._get_database_url()
         is_sqlite = self._is_sqlite(database_url)
+        is_pooler = _is_transaction_pooler_mode()
 
         if is_sqlite:
             connect_args = {}
@@ -52,7 +78,34 @@ class DatabaseConnectionManager:
                 connect_args=connect_args,
                 echo=False
             )
+        elif is_pooler:
+            # Transaction-mode PgBouncer: no SET commands, no pre-ping,
+            # reduced pool size (pooler multiplexes server-side),
+            # prepared statement cache disabled.
+            connect_args = {
+                'connect_timeout': 30,
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5,
+                'application_name': 'fuze_app',
+                'prepared_statement_cache_size': 0,  # required for transaction pooler
+                # No 'options' key — SET commands break transaction-mode pooler
+            }
+            engine = create_engine(
+                database_url,
+                poolclass=QueuePool,
+                pool_size=int(os.environ.get('DB_POOL_SIZE', 2)),       # pooler handles multiplexing
+                max_overflow=int(os.environ.get('DB_MAX_OVERFLOW', 3)),
+                pool_timeout=30,
+                pool_recycle=int(os.environ.get('DB_POOL_RECYCLE', 300)),
+                pool_pre_ping=False,  # pre-ping incompatible with transaction pooler
+                echo=False,
+                connect_args=connect_args
+            )
+            logger.info("db_engine_created_pooler_transaction_mode")
         else:
+            # Direct connection or session-mode pooler — full feature set
             statement_timeout = os.environ.get('DB_STATEMENT_TIMEOUT', '60000')
             connect_args = {
                 'connect_timeout': 30,
