@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements and build all wheels into /wheels
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
-    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+    pip wheel --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu --wheel-dir /wheels -r requirements.txt
 
 # Install packages into builder so we can run camoufox fetch
 RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
