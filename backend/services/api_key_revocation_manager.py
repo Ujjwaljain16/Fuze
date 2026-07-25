@@ -45,6 +45,7 @@ class APIKeyRevocationManager:
                 self.redis_cache = None
 
         self.REVOCATION_KEY_PREFIX = "fuze:revoked:"
+        self.prefix = self.REVOCATION_KEY_PREFIX
         self.REVOCATION_TTL = 7 * 24 * 60 * 60  # 7 days in seconds
         self.fail_open = os.environ.get('REVOCATION_FAIL_OPEN', 'true').lower() == 'true'
 
@@ -169,6 +170,17 @@ class APIKeyRevocationManager:
         except Exception:
             logger.exception("clear_revocations_failed")
             return False
+
+    def get_revoked_count(self) -> int:
+        """Count the number of active revoked keys in Redis."""
+        try:
+            if not self.redis_cache or not getattr(self.redis_cache, 'connected', False):
+                return 0
+            keys = self.redis_cache.redis_client.keys(f"{self.REVOCATION_KEY_PREFIX}*")
+            return len(keys)
+        except Exception:
+            logger.exception("get_revoked_count_failed")
+            return 0
 
 
 # Global instance (initialized when needed)

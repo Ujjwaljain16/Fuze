@@ -94,6 +94,8 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
             client = self.client
             if hasattr(client, 'invalidate_user_bookmarks'):
                 client.invalidate_user_bookmarks(user_id)
+            elif hasattr(client, 'invalidate_query_cache'):
+                client.invalidate_query_cache(f"bookmarks:{user_id}:*")
             if hasattr(client, 'invalidate_recommendation_cache'):
                 client.invalidate_recommendation_cache(user_id)
             if hasattr(client, 'delete_cache'):
@@ -178,8 +180,8 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
             logger.info("cache_invalidate_all_start")
             if hasattr(client, 'invalidate_all_recommendations'):
                 client.invalidate_all_recommendations()
-            if hasattr(client, 'invalidate_user_bookmarks'):
-                client.invalidate_user_bookmarks(None)
+            if hasattr(client, 'invalidate_query_cache'):
+                client.invalidate_query_cache("bookmarks:*")
             if hasattr(client, 'invalidate_analysis_cache'):
                 client.invalidate_analysis_cache()
             logger.info("cache_invalidate_all_success")

@@ -208,6 +208,52 @@ class RedisCache:
 
         return deleted_count
 
+    def invalidate_query_cache(self, pattern: str) -> int:
+        """Alias for safe_delete_pattern using non-blocking SCAN iteration."""
+        return self.safe_delete_pattern(pattern)
+
+    def get_cached_user_bookmarks(self, user_id: int) -> Optional[Any]:
+        """Get cached bookmarks list for user."""
+        return self.get_cache(f"bookmarks:{user_id}:list")
+
+    def set_cached_user_bookmarks(self, user_id: int, bookmarks: Any, ttl: int = 3600) -> bool:
+        """Cache user bookmarks list."""
+        return self.set_cache(f"bookmarks:{user_id}:list", bookmarks, ttl=ttl)
+
+    def cache_user_bookmarks(self, user_id: int, bookmarks: Any, ttl: int = 3600) -> bool:
+        """Alias for set_cached_user_bookmarks."""
+        return self.set_cached_user_bookmarks(user_id, bookmarks, ttl=ttl)
+
+    def cache_query_result(self, key: str, data: Any, ttl: int = 3600) -> bool:
+        """Cache a query result."""
+        return self.set_cache(key, data, ttl=ttl)
+
+    def invalidate_user_bookmarks(self, user_id: int) -> int:
+        """Invalidate user bookmarks cache."""
+        return self.invalidate_query_cache(f"bookmarks:{user_id}:*")
+
+    def invalidate_recommendation_cache(self, user_id: Optional[int] = None) -> int:
+        """Invalidate recommendation cache for a user or all users."""
+        if user_id:
+            return self.invalidate_query_cache(f"recommendations:{user_id}:*")
+        return self.invalidate_query_cache("recommendations:*")
+
+    def invalidate_user_recommendations(self, user_id: int) -> int:
+        """Alias for invalidate_recommendation_cache."""
+        return self.invalidate_recommendation_cache(user_id)
+
+    def invalidate_all_recommendations(self) -> int:
+        """Invalidate all recommendation caches."""
+        return self.invalidate_recommendation_cache()
+
+    def invalidate_analysis_cache(self, content_id: Optional[int] = None, user_id: Optional[int] = None) -> int:
+        """Invalidate analysis cache."""
+        if content_id:
+            return self.safe_delete_pattern(f"content_analysis:{content_id}*")
+        if user_id:
+            return self.safe_delete_pattern(f"user_analysis:{user_id}*")
+        return self.safe_delete_pattern("analysis:*")
+
     def _get_key(self, prefix: str, identifier: str) -> str:
         return f"fuze:{prefix}:{identifier}"
 
