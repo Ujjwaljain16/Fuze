@@ -54,9 +54,19 @@ export const AuthProvider = ({ children }) => {
     const handleUserLoggedIn = (event) => {
       // OAuth callback can provide user directly to avoid redirect races on mobile/PWA.
       if (event?.detail?.user) {
-        setUser(event.detail.user)
-        userRef.current = event.detail.user
-        localStorage.setItem('user', JSON.stringify(event.detail.user))
+        const existingToken = userRef.current?.token || userRef.current?.access_token || (() => {
+          try {
+            const u = JSON.parse(localStorage.getItem('user') || '{}')
+            return u.token || u.access_token
+          } catch { return null }
+        })()
+        const mergedUser = {
+          ...event.detail.user,
+          ...(existingToken ? { token: existingToken, access_token: existingToken } : {})
+        }
+        setUser(mergedUser)
+        userRef.current = mergedUser
+        localStorage.setItem('user', JSON.stringify(mergedUser))
       } else {
         // Otherwise just try to fetch the profile
         fetchUser()
@@ -80,9 +90,20 @@ export const AuthProvider = ({ children }) => {
     try {
       // Profile endpoint is now cached and optimized - should be fast
       const response = await api.get('/api/profile')
-      setUser(response.data)
-      userRef.current = response.data
-      localStorage.setItem('user', JSON.stringify(response.data))
+      const existingToken = userRef.current?.token || userRef.current?.access_token || (() => {
+        try {
+          const u = JSON.parse(localStorage.getItem('user') || '{}')
+          return u.token || u.access_token
+        } catch { return null }
+      })()
+
+      const updatedUser = {
+        ...response.data,
+        ...(existingToken ? { token: existingToken, access_token: existingToken } : {})
+      }
+      setUser(updatedUser)
+      userRef.current = updatedUser
+      localStorage.setItem('user', JSON.stringify(updatedUser))
       return true
     } catch (error) {
       const errorInfo = handleApiError(error, 'fetching user profile')
@@ -106,12 +127,17 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      const { user: userData } = response.data
+      const { user: userData, access_token } = response.data
       
+      const fullUser = {
+        ...(userData || {}),
+        ...(access_token ? { token: access_token, access_token } : {})
+      }
+
       // Set state atomically to avoid race conditions
-      setUser(userData)
-      userRef.current = userData // Update ref immediately
-      localStorage.setItem('user', JSON.stringify(userData))
+      setUser(fullUser)
+      userRef.current = fullUser // Update ref immediately
+      localStorage.setItem('user', JSON.stringify(fullUser))
       
       // Verify the user data is valid
       if (!userData || !userData.id) {

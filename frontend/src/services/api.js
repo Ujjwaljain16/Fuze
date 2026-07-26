@@ -103,10 +103,23 @@ const executeTokenRefresh = async () => {
         headers['X-CSRF-TOKEN'] = refreshCsrf
       }
 
+      try {
+        const storedUser = localStorage.getItem('user')
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser)
+          const token = parsed?.token || parsed?.access_token
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`
+          }
+        }
+      } catch {
+        // Ignore parse error
+      }
+
       return await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
-        { headers }
+        { withCredentials: true, headers }
       )
     } finally {
       inFlightRefreshPromise = null
