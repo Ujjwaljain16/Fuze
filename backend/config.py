@@ -31,7 +31,7 @@ class Config:
     JWT_TOKEN_LOCATION = _flask_config.get('JWT_TOKEN_LOCATION', ['headers', 'cookies'])
     JWT_COOKIE_SECURE = _flask_config.get('JWT_COOKIE_SECURE', True)
     JWT_COOKIE_HTTPONLY = _flask_config.get('JWT_COOKIE_HTTPONLY', True)
-    JWT_COOKIE_SAMESITE = _flask_config.get('JWT_COOKIE_SAMESITE', 'Lax')
+    JWT_COOKIE_SAMESITE = _flask_config.get('JWT_COOKIE_SAMESITE', 'None')
     JWT_COOKIE_CSRF_PROTECT = _flask_config.get('JWT_COOKIE_CSRF_PROTECT', True)
     
     SQLALCHEMY_DATABASE_URI = _flask_config['SQLALCHEMY_DATABASE_URI']

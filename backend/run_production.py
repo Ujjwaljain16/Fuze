@@ -254,6 +254,20 @@ def create_app(config_name: str = None) -> Flask:
 
     CORS(app, origins=cors_origins, supports_credentials=True)
 
+    # Intercept OPTIONS preflight requests globally to enforce credentials
+    @app.before_request
+    def handle_global_cors_preflight():
+        if request.method == 'OPTIONS':
+            origin = request.headers.get('Origin')
+            response = app.make_default_options_response()
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-TOKEN, X-Request-ID'
+                response.headers['Access-Control-Max-Age'] = '86400'
+            return response, 204
+
     # Initialize rate limiting
     if RATE_LIMITING_AVAILABLE:
         try:
@@ -369,6 +383,11 @@ def create_app(config_name: str = None) -> Flask:
 
     @app.after_request
     def after_request_logging(response):
+        origin = request.headers.get('Origin')
+        if origin:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+
         response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
         if hasattr(g, 'start_time'):
             latency_s = time.time() - g.start_time
