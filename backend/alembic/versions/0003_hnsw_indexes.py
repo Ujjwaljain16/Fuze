@@ -27,7 +27,7 @@ Create Date: 2026-04-24
 from alembic import op
 
 revision = '0003'
-down_revision = None
+down_revision = '0002'
 
 def upgrade():
     # Ensure pgvector extension exists (idempotent)
