@@ -86,7 +86,7 @@ class RealtimeClient {
         })
       })
 
-    } catch (err) {
+    } catch {
       this.isConnecting = false
       this.scheduleReconnect()
     }
