@@ -33,9 +33,10 @@ def _create_redis_connection() -> Optional[Redis]:
             conn_params = {
                 'decode_responses': False,
                 'socket_connect_timeout': 10,
-                'socket_timeout': 30,
+                'socket_timeout': 120,
                 'socket_keepalive': True,
-                'health_check_interval': 30
+                'health_check_interval': 15,
+                'retry_on_timeout': True,
             }
 
             if redis_url.startswith('rediss://'):

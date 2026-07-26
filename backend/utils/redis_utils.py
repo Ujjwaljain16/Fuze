@@ -53,9 +53,11 @@ class RedisCache:
                         pool_kwargs = {
                             'decode_responses': False,
                             'socket_connect_timeout': 5,
-                            'socket_timeout': 5,
+                            'socket_timeout': 10,
                             'max_connections': 20,
-                            'socket_keepalive': True
+                            'socket_keepalive': True,
+                            'health_check_interval': 15,
+                            'retry_on_timeout': True
                         }
                         if redis_url.startswith('rediss://'):
                             allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
