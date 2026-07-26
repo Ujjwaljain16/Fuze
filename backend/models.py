@@ -215,8 +215,8 @@ class Base(db.Model):
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
-    username = Column(String(80), unique=True, nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
+    username = Column(String(80), unique=True, nullable=False, index=True)
+    email = Column(String(120), unique=True, nullable=False, index=True)
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
     user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted)
@@ -312,9 +312,9 @@ class ContentAnalysis(Base):
 class Feedback(Base):
     __tablename__ = 'feedback'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True)
-    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
     feedback_type = Column(String(20), nullable=False)  # 'like', 'dislike', 'bookmark', 'dismiss'
     timestamp = Column(DateTime, default=func.now())
 
@@ -375,7 +375,7 @@ class TokenFamily(Base):
     __tablename__ = 'token_families'
     id             = Column(Integer, primary_key=True)
     user_id        = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    family_id      = Column(String(36), unique=True, nullable=False)
+    family_id      = Column(String(36), unique=True, nullable=False, index=True)
     current_jti    = Column(String(36), nullable=False)
     created_at     = Column(DateTime, default=func.now())
     last_used_at   = Column(DateTime, default=func.now())
