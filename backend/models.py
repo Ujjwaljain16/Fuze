@@ -215,8 +215,8 @@ class Base(db.Model):
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
-    username = Column(String(80), unique=True, nullable=False, index=True)  # Added index for performance
-    email = Column(String(120), unique=True, nullable=False, index=True)  # Added index for performance
+    username = Column(String(80), unique=True, nullable=False)
+    email = Column(String(120), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     technology_interests = Column(TEXT)
     user_metadata = Column(JSON)  # Store user-specific data like API keys (encrypted)
@@ -285,6 +285,7 @@ class SavedContent(Base):
         UniqueConstraint('user_id', 'url', name='_user_url_uc'),
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
+        db.Index('idx_saved_content_user_unanalyzed', 'user_id', 'id'),
     )
 
 class ContentAnalysis(Base):
@@ -303,34 +304,37 @@ class ContentAnalysis(Base):
     # Relationship to SavedContent
     content = relationship('SavedContent', backref='analyses')
 
-    __table_args__ = (UniqueConstraint('content_id', name='_content_analysis_unique'),)
+    # Production constraints
+    __table_args__ = (
+        UniqueConstraint('content_id', name='_content_analysis_unique'),
+    )
 
 class Feedback(Base):
     __tablename__ = 'feedback'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
-    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
-    feedback_type = Column(String(20), nullable=False)  # e.g., 'relevant', 'not_relevant'
-    timestamp = Column(DateTime, default=func.now(), onupdate=func.now())
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    feedback_type = Column(String(20), nullable=False)  # 'like', 'dislike', 'bookmark', 'dismiss'
+    timestamp = Column(DateTime, default=func.now())
 
+    # Ensure one feedback per user per content
     __table_args__ = (
         UniqueConstraint('user_id', 'content_id', name='_user_content_feedback_uc'),
         db.Index('idx_feedback_lookup', 'user_id', 'content_id'),
     )
 
 class UserFeedback(Base):
-    """Enhanced feedback system for learning from user interactions"""
+    """Stores detailed user feedback for recommendations to improve recommendation algorithms."""
     __tablename__ = 'user_feedback'
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
-    recommendation_id = Column(Integer, nullable=True)  # Optional: track recommendation session
-    feedback_type = Column(String(20), nullable=False)  # 'clicked', 'saved', 'dismissed', 'not_relevant', 'helpful', 'completed'
-    context_data = Column(JSON)  # Store query, project_id, etc.
+    recommendation_id = Column(Integer, nullable=True)
+    feedback_type = Column(String(20), nullable=False)
+    context_data = Column(JSON, nullable=True)
     timestamp = Column(DateTime, default=func.now())
-    
-    # Indexes for faster queries
+
     __table_args__ = (
         db.Index('idx_user_feedback_user', 'user_id'),
         db.Index('idx_user_feedback_content', 'content_id'),
@@ -371,9 +375,9 @@ class TokenFamily(Base):
     __tablename__ = 'token_families'
     id             = Column(Integer, primary_key=True)
     user_id        = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    family_id      = Column(String(36), unique=True, nullable=False, index=True)
+    family_id      = Column(String(36), unique=True, nullable=False)
     current_jti    = Column(String(36), nullable=False)
     created_at     = Column(DateTime, default=func.now())
     last_used_at   = Column(DateTime, default=func.now())
     revoked        = Column(Boolean, default=False, nullable=False)
-    revoked_reason = Column(String(50), nullable=True)  # 'logout', 'reuse_detected', 'expired'
+    revoked_reason = Column(String(50), nullable=True)  # 'logout', 'reuse_detected', 'expired'

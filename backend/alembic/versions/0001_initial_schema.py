@@ -147,8 +147,6 @@ def upgrade():
     """)
 
     # 3. Base Indexes (matching models.py)
-    op.execute("CREATE INDEX IF NOT EXISTS ix_users_username ON users (username);")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);")
     op.execute("CREATE INDEX IF NOT EXISTS ix_users_provider_name ON users (provider_name);")
     op.execute("CREATE INDEX IF NOT EXISTS ix_users_provider_user_id ON users (provider_user_id);")
     op.execute("CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));")
@@ -164,10 +162,8 @@ def upgrade():
     op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_quality_score ON saved_content (quality_score);")
     op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_quality ON saved_content (user_id, quality_score);")
     op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_saved_at ON saved_content (user_id, saved_at);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_unanalyzed ON saved_content (user_id, id);")
 
-    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_user_id ON feedback (user_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_project_id ON feedback (project_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_content_id ON feedback (content_id);")
     op.execute("CREATE INDEX IF NOT EXISTS idx_feedback_lookup ON feedback (user_id, content_id);")
 
     op.execute("CREATE INDEX IF NOT EXISTS idx_user_feedback_user ON user_feedback (user_id);")
@@ -175,7 +171,6 @@ def upgrade():
     op.execute("CREATE INDEX IF NOT EXISTS idx_user_feedback_timestamp ON user_feedback (timestamp);")
 
     op.execute("CREATE INDEX IF NOT EXISTS ix_token_families_user_id ON token_families (user_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_token_families_family_id ON token_families (family_id);")
 
 def downgrade():
     # Non-destructive downgrade stub to prevent accidental schema drop in production
