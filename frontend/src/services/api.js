@@ -106,7 +106,7 @@ const executeTokenRefresh = async () => {
       return await axios.post(
         `${baseURL}/api/auth/refresh`,
         {},
-        { withCredentials: true, headers }
+        { headers }
       )
     } finally {
       inFlightRefreshPromise = null
@@ -126,9 +126,7 @@ api.interceptors.response.use(
     if (error.response?.status === 400 && error.response?.data?.error === 'csrf_error') {
       try {
         // Get new CSRF token
-        const csrfResponse = await axios.get(`${baseURL}/api/auth/csrf-token`, {
-          withCredentials: true
-        })
+        const csrfResponse = await axios.get(`${baseURL}/api/auth/csrf-token`)
         csrfToken = csrfResponse.data.csrf_token
         
         // Retry the original request with new CSRF token
