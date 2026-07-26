@@ -23,7 +23,7 @@ const getBaseURL = () => {
   }
 }
 
-const baseURL = getBaseURL()
+export const baseURL = getBaseURL()
 
 // API configuration removed for production
 
