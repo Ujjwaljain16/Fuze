@@ -15,8 +15,10 @@ import time
 from typing import Dict
 try:
     from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     sync_playwright = None
+    PLAYWRIGHT_AVAILABLE = False
 from urllib.parse import urlparse
 from core.logging_config import get_logger
 
