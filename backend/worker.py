@@ -101,7 +101,7 @@ def main():
 
     # Verify job handlers before starting workers
     try:
-        from services.background_analysis_service import analyze_bookmark_async
+        from services.bookmark_processing_service import process_bookmark_content_task
         logger.info("worker_task_handlers_verified")
     except Exception as e:
         logger.warning("worker_task_handler_verification_warning", error=str(e))

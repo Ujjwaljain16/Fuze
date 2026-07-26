@@ -112,7 +112,8 @@ def _warm_recommendations(user_id: int) -> str:
 
         with UnitOfWork() as uow:
             # Fetch user's most recent project for context
-            projects = uow.projects.get_user_projects(user_id=user_id, limit=1)
+            pagination = uow.projects.list_by_user(user_id=user_id, page=1, per_page=1)
+            projects = pagination.items if hasattr(pagination, "items") else pagination
             if projects:
                 proj = projects[0]
                 req = RecommendationRequest(
@@ -166,7 +167,8 @@ def _warm_bookmarks(user_id: int) -> str:
 
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
-            bookmarks = service.get_user_bookmarks(user_id=user_id, limit=20, offset=0)
+            pagination = service.list_bookmarks(user_id=user_id, page=1, per_page=20)
+            bookmarks = pagination.items if hasattr(pagination, "items") else pagination
 
         if redis_cache.redis_client and bookmarks:
             import json
@@ -197,7 +199,8 @@ def _warm_projects(user_id: int) -> str:
             return "already_warm"
 
         with UnitOfWork() as uow:
-            projects = uow.projects.get_user_projects(user_id=user_id, limit=20)
+            pagination = uow.projects.list_by_user(user_id=user_id, page=1, per_page=20)
+            projects = pagination.items if hasattr(pagination, "items") else pagination
 
         if redis_cache.redis_client and projects:
             import json
