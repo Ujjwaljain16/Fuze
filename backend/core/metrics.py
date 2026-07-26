@@ -166,6 +166,13 @@ if PROMETHEUS_AVAILABLE and METRICS_ENABLED:
         labelnames=["engine", "result"],
     )
 
+    # Event-driven processing pipeline stage metrics
+    pipeline_events_total = Counter(
+        "fuze_pipeline_events_total",
+        "Total pipeline stage events emitted",
+        labelnames=["stage", "status"],
+    )
+
     logger.info("prometheus_metrics_registered")
 
 else:
@@ -194,6 +201,7 @@ else:
     feature_flag_evaluation_total = _noop
     embedding_null_rate = _noop
     recommendation_requests_total = _noop
+    pipeline_events_total = _noop
 
 
 def get_metrics_output() -> tuple:

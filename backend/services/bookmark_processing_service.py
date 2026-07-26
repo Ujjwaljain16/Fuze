@@ -135,8 +135,8 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             bookmark = service.get_bookmark(bookmark_id)
-            if not bookmark:
-                logger.error("bg_bookmark_deleted_during_processing", extra={"bookmark_id": bookmark_id})
+            if not bookmark or getattr(bookmark, 'scrape_status', None) == 'CANCELLED':
+                logger.info("bg_bookmark_cancelled_during_scraping", extra={"bookmark_id": bookmark_id})
                 return
 
             if not bookmark.title or bookmark.title == 'Untitled Bookmark':
@@ -162,7 +162,14 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             metadata={"duration_ms": scraping_duration_ms}
         )
 
-        # Stage 2: Embedding
+        # Stage 2: Embedding Cancellation Check
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            bookmark = service.get_bookmark(bookmark_id)
+            if not bookmark or getattr(bookmark, 'embedding_status', None) == 'CANCELLED':
+                logger.info("bg_bookmark_cancelled_skipping_embedding", extra={"bookmark_id": bookmark_id})
+                return
+
         publish_pipeline_event(
             event_type="bookmark.pipeline.embedding.started",
             bookmark_id=bookmark_id,
