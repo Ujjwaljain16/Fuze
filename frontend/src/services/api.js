@@ -140,12 +140,15 @@ api.interceptors.response.use(
       }
     }
     
-    // Handle token expiration (but NOT for login requests)
-    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/api/auth/login')) {
+    // Handle token expiration (ignore auth endpoints: login, logout, refresh, csrf-token, supabase-oauth)
+    const AUTH_BYPASS_URLS = ['/api/auth/login', '/api/auth/logout', '/api/auth/refresh', '/api/auth/csrf-token', '/api/auth/supabase-oauth']
+    const isAuthUrl = AUTH_BYPASS_URLS.some((path) => originalRequest.url?.includes(path))
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthUrl) {
       originalRequest._retry = true
       try {
         await executeTokenRefresh()
-        // Refresh succeeded (backend set new access cookie) - retry the original request
+        // Refresh succeeded - retry the original request
         return api(originalRequest)
       } catch {
         // Refresh failed (refresh token expired) - clear user state

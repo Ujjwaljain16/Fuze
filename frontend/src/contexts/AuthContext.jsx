@@ -156,13 +156,22 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const isLoggingOut = useRef(false)
+
   const logout = () => {
+    if (isLoggingOut.current) return
+    isLoggingOut.current = true
+
     setUser(null)
     userRef.current = null
     localStorage.removeItem('user')
     
-    // Call logout endpoint to clear cookies
-    api.post('/api/auth/logout').catch(console.error)
+    // Call logout endpoint to clear cookies without triggering recursive retries
+    api.post('/api/auth/logout')
+      .catch(() => {})
+      .finally(() => {
+        isLoggingOut.current = false
+      })
   }
 
   const value = {
