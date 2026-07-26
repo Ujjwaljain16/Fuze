@@ -15,21 +15,21 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    # 1. Add pipeline stage status columns to bookmarks
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS scrape_status VARCHAR(20) DEFAULT 'PENDING';")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS embedding_status VARCHAR(20) DEFAULT 'PENDING';")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS analysis_status VARCHAR(20) DEFAULT 'PENDING';")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS scraped_at TIMESTAMP WITH TIME ZONE;")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS embedded_at TIMESTAMP WITH TIME ZONE;")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS analyzed_at TIMESTAMP WITH TIME ZONE;")
-    op.execute("ALTER TABLE bookmarks ADD COLUMN IF NOT EXISTS pipeline_version INTEGER DEFAULT 1;")
+    # 1. Add pipeline stage status columns to saved_content
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scrape_status VARCHAR(20) DEFAULT 'PENDING';")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS embedding_status VARCHAR(20) DEFAULT 'PENDING';")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS analysis_status VARCHAR(20) DEFAULT 'PENDING';")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scraped_at TIMESTAMP WITH TIME ZONE;")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS embedded_at TIMESTAMP WITH TIME ZONE;")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS analyzed_at TIMESTAMP WITH TIME ZONE;")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS pipeline_version INTEGER DEFAULT 1;")
 
     # 2. Create bookmark_events table for persistent audit & timeline
     op.execute("""
     CREATE TABLE IF NOT EXISTS bookmark_events (
         id BIGSERIAL PRIMARY KEY,
         event_id VARCHAR(64) NOT NULL,
-        bookmark_id BIGINT REFERENCES bookmarks(id) ON DELETE CASCADE,
+        bookmark_id BIGINT REFERENCES saved_content(id) ON DELETE CASCADE,
         user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
         pipeline_run_id VARCHAR(64) NOT NULL,
         sequence INTEGER NOT NULL DEFAULT 1,
@@ -48,10 +48,10 @@ def upgrade():
 
 def downgrade():
     op.execute("DROP TABLE IF EXISTS bookmark_events CASCADE;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS scrape_status;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS embedding_status;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS analysis_status;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS scraped_at;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS embedded_at;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS analyzed_at;")
-    op.execute("ALTER TABLE bookmarks DROP COLUMN IF EXISTS pipeline_version;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS scrape_status;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS embedding_status;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS analysis_status;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS scraped_at;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS embedded_at;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS analyzed_at;")
+    op.execute("ALTER TABLE saved_content DROP COLUMN IF EXISTS pipeline_version;")
