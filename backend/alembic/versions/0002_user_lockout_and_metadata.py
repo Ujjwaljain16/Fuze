@@ -21,9 +21,9 @@ def upgrade():
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login TIMESTAMP;")
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_locked_until TIMESTAMP;")
 
-    # Case-insensitive unique indexes
-    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique_lower ON users (lower(email));")
-    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique_lower ON users (lower(username));")
+    # Case-insensitive indexes
+    op.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email));")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));")
 
 def downgrade():
     pass

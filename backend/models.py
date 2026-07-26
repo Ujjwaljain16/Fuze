@@ -260,6 +260,7 @@ class Project(Base):
 
     # Embedding field for semantic matching
     embedding = Column(Vector(384))  # Combined embedding for semantic matching
+    embedding_metadata = Column(JSON, nullable=True)
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 
@@ -277,6 +278,7 @@ class SavedContent(Base):
     category = Column(String(100))
     notes = Column(TEXT)
     quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
+    embedding_metadata = Column(JSON, nullable=True)
     
     # Production indexes and unique constraints
     __table_args__ = (
@@ -343,6 +345,7 @@ class Task(Base):
     description = Column(Text)
     created_at = Column(DateTime, default=func.now())
     embedding = Column(Vector(384))
+    embedding_metadata = Column(JSON, nullable=True)
     
     subtasks = relationship('Subtask', backref='task', lazy=True, cascade='all, delete-orphan', order_by='Subtask.created_at')
 
@@ -356,6 +359,7 @@ class Subtask(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     embedding = Column(Vector(384))  # Embedding for semantic matching in recommendations
+    embedding_metadata = Column(JSON, nullable=True)
 
 
 class TokenFamily(Base):

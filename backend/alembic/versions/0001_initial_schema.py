@@ -146,15 +146,36 @@ def upgrade():
         );
     """)
 
-    # 3. Base Indexes (idempotent)
-    op.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects (user_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects (created_at);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_id ON saved_content (user_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_saved_at ON saved_content (saved_at);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_token_families_user_id ON token_families (user_id);")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_token_families_family_id ON token_families (family_id);")
+    # 3. Base Indexes (matching models.py)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_username ON users (username);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_provider_name ON users (provider_name);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_provider_user_id ON users (provider_user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email));")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_users_created_at ON users (created_at);")
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_projects_created_at ON projects (created_at);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_projects_user_created ON projects (user_id, created_at);")
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_user_id ON saved_content (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_saved_at ON saved_content (saved_at);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_quality_score ON saved_content (quality_score);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_quality ON saved_content (user_id, quality_score);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_user_saved_at ON saved_content (user_id, saved_at);")
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_user_id ON feedback (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_project_id ON feedback (project_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_content_id ON feedback (content_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_feedback_lookup ON feedback (user_id, content_id);")
+
+    op.execute("CREATE INDEX IF NOT EXISTS idx_user_feedback_user ON user_feedback (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_user_feedback_content ON user_feedback (content_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_user_feedback_timestamp ON user_feedback (timestamp);")
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_token_families_user_id ON token_families (user_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_token_families_family_id ON token_families (family_id);")
 
 def downgrade():
     # Non-destructive downgrade stub to prevent accidental schema drop in production
