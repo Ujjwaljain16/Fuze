@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.t
 
 # Fetch camoufox browser artifacts
 RUN mkdir -p /root/.cache/camoufox && \
-    camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)"
+    (camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)")
 
 # ---------------------------------------------------------------------------
 # STAGE 2 — runtime
@@ -42,12 +42,18 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Runtime-only system dependencies (no compilers)
+# Runtime-only system dependencies (no compilers + headless browser support)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgomp1 \
     postgresql-client \
     supervisor \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libx11-6 \
+    libgbm1 \
+    libgtk-3-0 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built wheels from builder and install without index (no network needed)
@@ -68,6 +74,7 @@ COPY start.sh .
 COPY supervisord.conf .
 
 # Environment
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
