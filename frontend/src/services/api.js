@@ -147,8 +147,25 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry && !isAuthUrl) {
       originalRequest._retry = true
       try {
-        await executeTokenRefresh()
-        // Refresh succeeded - retry the original request
+        const refreshResponse = await executeTokenRefresh()
+        const newAccessToken = refreshResponse.data?.access_token
+        
+        if (newAccessToken) {
+          try {
+            const storedUser = localStorage.getItem('user')
+            if (storedUser) {
+              const userObj = JSON.parse(storedUser)
+              userObj.token = newAccessToken
+              userObj.access_token = newAccessToken
+              localStorage.setItem('user', JSON.stringify(userObj))
+            }
+          } catch (e) {
+            console.warn('Failed to sync new access token to localStorage:', e)
+          }
+          originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`
+        }
+        
+        // Refresh succeeded - retry the original request with new access token
         return api(originalRequest)
       } catch {
         // Refresh failed (refresh token expired) - clear user state
