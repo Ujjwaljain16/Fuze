@@ -40,18 +40,24 @@ class GeminiAnalyzer:
         from utils.unified_config import get_config
         config = get_config()
         
+        self.model = None
+        self.active_model_name = None
+
         key = api_key or config.ai.gemini_api_key
         if not key:
-            raise ValueError("GEMINI_API_KEY environment variable is required")
+            logger.info("gemini_disabled_no_api_key_configured")
+            return
 
-        genai.configure(api_key=key)
+        try:
+            genai.configure(api_key=key)
+        except Exception as config_err:
+            logger.warning("gemini_configure_failed", extra={"error": str(config_err)})
+            return
 
         model_candidates = [
             config.ai.gemini_model,
             config.ai.gemini_fallback_model
         ]
-        self.model = None
-        self.active_model_name = None
 
         for model_name in model_candidates:
             if not model_name:
@@ -65,7 +71,8 @@ class GeminiAnalyzer:
                 continue
 
         if not self.model:
-            raise ValueError(f"Failed to initialize Gemini AI with candidate models: {model_candidates}")
+            logger.warning("gemini_init_failed_for_candidate_models", extra={"candidates": model_candidates})
+            return
 
         self.generation_config = {
             'temperature': config.ai.gemini_temperature,
@@ -81,7 +88,7 @@ class GeminiAnalyzer:
         """Make an iterative request to Gemini with backoff and circuit breaker isolation."""
         from core.metrics import gemini_calls_total
 
-        if not prompt or not isinstance(prompt, str):
+        if not self.model or not prompt or not isinstance(prompt, str):
             return None
 
         if not gemini_circuit_breaker.allow_request():
