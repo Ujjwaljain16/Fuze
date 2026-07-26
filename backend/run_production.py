@@ -237,19 +237,22 @@ def create_app(config_name: str = None) -> Flask:
 
     # CORS setup using UnifiedConfig
     from utils.unified_config import UnifiedConfig
+    import re
     cors_config = UnifiedConfig().cors
     cors_origins = cors_config.origins.copy()
 
-    if app.config.get('DEBUG'):
-        for origin in ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']:
-            if origin not in cors_origins:
-                cors_origins.append(origin)
-    else:
-        for pattern in ['https://itsfuze.vercel.app', 'https://*.vercel.app']:
-            if pattern not in cors_origins:
-                cors_origins.append(pattern)
+    default_allowed = [
+        'https://itsfuze.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        re.compile(r"^https://.*\.vercel\.app$")
+    ]
+    for o in default_allowed:
+        if o not in cors_origins:
+            cors_origins.append(o)
 
-    CORS(app, origins=cors_origins, supports_credentials=cors_config.supports_credentials)
+    CORS(app, origins=cors_origins, supports_credentials=True)
 
     # Initialize rate limiting
     if RATE_LIMITING_AVAILABLE:
@@ -301,10 +304,28 @@ def create_app(config_name: str = None) -> Flask:
     def set_correlation_id():
         g.correlation_id = request.headers.get('X-Request-ID') or uuid.uuid4().hex
 
+    @app.before_request
+    def handle_options_preflight():
+        if request.method == 'OPTIONS':
+            origin = request.headers.get('Origin')
+            response = make_response('', 204)
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+                response.headers['Access-Control-Allow-Headers'] = request.headers.get('Access-Control-Request-Headers', 'Content-Type, Authorization, X-Requested-With, X-Request-ID, Accept')
+                response.headers['Access-Control-Max-Age'] = '86400'
+            return response
+
     @app.after_request
     def consolidate_response_headers(response):
         if hasattr(g, 'correlation_id'):
             response.headers['X-Request-ID'] = g.correlation_id
+
+        origin = request.headers.get('Origin')
+        if origin:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
 
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
