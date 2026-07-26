@@ -139,7 +139,7 @@ def ensure_lockout_columns():
 
 
 def ensure_pipeline_columns():
-    """Ensure stage status columns and bookmark_events table exist (idempotent)."""
+    """Ensure stage status columns, provenance columns, bookmark_events, and bookmark_metadata tables exist (idempotent)."""
     try:
         from sqlalchemy import inspect, text
         inspector = inspect(db.engine)
@@ -160,6 +160,22 @@ def ensure_pipeline_columns():
                 stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS analyzed_at TIMESTAMP WITH TIME ZONE;")
             if 'pipeline_version' not in columns:
                 stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS pipeline_version INTEGER DEFAULT 1;")
+            if 'author' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS author VARCHAR(255);")
+            if 'reading_time' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS reading_time INTEGER DEFAULT 0;")
+            if 'published_at' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS published_at TIMESTAMP WITH TIME ZONE;")
+            if 'language' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS language VARCHAR(10);")
+            if 'content_hash' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS content_hash CHAR(64);")
+            if 'strategy_used' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS strategy_used VARCHAR(20);")
+            if 'scrapling_version' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scrapling_version VARCHAR(20);")
+            if 'extractor_version' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS extractor_version VARCHAR(20);")
 
             for stmt in stmts:
                 try:
@@ -167,6 +183,12 @@ def ensure_pipeline_columns():
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
+
+            try:
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_saved_content_content_hash ON saved_content (content_hash);"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
 
         if 'bookmark_events' not in inspector.get_table_names():
             db.session.execute(text("""
@@ -184,6 +206,18 @@ def ensure_pipeline_columns():
                     metadata_json JSONB,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
+            """))
+            db.session.commit()
+
+        if 'bookmark_metadata' not in inspector.get_table_names():
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS bookmark_metadata (
+                    bookmark_id BIGINT PRIMARY KEY REFERENCES saved_content(id) ON DELETE CASCADE,
+                    jsonb_payload JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_bookmark_metadata_jsonb ON bookmark_metadata USING gin (jsonb_payload);
             """))
             db.session.commit()
     except Exception as e:
@@ -345,13 +379,36 @@ class SavedContent(Base):
     analyzed_at = Column(DateTime, nullable=True)
     pipeline_version = Column(Integer, default=1, server_default='1')
 
+    # Acquisition metadata & provenance fields
+    author = Column(String(255), nullable=True)
+    reading_time = Column(Integer, default=0)
+    published_at = Column(DateTime, nullable=True)
+    language = Column(String(10), nullable=True)
+    content_hash = Column(String(64), nullable=True, index=True)
+    strategy_used = Column(String(20), nullable=True)
+    scrapling_version = Column(String(20), nullable=True)
+    extractor_version = Column(String(20), nullable=True)
+
+    # Relationship to rich JSON metadata
+    rich_metadata = relationship('BookmarkMetadata', backref='bookmark', uselist=False, cascade='all, delete-orphan')
+
     # Production indexes and unique constraints
     __table_args__ = (
         UniqueConstraint('user_id', 'url', name='_user_url_uc'),
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
         db.Index('idx_saved_content_user_unanalyzed', 'user_id', 'id'),
+        db.Index('idx_saved_content_content_hash', 'content_hash'),
     )
+
+
+class BookmarkMetadata(Base):
+    """Stores full provider raw JSON payloads (JSON-LD, OpenGraph, Breadcrumbs, etc.) for a bookmark."""
+    __tablename__ = 'bookmark_metadata'
+    bookmark_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), primary_key=True)
+    jsonb_payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 class ContentAnalysis(Base):
     __tablename__ = 'content_analysis'

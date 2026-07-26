@@ -347,3 +347,11 @@ class RedisCache:
 
 # Global Redis instance
 redis_cache = RedisCache()
+
+
+def get_redis_client() -> Optional[redis.Redis]:
+    """Return underlying redis.Redis client instance from global RedisCache if connected."""
+    if redis_cache._ensure_connected():
+        return redis_cache.redis_client
+    return None
+

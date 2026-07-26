@@ -94,3 +94,74 @@ class BookmarkCreated(Event):
 class BookmarkDeleted(Event):
     bookmark_id: int
     user_id: int
+
+
+# --- Content Acquisition / Scraping Lifecycle Events ---
+
+@dataclass(frozen=True, kw_only=True)
+class ScrapingStarted(Event):
+    bookmark_id: int
+    user_id: int
+    url: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class FetchStarted(Event):
+    bookmark_id: int
+    strategy: str  # "HTTP", "STEALTH", "DYNAMIC"
+    url: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class FetchCompleted(Event):
+    bookmark_id: int
+    strategy: str
+    http_status: int
+    latency_ms: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ParsingStarted(Event):
+    bookmark_id: int
+    plugins_count: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ParsingCompleted(Event):
+    bookmark_id: int
+    plugins_succeeded: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class NormalizationCompleted(Event):
+    bookmark_id: int
+    content_hash: str
+    quality_score: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScrapingCompleted(Event):
+    bookmark_id: int
+    user_id: int
+    url: str
+    content_hash: str
+    quality_score: int
+    strategy_used: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScrapingSkipped(Event):
+    bookmark_id: int
+    user_id: int
+    url: str
+    content_hash: str
+    reason: str = "content_hash_unchanged"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScrapingFailed(Event):
+    bookmark_id: int
+    user_id: int
+    url: str
+    error_reason: str
+
