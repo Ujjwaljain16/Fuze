@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, Boolean
-from sqlalchemy.dialects.postgresql import TEXT
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, Boolean
+from sqlalchemy.dialects.postgresql import TEXT, JSONB
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
 
@@ -374,15 +374,15 @@ class SavedContent(Base):
     scrape_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
     embedding_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
     analysis_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
-    scraped_at = Column(DateTime, nullable=True)
-    embedded_at = Column(DateTime, nullable=True)
-    analyzed_at = Column(DateTime, nullable=True)
+    scraped_at = Column(DateTime(timezone=True), nullable=True)
+    embedded_at = Column(DateTime(timezone=True), nullable=True)
+    analyzed_at = Column(DateTime(timezone=True), nullable=True)
     pipeline_version = Column(Integer, default=1, server_default='1')
 
     # Acquisition metadata & provenance fields
     author = Column(String(255), nullable=True)
     reading_time = Column(Integer, default=0)
-    published_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)
     language = Column(String(10), nullable=True)
     content_hash = Column(String(64), nullable=True, index=True)
     strategy_used = Column(String(20), nullable=True)
@@ -398,17 +398,21 @@ class SavedContent(Base):
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
         db.Index('idx_saved_content_user_unanalyzed', 'user_id', 'id'),
-        db.Index('idx_saved_content_content_hash', 'content_hash'),
+        db.Index('ix_saved_content_content_hash', 'content_hash'),
     )
 
 
 class BookmarkMetadata(Base):
     """Stores full provider raw JSON payloads (JSON-LD, OpenGraph, Breadcrumbs, etc.) for a bookmark."""
     __tablename__ = 'bookmark_metadata'
-    bookmark_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), primary_key=True)
-    jsonb_payload = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    bookmark_id = Column(BigInteger, ForeignKey('saved_content.id', ondelete='CASCADE'), primary_key=True)
+    jsonb_payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        db.Index('idx_bookmark_metadata_jsonb', 'jsonb_payload', postgresql_using='gin'),
+    )
 
 class ContentAnalysis(Base):
     __tablename__ = 'content_analysis'
@@ -508,20 +512,20 @@ class TokenFamily(Base):
 class BookmarkEvent(Base):
     """Stores immutable audit and stage timeline events for pipeline execution."""
     __tablename__ = 'bookmark_events'
-    id = Column(Integer, primary_key=True)
+    id = Column(BigInteger, primary_key=True)
     event_id = Column(String(64), unique=True, nullable=False, index=True)
-    bookmark_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    bookmark_id = Column(BigInteger, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     pipeline_run_id = Column(String(64), nullable=False)
     sequence = Column(Integer, default=1, nullable=False)
     type = Column(String(100), nullable=False)
     schema_version = Column(Integer, default=1, nullable=False)
-    data = Column(JSON, nullable=True)
-    error = Column(JSON, nullable=True)
-    metadata_json = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=func.now())
+    data = Column(JSONB, nullable=True)
+    error = Column(JSONB, nullable=True)
+    metadata_json = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=func.now())
 
     __table_args__ = (
-        db.Index('idx_bookmark_events_bookmark_seq', 'bookmark_id', 'sequence'),
-        db.Index('idx_bookmark_events_user_created', 'user_id', 'created_at'),
+        db.Index('ix_bookmark_events_bookmark_seq', 'bookmark_id', 'sequence'),
+        db.Index('ix_bookmark_events_user_created', 'user_id', 'created_at'),
     )

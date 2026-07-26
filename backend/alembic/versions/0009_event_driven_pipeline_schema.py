@@ -29,8 +29,8 @@ def upgrade():
     CREATE TABLE IF NOT EXISTS bookmark_events (
         id BIGSERIAL PRIMARY KEY,
         event_id VARCHAR(64) NOT NULL,
-        bookmark_id BIGINT REFERENCES saved_content(id) ON DELETE CASCADE,
-        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        bookmark_id BIGINT NOT NULL REFERENCES saved_content(id) ON DELETE CASCADE,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         pipeline_run_id VARCHAR(64) NOT NULL,
         sequence INTEGER NOT NULL DEFAULT 1,
         type VARCHAR(100) NOT NULL,
@@ -43,8 +43,13 @@ def upgrade():
     """)
 
     op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_bookmark_events_event_id ON bookmark_events (event_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_bookmark_events_bookmark_id ON bookmark_events (bookmark_id);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_bookmark_events_user_id ON bookmark_events (user_id);")
     op.execute("CREATE INDEX IF NOT EXISTS ix_bookmark_events_bookmark_seq ON bookmark_events (bookmark_id, sequence);")
     op.execute("CREATE INDEX IF NOT EXISTS ix_bookmark_events_user_created ON bookmark_events (user_id, created_at);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_scrape_status ON saved_content (scrape_status);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_embedding_status ON saved_content (embedding_status);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_analysis_status ON saved_content (analysis_status);")
 
 def downgrade():
     op.execute("DROP TABLE IF EXISTS bookmark_events CASCADE;")

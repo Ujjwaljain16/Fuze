@@ -20,13 +20,13 @@ def upgrade():
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS reading_time INTEGER DEFAULT 0;")
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS published_at TIMESTAMP WITH TIME ZONE;")
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS language VARCHAR(10);")
-    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS content_hash CHAR(64);")
+    op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);")
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS strategy_used VARCHAR(20);")
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scrapling_version VARCHAR(20);")
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS extractor_version VARCHAR(20);")
 
     # Index for fast content_hash lookup and deduplication
-    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_content_hash ON saved_content (content_hash);")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_content_hash ON saved_content (content_hash);")
 
     # 2. Create bookmark_metadata table for rich JSON payloads (JSON-LD, OpenGraph, Breadcrumbs, etc.)
     op.execute("""
