@@ -31,13 +31,9 @@ RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
 RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
     --root-user-action=ignore
 
-# Fetch camoufox browser artifacts (written to ~/.local/share/camoufox or similar)
-# The || true prevents build failure if camoufox is unavailable in CI
-RUN camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)"
-
-# Capture camoufox data directory for COPY in runtime stage
-RUN python -c "import camoufox; import os; print(os.path.dirname(camoufox.__file__))" \
-    > /tmp/camoufox_pkg_path.txt || echo "unknown" > /tmp/camoufox_pkg_path.txt
+# Fetch camoufox browser artifacts
+RUN mkdir -p /root/.cache/camoufox && \
+    camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)"
 
 # ---------------------------------------------------------------------------
 # STAGE 2 — runtime
@@ -62,9 +58,7 @@ RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.t
     rm -rf /wheels
 
 # Copy camoufox browser data from builder
-# camoufox stores downloaded browser in the package directory
-COPY --from=builder /root/.local /root/.local
-COPY --from=builder /root/.camoufox /root/.camoufox 2>/dev/null || true
+COPY --from=builder /root/.cache/camoufox /root/.cache/camoufox
 
 # Copy application code
 COPY backend/ ./backend/
