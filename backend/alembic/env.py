@@ -67,6 +67,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # Prevent catalog reflection statement timeouts on remote PostgreSQL instances
+        try:
+            connection.execute(sa.text("SET statement_timeout = 0;"))
+        except Exception:
+            pass
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
