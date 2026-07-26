@@ -32,6 +32,10 @@ class ProjectRepository:
             query = query.options(selectinload(Project.tasks).selectinload(Task.subtasks))
         return query.paginate(page=page, per_page=per_page, error_out=False)
 
+    def get_user_projects(self, user_id: int, limit: int = 10) -> List[Project]:
+        """Fetch user projects ordered by created_at desc with limit."""
+        return self.session.query(Project).filter_by(user_id=user_id).order_by(Project.created_at.desc()).limit(limit).all()
+
     def add(self, project: Project) -> Project:
         """Persist a new project"""
         self.session.add(project)

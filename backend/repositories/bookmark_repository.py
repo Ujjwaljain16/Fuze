@@ -102,6 +102,10 @@ class BookmarkRepository:
         """Fetch all bookmarks for a user ordered by saved_at desc"""
         return self._session.query(SavedContent).filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).all()
 
+    def get_user_bookmarks(self, user_id: int, limit: int = 10) -> List[SavedContent]:
+        """Fetch user bookmarks ordered by saved_at desc with limit."""
+        return self._session.query(SavedContent).filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).limit(limit).all()
+
     # --- Bookmark Stats ---
 
     def get_count(self, user_id: int) -> int:

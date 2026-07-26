@@ -43,6 +43,10 @@ class BookmarkService:
         """List bookmarks with pagination and filtering"""
         return self.uow.bookmarks.list_bookmarks(user_id, search, category, page, per_page)
 
+    def get_user_bookmarks(self, user_id: int, limit: int = 10, offset: int = 0) -> List[SavedContent]:
+        """Fetch user bookmarks with limit and offset."""
+        return self.uow.bookmarks.get_user_bookmarks(user_id=user_id, limit=limit)
+
     def get_bookmark_stats(
         self,
         user_id: int,
