@@ -483,7 +483,7 @@ def save_bookmark():
             )
             new_bm_id = new_bm.id
             new_bm_url = new_bm.url
-    except IntegrityError:
+    except Exception:
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             existing_bm = service.get_bookmark_by_url(user_id, url.strip())

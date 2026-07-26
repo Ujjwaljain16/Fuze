@@ -215,21 +215,43 @@ class BackgroundAnalysisService:
             db.session.rollback()
             return []
 
-    def _analyze_single_content(self, content: SavedContent, user_id: Optional[int] = None):
+    def _analyze_single_content(self, content: SavedContent, user_id: Optional[int] = None, pipeline_run_id: Optional[str] = None):
         """Analyze a single content item without mutating ORM fields or making duplicate LLM calls."""
-        try:
-            logger.info("bg_analysis_analyzing_content", extra={"content_id": content.id, "user_id": content.user_id})
+        from datetime import datetime
+        from utils.event_bus import publish_pipeline_event, generate_pipeline_run_id
+        run_id = pipeline_run_id or generate_pipeline_run_id()
+        target_user_id = user_id or content.user_id
 
+        try:
+            logger.info("bg_analysis_analyzing_content", extra={"content_id": content.id, "user_id": target_user_id, "run_id": run_id})
+
+            # Emit Stage 3 Started
+            publish_pipeline_event(
+                event_type="bookmark.pipeline.analysis.started",
+                bookmark_id=content.id,
+                user_id=target_user_id,
+                pipeline_run_id=run_id,
+                sequence=5
+            )
+
+            start_time = time.time()
             text_to_analyze = content.extracted_text or content.title or content.url or "Untitled content"
-            target_user_id = user_id or content.user_id
             api_key = None
 
             if target_user_id:
                 try:
-                    from services.multi_user_api_manager import get_user_api_key, check_user_rate_limit, record_user_request
+                    from services.multi_user_api_manager import get_user_api_key, check_user_rate_limit
                     rate_status = check_user_rate_limit(target_user_id)
                     if not rate_status.get('can_make_request', True):
                         logger.warning("bg_analysis_rate_limited", extra={"user_id": target_user_id})
+                        publish_pipeline_event(
+                            event_type="bookmark.pipeline.analysis.failed",
+                            bookmark_id=content.id,
+                            user_id=target_user_id,
+                            pipeline_run_id=run_id,
+                            sequence=6,
+                            error={"error_code": "RATE_LIMIT_EXCEEDED", "retryable": True}
+                        )
                         return
 
                     api_key = get_user_api_key(target_user_id)
@@ -245,6 +267,7 @@ class BackgroundAnalysisService:
                 content=text_to_analyze,
                 url=content.url
             )
+            analysis_duration_ms = round((time.time() - start_time) * 1000)
 
             if target_user_id and api_key:
                 try:
@@ -255,7 +278,17 @@ class BackgroundAnalysisService:
 
             if not analysis_result:
                 logger.warning("bg_analysis_empty_result", extra={"content_id": content.id})
+                content.analysis_status = 'FAILED'
+                db.session.commit()
                 self._mark_failed(content.id)
+                publish_pipeline_event(
+                    event_type="bookmark.pipeline.analysis.failed",
+                    bookmark_id=content.id,
+                    user_id=target_user_id,
+                    pipeline_run_id=run_id,
+                    sequence=6,
+                    error={"error_code": "ANALYSIS_FAILED", "retryable": True}
+                )
                 return
 
             # Single-pass summary (avoids second LLM call cost doubling)
@@ -288,6 +321,8 @@ class BackgroundAnalysisService:
                 relevance_score=relevance_score
             )
 
+            content.analysis_status = 'SUCCESS'
+            content.analyzed_at = datetime.utcnow()
             try:
                 db.session.add(analysis)
                 db.session.commit()

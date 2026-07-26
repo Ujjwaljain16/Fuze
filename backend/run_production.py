@@ -122,6 +122,7 @@ try:
     from blueprints.feedback import feedback_bp
     from blueprints.profile import profile_bp
     from blueprints.search import search_bp
+    from blueprints.events import events_bp
     
     try:
         from blueprints.dashboard import dashboard_bp
@@ -355,6 +356,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(feedback_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(search_bp)
+    app.register_blueprint(events_bp)
 
     if dashboard_available:
         app.register_blueprint(dashboard_bp)
@@ -369,6 +371,14 @@ def create_app(config_name: str = None) -> Flask:
             logger.warning(f"Error registering user API key blueprint: {e}")
 
     with app.app_context():
+        try:
+            from models import ensure_pipeline_columns, ensure_token_families_table, ensure_lockout_columns
+            ensure_pipeline_columns()
+            ensure_token_families_table()
+            ensure_lockout_columns()
+        except Exception as e:
+            logger.warning(f"Error ensuring pipeline columns: {e}")
+
         if api_manager_available:
             try:
                 init_api_manager()

@@ -3,6 +3,7 @@ Bookmark Processing Service
 Handles asynchronous worker task execution for bookmark content extraction, embedding, and analysis
 """
 
+import time
 from typing import Optional
 from uow.unit_of_work import UnitOfWork
 from services.bookmark_service import BookmarkService
@@ -82,12 +83,16 @@ def validate_embedding(embedding, expected_dim: int = EXPECTED_EMBEDDING_DIM) ->
 def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
     """
     RQ Task function to process bookmark content extraction, embedding, and analysis.
-    Executed asynchronously by background RQ workers using clean service dependencies.
+    Executed asynchronously by background RQ workers using clean service dependencies and checkpointed commits.
     """
-    logger.info("bg_bookmark_processing_started", extra={"bookmark_id": bookmark_id, "user_id": user_id, "url": url})
+    from datetime import datetime
+    from utils.event_bus import publish_pipeline_event, generate_pipeline_run_id
+    pipeline_run_id = generate_pipeline_run_id()
+
+    logger.info("bg_bookmark_processing_started", extra={"bookmark_id": bookmark_id, "user_id": user_id, "url": url, "run_id": pipeline_run_id})
 
     try:
-        # First UoW: Fetch bookmark info to check existence and get initial context
+        # First UoW: Fetch bookmark info to check existence and initial status
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             bookmark = service.get_bookmark(bookmark_id)
@@ -98,25 +103,35 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             bookmark_title = bookmark.title
             bookmark_notes = bookmark.notes or ''
 
-        # Heavy side effects outside transaction (scraping, ML embeddings)
+        # Emit Stage 1 Started
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.scraping.started",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=1,
+            data={"url": url}
+        )
+
+        start_scraping = time.time()
         scraped = extract_article_content(url)
+        scraping_duration_ms = round((time.time() - start_scraping) * 1000)
+
         extracted_text_raw = scraped.get('content', '')
         scraped_title = scraped.get('title', '')
         headings = scraped.get('headings', [])
         meta_description = scraped.get('meta_description', '')
         quality_score = scraped.get('quality_score', DEFAULT_QUALITY_SCORE)
 
-        # Title formatting
         final_title = bookmark_title
         if scraped_title and (not bookmark_title or bookmark_title == 'Untitled Bookmark'):
             final_title = truncate_title(scraped_title.strip())
 
-        # Null byte & type conversion
         extracted_text = None
         if extracted_text_raw is not None:
             extracted_text = str(extracted_text_raw).replace('\x00', '')
 
-        # Second UoW: Save extraction results safely
+        # Checkpoint Stage 1 (Scrape) in DB
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             bookmark = service.get_bookmark(bookmark_id)
@@ -124,40 +139,75 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 logger.error("bg_bookmark_deleted_during_processing", extra={"bookmark_id": bookmark_id})
                 return
 
-            # Preserve user title edits if user updated title during scraping
             if not bookmark.title or bookmark.title == 'Untitled Bookmark':
                 bookmark.title = final_title
 
             bookmark.extracted_text = extracted_text
             bookmark.quality_score = quality_score
-            
-            # Feature flag check for asynchronous embeddings
-            from core.feature_flags import is_enabled
-            if is_enabled("async_embeddings", user_id=user_id):
-                logger.info("bg_bookmark_deferring_embedding", extra={"bookmark_id": bookmark_id})
-                should_enqueue_embedding = True
-            else:
-                embedding = generate_comprehensive_embedding(
-                    title=final_title,
-                    description=bookmark_notes,
-                    meta_description=meta_description,
-                    headings=headings,
-                    extracted_text=extracted_text_raw,
-                    url=url
-                )
+            bookmark.scrape_status = 'SUCCESS'
+            bookmark.scraped_at = datetime.utcnow()
+
+        # Emit Stage 1 Completed (After DB Commit)
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.scraping.completed",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=2,
+            data={
+                "title": final_title,
+                "content_length": len(extracted_text) if extracted_text else 0,
+                "quality_score": quality_score
+            },
+            metadata={"duration_ms": scraping_duration_ms}
+        )
+
+        # Stage 2: Embedding
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.embedding.started",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=3
+        )
+
+        start_embed = time.time()
+        embedding = generate_comprehensive_embedding(
+            title=final_title,
+            description=bookmark_notes,
+            meta_description=meta_description,
+            headings=headings,
+            extracted_text=extracted_text_raw,
+            url=url
+        )
+        embed_duration_ms = round((time.time() - start_embed) * 1000)
+
+        # Checkpoint Stage 2 (Embedding) in DB
+        is_embedded = False
+        with UnitOfWork() as uow:
+            service = BookmarkService(uow)
+            bookmark = service.get_bookmark(bookmark_id)
+            if bookmark:
                 if validate_embedding(embedding):
                     bookmark.embedding = embedding
-                should_enqueue_embedding = False
+                    bookmark.embedding_status = 'SUCCESS'
+                    bookmark.embedded_at = datetime.utcnow()
+                    is_embedded = True
+                else:
+                    bookmark.embedding_status = 'FAILED'
 
-        # If async embeddings are enabled, queue the embedding job AFTER the UoW commits
-        if should_enqueue_embedding:
-            try:
-                from services.task_queue import enqueue_embedding_job
-                enqueue_embedding_job(bookmark_id)
-            except Exception as e:
-                logger.error("bg_bookmark_async_embed_dispatch_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
+        # Emit Stage 2 Completed (After DB Commit)
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.embedding.completed" if is_embedded else "bookmark.pipeline.embedding.failed",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=4,
+            data={"semantic_ready": is_embedded},
+            metadata={"duration_ms": embed_duration_ms}
+        )
 
-        # Safe cache invalidation
+        # Selective cache invalidation for vector search
         try:
             from services.cache_invalidation_service import cache_invalidator
             cache_invalidator.after_content_update(bookmark_id, user_id)
@@ -165,12 +215,10 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         except Exception as cache_err:
             logger.warning("bg_bookmark_cache_invalidation_warning", extra={"bookmark_id": bookmark_id, "error": str(cache_err)})
 
-        logger.info("bg_bookmark_processing_completed", extra={"bookmark_id": bookmark_id, "user_id": user_id})
-
-        # Trigger background AI analysis
+        # Stage 3: AI Analysis (Delegated to background analysis service)
         try:
             from services.background_analysis_service import analyze_content
-            analyze_content(bookmark_id, user_id)
+            analyze_content(bookmark_id, user_id, pipeline_run_id=pipeline_run_id)
             logger.info("bg_bookmark_analysis_triggered", extra={"bookmark_id": bookmark_id})
         except Exception as e:
             logger.error("bg_bookmark_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})

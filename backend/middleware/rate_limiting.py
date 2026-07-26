@@ -57,7 +57,12 @@ def init_rate_limiter(app) -> Limiter:
     Fails fast in production if Redis storage is unavailable.
     """
     app_env = os.environ.get('ENVIRONMENT', os.environ.get('APP_ENV', os.environ.get('FLASK_ENV', 'development'))).lower()
+    is_testing = app_env == 'testing' or bool(os.environ.get('PYTEST_CURRENT_TEST'))
     is_production = app_env in ('production', 'prod', 'staging')
+
+    if is_testing and not app.config.get('RATELIMIT_ENABLED', False):
+        limiter.enabled = False
+        app.config['RATELIMIT_ENABLED'] = False
 
     redis_url = os.environ.get('REDIS_URL')
 

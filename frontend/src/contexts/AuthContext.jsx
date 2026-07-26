@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import api, { initializeCSRF, handleApiError } from '../services/api'
 import { useToast } from './ToastContext'
+import { realtimeClient } from '../services/realtime'
 
 const AuthContext = createContext()
 
@@ -29,6 +30,11 @@ export const AuthProvider = ({ children }) => {
   // Update ref when user changes
   useEffect(() => {
     userRef.current = user
+    if (user) {
+      realtimeClient.connect()
+    } else {
+      realtimeClient.disconnect()
+    }
   }, [user])
 
   useEffect(() => {

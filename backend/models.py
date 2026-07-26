@@ -138,6 +138,62 @@ def ensure_lockout_columns():
             pass
 
 
+def ensure_pipeline_columns():
+    """Ensure stage status columns and bookmark_events table exist (idempotent)."""
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        if 'saved_content' in inspector.get_table_names():
+            columns = [col['name'] for col in inspector.get_columns('saved_content')]
+            stmts = []
+            if 'scrape_status' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scrape_status VARCHAR(20) DEFAULT 'PENDING';")
+            if 'embedding_status' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS embedding_status VARCHAR(20) DEFAULT 'PENDING';")
+            if 'analysis_status' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS analysis_status VARCHAR(20) DEFAULT 'PENDING';")
+            if 'scraped_at' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS scraped_at TIMESTAMP WITH TIME ZONE;")
+            if 'embedded_at' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS embedded_at TIMESTAMP WITH TIME ZONE;")
+            if 'analyzed_at' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS analyzed_at TIMESTAMP WITH TIME ZONE;")
+            if 'pipeline_version' not in columns:
+                stmts.append("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS pipeline_version INTEGER DEFAULT 1;")
+
+            for stmt in stmts:
+                try:
+                    db.session.execute(text(stmt))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+
+        if 'bookmark_events' not in inspector.get_table_names():
+            db.session.execute(text("""
+                CREATE TABLE IF NOT EXISTS bookmark_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id VARCHAR(64) NOT NULL UNIQUE,
+                    bookmark_id BIGINT REFERENCES saved_content(id) ON DELETE CASCADE,
+                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                    pipeline_run_id VARCHAR(64) NOT NULL,
+                    sequence INTEGER NOT NULL DEFAULT 1,
+                    type VARCHAR(100) NOT NULL,
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    data JSONB,
+                    error JSONB,
+                    metadata_json JSONB,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+            db.session.commit()
+    except Exception as e:
+        print(f"Note: Could not ensure pipeline columns: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
 def ensure_token_families_table():
     """Ensure the token_families table exists for refresh token rotation (idempotent)."""
     try:
@@ -280,6 +336,15 @@ class SavedContent(Base):
     quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
     embedding_metadata = Column(JSON, nullable=True)
     
+    # Stage status & timestamp fields for event-driven pipeline
+    scrape_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
+    embedding_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
+    analysis_status = Column(String(20), default='PENDING', server_default='PENDING', index=True)
+    scraped_at = Column(DateTime, nullable=True)
+    embedded_at = Column(DateTime, nullable=True)
+    analyzed_at = Column(DateTime, nullable=True)
+    pipeline_version = Column(Integer, default=1, server_default='1')
+
     # Production indexes and unique constraints
     __table_args__ = (
         UniqueConstraint('user_id', 'url', name='_user_url_uc'),
@@ -381,3 +446,25 @@ class TokenFamily(Base):
     last_used_at   = Column(DateTime, default=func.now())
     revoked        = Column(Boolean, default=False, nullable=False)
     revoked_reason = Column(String(50), nullable=True)  # 'logout', 'reuse_detected', 'expired'
+
+
+class BookmarkEvent(Base):
+    """Stores immutable audit and stage timeline events for pipeline execution."""
+    __tablename__ = 'bookmark_events'
+    id = Column(Integer, primary_key=True)
+    event_id = Column(String(64), unique=True, nullable=False, index=True)
+    bookmark_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    pipeline_run_id = Column(String(64), nullable=False)
+    sequence = Column(Integer, default=1, nullable=False)
+    type = Column(String(100), nullable=False)
+    schema_version = Column(Integer, default=1, nullable=False)
+    data = Column(JSON, nullable=True)
+    error = Column(JSON, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        db.Index('idx_bookmark_events_bookmark_seq', 'bookmark_id', 'sequence'),
+        db.Index('idx_bookmark_events_user_created', 'user_id', 'created_at'),
+    )
