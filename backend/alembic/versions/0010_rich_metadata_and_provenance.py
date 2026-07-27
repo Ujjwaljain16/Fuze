@@ -26,7 +26,7 @@ def upgrade():
     op.execute("ALTER TABLE saved_content ADD COLUMN IF NOT EXISTS extractor_version VARCHAR(20);")
 
     # Index for fast content_hash lookup and deduplication
-    op.execute("CREATE INDEX IF NOT EXISTS ix_saved_content_content_hash ON saved_content (content_hash);")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_saved_content_content_hash ON saved_content (content_hash);")
 
     # 2. Create bookmark_metadata table for rich JSON payloads (JSON-LD, OpenGraph, Breadcrumbs, etc.)
     op.execute("""

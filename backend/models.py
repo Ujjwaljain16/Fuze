@@ -384,7 +384,7 @@ class SavedContent(Base):
     reading_time = Column(Integer, default=0)
     published_at = Column(DateTime(timezone=True), nullable=True)
     language = Column(String(10), nullable=True)
-    content_hash = Column(String(64), nullable=True, index=True)
+    content_hash = Column(String(64), nullable=True)
     strategy_used = Column(String(20), nullable=True)
     scrapling_version = Column(String(20), nullable=True)
     extractor_version = Column(String(20), nullable=True)
@@ -398,7 +398,7 @@ class SavedContent(Base):
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
         db.Index('idx_saved_content_user_unanalyzed', 'user_id', 'id'),
-        db.Index('ix_saved_content_content_hash', 'content_hash'),
+        db.Index('idx_saved_content_content_hash', 'content_hash'),
     )
 
 
@@ -406,7 +406,7 @@ class BookmarkMetadata(Base):
     """Stores full provider raw JSON payloads (JSON-LD, OpenGraph, Breadcrumbs, etc.) for a bookmark."""
     __tablename__ = 'bookmark_metadata'
     bookmark_id = Column(BigInteger, ForeignKey('saved_content.id', ondelete='CASCADE'), primary_key=True)
-    jsonb_payload = Column(JSONB, nullable=False)
+    jsonb_payload = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
@@ -520,9 +520,9 @@ class BookmarkEvent(Base):
     sequence = Column(Integer, default=1, nullable=False)
     type = Column(String(100), nullable=False)
     schema_version = Column(Integer, default=1, nullable=False)
-    data = Column(JSONB, nullable=True)
-    error = Column(JSONB, nullable=True)
-    metadata_json = Column(JSONB, nullable=True)
+    data = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
+    error = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
+    metadata_json = Column(JSON().with_variant(JSONB, 'postgresql'), nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now())
 
     __table_args__ = (
