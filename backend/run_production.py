@@ -255,20 +255,6 @@ def create_app(config_name: str = None) -> Flask:
 
     CORS(app, origins=cors_origins, supports_credentials=True)
 
-    # Intercept OPTIONS preflight requests globally to enforce credentials
-    @app.before_request
-    def handle_global_cors_preflight():
-        if request.method == 'OPTIONS':
-            origin = request.headers.get('Origin')
-            response = app.make_default_options_response()
-            if origin:
-                response.headers['Access-Control-Allow-Origin'] = origin
-                response.headers['Access-Control-Allow-Credentials'] = 'true'
-                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-TOKEN, X-Request-ID'
-                response.headers['Access-Control-Max-Age'] = '86400'
-            return response, 204
-
     # Initialize rate limiting
     if RATE_LIMITING_AVAILABLE:
         try:
@@ -328,7 +314,10 @@ def create_app(config_name: str = None) -> Flask:
                 response.headers['Access-Control-Allow-Origin'] = origin
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
-                response.headers['Access-Control-Allow-Headers'] = request.headers.get('Access-Control-Request-Headers', 'Content-Type, Authorization, X-Requested-With, X-Request-ID, Accept')
+                response.headers['Access-Control-Allow-Headers'] = request.headers.get(
+                    'Access-Control-Request-Headers',
+                    'Content-Type, Authorization, X-Requested-With, X-Request-ID, Accept'
+                )
                 response.headers['Access-Control-Max-Age'] = '86400'
             return response
 
@@ -341,6 +330,8 @@ def create_app(config_name: str = None) -> Flask:
         if origin:
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-TOKEN, X-Request-ID, Accept'
 
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
