@@ -60,13 +60,16 @@ function AppContent() {
         }
 
         const res = await api.post('/api/auth/supabase-oauth', { access_token: token });
-        const { user: oauthUser } = res.data || {};
+        const { user: oauthUser, access_token: backendToken } = res.data || {};
 
         if (oauthUser) {
-          localStorage.setItem('user', JSON.stringify(oauthUser));
+          const fullUser = {
+            ...oauthUser,
+            ...(backendToken ? { token: backendToken, access_token: backendToken } : {})
+          };
+          localStorage.setItem('user', JSON.stringify(fullUser));
+          window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: fullUser } }));
         }
-        
-        window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: oauthUser } }));
 
         window.history.replaceState({}, document.title, '/dashboard');
         navigate('/dashboard', { replace: true });

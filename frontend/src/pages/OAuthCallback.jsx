@@ -37,11 +37,16 @@ export default function OAuthCallback() {
         // Send the Supabase access token to our backend to exchange for local session
         const res = await api.post('/api/auth/supabase-oauth', { access_token })
         
-        const { user } = res.data
+        const { user, access_token: backendToken } = res.data || {}
 
-        // Set user profile in localStorage (non-sensitive)
+        const fullUser = {
+          ...(user || {}),
+          ...(backendToken ? { token: backendToken, access_token: backendToken } : {})
+        }
+
+        // Set user profile in localStorage (with access token attached for Authorization header)
         if (user) {
-          localStorage.setItem('user', JSON.stringify(user))
+          localStorage.setItem('user', JSON.stringify(fullUser))
         }
 
         // Fetch user profile to ensure user data is loaded before navigation
@@ -52,7 +57,7 @@ export default function OAuthCallback() {
         }
 
         // Dispatch custom event to notify app of login (and hydrate AuthContext immediately)
-        window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user } }))
+        window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: fullUser } }))
 
         // Small delay to let event propagate and AuthContext to update
         await new Promise(resolve => setTimeout(resolve, 300))
