@@ -39,6 +39,11 @@ class RedisCache:
         self.connected = False
         self._try_connect()
 
+    @property
+    def client(self):
+        """Property alias for redis_client for backward compatibility."""
+        return self.redis_client
+
     def _try_connect(self) -> bool:
         global _redis_connection_pool
 

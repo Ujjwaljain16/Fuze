@@ -41,6 +41,13 @@ const Dashboard = () => {
   const [analysisProgress] = useState(null)
   const [viewMode, setViewMode] = useState('grid')
   
+  const [pipelineStats, setPipelineStats] = useState({
+    scraping: 0,
+    embedding: 0,
+    analyzing: 0,
+    analyzed: 0
+  })
+  
   // Use optimized hooks for resize and mouse tracking
   const { isMobile, isSmallMobile } = useResize({ mobile: 768, smallMobile: 480 })
   const mousePos = useMousePosition(true, 16) // Throttle to 16ms (60fps)
@@ -54,22 +61,50 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
+  // Listen for real-time background pipeline SSE events
+  useEffect(() => {
+    const handleRealtimeEvent = (e) => {
+      const data = e.detail;
+      if (!data) return;
+
+      if (data.type === 'bookmark.scraping.started') {
+        setPipelineStats(prev => ({ ...prev, scraping: prev.scraping + 1 }))
+      } else if (data.type === 'bookmark.scraping.completed') {
+        setPipelineStats(prev => ({ ...prev, scraping: Math.max(0, prev.scraping - 1) }))
+      } else if (data.type === 'bookmark.embedding.started') {
+        setPipelineStats(prev => ({ ...prev, embedding: prev.embedding + 1 }))
+      } else if (data.type === 'bookmark.embedding.completed') {
+        setPipelineStats(prev => ({ ...prev, embedding: Math.max(0, prev.embedding - 1) }))
+      } else if (data.type === 'bookmark.analysis.completed') {
+        setPipelineStats(prev => ({
+          ...prev,
+          analyzing: Math.max(0, prev.analyzing - 1),
+          analyzed: prev.analyzed + 1
+        }))
+      }
+    }
+
+    window.addEventListener('fuzeRealtimeEvent', handleRealtimeEvent)
+    return () => window.removeEventListener('fuzeRealtimeEvent', handleRealtimeEvent)
+  }, [])
+
   const fetchDashboardData = async () => {
     // Use AbortController to cancel requests if component unmounts
     const abortController = new AbortController()
     
     try {
-      // Use Promise.allSettled to handle partial failures gracefully
-      // REPLACED WITH: Single aggregated endpoint for faster loading
       const response = await api.get('/api/dashboard/summary', {
         signal: abortController.signal,
         timeout: 15000
       })
       
       if (response.data) {
-        const { recentBookmarks, recentProjects, stats, totalBookmarks, totalProjects } = response.data
+        const { recentBookmarks, recentProjects, stats, totalBookmarks, totalProjects, pipeline_stats } = response.data
         setRecentBookmarks(recentBookmarks || [])
         setRecentProjects(recentProjects || [])
+        if (pipeline_stats) {
+          setPipelineStats(pipeline_stats)
+        }
         setDashboardStats(stats || {
           total_bookmarks: { value: 0, change: '0%', change_value: 0 },
           active_projects: { value: 0, change: '0', change_value: 0 },
@@ -401,6 +436,87 @@ const Dashboard = () => {
                   <div className="text-gray-400 text-sm">{stat.label}</div>
                 </div>
               ))}
+            </div>
+
+            {/* Live Background Pipeline Engine Widget */}
+            <div className="mb-8 bg-gradient-to-br from-gray-900/80 via-black/80 to-indigo-950/40 backdrop-blur-xl border border-indigo-500/30 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-xl border border-indigo-500/30">
+                    <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                      Live Background Pipeline Engine
+                    </h2>
+                    <p className="text-xs text-gray-400">Real-time status of scraping, vector embedding, & AI analysis</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold self-start sm:self-auto">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  Live Real-Time Stream
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                {/* Scraping Stage */}
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center justify-between hover:border-amber-500/40 transition-all">
+                  <div>
+                    <span className="text-xs font-semibold text-amber-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      🟡 Scraping
+                    </span>
+                    <div className="text-2xl font-black text-amber-200 mt-1">{pipelineStats.scraping}</div>
+                  </div>
+                  <div className="p-2.5 bg-amber-500/20 rounded-lg text-amber-400">
+                    <Zap className={`w-5 h-5 ${pipelineStats.scraping > 0 ? 'animate-pulse' : ''}`} />
+                  </div>
+                </div>
+
+                {/* Embedding Stage */}
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-center justify-between hover:border-blue-500/40 transition-all">
+                  <div>
+                    <span className="text-xs font-semibold text-blue-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                      🔵 Embedding
+                    </span>
+                    <div className="text-2xl font-black text-blue-200 mt-1">{pipelineStats.embedding}</div>
+                  </div>
+                  <div className="p-2.5 bg-blue-500/20 rounded-lg text-blue-400">
+                    <Clock className={`w-5 h-5 ${pipelineStats.embedding > 0 ? 'animate-spin' : ''}`} />
+                  </div>
+                </div>
+
+                {/* Analyzing Stage */}
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 flex items-center justify-between hover:border-purple-500/40 transition-all">
+                  <div>
+                    <span className="text-xs font-semibold text-purple-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                      🟣 Analyzing
+                    </span>
+                    <div className="text-2xl font-black text-purple-200 mt-1">{pipelineStats.analyzing}</div>
+                  </div>
+                  <div className="p-2.5 bg-purple-500/20 rounded-lg text-purple-400">
+                    <Sparkles className={`w-5 h-5 ${pipelineStats.analyzing > 0 ? 'animate-bounce' : ''}`} />
+                  </div>
+                </div>
+
+                {/* Analyzed / Complete Stage */}
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between hover:border-emerald-500/40 transition-all">
+                  <div>
+                    <span className="text-xs font-semibold text-emerald-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      🟢 Analyzed
+                    </span>
+                    <div className="text-2xl font-black text-emerald-200 mt-1">{pipelineStats.analyzed}</div>
+                  </div>
+                  <div className="p-2.5 bg-emerald-500/20 rounded-lg text-emerald-400">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Import Progress Indicator */}

@@ -99,7 +99,19 @@ def get_dashboard_summary():
             ).label('bookmarks_last_week'),
             func.sum(
                 case((SavedContent.extracted_text.isnot(None), 1), else_=0)
-            ).label('successful_bookmarks')
+            ).label('successful_bookmarks'),
+            func.sum(
+                case((SavedContent.scrape_status == 'RUNNING', 1), else_=0)
+            ).label('scraping_count'),
+            func.sum(
+                case((SavedContent.embedding_status == 'RUNNING', 1), else_=0)
+            ).label('embedding_count'),
+            func.sum(
+                case((SavedContent.analysis_status == 'RUNNING', 1), else_=0)
+            ).label('analyzing_count'),
+            func.sum(
+                case(((SavedContent.pipeline_status == 'SUCCESS') | (SavedContent.analysis_status == 'SUCCESS'), 1), else_=0)
+            ).label('analyzed_count')
         ).filter(SavedContent.user_id == user_id).first()
 
         active_projects = db.session.query(func.count(Project.id)).filter_by(
@@ -117,6 +129,13 @@ def get_dashboard_summary():
             bookmark_change = 100 if bookmarks_this_week > 0 else 0
 
         success_rate = (successful_bookmarks / total_bookmarks * 100) if total_bookmarks > 0 else 0
+
+        response_data['pipeline_stats'] = {
+            'scraping': int(stats_result.scraping_count or 0),
+            'embedding': int(stats_result.embedding_count or 0),
+            'analyzing': int(stats_result.analyzing_count or 0),
+            'analyzed': int(stats_result.analyzed_count or 0)
+        }
 
         response_data['stats'] = {
             'total_bookmarks': {

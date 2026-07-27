@@ -64,13 +64,14 @@ def stream_realtime_events():
 
         # 3. Live Event Loop using Redis Pub/Sub / Stream polling
         from utils.redis_utils import redis_cache
-        if not redis_cache or not redis_cache.client:
+        client = getattr(redis_cache, 'redis_client', None) or getattr(redis_cache, 'client', None)
+        if not redis_cache or not client:
             yield f"event: system.warning\ndata: {json.dumps({'message': 'Redis unavailable for live stream'})}\n\n"
             return
 
         pubsub = None
         try:
-            pubsub = redis_cache.client.pubsub()
+            pubsub = client.pubsub()
             user_channel = f"fuze:events:channel:{user_id_int}"
             pubsub.subscribe(user_channel)
 
