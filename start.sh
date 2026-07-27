@@ -4,6 +4,9 @@
 
 set -e
 
+echo "Running automatic database migrations..."
+python -m alembic upgrade head || echo "Warning: Alembic migration auto-run failed, continuing startup..."
+
 echo "Starting Fuze processes via supervisord..."
 CONF_PATH="/app/supervisord.conf"
 if [ ! -f "$CONF_PATH" ]; then

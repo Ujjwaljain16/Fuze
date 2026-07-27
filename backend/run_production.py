@@ -270,6 +270,28 @@ def create_app(config_name: str = None) -> Flask:
     # Database initialization
     db.init_app(app)
 
+    # Auto-run Alembic database migrations on startup
+    with app.app_context():
+        try:
+            from alembic.config import Config
+            from alembic import command
+            alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'alembic.ini'))
+            if not os.path.exists(alembic_ini_path):
+                alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'alembic.ini'))
+            if os.path.exists(alembic_ini_path):
+                alembic_cfg = Config(alembic_ini_path)
+                command.upgrade(alembic_cfg, "head")
+                logger.info("alembic_auto_migration_completed_successfully")
+            else:
+                db.create_all()
+                logger.info("db_create_all_fallback_executed")
+        except Exception as mig_err:
+            logger.warning(f"auto_migration_warning: {mig_err}")
+            try:
+                db.create_all()
+            except Exception as create_err:
+                logger.warning(f"db_create_all_warning: {create_err}")
+
     # JWT setup
     jwt = JWTManager(app)
 
