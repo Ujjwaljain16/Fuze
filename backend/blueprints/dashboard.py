@@ -110,7 +110,7 @@ def get_dashboard_summary():
                 case((SavedContent.analysis_status == 'RUNNING', 1), else_=0)
             ).label('analyzing_count'),
             func.sum(
-                case(((SavedContent.pipeline_status == 'SUCCESS') | (SavedContent.analysis_status == 'SUCCESS'), 1), else_=0)
+                case((SavedContent.analysis_status == 'SUCCESS', 1), else_=0)
             ).label('analyzed_count')
         ).filter(SavedContent.user_id == user_id).first()
 
