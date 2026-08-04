@@ -1,5 +1,6 @@
 # =============================================================================
 # FUZE — Multi-Stage Docker Build
+# Trigger HF Rebuild: 1
 # =============================================================================
 # Stage 1 (builder): compile all Python wheels, fetch camoufox browser
 # Stage 2 (runtime): copy only compiled wheels + app code — no build toolchain
