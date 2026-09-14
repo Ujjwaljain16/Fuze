@@ -59,7 +59,18 @@ class RedisCache:
                             'decode_responses': False,
                             'socket_connect_timeout': 5,
                             'socket_timeout': 10,
-                            'max_connections': 20,
+                            # This pool is shared by every request-path Redis
+                            # consumer: response caching, rate limiting, AND
+                            # the JWT revocation blocklist check. 20 was
+                            # confirmed too small via load testing: at 75
+                            # concurrent users, pool exhaustion caused
+                            # intermittent .exists() failures which -- before
+                            # the fail-open fix above check_if_token_revoked
+                            # -- meant valid tokens got treated as revoked,
+                            # mass-401ing real users. Raised as a mitigation;
+                            # the fail-open fix is the real safety net if this
+                            # is still not enough headroom under heavier load.
+                            'max_connections': 50,
                             'socket_keepalive': True,
                             'health_check_interval': 15,
                             'retry_on_timeout': True
@@ -359,4 +370,59 @@ def get_redis_client() -> Optional[redis.Redis]:
     if redis_cache._ensure_connected():
         return redis_cache.redis_client
     return None
+
+
+_pubsub_connection_pool = None
+_pubsub_pool_lock = threading.Lock()
+
+
+def get_pubsub_client() -> Optional[redis.Redis]:
+    """Return a redis.Redis client backed by a SEPARATE connection pool, dedicated
+    to long-lived pub/sub subscriptions (SSE streams).
+
+    SSE viewers (blueprints/events.py) hold a Redis connection open for the
+    entire lifetime of their stream, which can be minutes to hours. If they
+    shared the main `redis_cache` pool (max_connections=20, used for every
+    request-path cache read/write), enough concurrent SSE viewers would
+    exhaust it and every other Redis-backed request in this worker process
+    would start failing with "too many connections" -- not just SSE viewers.
+    Isolating the pool means SSE saturation degrades only new SSE
+    connections, not caching/rate-limiting/everything else.
+    """
+    global _pubsub_connection_pool
+
+    redis_url = os.environ.get('REDIS_URL')
+    if not redis_url:
+        return get_redis_client()
+
+    if 'upstash.io' in redis_url and redis_url.startswith('redis://'):
+        redis_url = redis_url.replace('redis://', 'rediss://', 1)
+
+    try:
+        with _pubsub_pool_lock:
+            if _pubsub_connection_pool is None:
+                pool_kwargs = {
+                    'decode_responses': False,
+                    'socket_connect_timeout': 5,
+                    'socket_timeout': 10,
+                    'max_connections': 15,
+                    'socket_keepalive': True,
+                    'health_check_interval': 15,
+                    'retry_on_timeout': True,
+                }
+                if redis_url.startswith('rediss://'):
+                    allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
+                    if allow_unverified:
+                        pool_kwargs['ssl_cert_reqs'] = ssl.CERT_NONE
+                        pool_kwargs['ssl_check_hostname'] = False
+                    else:
+                        pool_kwargs['ssl_cert_reqs'] = ssl.CERT_REQUIRED
+                        pool_kwargs['ssl_check_hostname'] = True
+
+                _pubsub_connection_pool = redis.ConnectionPool.from_url(redis_url, **pool_kwargs)
+
+        return redis.Redis(connection_pool=_pubsub_connection_pool)
+    except Exception as e:
+        logger.error("pubsub_pool_connection_failed", extra={"error": str(e)})
+        return None
 

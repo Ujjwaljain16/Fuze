@@ -12,14 +12,14 @@ catalogue==2.0.10
 certifi==2025.6.15
 chardet==5.2.0
 charset-normalizer==3.4.2
-click==8.2.1
+click==8.3.3
 cloudpathlib==0.16.0
 colorama==0.4.6
 confection==0.1.5
 cssselect==1.3.0
 deprecation==2.1.0
-filelock==3.18.0
-Flask==3.1.1
+filelock==3.20.3
+Flask==3.1.3
 flask-cors==6.0.1
 Flask-JWT-Extended==4.7.1
 sentry-sdk[flask]>=2.0.0
@@ -33,20 +33,20 @@ fsspec==2025.5.1
 gotrue==2.12.3
 greenlet==3.2.3
 h11==0.16.0
-h2==4.2.0
-hpack==4.1.0
+h2==4.4.1
+hpack==4.2.0
 httpcore==1.0.9
 httpx==0.28.1
 huggingface-hub==0.33.2
 hyperframe==6.1.0
-idna==3.10
+idna==3.15
 itsdangerous==2.2.0
 Jinja2==3.1.6
 joblib==1.5.1
 langcodes==3.5.0
 language_data==1.3.0
-lxml==6.0.0
-lxml_html_clean==0.4.2
+lxml==6.1.1
+lxml_html_clean==0.4.5
 marisa-trie==1.2.1
 markdown-it-py==3.0.0
 MarkupSafe==3.0.2
@@ -56,23 +56,23 @@ murmurhash==1.0.13
 networkx==3.5
 packaging==25.0
 pgvector>=0.5.0
-pillow==11.3.0
-playwright==1.53.0
+pillow==12.3.0
+playwright==1.56.0
 postgrest==1.1.1
 psycopg2-binary==2.9.10
 pydantic==2.11.7
 pydantic_core==2.33.2
 pyee==13.0.0
-PyJWT==2.10.1
+PyJWT==2.13.0
 python-dateutil==2.9.0.post0
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 PyYAML==6.0.2
 readability-lxml==0.8.4.1
 realtime==2.6.0
 regex==2024.11.6
 redis==5.0.1
 rq==1.15.1
-requests==2.32.4
+requests==2.33.0
 rich>=12.0.0,<14.0.0
 safetensors==0.5.3
 # scikit-learn - updated to version with proper numpy 2.0 support
@@ -83,7 +83,7 @@ shellingham==1.5.4
 six==1.17.0
 smart-open==6.4.0
 sniffio==1.3.1
-soupsieve==2.7
+soupsieve==2.8.4
 SQLAlchemy==2.0.41
 storage3==0.12.0
 StrEnum==0.4.15
@@ -98,9 +98,9 @@ transformers==4.53.0
 typer==0.9.4
 typing-inspection==0.4.1
 typing_extensions==4.14.0
-urllib3==2.5.0
+urllib3==2.7.0
 websockets==15.0.1
-Werkzeug==3.1.3
+Werkzeug==3.1.6
 wrapt==1.17.2
 google-generativeai==0.8.3
 gunicorn>=23.0.0
@@ -113,6 +113,14 @@ pytest-flask==1.3.0
 pytest-asyncio==0.24.0
 faker==33.1.0
 freezegun==1.5.1
+# mcp pinned explicitly: scrapling[all] depends on mcp>=1.24.0 with no upper
+# bound, and pip's resolver backtracks through dozens of mcp/mcp-types
+# releases trying to reconcile it against the rest of this file -- confirmed
+# to make `pip install -r requirements.txt` effectively hang (still
+# backtracking after several minutes). Pinning at scrapling's own declared
+# floor (the version its maintainers actually built against) collapses the
+# resolution instantly.
+mcp==1.24.0
 scrapling[all]
 camoufox[geoip]
 pybreaker==1.2.0

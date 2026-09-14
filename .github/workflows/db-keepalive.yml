@@ -26,15 +26,16 @@ jobs:
           pip install psycopg2-binary python-dotenv
       
       - name: Ping database
+        id: ping
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python scripts/ping_db.py
-      
+
       - name: Report status
         if: always()
         run: |
-          if [ $? -eq 0 ]; then
+          if [ "${{ steps.ping.outcome }}" = "success" ]; then
             echo "✅ Database ping successful at $(date)"
           else
             echo "❌ Database ping failed at $(date)"

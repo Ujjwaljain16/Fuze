@@ -13,11 +13,20 @@ export default function OAuthCallback() {
           return
         }
 
-        // Supabase may return tokens in hash or query params depending on environment/flow.
+        // Only read tokens/errors from the URL fragment (#), never the query
+        // string (?) -- a query-string token would be sent to the server in
+        // the request line and leak via Referer headers to any third-party
+        // resource loaded on this page before it's stripped.
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-        const queryParams = new URLSearchParams(window.location.search)
-        const access_token = hashParams.get('access_token') || queryParams.get('access_token')
-        const oauthError = hashParams.get('error_description') || queryParams.get('error_description')
+        const access_token = hashParams.get('access_token')
+        const oauthError = hashParams.get('error_description')
+
+        // Strip the fragment from the URL/history immediately, before any
+        // branching (including the error paths below) -- avoids leaving a
+        // token or error detail sitting in browser history either way.
+        if (window.location.hash || window.location.search) {
+          window.history.replaceState({}, document.title, '/oauth/callback')
+        }
 
         if (oauthError) {
           setError(`OAuth error: ${oauthError}`)
@@ -27,11 +36,6 @@ export default function OAuthCallback() {
         if (!access_token) {
           setError('No access token found in redirect URL. Please try Google sign-in again.')
           return
-        }
-
-        // Strip token fragment from URL as early as possible to avoid PWA/history quirks on Android.
-        if (window.location.hash || window.location.search) {
-          window.history.replaceState({}, document.title, '/oauth/callback')
         }
 
         // Send the Supabase access token to our backend to exchange for local session

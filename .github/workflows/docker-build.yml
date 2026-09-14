@@ -1,0 +1,78 @@
+name: Docker Build Verification
+
+# Actually builds the production image on every change that could break it.
+# This would have caught two real bugs found during a manual audit:
+#   1. alembic.ini was never COPY'd into the image, so the migration step in
+#      start.sh silently failed on every container boot.
+#   2. Bumping h2 to a CVE-fixed version without also bumping hpack produced
+#      a ResolutionImpossible error during `pip install -r requirements.txt`.
+# Neither is visible from backend-ci.yml (which installs deps directly into
+# the runner, not via this Dockerfile) or from sync-to-hf-space.yml (which
+# only copies files and pushes -- HF's own infra builds the image afterwards,
+# by which point a broken build is already live-facing).
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'backend/**'
+      - 'app.py'
+      - 'wsgi.py'
+      - 'start.sh'
+      - 'supervisord.conf'
+      - 'alembic.ini'
+      - '.github/workflows/docker-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'backend/**'
+      - 'app.py'
+      - 'wsgi.py'
+      - 'start.sh'
+      - 'supervisord.conf'
+      - 'alembic.ini'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: fuze-backend:ci-check
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify alembic.ini is present in the image
+        run: |
+          docker run --rm fuze-backend:ci-check test -f /app/alembic.ini
+
+      - name: Verify the app actually imports inside the built image
+        run: |
+          docker run --rm \
+            -e SKIP_STARTUP_VALIDATION=1 \
+            -e FLASK_ENV=development \
+            -e SECRET_KEY=ci-build-check-secret-key-xxxxxxxx \
+            -e JWT_SECRET_KEY=ci-build-check-jwt-secret-xxxxxxx \
+            -e DATABASE_URL=sqlite:////tmp/ci_check.db \
+            -e DISABLE_EMBEDDINGS=true \
+            --entrypoint python \
+            fuze-backend:ci-check \
+            -c "from wsgi import app; print('APP_IMPORT_OK', len(list(app.url_map.iter_rules())), 'routes')"

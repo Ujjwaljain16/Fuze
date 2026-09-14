@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Home, AlertTriangle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getSafeInternalRedirect } from '../utils/urlSafety';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import AuthToggle from '../components/AuthToggle';
@@ -174,9 +175,13 @@ export default function FuzeAuth() {
         const result = await login(identifier, formData.password);
         
         if (result.success) {
-          setSuccess('Logged in successfully! Redirecting to dashboard...');
+          // Honor ?redirect= (e.g. set by ShareHandler sending a logged-out
+          // user through login) so they land back where they meant to go,
+          // instead of always being dumped on /dashboard and losing context.
+          const redirectTo = getSafeInternalRedirect(searchParams.get('redirect'));
+          setSuccess(redirectTo === '/dashboard' ? 'Logged in successfully! Redirecting to dashboard...' : 'Logged in successfully! Redirecting...');
           // Navigate immediately - no artificial delay
-          navigate('/dashboard');
+          navigate(redirectTo);
         } else {
           setError(result.error || 'Login failed. Please try again.');
           setIsSubmitting(false);

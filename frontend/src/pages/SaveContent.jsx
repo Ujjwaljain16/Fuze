@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
 import api from '../services/api'
+import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'
 import { 
   Bookmark, ExternalLink, Loader2, Plus, Tag, AlertTriangle, Eye, 
@@ -574,7 +575,7 @@ const SaveContent = () => {
                                 <div className={`flex items-center ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}>
                                   <Eye size={isMobile ? 12 : 14} className="text-red-400" />
                                   <a 
-                                    href={duplicateInfo.existingBookmark.url} 
+                                    href={getSafeHref(duplicateInfo.existingBookmark.url)}
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className={`text-red-400 hover:text-red-300 ${isMobile ? 'text-xs' : 'text-sm'} transition-colors duration-300 underline`}

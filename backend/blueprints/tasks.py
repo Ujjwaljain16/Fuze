@@ -105,12 +105,15 @@ def get_tasks_for_project(project_id):
     if not project:
         return jsonify({'message': 'Project not found or unauthorized'}), 404
 
-    # Optimize subtask loading with joinedload to eliminate N+1 queries
+    # Optimize subtask loading with joinedload to eliminate N+1 queries.
+    # Capped defensively -- no pagination contract exists on this endpoint
+    # today (the frontend expects the full list), but an unbounded project
+    # shouldn't be able to return an unbounded, joinedload-multiplied response.
     tasks = db.session.query(Task).options(
         joinedload(Task.subtasks)
     ).filter(
         Task.project_id == project_id
-    ).order_by(Task.created_at.asc()).all()
+    ).order_by(Task.created_at.asc()).limit(500).all()
 
     return jsonify({'tasks': [{
         'id': t.id,
@@ -439,7 +442,7 @@ def get_subtasks(task_id):
         return jsonify({'success': False, 'error': 'Task not found'}), 404
 
     try:
-        subtasks = db.session.query(Subtask).filter_by(task_id=task_id).order_by(Subtask.created_at.asc()).all()
+        subtasks = db.session.query(Subtask).filter_by(task_id=task_id).order_by(Subtask.created_at.asc()).limit(500).all()
 
         return jsonify({
             'success': True,

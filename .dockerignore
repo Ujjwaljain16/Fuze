@@ -1,0 +1,24 @@
+# Never needed inside the image -- the Dockerfile COPYs only specific
+# paths (backend/, wsgi.py, app.py, start.sh, supervisord.conf, alembic.ini,
+# requirements.txt), but without this file the full repo (including the
+# directories below) is still eligible to be scanned/hashed as build context.
+.git/
+frontend/
+BookmarkExtension/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.kombai/
+.vscode/
+interview/
+docs/
+scripts/
+*.log
+*.pem
+.env
+.env.*
+image.png
+index.html
+sw.html

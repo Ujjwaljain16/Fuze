@@ -5,6 +5,7 @@ Revises: 0003
 Create Date: 2026-05-12 17:00:00.000000
 
 """
+import sqlalchemy as sa
 from alembic import op
 from core.logging_config import get_logger
 
@@ -17,6 +18,21 @@ logger = get_logger(__name__)
 def upgrade():
     # 1. Clean up duplicate bookmarks before adding constraint
     # Keep the most recently saved bookmark for a given (user_id, url)
+    # NOTE: this permanently deletes rows (notes/tags/embeddings on the older
+    # duplicates are lost, not archived) -- logging exactly which ids and how
+    # many, so this is at least auditable after the fact rather than a silent
+    # count-less deletion. This does not change behavior for any environment
+    # where this migration has already run.
+    duplicate_ids_sql = """
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER(PARTITION BY user_id, url ORDER BY saved_at DESC NULLS LAST, id DESC) as rn
+        FROM saved_content
+    ) t WHERE t.rn > 1;
+    """
+    bind = op.get_bind()
+    duplicate_ids = [row[0] for row in bind.execute(sa.text(duplicate_ids_sql)).fetchall()]
+    logger.info("migration_duplicates_found", table="saved_content", count=len(duplicate_ids), ids=duplicate_ids)
+
     cleanup_sql = """
     DELETE FROM saved_content
     WHERE id IN (
@@ -27,7 +43,7 @@ def upgrade():
     );
     """
     op.execute(cleanup_sql)
-    logger.info("migration_duplicates_cleaned", table="saved_content")
+    logger.info("migration_duplicates_cleaned", table="saved_content", count=len(duplicate_ids))
 
     # 2. Add the UNIQUE constraint
     op.create_unique_constraint('_user_url_uc', 'saved_content', ['user_id', 'url'])

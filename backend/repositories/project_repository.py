@@ -57,6 +57,7 @@ class ProjectRepository:
             .options(selectinload(Task.subtasks))
             .filter_by(project_id=project_id)
             .order_by(Task.created_at.asc())
+            .limit(500)
             .all()
         )
 

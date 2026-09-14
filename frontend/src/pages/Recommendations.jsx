@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import './recommendations-styles.css'
 import './gemini-recommendations-styles.css'
+import { getSafeHref } from '../utils/urlSafety'
 import SmartContextSelector from '../components/SmartContextSelector'
 import Loader from '../components/Loader'
 
@@ -1060,7 +1061,7 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
       <div className={`border-t border-gray-800 ${isMobile ? 'p-4' : 'p-6'} bg-gray-900/20`}>
         <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-3' : 'justify-between'}`}>
           <a 
-            href={recommendation.url} 
+            href={getSafeHref(recommendation.url)}
             target="_blank" 
             rel="noopener noreferrer"
             className={`flex items-center ${isSmallMobile ? 'justify-center w-full' : 'space-x-2'} ${isMobile ? 'px-3 py-1.5 text-sm' : 'px-4 py-2'} bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-lg transition-all duration-300 transform hover:scale-105`}

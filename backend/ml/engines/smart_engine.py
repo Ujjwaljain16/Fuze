@@ -40,8 +40,14 @@ class SmartEngine(BaseRecommendationEngine):
             logger.debug(f"[{self.name}] Empty candidate set provided; returning empty results.")
             return []
 
-        try:
-            for candidate in candidates.candidates:
+        failed_count = 0
+        # Each candidate is scored in its own try/except: a single malformed
+        # candidate throwing used to abort the whole loop (one bad row could
+        # make this engine silently return whatever partial/empty list it had
+        # built so far, with only an error log -- no signal to callers like
+        # cache_warmer/shadow_evaluator that anything degraded).
+        for candidate in candidates.candidates:
+            try:
                 # 1. Score candidate using pure RecommendationScorer
                 score_entity = self.scorer.score_candidate(request, candidate)
 
@@ -65,17 +71,24 @@ class SmartEngine(BaseRecommendationEngine):
                     )
                 )
                 results.append(result)
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"[{self.name}] Failed to score candidate {getattr(candidate, 'candidate_id', '?')}: {e}", exc_info=True)
 
-            # Sort descending by score (Invariant 4)
-            results.sort(key=lambda r: r.score, reverse=True)
+        if failed_count:
+            try:
+                from core.metrics import recommendation_requests_total
+                recommendation_requests_total.labels(engine=self.name, result="candidate_scoring_error").inc(failed_count)
+            except Exception:
+                pass
 
-            # Cap to request limit
-            results = results[:request.max_recommendations]
+        # Sort descending by score (Invariant 4)
+        results.sort(key=lambda r: r.score, reverse=True)
 
-            elapsed_ms = (time.time() - start_time) * 1000
-            logger.debug(f"[{self.name}] Generated {len(results)} recommendations in {elapsed_ms:.1f}ms")
+        # Cap to request limit
+        results = results[:request.max_recommendations]
 
-        except Exception as e:
-            logger.error(f"[{self.name}] Execution error: {e}", exc_info=True)
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.debug(f"[{self.name}] Generated {len(results)} recommendations ({failed_count} candidates failed) in {elapsed_ms:.1f}ms")
 
         return results

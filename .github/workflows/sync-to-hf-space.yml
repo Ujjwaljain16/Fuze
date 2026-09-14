@@ -12,6 +12,7 @@ on:
       - 'wsgi.py'
       - 'start.sh'
       - 'supervisord.conf'
+      - 'alembic.ini'
 
 jobs:
   sync:
@@ -46,6 +47,12 @@ jobs:
           cp wsgi.py hf-space/
           cp start.sh hf-space/
           cp supervisord.conf hf-space/
+          # alembic.ini was missing here too (same bug as the Dockerfile's own
+          # missing COPY, fixed separately) -- without it, start.sh's
+          # migration step has been failing on every container boot in the
+          # actual deployed Space, silently swallowed by its `|| echo
+          # "Warning: ..."` fallback.
+          cp alembic.ini hf-space/
 
       - name: Commit and Push to HF Space
         env:

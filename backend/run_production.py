@@ -55,7 +55,7 @@ if SENTRY_DSN:
     except Exception as sentry_err:
         logger.warning(f"⚠️ Could not initialize Sentry SDK: {sentry_err}")
 
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, make_response
 from flask_jwt_extended import JWTManager
 from models import db
 from sqlalchemy import text
@@ -236,22 +236,12 @@ def create_app(config_name: str = None) -> Flask:
             'pool_timeout': 30
         }
 
-    # CORS setup using UnifiedConfig
-    from utils.unified_config import UnifiedConfig
-    import re
-    cors_config = UnifiedConfig().cors
-    cors_origins = cors_config.origins.copy()
-
-    default_allowed = [
-        'https://itsfuze.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        re.compile(r"^https://.*\.vercel\.app$")
-    ]
-    for o in default_allowed:
-        if o not in cors_origins:
-            cors_origins.append(o)
+    # CORS setup - allowlist is shared with utils/cors_utils.is_allowed_origin(),
+    # which any manual Access-Control-Allow-Origin header setter (below, and in
+    # blueprints/events.py's SSE response) MUST validate against instead of
+    # echoing the request's Origin verbatim.
+    from utils.cors_utils import get_allowed_cors_origins, is_allowed_origin as _is_allowed_origin
+    cors_origins = get_allowed_cors_origins()
 
     CORS(app, origins=cors_origins, supports_credentials=True)
 
@@ -270,27 +260,31 @@ def create_app(config_name: str = None) -> Flask:
     # Database initialization
     db.init_app(app)
 
-    # Auto-run Alembic database migrations on startup
-    with app.app_context():
-        try:
-            from alembic.config import Config
-            from alembic import command
-            alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'alembic.ini'))
-            if not os.path.exists(alembic_ini_path):
-                alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'alembic.ini'))
-            if os.path.exists(alembic_ini_path):
-                alembic_cfg = Config(alembic_ini_path)
-                command.upgrade(alembic_cfg, "head")
-                logger.info("alembic_auto_migration_completed_successfully")
-            else:
-                db.create_all()
-                logger.info("db_create_all_fallback_executed")
-        except Exception as mig_err:
-            logger.warning(f"auto_migration_warning: {mig_err}")
+    # NOTE: migrations are applied exactly once by start.sh ("alembic upgrade head")
+    # before supervisord launches gunicorn + the RQ workers. create_app() runs in
+    # all three of those processes (each RQ worker also calls create_app()), so
+    # auto-migrating here would run "alembic upgrade head" 3+ times concurrently
+    # against the same database on every boot -- a real race (alembic_version
+    # lock contention / duplicate-DDL errors), not just wasted startup time.
+    # If this app is run standalone outside start.sh (e.g. local `flask run`),
+    # apply migrations manually first: `alembic upgrade head`.
+    if os.environ.get('AUTO_MIGRATE_ON_BOOT', '').lower() == 'true':
+        with app.app_context():
             try:
-                db.create_all()
-            except Exception as create_err:
-                logger.warning(f"db_create_all_warning: {create_err}")
+                from alembic.config import Config
+                from alembic import command
+                alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'alembic.ini'))
+                if not os.path.exists(alembic_ini_path):
+                    alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'alembic.ini'))
+                if os.path.exists(alembic_ini_path):
+                    alembic_cfg = Config(alembic_ini_path)
+                    command.upgrade(alembic_cfg, "head")
+                    logger.info("alembic_auto_migration_completed_successfully")
+                else:
+                    db.create_all()
+                    logger.info("db_create_all_fallback_executed")
+            except Exception as mig_err:
+                logger.warning(f"auto_migration_warning: {mig_err}")
 
     # JWT setup
     jwt = JWTManager(app)
@@ -312,12 +306,25 @@ def create_app(config_name: str = None) -> Flask:
         jti = jwt_payload.get('jti')
         if not jti:
             return False
+        # Fail OPEN (not revoked) when Redis is unreachable or the lookup
+        # throws, rather than fail closed. This loader only runs after the
+        # JWT's signature and expiry have already validated successfully --
+        # the blocklist is a secondary, best-effort revocation check on top
+        # of that, not the primary auth mechanism. Failing closed here means
+        # a transient Redis blip (or, concretely, the shared connection pool
+        # being exhausted under concurrent load -- confirmed via load testing:
+        # 75 concurrent users caused ~38% of authenticated requests to receive
+        # 401 UNAUTHORIZED, "Token has been revoked", for tokens that were
+        # never revoked, purely because the .exists() call intermittently
+        # raised under pool pressure) turns "cache/rate-limiter degraded" into
+        # "every active user gets logged out simultaneously" -- a vastly
+        # worse outage than briefly under-enforcing revocation.
         try:
             if not redis_cache or not getattr(redis_cache, 'connected', False):
-                return True
+                return False
             return redis_cache.redis_client.exists(f"revoked_jti:{jti}") == 1
         except Exception:
-            return True
+            return False
 
     @jwt.revoked_token_loader
     def revoked_token_callback(jwt_header, jwt_payload):
@@ -332,7 +339,7 @@ def create_app(config_name: str = None) -> Flask:
         if request.method == 'OPTIONS':
             origin = request.headers.get('Origin')
             response = make_response('', 204)
-            if origin:
+            if _is_allowed_origin(origin):
                 response.headers['Access-Control-Allow-Origin'] = origin
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
@@ -349,7 +356,7 @@ def create_app(config_name: str = None) -> Flask:
             response.headers['X-Request-ID'] = g.correlation_id
 
         origin = request.headers.get('Origin')
-        if origin:
+        if _is_allowed_origin(origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
@@ -407,7 +414,7 @@ def create_app(config_name: str = None) -> Flask:
     @app.after_request
     def after_request_logging(response):
         origin = request.headers.get('Origin')
-        if origin:
+        if _is_allowed_origin(origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
 

@@ -18,6 +18,7 @@ from scrapers.normalizer import MetadataNormalizer
 from scrapers.quality_evaluator import QualityEvaluator
 from scrapers.decision_engine import DecisionEngine
 from scrapers.event_publisher import ScrapingEventPublisher
+from scrapers.url_safety import is_safe_url
 from scrapers.models import ContentDocument, RawFetchResult, ParsedDocument, NormalizedDocument, Decision, compute_content_hash
 from core.circuit_breaker import RedisCircuitBreaker
 from core.events import (
@@ -67,7 +68,15 @@ class ContentAcquisitionEngine:
         domain = urlparse(url).netloc.lower()
         circuit_breaker = RedisCircuitBreaker(name=f"domain_{domain}", failure_threshold=5, recovery_timeout=300)
 
-        strategy_plan = self.fetch_policy.get_strategy_plan(url)
+        # SSRF guard: never let a user-supplied URL that resolves to an
+        # internal/loopback/link-local address reach any fetcher. Leaving
+        # strategy_plan empty routes straight to the existing "fetch failed"
+        # fallback below (STAGE 2 loop just won't execute).
+        if is_safe_url(url):
+            strategy_plan = self.fetch_policy.get_strategy_plan(url)
+        else:
+            logger.error("acquisition_blocked_unsafe_url", extra={"url": url})
+            strategy_plan = []
         
         raw_result: Optional[RawFetchResult] = None
         decision: Optional[Decision] = None

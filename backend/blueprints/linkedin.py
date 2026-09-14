@@ -339,10 +339,18 @@ def get_linkedin_history():
         total_count = history_query.count()
         records = history_query.offset(offset).limit(limit).all()
 
+        # Batch-load analyses in one query instead of one-per-record (was up to
+        # `limit` extra round-trips per request).
+        record_ids = [r.id for r in records]
+        analyses_by_content_id = {
+            a.content_id: a
+            for a in ContentAnalysis.query.filter(ContentAnalysis.content_id.in_(record_ids)).all()
+        } if record_ids else {}
+
         history_data = []
         for record in records:
             try:
-                analysis = ContentAnalysis.query.filter_by(content_id=record.id).first()
+                analysis = analyses_by_content_id.get(record.id)
                 analysis_data = {}
                 if analysis and analysis.analysis_data:
                     analysis_data = analysis.analysis_data if isinstance(analysis.analysis_data, dict) else json.loads(analysis.analysis_data)

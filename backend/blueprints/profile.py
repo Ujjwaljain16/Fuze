@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import db, User
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
+from middleware.rate_limiting import limiter
 
 logger = get_logger(__name__)
 
@@ -141,6 +142,7 @@ def update_user(user_id):
 
 @profile_bp.route('/users/<int:user_id>/password', methods=['PUT'])
 @jwt_required()
+@limiter.limit("5 per 15 minutes")
 def change_password(user_id):
     """Change user password with validation and authorization checks."""
     current_user_id = int(get_jwt_identity())

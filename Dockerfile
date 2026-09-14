@@ -73,6 +73,15 @@ COPY wsgi.py .
 COPY app.py .
 COPY start.sh .
 COPY supervisord.conf .
+# CRITICAL: alembic.ini was never copied into the image before this fix.
+# alembic.ini's own script_location (`%(here)s/backend/alembic`) requires it
+# to sit at /app alongside backend/. Without it, every `alembic upgrade head`
+# invocation in start.sh has been silently failing (caught by `|| echo
+# "Warning: ..."`) on every single container boot -- meaning the automatic
+# migration step has likely never actually run in the deployed Space at all.
+# Whatever kept the production schema at head was some other, out-of-band
+# process (e.g. someone running alembic manually against the prod DB).
+COPY alembic.ini .
 
 # Environment
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -83,5 +92,14 @@ ENV PORT=7860
 RUN chmod +x start.sh
 
 EXPOSE 7860
+
+# Checks liveness (process alive + Flask responding), not readiness (DB/Redis
+# reachable) -- a transient DB/Redis blip shouldn't cause Docker to restart an
+# otherwise-healthy container; that's what /health/readiness is for, used by
+# orchestration layers that route traffic rather than restart the process.
+# start-period gives gunicorn + the RQ workers + (now-actually-running)
+# migrations time to boot before the first check counts against it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${PORT}/health/liveness', timeout=3).status==200 else 1)" || exit 1
 
 CMD ["./start.sh"]

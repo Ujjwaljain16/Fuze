@@ -7,11 +7,13 @@ import time
 import requests
 from scrapers.fetchers.base import BaseFetcher
 from scrapers.models import RawFetchResult, FetchMetadata
+from scrapers.url_safety import is_safe_url
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 DEFAULT_TIMEOUT = 8
+MAX_REDIRECTS = 5
 
 
 class HTTPFetcher(BaseFetcher):
@@ -32,10 +34,26 @@ class HTTPFetcher(BaseFetcher):
     def fetch(self, url: str) -> RawFetchResult:
         start_time = time.time()
         try:
-            resp = self.session.get(url, timeout=self.timeout, allow_redirects=True)
+            # Manual redirect loop instead of allow_redirects=True: a URL that
+            # resolves to a public IP can still 302 to an internal/loopback
+            # address, and requests would follow that automatically before we
+            # get a chance to inspect it. Re-validate every hop.
+            current_url = url
+            redirect_chain = []
+            resp = None
+            for _ in range(MAX_REDIRECTS + 1):
+                if not is_safe_url(current_url):
+                    logger.error("http_fetch_blocked_unsafe_redirect", extra={"url": url, "hop": current_url})
+                    raise ValueError(f"Blocked unsafe redirect target: {current_url}")
+
+                resp = self.session.get(current_url, timeout=self.timeout, allow_redirects=False)
+                if resp.is_redirect and resp.headers.get('Location'):
+                    redirect_chain.append(current_url)
+                    current_url = requests.compat.urljoin(current_url, resp.headers['Location'])
+                    continue
+                break
+
             latency_ms = int((time.time() - start_time) * 1000)
-            
-            redirect_chain = [r.url for r in resp.history]
             meta = FetchMetadata(
                 strategy=self.strategy_name,
                 attempts=1,

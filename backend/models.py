@@ -3,6 +3,9 @@ from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Fore
 from sqlalchemy.dialects.postgresql import TEXT, JSONB
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Initialize SQLAlchemy with enhanced configuration
 db = SQLAlchemy()
@@ -191,37 +194,59 @@ def ensure_pipeline_columns():
                 db.session.rollback()
 
         if 'bookmark_events' not in inspector.get_table_names():
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS bookmark_events (
-                    id BIGSERIAL PRIMARY KEY,
-                    event_id VARCHAR(64) NOT NULL UNIQUE,
-                    bookmark_id BIGINT REFERENCES saved_content(id) ON DELETE CASCADE,
-                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-                    pipeline_run_id VARCHAR(64) NOT NULL,
-                    sequence INTEGER NOT NULL DEFAULT 1,
-                    type VARCHAR(100) NOT NULL,
-                    schema_version INTEGER NOT NULL DEFAULT 1,
-                    data JSONB,
-                    error JSONB,
-                    metadata_json JSONB,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                );
-            """))
-            db.session.commit()
+            # CREATE TABLE IF NOT EXISTS is not atomic against a concurrent
+            # CREATE from another process also passing the get_table_names()
+            # check at the same time (this runs at boot in every supervisord
+            # process: gunicorn + each RQ worker) -- wrap it so a losing race
+            # (DuplicateTable) is treated as success instead of aborting the
+            # rest of this function for that process.
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS bookmark_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        event_id VARCHAR(64) NOT NULL UNIQUE,
+                        bookmark_id BIGINT REFERENCES saved_content(id) ON DELETE CASCADE,
+                        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                        pipeline_run_id VARCHAR(64) NOT NULL,
+                        sequence INTEGER NOT NULL DEFAULT 1,
+                        type VARCHAR(100) NOT NULL,
+                        schema_version INTEGER NOT NULL DEFAULT 1,
+                        data JSONB,
+                        error JSONB,
+                        metadata_json JSONB,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                """))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning("ensure_bookmark_events_table_failed", extra={"error": str(e)})
 
         if 'bookmark_metadata' not in inspector.get_table_names():
-            db.session.execute(text("""
-                CREATE TABLE IF NOT EXISTS bookmark_metadata (
-                    bookmark_id BIGINT PRIMARY KEY REFERENCES saved_content(id) ON DELETE CASCADE,
-                    jsonb_payload JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE INDEX IF NOT EXISTS idx_bookmark_metadata_jsonb ON bookmark_metadata USING gin (jsonb_payload);
-            """))
-            db.session.commit()
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS bookmark_metadata (
+                        bookmark_id BIGINT PRIMARY KEY REFERENCES saved_content(id) ON DELETE CASCADE,
+                        jsonb_payload JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                """))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning("ensure_bookmark_metadata_table_failed", extra={"error": str(e)})
+
+            try:
+                db.session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_bookmark_metadata_jsonb ON bookmark_metadata USING gin (jsonb_payload);"
+                ))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.warning("ensure_bookmark_metadata_index_failed", extra={"error": str(e)})
     except Exception as e:
-        print(f"Note: Could not ensure pipeline columns: {e}")
+        logger.error("ensure_pipeline_columns_failed", extra={"error": str(e)})
         try:
             db.session.rollback()
         except Exception:
@@ -262,36 +287,43 @@ def ensure_token_families_table():
 
 
 def ensure_case_insensitive_indexes():
-    """Ensure case-insensitive unique indexes on email and username (idempotent)."""
+    """Ensure case-insensitive unique indexes on email and username (idempotent).
+
+    Uses CONCURRENTLY so this doesn't take a table-level lock blocking writes
+    to `users` if it's ever run against an already-populated table (e.g.
+    init_db.py re-run against an existing production DB) -- a plain CREATE
+    UNIQUE INDEX would otherwise stall every login/signup for its duration.
+    CONCURRENTLY cannot run inside a transaction, so this uses a raw
+    autocommit connection instead of the ORM session, and is skipped on
+    non-Postgres dialects (e.g. SQLite in tests) which don't support it.
+    """
     try:
         from sqlalchemy import text
+        if db.engine.dialect.name != 'postgresql':
+            return
+
         stmts = [
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique_lower ON users (lower(email));",
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique_lower ON users (lower(username));",
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email_unique_lower ON users (lower(email));",
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_users_username_unique_lower ON users (lower(username));",
         ]
-        for stmt in stmts:
-            try:
-                db.session.execute(text(stmt))
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                err = str(e).lower()
-                pgcode = getattr(getattr(e, 'orig', None), 'pgcode', None)
-                # 42P07: duplicate_table / duplicate_object ("already exists")
-                # 23505: unique_violation ("duplicate key value violates unique constraint")
-                if pgcode == '42P07' or ('already exists' in err and 'duplicate key' not in err and 'unique constraint' not in err):
-                    pass
-                elif pgcode == '23505' or 'duplicate key' in err or 'violates unique constraint' in err or 'could not create unique index' in err:
-                    print(f"Error: Pre-existing case-variant duplicates prevent creation of case-insensitive index: {e}")
-                    raise
-                else:
-                    raise
+        with db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            for stmt in stmts:
+                try:
+                    conn.execute(text(stmt))
+                except Exception as e:
+                    err = str(e).lower()
+                    pgcode = getattr(getattr(e, 'orig', None), 'pgcode', None)
+                    # 42P07: duplicate_table / duplicate_object ("already exists")
+                    # 23505: unique_violation ("duplicate key value violates unique constraint")
+                    if pgcode == '42P07' or ('already exists' in err and 'duplicate key' not in err and 'unique constraint' not in err):
+                        pass
+                    elif pgcode == '23505' or 'duplicate key' in err or 'violates unique constraint' in err or 'could not create unique index' in err:
+                        logger.error(f"Pre-existing case-variant duplicates prevent creation of case-insensitive index: {e}")
+                        raise
+                    else:
+                        raise
     except Exception as e:
-        print(f"Note: Could not ensure case-insensitive indexes: {e}")
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        logger.warning(f"ensure_case_insensitive_indexes_failed: {e}")
         raise
 
 
@@ -397,7 +429,18 @@ class SavedContent(Base):
         UniqueConstraint('user_id', 'url', name='_user_url_uc'),
         db.Index('idx_saved_content_user_quality', 'user_id', 'quality_score'),
         db.Index('idx_saved_content_user_saved_at', 'user_id', 'saved_at'),
-        db.Index('idx_saved_content_user_unanalyzed', 'user_id', 'id'),
+        # Matches the actual partial index created by alembic migration 0003
+        # (CREATE INDEX CONCURRENTLY ... WHERE extracted_text IS NOT NULL AND
+        # extracted_text != ''). Migration 0007 later tried to recreate this as
+        # a non-partial index under the same name, which silently no-opped
+        # (IF NOT EXISTS) since 0003 had already created it -- so the DB has
+        # always had the partial version. This declaration previously didn't
+        # include postgresql_where, which made Alembic autogenerate believe
+        # there was schema drift that didn't actually exist.
+        db.Index(
+            'idx_saved_content_user_unanalyzed', 'user_id', 'id',
+            postgresql_where=db.text("extracted_text IS NOT NULL AND extracted_text != ''")
+        ),
         db.Index('idx_saved_content_content_hash', 'content_hash'),
     )
 

@@ -109,3 +109,11 @@ backend/scratch/
 /commit_script.ps1
 /image.png
 /test_output.txt
+
+# Local load-test artifacts (scripts/locustfile.py + seed_loadtest_data.py are
+# checked in; their *output* -- including scripts/loadtest_tokens.json, which
+# contains real signed JWTs for local seeded test users -- is not)
+scripts/loadtest_tokens.json
+scripts/loadtest_report*.html
+scripts/loadtest_results*.csv
+scripts/benchmark_results.json

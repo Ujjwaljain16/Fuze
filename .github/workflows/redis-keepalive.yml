@@ -26,15 +26,16 @@ jobs:
           pip install redis python-dotenv
       
       - name: Ping Redis
+        id: ping
         env:
           REDIS_URL: ${{ secrets.REDIS_URL }}
         run: |
           python scripts/ping_redis.py
-      
+
       - name: Report status
         if: always()
         run: |
-          if [ $? -eq 0 ]; then
+          if [ "${{ steps.ping.outcome }}" = "success" ]; then
             echo "✅ Redis ping successful at $(date)"
           else
             echo "❌ Redis ping failed at $(date)"

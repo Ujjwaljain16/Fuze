@@ -483,15 +483,21 @@ def save_bookmark():
             )
             new_bm_id = new_bm.id
             new_bm_url = new_bm.url
-    except Exception:
+    except IntegrityError:
+        # Only a unique-constraint violation (a genuine insert race with another
+        # concurrent request for the same URL, since is_duplicate_url() already
+        # checked above) is a legitimate "someone else just created it" case.
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             existing_bm = service.get_bookmark_by_url(user_id, url.strip())
-            existing_bm_id = existing_bm.id if existing_bm else None
-            existing_bm_url = existing_bm.url if existing_bm else url.strip()
+        if not existing_bm:
+            # The insert failed but no matching row exists either -- this is a
+            # real failure, not a race, so don't lie to the client with a 200.
+            logger.error(f"Bookmark insert failed with IntegrityError but no existing row found for user {user_id}, url {url.strip()}")
+            return jsonify({'message': 'Failed to save bookmark', 'error': 'insert_conflict_unresolved'}), 500
         return jsonify({
             'message': 'Bookmark updated',
-            'bookmark': {'id': existing_bm_id, 'url': existing_bm_url},
+            'bookmark': {'id': existing_bm.id, 'url': existing_bm.url},
             'wasDuplicate': True,
             'processing': 'background'
         }), 200

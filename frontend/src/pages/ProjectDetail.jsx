@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
+import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, 
@@ -513,7 +514,7 @@ const ProjectDetail = () => {
                   </div>
                   <div className="bookmark-actions">
                     <a 
-                      href={bookmark.url} 
+                      href={getSafeHref(bookmark.url)}
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="bookmark-link"

@@ -52,7 +52,16 @@ jobs:
       - name: Run unit tests
         working-directory: frontend
         run: npm test -- --run
-      
+
+      - name: Verify production build
+        # Only css-lint.yml previously ran `npm run build`, and it only
+        # triggers on *.css changes -- a JS/JSX-only change (this workflow's
+        # actual trigger) could break the production build (bad import,
+        # something ESLint/vitest don't catch) with no CI workflow ever
+        # noticing.
+        working-directory: frontend
+        run: npm run build
+
       - name: Upload test coverage
         if: always()
         uses: actions/upload-artifact@v4

@@ -11,6 +11,7 @@ import time
 from typing import Dict, Optional, List, Tuple
 from urllib.parse import urlparse
 from core.logging_config import get_logger
+from scrapers.url_safety import is_safe_url
 import asyncio
 import threading
 import requests
@@ -691,7 +692,22 @@ class ScraplingEnhancedScraper:
         """
         try:
             domain = urlparse(url).netloc.lower()
-            
+
+            # SSRF guard: this is the single entry point every bookmark/LinkedIn
+            # URL scrape funnels through (LinkedIn scraper, GitHub API, Scrapling,
+            # and the EnhancedWebScraper fallback all branch from here) -- block
+            # here, before any of those branches make a server-side request to a
+            # user-supplied URL that could resolve to an internal/loopback address.
+            if not is_safe_url(url):
+                logger.error(f"Blocked unsafe URL (SSRF guard): {url}")
+                return {
+                    'title': 'Content unavailable',
+                    'content': '',
+                    'headings': [],
+                    'meta_description': 'This URL could not be fetched.',
+                    'quality_score': 0
+                }
+
             # Check if auth required
             if any(auth_domain in domain for auth_domain in self.auth_required_domains):
                 return self._get_auth_required_content(url, domain)

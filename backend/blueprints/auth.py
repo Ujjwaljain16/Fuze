@@ -318,6 +318,7 @@ def login():
 
 @auth_bp.route('/set-password', methods=['POST'])
 @jwt_required()
+@limiter.limit("5 per 15 minutes")
 def set_password():
     """Allow logged-in users to set or change their password."""
     try:
@@ -357,6 +358,7 @@ def set_password():
 
 @auth_bp.route('/update-username', methods=['POST'])
 @jwt_required()
+@limiter.limit("10 per hour")
 def update_username():
     """Allow logged-in users to change their username with uniqueness checks."""
     try:

@@ -534,8 +534,12 @@ def get_project_recommendations(project_id):
         if not project:
             return jsonify({'error': 'Project not found'}), 404
         
-        # Get user's saved content
-        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
+        # Get user's saved content (capped like the sibling unified/unified-project endpoints
+        # above, to avoid loading a power user's entire bookmark history + text blobs per request)
+        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).order_by(
+            SavedContent.quality_score.desc(),
+            SavedContent.saved_at.desc()
+        ).limit(500).all()
         
         # Convert to format expected by UnifiedRecommendationEngine
         bookmarks_data = []

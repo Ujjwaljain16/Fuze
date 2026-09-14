@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
+import { getSafeHref } from '../utils/urlSafety'
 import { Share2, ExternalLink, Loader2, CheckCircle2, XCircle, Globe } from 'lucide-react'
 import Button from '../components/Button'
 
@@ -387,7 +388,7 @@ const ShareHandler = () => {
                         </p>
                       )}
                       <a
-                        href={previewData.url}
+                        href={getSafeHref(previewData.url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={`text-cyan-400 hover:text-cyan-300 ${isMobile ? 'text-xs' : 'text-sm'} flex items-center ${isSmallMobile ? 'gap-0.5' : 'gap-1'}`}
@@ -416,7 +417,7 @@ const ShareHandler = () => {
                 <div className="flex-1 min-w-0">
                   <p className={`text-gray-400 ${isMobile ? 'text-xs mb-1.5' : 'text-sm mb-2'}`}>URL to save:</p>
                   <a
-                    href={sharedUrl}
+                    href={getSafeHref(sharedUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`text-cyan-400 hover:text-cyan-300 ${isMobile ? 'text-xs' : 'text-sm'} break-all flex items-center ${isSmallMobile ? 'gap-0.5' : 'gap-1'}`}

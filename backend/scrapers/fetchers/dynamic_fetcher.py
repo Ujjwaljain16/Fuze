@@ -64,10 +64,14 @@ class DynamicFetcher(BaseFetcher):
             from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(url, timeout=self.timeout * 1000, wait_until="domcontentloaded")
-                content = page.content()
-                browser.close()
+                try:
+                    page = browser.new_page()
+                    page.goto(url, timeout=self.timeout * 1000, wait_until="domcontentloaded")
+                    content = page.content()
+                finally:
+                    # Must close even on timeout/navigation error, or every
+                    # failed dynamic fetch leaks a headless Chromium process.
+                    browser.close()
 
                 latency_ms = int((time.time() - start_time) * 1000)
                 meta = FetchMetadata(

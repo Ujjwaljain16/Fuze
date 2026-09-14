@@ -179,6 +179,10 @@ def test_acquisition_engine_integration(mocker):
     mocker.patch("scrapers.rate_limiter.DomainRateLimiter.acquire", return_value=(True, 0.0))
     mocker.patch("scrapers.robots_manager.RobotsManager.can_fetch", return_value=True)
     mocker.patch("core.circuit_breaker.RedisCircuitBreaker.allow_request", return_value=True)
+    # fuze-test.org is a fake domain with no real DNS record; the SSRF guard
+    # (scrapers.url_safety.is_safe_url) does a real DNS lookup, so mock it here
+    # the same way the other real-infra checks above are mocked.
+    mocker.patch("scrapers.acquisition_engine.is_safe_url", return_value=True)
 
     engine = ContentAcquisitionEngine()
     mocker.patch.object(engine.fetchers["HTTP"], "fetch", return_value=mock_fetch_result)

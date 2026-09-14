@@ -3,7 +3,7 @@
  * Manages single SSE connection to /api/realtime/stream with Last-Event-ID replay support
  */
 
-import { baseURL } from './api'
+import api, { baseURL } from './api'
 
 class RealtimeClient {
   constructor() {
@@ -15,7 +15,7 @@ class RealtimeClient {
     this.reconnectDelay = 2000
   }
 
-  connect() {
+  async connect() {
     if (this.eventSource || this.isConnecting) return
 
     const storedUser = localStorage.getItem('user')
@@ -34,8 +34,27 @@ class RealtimeClient {
     }
 
     this.isConnecting = true
+
+    // EventSource can't send an Authorization header, so mint a short-lived,
+    // single-use ticket via a normal (header-authenticated) request instead
+    // of ever putting the actual access token in a URL -- see
+    // backend/utils/stream_tickets.py for why.
+    let ticket = null
+    try {
+      const res = await api.post('/api/realtime/stream-ticket')
+      ticket = res.data?.ticket
+    } catch {
+      // Ignore - handled below
+    }
+
+    if (!ticket) {
+      this.isConnecting = false
+      this.scheduleReconnect()
+      return
+    }
+
     const url = new URL(`${baseURL}/api/realtime/stream`)
-    url.searchParams.set('token', token)
+    url.searchParams.set('ticket', ticket)
 
     if (this.lastEventId) {
       url.searchParams.set('last_event_id', this.lastEventId)

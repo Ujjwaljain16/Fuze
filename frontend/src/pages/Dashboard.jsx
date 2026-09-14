@@ -5,7 +5,8 @@ import api from '../services/api'
 import { useErrorHandler } from '../hooks/useErrorHandler'
 import useResize from '../hooks/useResize'
 import useMousePosition from '../hooks/useMousePosition'
-import { 
+import { getSafeHref } from '../utils/urlSafety'
+import {
   Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
   BarChart3, Globe, MoreHorizontal, Tag, LogOut
@@ -839,9 +840,9 @@ const Dashboard = () => {
                                   <Clock className="w-3 h-3 inline mr-1" />
                                   Recently saved
                                 </div>
-                                <a 
-                                  href={bookmark.url} 
-                                  target="_blank" 
+                                <a
+                                  href={getSafeHref(bookmark.url)}
+                                  target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-2 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg transition-colors duration-300"
                                 >
@@ -877,9 +878,9 @@ const Dashboard = () => {
                               <button>
                                 <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500 transition-colors" />
                               </button>
-                              <a 
-                                href={bookmark.url} 
-                                target="_blank" 
+                              <a
+                                href={getSafeHref(bookmark.url)}
+                                target="_blank"
                                 rel="noopener noreferrer"
                               >
                                 <ExternalLink className="w-5 h-5 text-gray-400 hover:text-cyan-400 transition-colors" />

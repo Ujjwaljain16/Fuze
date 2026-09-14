@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { Link, useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'
 import { 
   Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles, 
@@ -451,9 +452,9 @@ const Bookmarks = () => {
                     {result.content_snippet && (
                       <p className={`text-gray-400 ${isMobile ? 'text-xs mb-3' : 'text-sm mb-4'}`}>{result.content_snippet}</p>
                     )}
-                    <a 
-                      href={result.url} 
-                      target="_blank" 
+                    <a
+                      href={getSafeHref(result.url)}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className={`flex items-center ${isSmallMobile ? 'justify-center' : 'space-x-2'} ${isMobile ? 'px-3 py-1.5 text-xs' : 'px-4 py-2'} bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg transition-colors duration-300 inline-flex`}
                     >
@@ -612,9 +613,9 @@ const Bookmarks = () => {
                               {new Date(bookmark.saved_at).toLocaleDateString()}
                             </div>
                           </div>
-                          <a 
-                            href={bookmark.url} 
-                            target="_blank" 
+                          <a
+                            href={getSafeHref(bookmark.url)}
+                            target="_blank"
                             rel="noopener noreferrer"
                             className={`${isMobile ? 'p-1.5' : 'p-2'} bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg transition-colors duration-300`}
                           >
@@ -655,9 +656,9 @@ const Bookmarks = () => {
                         <button>
                           <Star className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-yellow-500`} />
                         </button>
-                        <a 
-                          href={bookmark.url} 
-                          target="_blank" 
+                        <a
+                          href={getSafeHref(bookmark.url)}
+                          target="_blank"
                           rel="noopener noreferrer"
                         >
                           <ExternalLink className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-gray-400 hover:text-cyan-400`} />
