@@ -5,10 +5,37 @@ Supports instance dependency injection and legacy class-level calls via metaclas
 """
 
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# The after_*() hooks below are called from request handlers right before
+# returning a response (e.g. blueprints/bookmarks.py after every save/update/
+# delete) -- each one does several sequential, synchronous Redis round-trips
+# (a SCAN-based pattern delete plus multiple individual key deletes). Measured
+# directly against production Redis during an end-to-end test: ~1.7s for a
+# single content invalidation, ~5.1s for a single user invalidation -- on an
+# otherwise-empty database, for what callers treat as a fire-and-forget
+# notification (none of them use the bool return value for control flow).
+# That's several seconds added to the response time of routes like
+# POST /api/bookmarks/quick-save, which explicitly documents itself as
+# "Returns immediately so user can return to previous app." Dispatching this
+# work to a small background pool instead keeps cache invalidation eventually
+# consistent (a target cache read might see stale data for a few hundred ms)
+# without blocking the HTTP response for multiple seconds.
+_invalidation_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cache-invalidation")
+
+
+def _dispatch_async(label: str, fn, *args, **kwargs) -> None:
+    def _run():
+        try:
+            fn(*args, **kwargs)
+        except Exception as e:
+            logger.error("cache_invalidation_async_task_failed", extra={"label": label, "error": str(e)})
+
+    _invalidation_executor.submit(_run)
 
 
 class _CacheInvalidationMeta(type):
@@ -191,91 +218,66 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
             return False
 
     def after_content_save(self, content_id: int, user_id: int) -> bool:
-        """Hook called after content is saved."""
-        try:
-            logger.info("cache_invalidation_hook_content_saved", extra={"content_id": content_id, "user_id": user_id})
-            self.invalidate_content_cache(content_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_content_saved_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after content is saved. Runs in the background -- see
+        _dispatch_async's docstring-equivalent comment above for why."""
+        logger.info("cache_invalidation_hook_content_saved", extra={"content_id": content_id, "user_id": user_id})
+        _dispatch_async("after_content_save", self._invalidate_content_and_user, content_id, user_id)
+        return True
 
     def after_content_update(self, content_id: int, user_id: int) -> bool:
-        """Hook called after content is updated."""
-        try:
-            logger.info("cache_invalidation_hook_content_updated", extra={"content_id": content_id, "user_id": user_id})
-            self.invalidate_content_cache(content_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_content_updated_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after content is updated (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_content_updated", extra={"content_id": content_id, "user_id": user_id})
+        _dispatch_async("after_content_update", self._invalidate_content_and_user, content_id, user_id)
+        return True
 
     def after_content_delete(self, content_id: int, user_id: int) -> bool:
-        """Hook called after content is deleted."""
-        try:
-            logger.info("cache_invalidation_hook_content_deleted", extra={"content_id": content_id, "user_id": user_id})
-            self.invalidate_content_cache(content_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_content_deleted_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after content is deleted (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_content_deleted", extra={"content_id": content_id, "user_id": user_id})
+        _dispatch_async("after_content_delete", self._invalidate_content_and_user, content_id, user_id)
+        return True
+
+    def _invalidate_content_and_user(self, content_id: int, user_id: int) -> None:
+        self.invalidate_content_cache(content_id)
+        self.invalidate_user_cache(user_id)
 
     def after_project_save(self, project_id: int, user_id: int) -> bool:
-        """Hook called after project is saved."""
-        try:
-            logger.info("cache_invalidation_hook_project_saved", extra={"project_id": project_id, "user_id": user_id})
-            self.invalidate_project_cache(project_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_project_saved_failed", extra={"project_id": project_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after project is saved (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_project_saved", extra={"project_id": project_id, "user_id": user_id})
+        _dispatch_async("after_project_save", self._invalidate_project_and_user, project_id, user_id)
+        return True
 
     def after_project_update(self, project_id: int, user_id: int) -> bool:
-        """Hook called after project is updated."""
-        try:
-            logger.info("cache_invalidation_hook_project_updated", extra={"project_id": project_id, "user_id": user_id})
-            self.invalidate_project_cache(project_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_project_updated_failed", extra={"project_id": project_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after project is updated (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_project_updated", extra={"project_id": project_id, "user_id": user_id})
+        _dispatch_async("after_project_update", self._invalidate_project_and_user, project_id, user_id)
+        return True
+
+    def _invalidate_project_and_user(self, project_id: int, user_id: int) -> None:
+        self.invalidate_project_cache(project_id)
+        self.invalidate_user_cache(user_id)
 
     def after_task_save(self, task_id: int, user_id: int) -> bool:
-        """Hook called after task is saved."""
-        try:
-            logger.info("cache_invalidation_hook_task_saved", extra={"task_id": task_id, "user_id": user_id})
+        """Hook called after task is saved (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_task_saved", extra={"task_id": task_id, "user_id": user_id})
+
+        def _run():
             self.invalidate_task_cache(task_id)
             self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_task_saved_failed", extra={"task_id": task_id, "user_id": user_id, "error": str(e)})
-            return False
+
+        _dispatch_async("after_task_save", _run)
+        return True
 
     def after_user_profile_update(self, user_id: int) -> bool:
-        """Hook called after user profile is updated."""
-        try:
-            logger.info("cache_invalidation_hook_profile_updated", extra={"user_id": user_id})
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_profile_updated_failed", extra={"user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after user profile is updated (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_profile_updated", extra={"user_id": user_id})
+        _dispatch_async("after_user_profile_update", self.invalidate_user_cache, user_id)
+        return True
 
     def after_analysis_complete(self, content_id: int, user_id: int) -> bool:
-        """Hook called after content analysis is completed."""
-        try:
-            logger.info("cache_invalidation_hook_analysis_complete", extra={"content_id": content_id, "user_id": user_id})
-            self.invalidate_content_cache(content_id)
-            self.invalidate_user_cache(user_id)
-            return True
-        except Exception as e:
-            logger.error("cache_invalidation_hook_analysis_complete_failed", extra={"content_id": content_id, "user_id": user_id, "error": str(e)})
-            return False
+        """Hook called after content analysis is completed (async, see after_content_save)."""
+        logger.info("cache_invalidation_hook_analysis_complete", extra={"content_id": content_id, "user_id": user_id})
+        _dispatch_async("after_analysis_complete", self._invalidate_content_and_user, content_id, user_id)
+        return True
 
 
 # Global singleton instance for easy access

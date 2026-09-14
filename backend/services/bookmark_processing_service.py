@@ -325,6 +325,14 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
     # Trigger AI analysis downstream
     try:
         from services.background_analysis_service import analyze_content
-        analyze_content(bookmark_id, user_id, pipeline_run_id=pipeline_run_id)
+        # analyze_content()'s signature is (content_id, user_id) only -- it never
+        # accepted pipeline_run_id. This call unconditionally raised
+        # `TypeError: analyze_content() got an unexpected keyword argument
+        # 'pipeline_run_id'` on every single bookmark, which this bare except
+        # caught and logged as a warning-level "trigger failed" instead of
+        # propagating -- so AI content analysis has silently never run for any
+        # bookmark, with no failure visible in RQ's job status. Confirmed via
+        # an end-to-end test against real production infra.
+        analyze_content(bookmark_id, user_id)
     except Exception as e:
         logger.error("bg_embedding_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})

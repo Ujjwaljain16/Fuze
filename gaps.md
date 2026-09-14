@@ -14,7 +14,7 @@ proven correct."
 
 ---
 
-## 1. HF Space restart is failing with a 503
+## 1. HF Space restart is failing with a 503 — RESOLVED (real cause found, but it's a platform flag, not code)
 
 **What happened:** clicking "Restart this Space" on
 `huggingface.co/spaces/Ujjwaljain16/fuze-backend` returns:
@@ -22,25 +22,42 @@ proven correct."
 503 — Something went wrong when restarting this Space.
 Request ID: Root=1-6aa840f5-0f7ab0a30227e2f4360b22d9
 ```
+This persisted even after all the build/migration/CORS/security fixes below
+were pushed and independently verified via a passing `docker-build.yml` CI run
+on fresh GitHub infrastructure.
 
-**Why I can't diagnose this further myself:** the actual crash/build reason is in
-the Space's private build+container logs, which only render in the HF UI when
-you're logged in. I have no credentials to view them.
+**Actual root cause, confirmed via the Spaces API** (`GET
+https://huggingface.co/api/spaces/Ujjwaljain16/fuze-backend`, `runtime`
+field):
+```json
+"stage": "PAUSED",
+"errorMessage": "Flagged as abusive"
+```
+This is a **Hugging Face platform moderation flag**, not a code/build issue.
+Every bug fixed this session (missing `alembic.ini`, the `mcp`/`playwright`
+pip resolution failure, the migration race, CORS bypass, SSRF, etc.) was real
+and worth fixing regardless -- the build was and would still be broken
+without them -- but none of them is why restart currently 503s. HF is very
+likely refusing to restart/rebuild a Space it has flagged, independent of
+whether the underlying code is now fine (which it is, per CI).
 
-**Leading suspect:** the Space is still running the *old* code. One of the bugs
-fixed this session was that `create_app()` ran `alembic upgrade head` from
-*every* supervisord-launched process (gunicorn + 2 RQ workers) concurrently on
-every boot — a real race (lock contention / duplicate-DDL errors) that could
-crash-loop the container on startup. HF's restart endpoint returning a bare 503
-instead of actually restarting is consistent with the container repeatedly
-failing to come up.
+**My best guess at the trigger** (unconfirmed -- I can't see HF's actual
+notice to you): this repo's scraping stack -- `camoufox`/`patchright`/
+`curl_cffi` (stealth, anti-bot-detection browser automation) combined with
+LinkedIn scraping (`backend/scrapers/easy_linkedin_scraper.py`) -- is exactly
+the dependency/behavior signature automated platform abuse-detection tends to
+flag, since "stealth browser + third-party site scraping" can look like
+bot/ToS-evasion activity from the platform's side regardless of actual
+intent.
 
-**What I need from you:**
-- Open the **Logs** tab on the Space (Build logs + Container logs) and check what's
-  actually failing. Paste the relevant error back if it's unclear.
-- Decide whether to push the fixes from this session to the Space now (see #2
-  below) — if the migration race is indeed the cause, deploying the fix should
-  resolve it.
+**What I need from you (this is not something I can fix with code):**
+- Check the email/notifications tied to your HF account -- HF typically
+  sends a message explaining a flag like this.
+- If nothing surfaces there, contact HF support via their site's support
+  form, referencing the Space and asking what triggered the flag and how to
+  appeal. The request ID above may or may not still be relevant to include.
+- Once the flag is cleared, the Space should actually come up on the next
+  restart -- the technical blockers are genuinely fixed and CI-verified.
 
 ---
 
@@ -586,14 +603,60 @@ e.g. before/after an index change or a Postgres tier upgrade.
 `scripts/locustfile.py` was already wired to real HTTP endpoints in Phase 3
 (§13).
 
-**Caveat:** unlike the Phase 3 Locust rig, I did not stand up a live
-Postgres+Redis to actually run `benchmark_internal.py` end-to-end this
-session (Docker Desktop crashed under load before I got to it -- see §16). It
-imports the real `create_app()`/`get_embedding()`/query patterns and passed a
-syntax check, but "compiles and imports cleanly" isn't the same as "produced
-real numbers." Run it yourself once you have a target DB (`python
-scripts/seed_loadtest_data.py` from Phase 3 already gives you seeded users +
-embedded content to point `--user-id` at) to get the first real reading.
+**Update: actually run, real numbers obtained** (after Docker Desktop
+stabilized post-cleanup -- see §17). Fresh Postgres+pgvector+Redis, migrated,
+seeded (10 users x 40 bookmarks, via `scripts/seed_loadtest_data.py`),
+30 iterations per benchmark:
+
+| Benchmark | min | p50 | p95 | p99 | max |
+|---|---|---|---|---|---|
+| ANN vector search (HNSW cosine, user-scoped) | 0.58ms | 0.64ms | 0.88ms | 1.02ms | 1.02ms |
+| Bookmark list query (paginated) | 0.48ms | 0.67ms | 1.2ms | 3.98ms | 3.98ms |
+| Embedding generation (real SentenceTransformer, forced cache-miss) | 42.9ms | 99.4ms | 138.7ms | 166.3ms | 166.3ms |
+| Redis SET (~1.5KB payload) | 0.19ms | 0.22ms | 0.38ms | 17.5ms (1 outlier) | 17.5ms |
+| Redis GET (~1.5KB payload) | 0.19ms | 0.23ms | 0.33ms | 0.47ms | 0.47ms |
+
+**A real bug in the benchmark script itself was caught and fixed in the
+process:** the first run showed embedding generation at ~1ms even with the
+real model loaded -- suspiciously fast for CPU transformer inference (should
+be tens of ms). Root cause: the script reused the same small set of "sample
+text (variant N)" strings across runs, so a second run's calls were hitting
+Redis cache from the first run's writes, silently measuring a cache lookup
+instead of real inference. Fixed by appending a UUID to every benchmark call
+so it's always a genuine cache miss -- the corrected number above (p50≈99ms)
+is the real one.
+
+**How to read these numbers:** the DB/cache figures are genuinely fast and
+reflect the query patterns being sound (correct index usage, no N+1) -- but
+this ran against local Postgres over loopback (near-zero network latency)
+with only 400 total seeded bookmarks, not your actual Supabase instance over
+a real network hop, and not your actual data volume. The embedding number
+(p50≈99ms) is the one most likely to hold up in production close to as-is,
+since it's CPU-bound model inference, not something loopback-vs-remote
+network latency would change much. Don't read the sub-millisecond DB numbers
+as "this is what production will feel like" -- read them as "the queries
+themselves aren't the bottleneck; network + embedding inference + Python-level
+work are where real latency will actually come from."
+
+---
+
+## 17. Docker Desktop instability + disk bloat from this session's testing
+
+Standing up real infra for Phase 3 (load test) and this benchmark run pushed
+Docker Desktop past what this machine comfortably handles -- it crashed twice
+(a WSL VHDX unmount error) under combined memory pressure from the full image
+build + running containers + this session's own processes. Also left the
+Docker WSL virtual disk (`docker_data.vhdx`) at 35GB, since Windows never
+auto-shrinks it as data is deleted. You asked me to clean this up; net
+result: removed ~27GB of this session's own build artifacts/cache myself,
+you removed another ~9-10GB of unrelated pre-existing project images
+(recoveryos, qdrant, grafana, prometheus, elasticsearch -- deliberately left
+untouched by me since I don't know if you use them elsewhere, until you
+confirmed), then compacted the VHDX (needed elevation I don't have, so you
+ran the `diskpart`/`Optimize-VHD` step) -- **35GB → 12.46GB**. All benchmark/
+load-test containers, networks, and pulled images from this session have
+since been torn down again; nothing Docker-related from this session should
+be left running or resident on disk beyond your other projects' own images.
 
 ---
 

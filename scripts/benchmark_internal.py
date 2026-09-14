@@ -136,11 +136,18 @@ def benchmark_bookmark_list_query(app, db, user_id, iterations):
 
 
 def benchmark_embedding_generation(iterations):
-    """Benchmarks utils.embedding_utils.get_embedding() end-to-end -- cache
-    lookup + (on miss) model inference. Uses varying text so most calls miss
-    cache and hit the real model/fallback path, since the cached-hit case is
-    already covered by the Redis benchmark below."""
+    """Benchmarks utils.embedding_utils.get_embedding() end-to-end, forcing a
+    genuine cache MISS on every call (real model/fallback inference, not a
+    Redis lookup -- that case is already covered by the Redis benchmark
+    below). Text includes a UUID per call: without this, re-running the
+    script reuses the same "sample text (variant N)" strings from a PRIOR
+    run still sitting in Redis, silently turning this into a cache-hit
+    benchmark that under-reports real latency by 100x+ (caught during manual
+    verification: fallback-hash-model cache hits measured ~1ms, while the
+    real SentenceTransformer model on genuinely fresh text measured
+    p50=~94ms -- the true, and much more consequential, number)."""
     from utils.embedding_utils import get_embedding, is_embedding_available
+    import uuid
 
     sample_texts = [
         "Understanding async Python and event loops for high-throughput services",
@@ -152,10 +159,10 @@ def benchmark_embedding_generation(iterations):
     label = "Embedding generation" if is_embedding_available() else "Embedding generation (fallback hash model -- real model unavailable)"
 
     try:
-        get_embedding(sample_texts[0])  # warm up model load
+        get_embedding(sample_texts[0])  # warm up model load (this one call may hit cache from a prior run -- harmless, excluded from measured samples)
         latencies = []
         for i in range(iterations):
-            text_input = f"{sample_texts[i % len(sample_texts)]} (variant {i})"
+            text_input = f"{sample_texts[i % len(sample_texts)]} [{uuid.uuid4()}]"
             start = time.perf_counter()
             get_embedding(text_input)
             latencies.append((time.perf_counter() - start) * 1000)
