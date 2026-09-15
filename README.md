@@ -9,6 +9,9 @@
 > [!NOTE]
 > **This project is actively under development with ongoing iterations and improvements.** Features and interfaces may evolve as we continue to enhance the user experience and add new capabilities.
 
+> [!WARNING]
+> **The hosted backend is currently offline.** It was deployed on a Hugging Face Space (Docker SDK), but HF now requires a paid **PRO** subscription to run/rebuild a Docker Space on the free `cpu-basic` tier — a platform policy change, not a bug in this repo (the Docker image itself builds and runs correctly; see [`gaps.md`](gaps.md) for the verification details). We're actively evaluating a stable, free/low-cost replacement host (a small VPS or a platform with a free Docker tier) — see [`gaps_closure_plan.md`](gaps_closure_plan.md) for the current plan. Until that's live, run the backend locally with the [Quick Start](#-quick-start) steps below — the frontend, database, and Redis layers are unaffected.
+
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
 ![React](https://img.shields.io/badge/React-18-blue?logo=react)
@@ -230,8 +233,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **PWA**: Service Worker + Web App Manifest
 
 ### Infrastructure
-- **Deployment**: Hugging Face Spaces, Vercel
-- **Containerization**: Docker
+- **Deployment**: Vercel (frontend, live). Backend was on Hugging Face Spaces (Docker SDK); currently offline pending a PRO subscription or a free-tier alternative — see the warning above and [`gaps_closure_plan.md`](gaps_closure_plan.md)
+- **Containerization**: Docker (image builds and runs correctly, verified via CI)
 - **CI/CD**: GitHub Actions
 
 ---
@@ -241,10 +244,11 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 ### 🚀 Technical Innovations
 
 #### **Unified Recommendation Orchestrator**
-- **Multi-Engine Architecture**: Built a sophisticated orchestrator that intelligently routes between 5+ recommendation strategies (semantic similarity, content-based, collaborative, intent-based, project-contextual)
-- **Intent Analysis Engine**: AI-powered intent detection that understands user goals (learning, building, researching) and adapts recommendations accordingly
-- **Smart Fallback System**: Automatic fallback chain ensures recommendations always work, even when individual engines fail
-- **Per-User Caching**: Cached Gemini analyzers per user with encrypted API key management, reducing API calls by 70%+
+- **Multi-Engine Architecture**: An orchestrator routes between two production recommendation engines (fast semantic similarity, and a context-aware engine that layers in project/task relevance and intent) selected via an `engine_preference` parameter, with a third engine (`SmartEngine`) evaluated in shadow mode (see below) ahead of promotion to live traffic
+- **Intent Analysis Engine**: Gemini-backed intent detection that understands user goals (learning, building, researching) and adjusts recommendation scoring weights accordingly, with a rule-based keyword-matching fallback when the LLM call is unavailable or rate-limited
+- **Golden-Dataset Regression Testing**: A frozen recommendation baseline (`backend/tests/golden/`) is scored on every test run using real MRR/NDCG@10 metrics, failing the build if quality regresses beyond a threshold — not just a smoke test
+- **Shadow-Mode Evaluation**: Candidate engine output is computed against live production traffic and compared to the serving engine's results (overlap, MRR/NDCG, latency delta, reported via Prometheus) without ever being shown to users, before a new engine is promoted
+- **Per-User Caching**: Cached Gemini analyzers per user with encrypted API key management
 
 #### **Model Caching & Performance Optimization**
 - **98% Faster Model Loading**: Reduced SentenceTransformer model loading from 6-7 seconds to 0.1 seconds using singleton pattern with thread-safe locking
@@ -253,7 +257,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **Query Result Caching**: Intelligent TTL-based caching for expensive database queries
 
 #### **Per-User API Key Management System**
-- **Encrypted Storage**: Fernet encryption for user API keys with secure key derivation from SECRET_KEY
+- **Encrypted Storage**: Fernet encryption for user API keys, with the encryption key derived from `SECRET_KEY` (a plain SHA-256 hash, not a proper KDF — see `gaps.md` for the tracked hardening item)
 - **Individual Rate Limiting**: Per-user rate limits (15/min, 1500/day, 45000/month) with usage tracking
 - **Automatic Fallback**: Graceful fallback to default API key when user key unavailable
 - **API Key Validation**: Built-in testing and validation endpoints for user API keys

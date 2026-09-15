@@ -2,6 +2,20 @@
 
 Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 
+> [!WARNING]
+> **Update:** the "Hugging Face Spaces is free" claims below are now **out of
+> date**. Hugging Face changed platform policy: Docker-SDK Spaces on the free
+> `cpu-basic` tier now require an HF **PRO** subscription (~$9/mo) to create,
+> restart, or rebuild — confirmed directly via a `402 Payment Required` when
+> attempting to provision a new Docker Space. This guide is kept for the
+> architecture/env-var reference (still accurate), but **"truly free" and "no
+> payment required" no longer hold for this platform.** The backend is
+> currently offline as a result. We're evaluating free/low-cost alternatives
+> (a small VPS such as Hetzner, or Fly.io) — see [`gaps_closure_plan.md`](../gaps_closure_plan.md)
+> item 12 for the current recommendation and status. Treat the "Other
+> Platforms" section below as the more relevant starting point until that's
+> resolved.
+
 ## Table of Contents
 
 1. [Platform Comparison](#platform-comparison)
@@ -16,23 +30,24 @@ Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 
 ## Platform Comparison
 
-### Recommended: Hugging Face Spaces 🥇
+### Formerly recommended: Hugging Face Spaces — now requires PRO for Docker SDK
 
-**Why Hugging Face Spaces is Best:**
+**Why Hugging Face Spaces looked best (still true on paper, minus the pricing):**
 - ✅ **16GB RAM** (vs 512MB on Render) - Perfect for ML models!
-- ✅ **Truly FREE** - No payment method required
+- ❌ ~~Truly FREE~~ — **Docker SDK on `cpu-basic` now requires HF PRO** (confirmed via a `402 Payment Required` provisioning error)
 - ✅ **JWT Auth Works** - No cookie/iframe issues
 - ✅ **HTTPS Included** - PWA ready
-- ✅ **Docker Support** - Full control
+- ✅ **Docker Support** - Full control (behind the PRO paywall now)
 
 ### Comparison Table
 
-| Platform | Free RAM | PostgreSQL | HTTPS | Ease | Best For |
+| Platform | Free RAM | PostgreSQL | HTTPS | Docker on free tier | Best For |
 |----------|----------|------------|-------|------|----------|
-| **Hugging Face Spaces** | **16GB** | ❌ External | ✅ | ⭐⭐⭐⭐⭐ | **Best overall** |
-| Railway | 512MB+ | ✅ Included | ✅ | ⭐⭐⭐⭐⭐ | Good alternative |
-| Fly.io | 768MB | ✅ Available | ✅ | ⭐⭐⭐ | Good alternative |
-| Render | 512MB | ✅ | ✅ | ⭐⭐⭐⭐ | Limited by RAM |
+| Hugging Face Spaces | 16GB | ❌ External | ✅ | ❌ **Requires PRO** | Only if you're paying for PRO anyway |
+| Railway | 512MB+ | ✅ Included | ✅ | ✅ | Good free alternative |
+| Fly.io | 768MB | ✅ Available | ✅ | ✅ | Good free alternative |
+| Render | 512MB | ✅ | ✅ | ✅ | Limited by RAM |
+| Small VPS (Hetzner CX22 etc.) | 4GB+ | ❌ External | ✅ (self-managed) | ✅ | ~€4/mo, full control, no platform-policy risk |
 
 ### Recommended Architecture
 

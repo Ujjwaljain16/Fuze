@@ -4,12 +4,22 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 
 ## ⚠️ Important: Current Implementation vs Scalable Design
 
+> [!WARNING]
+> **Deployment status:** the hosted backend (Hugging Face Spaces) is currently
+> **offline** — HF now requires a paid PRO subscription to run a Docker Space
+> on the free tier. "Current Deployment (Hugging Face Spaces)" references
+> below describe the Docker image's designed runtime target, which the image
+> itself still builds and runs correctly (verified via CI) — they don't mean
+> it's live there right now. See the root [`README.md`](../README.md) and
+> [`gaps_closure_plan.md`](../gaps_closure_plan.md) for current status and the
+> free-hosting alternative being evaluated.
+
 **This document describes both:**
-- **Current Implementation**: What's actually deployed and running (simpler, single-container setup)
+- **Current Implementation**: The single-container design this repo actually runs (whichever host it's deployed to)
 - **Scalable Design**: Architecture that supports future scaling (ready for horizontal scaling)
 
 **Key Distinction:**
-- **Current**: 1 Gunicorn worker (gevent), single database, single Redis, RQ workers, no load balancer (platform handles routing)
+- **Current**: 2 Gunicorn workers (gevent, sized for a 2-vCPU host), single database, single Redis, RQ workers, no load balancer (platform handles routing)
 - **Scalable**: Architecture designed to support multiple workers, load balancers, database replicas, Redis clusters when needed
 - **Why**: Stateless design means scaling is just configuration changes, not code changes
 
@@ -1274,11 +1284,11 @@ graph TB
 ### Current Deployment Configuration
 
 **Application Servers (Current):**
-- **Gunicorn Workers**: 1 worker (gevent async)
-- **Worker Class**: gevent (handles 1000+ concurrent connections)
+- **Gunicorn Workers**: 2 workers (gevent async, sized for a 2-vCPU host)
+- **Worker Class**: gevent (handles 1000+ concurrent connections per worker)
 - **Worker Connections**: 1000 per worker
-- **Deployment**: Hugging Face Spaces (single container)
-- **Health Checks**: `/api/health` endpoint
+- **Deployment target**: single Docker container (currently not hosted anywhere live — see status note above)
+- **Health Checks**: `/api/health` (readiness) and `/health/liveness` (Docker `HEALTHCHECK`)
 
 **Database (Current):**
 - **Connection Pool**: 5 base connections, 10 overflow
@@ -1327,8 +1337,8 @@ graph TB
 
 ### Current Capacity (Actual Implementation)
 
-**Current Deployment (Hugging Face Spaces):**
-- **Gunicorn**: 1 worker (gevent async, 1000+ connections per worker)
+**Current Deployment Target (not currently hosted — see status note above):**
+- **Gunicorn**: 2 workers (gevent async, 1000+ connections per worker)
 - **Concurrent Users**: 50-100 (estimated based on typical usage)
 - **Requests/Second**: 20-50 (depending on operation complexity)
 - **Database Connections**: 5-15 (pool_size=5, max_overflow=10)

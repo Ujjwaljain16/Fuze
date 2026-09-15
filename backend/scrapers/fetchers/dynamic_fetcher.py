@@ -1,6 +1,7 @@
 """
 Tier 3: Dynamic Browser Fetcher Implementation
-Uses Scrapling's DynamicFetcher (Chromium client-side JS rendering) or Playwright fallback.
+Uses Scrapling's DynamicFetcher (Chromium client-side JS rendering), falling
+back to StealthFetcher if Scrapling itself isn't available.
 """
 
 import time
@@ -59,40 +60,16 @@ class DynamicFetcher(BaseFetcher):
             except Exception as e:
                 logger.warning("scrapling_dynamic_fetch_failed", extra={"url": url, "error": str(e)})
 
-        # Fallback to Playwright if available
-        try:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                try:
-                    page = browser.new_page()
-                    page.goto(url, timeout=self.timeout * 1000, wait_until="domcontentloaded")
-                    content = page.content()
-                finally:
-                    # Must close even on timeout/navigation error, or every
-                    # failed dynamic fetch leaks a headless Chromium process.
-                    browser.close()
-
-                latency_ms = int((time.time() - start_time) * 1000)
-                meta = FetchMetadata(
-                    strategy=self.strategy_name,
-                    attempts=1,
-                    http_status=200,
-                    redirected=False,
-                    fetch_latency_ms=latency_ms
-                )
-                return RawFetchResult(
-                    url=url,
-                    final_url=url,
-                    http_status=200,
-                    headers={},
-                    raw_content=content.encode('utf-8'),
-                    fetch_metadata=meta
-                )
-        except Exception as e:
-            logger.warning("playwright_dynamic_fetch_failed", extra={"url": url, "error": str(e)})
-
-        # Final fallback to StealthFetcher
+        # Fallback to StealthFetcher (camoufox-based). The Playwright fallback
+        # that used to live here never actually worked in the deployed
+        # container: the `playwright` Python package was installed, but its
+        # browser binary (`playwright install chromium`) was never fetched in
+        # the Dockerfile -- Playwright manages browser binaries in a cache
+        # separate from pip, so `p.chromium.launch()` always threw and fell
+        # through to this same StealthFetcher path anyway. Removed as dead
+        # code rather than paying the ~300MB+ image-size cost to make a
+        # fallback-of-a-fallback actually work, since camoufox (Scrapling's
+        # primary path above) already covers dynamic rendering.
         from scrapers.fetchers.stealth_fetcher import StealthFetcher
         fallback = StealthFetcher(timeout=self.timeout)
         result = fallback.fetch(url)
