@@ -5,14 +5,13 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 ## ⚠️ Important: Current Implementation vs Scalable Design
 
 > [!WARNING]
-> **Deployment status:** the hosted backend (Hugging Face Spaces) is currently
-> **offline** — HF now requires a paid PRO subscription to run a Docker Space
-> on the free tier. "Current Deployment (Hugging Face Spaces)" references
-> below describe the Docker image's designed runtime target, which the image
-> itself still builds and runs correctly (verified via CI) — they don't mean
-> it's live there right now. See the root [`README.md`](../README.md) and
-> [`gaps_closure_plan.md`](../gaps_closure_plan.md) for current status and the
-> free-hosting alternative being evaluated.
+> **Deployment status:** the hosted backend runs on a Hugging Face Space and
+> is live. HF now requires a paid PRO subscription to *create* new Docker
+> Spaces on the free tier, so a free/low-cost fallback host is being
+> evaluated. The hosted image bundles no headless browser
+> (`DISABLE_BROWSER_FETCHERS=true`), so scraping there is plain HTTP. See the
+> root [`README.md`](../README.md) and
+> [`gaps_closure_plan.md`](../gaps_closure_plan.md).
 
 **This document describes both:**
 - **Current Implementation**: The single-container design this repo actually runs (whichever host it's deployed to)
@@ -1287,7 +1286,7 @@ graph TB
 - **Gunicorn Workers**: 2 workers (gevent async, sized for a 2-vCPU host)
 - **Worker Class**: gevent (handles 1000+ concurrent connections per worker)
 - **Worker Connections**: 1000 per worker
-- **Deployment target**: single Docker container (currently not hosted anywhere live — see status note above)
+- **Deployment target**: single Docker container (Hugging Face Space)
 - **Health Checks**: `/api/health` (readiness) and `/health/liveness` (Docker `HEALTHCHECK`)
 
 **Database (Current):**
@@ -1337,7 +1336,7 @@ graph TB
 
 ### Current Capacity (Actual Implementation)
 
-**Current Deployment Target (not currently hosted — see status note above):**
+**Current Deployment (Hugging Face Spaces):**
 - **Gunicorn**: 2 workers (gevent async, 1000+ connections per worker)
 - **Concurrent Users**: 50-100 (estimated based on typical usage)
 - **Requests/Second**: 20-50 (depending on operation complexity)

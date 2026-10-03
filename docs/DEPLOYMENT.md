@@ -3,18 +3,19 @@
 Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 
 > [!WARNING]
-> **Update:** the "Hugging Face Spaces is free" claims below are now **out of
-> date**. Hugging Face changed platform policy: Docker-SDK Spaces on the free
-> `cpu-basic` tier now require an HF **PRO** subscription (~$9/mo) to create,
-> restart, or rebuild — confirmed directly via a `402 Payment Required` when
-> attempting to provision a new Docker Space. This guide is kept for the
-> architecture/env-var reference (still accurate), but **"truly free" and "no
-> payment required" no longer hold for this platform.** The backend is
-> currently offline as a result. We're evaluating free/low-cost alternatives
-> (a small VPS such as Hetzner, or Fly.io) — see [`gaps_closure_plan.md`](../gaps_closure_plan.md)
-> item 12 for the current recommendation and status. Treat the "Other
-> Platforms" section below as the more relevant starting point until that's
-> resolved.
+> **Update:** the "Hugging Face Spaces is free" claims below are partly **out
+> of date**. Hugging Face changed platform policy: creating a new Docker-SDK
+> Space on the free `cpu-basic` tier now requires an HF **PRO** subscription
+> (~$9/mo) — confirmed via a `402 Payment Required` when provisioning one. The
+> existing `fuze-backend` Space is live again (after a temporary moderation
+> flag was lifted), but it can't simply be recreated for free if lost, so
+> **"truly free" and "no payment required" no longer hold for new setups.**
+> We're evaluating a free/low-cost fallback host (a small VPS such as
+> Hetzner, or Fly.io) — see [`gaps_closure_plan.md`](../gaps_closure_plan.md)
+> item 12. The hosted image bundles no headless browser and sets
+> `DISABLE_BROWSER_FETCHERS=true`; secrets such as `REDIS_URL` must be set as
+> Space **Secrets**, not Variables (a name can't exist as both). This guide
+> remains the architecture/env-var reference.
 
 ## Table of Contents
 

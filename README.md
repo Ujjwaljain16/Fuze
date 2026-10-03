@@ -9,8 +9,8 @@
 > [!NOTE]
 > **This project is actively under development with ongoing iterations and improvements.** Features and interfaces may evolve as we continue to enhance the user experience and add new capabilities.
 
-> [!WARNING]
-> **The hosted backend is currently offline.** It was deployed on a Hugging Face Space (Docker SDK), but HF now requires a paid **PRO** subscription to run/rebuild a Docker Space on the free `cpu-basic` tier — a platform policy change, not a bug in this repo (the Docker image itself builds and runs correctly; see [`gaps.md`](gaps.md) for the verification details). We're actively evaluating a stable, free/low-cost replacement host (a small VPS or a platform with a free Docker tier) — see [`gaps_closure_plan.md`](gaps_closure_plan.md) for the current plan. Until that's live, run the backend locally with the [Quick Start](#-quick-start) steps below — the frontend, database, and Redis layers are unaffected.
+> [!NOTE]
+> **Hosting status:** the backend runs on a Hugging Face Space (Docker SDK) and is back online after a temporary moderation flag. Two things to know: (1) HF now requires a paid **PRO** subscription to *create* new Docker Spaces on the free tier, so this existing Space can't simply be recreated if it's ever lost — we're evaluating a free/low-cost fallback host (see [`gaps_closure_plan.md`](gaps_closure_plan.md)); (2) the hosted build ships **no headless browser** (`DISABLE_BROWSER_FETCHERS=true`), so JavaScript-heavy pages are fetched over plain HTTP there. A browser-based rendering tier is planned on separate infrastructure. You can always run the full stack locally with the [Quick Start](#-quick-start) steps below.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
@@ -233,7 +233,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **PWA**: Service Worker + Web App Manifest
 
 ### Infrastructure
-- **Deployment**: Vercel (frontend, live). Backend was on Hugging Face Spaces (Docker SDK); currently offline pending a PRO subscription or a free-tier alternative — see the warning above and [`gaps_closure_plan.md`](gaps_closure_plan.md)
+- **Deployment**: Vercel (frontend) and Hugging Face Spaces, Docker SDK (backend) — both live; see the hosting note above for the fallback-host plan
 - **Containerization**: Docker (image builds and runs correctly, verified via CI)
 - **CI/CD**: GitHub Actions
 
