@@ -117,3 +117,6 @@ scripts/loadtest_tokens.json
 scripts/loadtest_report*.html
 scripts/loadtest_results*.csv
 scripts/benchmark_results.json
+
+# server-side deploy secrets
+deploy/.env

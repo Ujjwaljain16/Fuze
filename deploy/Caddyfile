@@ -1,0 +1,10 @@
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy app:7860 {
+		# SSE (/api/realtime/stream) must not be buffered
+		flush_interval -1
+		transport http {
+			response_header_timeout 300s
+		}
+	}
+}
