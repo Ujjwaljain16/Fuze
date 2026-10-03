@@ -2,7 +2,7 @@
 # FUZE — Multi-Stage Docker Build
 # Trigger HF Rebuild: 1
 # =============================================================================
-# Stage 1 (builder): compile all Python wheels, fetch camoufox browser
+# Stage 1 (builder): compile all Python wheels
 # Stage 2 (runtime): copy only compiled wheels + app code — no build toolchain
 #
 # Target: Hugging Face Spaces (port 7860)
@@ -32,10 +32,6 @@ RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
 RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
     --root-user-action=ignore
 
-# Fetch camoufox browser artifacts
-RUN mkdir -p /root/.cache/camoufox && \
-    (camoufox fetch || echo "[builder] camoufox fetch completed (or skipped)")
-
 # ---------------------------------------------------------------------------
 # STAGE 2 — runtime
 # ---------------------------------------------------------------------------
@@ -64,9 +60,6 @@ RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.t
     --root-user-action=ignore && \
     rm -rf /wheels
 
-# Copy camoufox browser data from builder
-COPY --from=builder /root/.cache/camoufox /root/.cache/camoufox
-
 # Copy application code
 COPY backend/ ./backend/
 COPY wsgi.py .
@@ -88,11 +81,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
-# Browser fetch tiers (Camoufox via Scrapling) are enabled. Hugging Face
-# previously flagged Camoufox setup on this Space and reinstated it; if that
-# recurs, set this to true (and drop the `camoufox fetch` step above) to fall
-# back to plain-HTTP scraping.
-ENV DISABLE_BROWSER_FETCHERS=false
+# No headless browser is bundled in this image and browser fetch tiers are
+# switched off: the hosting platform (Hugging Face) flagged browser-automation
+# setup, so scraping here is plain HTTP only. Self-hosters who want JS
+# rendering can rebuild with a browser installed and set this to false.
+ENV DISABLE_BROWSER_FETCHERS=true
 
 RUN chmod +x start.sh
 

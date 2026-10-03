@@ -8,9 +8,8 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 > **Deployment status:** the hosted backend runs on a Hugging Face Space and
 > is live. HF now requires a paid PRO subscription to *create* new Docker
 > Spaces on the free tier, so a free/low-cost fallback host is being
-> evaluated. The hosted image includes the Camoufox browser tier
-> (`DISABLE_BROWSER_FETCHERS=false`); setting it to `true` falls back to
-> plain-HTTP scraping. See the
+> evaluated. The hosted image bundles no headless browser
+> (`DISABLE_BROWSER_FETCHERS=true`), so scraping there is plain HTTP. See the
 > root [`README.md`](../README.md) and
 > [`gaps_closure_plan.md`](../gaps_closure_plan.md).
 
