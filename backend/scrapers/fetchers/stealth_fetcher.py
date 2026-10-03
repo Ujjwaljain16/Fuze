@@ -6,6 +6,7 @@ Uses Scrapling's StealthyFetcher (Camoufox TLS fingerprinting) or stealth fallba
 import time
 from scrapers.fetchers.base import BaseFetcher
 from scrapers.models import RawFetchResult, FetchMetadata
+from scrapers.fetchers.browser_policy import browser_fetchers_disabled
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +33,7 @@ class StealthFetcher(BaseFetcher):
     def fetch(self, url: str) -> RawFetchResult:
         start_time = time.time()
         
-        if SCRAPLING_STEALTH_AVAILABLE and StealthyFetcher is not None:
+        if SCRAPLING_STEALTH_AVAILABLE and StealthyFetcher is not None and not browser_fetchers_disabled():
             try:
                 fetcher = StealthyFetcher()
                 response = fetcher.fetch(url, timeout=self.timeout)

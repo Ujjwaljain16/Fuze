@@ -603,7 +603,11 @@ class ScraplingEnhancedScraper:
         """Check if browsers are installed for Scrapling - thread-safe"""
         if not SCRAPLING_AVAILABLE:
             return False
-        
+
+        from scrapers.fetchers.browser_policy import browser_fetchers_disabled
+        if browser_fetchers_disabled():
+            return False
+
         # Cache the result to avoid repeated checks
         if self._browsers_installed is not None:
             return self._browsers_installed

@@ -7,6 +7,7 @@ back to StealthFetcher if Scrapling itself isn't available.
 import time
 from scrapers.fetchers.base import BaseFetcher
 from scrapers.models import RawFetchResult, FetchMetadata
+from scrapers.fetchers.browser_policy import browser_fetchers_disabled
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +33,7 @@ class DynamicFetcher(BaseFetcher):
     def fetch(self, url: str) -> RawFetchResult:
         start_time = time.time()
 
-        if SCRAPLING_DYNAMIC_AVAILABLE and DynamicFetcherClass is not None:
+        if SCRAPLING_DYNAMIC_AVAILABLE and DynamicFetcherClass is not None and not browser_fetchers_disabled():
             try:
                 fetcher = DynamicFetcherClass()
                 response = fetcher.fetch(url, timeout=self.timeout)
