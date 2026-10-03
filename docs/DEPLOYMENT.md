@@ -12,8 +12,9 @@ Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 > **"truly free" and "no payment required" no longer hold for new setups.**
 > We're evaluating a free/low-cost fallback host (a small VPS such as
 > Hetzner, or Fly.io) — see [`gaps_closure_plan.md`](../gaps_closure_plan.md)
-> item 12. The hosted image bundles no headless browser and sets
-> `DISABLE_BROWSER_FETCHERS=true`; secrets such as `REDIS_URL` must be set as
+> item 12. The hosted image includes the Camoufox browser tier
+> (`DISABLE_BROWSER_FETCHERS=false`; set it to `true` to fall back to
+> plain-HTTP scraping if HF flags it again); secrets such as `REDIS_URL` must be set as
 > Space **Secrets**, not Variables (a name can't exist as both). This guide
 > remains the architecture/env-var reference.
 
