@@ -98,22 +98,43 @@ def _document_candidates(session, user_id: int, vectors, k: int) -> List[Dict[st
 
 
 def _mmr(candidates: List[Dict[str, Any]], vectors: Dict[int, np.ndarray], k: int) -> List[Dict[str, Any]]:
-    """Maximal marginal relevance: relevant, but not near-duplicates of what's already picked."""
+    """Maximal marginal relevance: relevant, but not near-duplicates of what's already picked.
+
+    Each candidate's score is lambda * relevance - (1 - lambda) * (max cosine to a picked item).
+    The first pick, and any candidate without a vector, is scored by relevance alone; ties go to
+    the earlier candidate. Vectorised: one matrix-vector product per pick keeps a running max.
+    """
     pool = list(candidates)
-    picked: List[Dict[str, Any]] = []
-    while pool and len(picked) < k:
-        def mmr_score(c):
-            v = vectors.get(c["content_id"])
-            if v is None or not picked:
-                return c["relevance"]
-            sims = [float(np.dot(v, vectors[p["content_id"]]) /
-                          (np.linalg.norm(v) * np.linalg.norm(vectors[p["content_id"]]) + 1e-9))
-                    for p in picked if vectors.get(p["content_id"]) is not None]
-            return MMR_LAMBDA * c["relevance"] - (1 - MMR_LAMBDA) * (max(sims) if sims else 0.0)
-        best = max(pool, key=mmr_score)
-        picked.append(best)
-        pool.remove(best)
-    return picked
+    n = min(k, len(pool))
+    if n <= 0:
+        return []
+
+    relevance = np.asarray([c["relevance"] for c in pool], dtype=np.float64)
+    vecs = [vectors.get(c["content_id"]) for c in pool]
+    has_vec = np.asarray([v is not None for v in vecs])
+    dim = next((len(v) for v in vecs if v is not None), 0)
+    mat = np.zeros((len(pool), dim), dtype=np.float64)
+    for i, v in enumerate(vecs):
+        if v is not None:
+            mat[i] = v
+    norms = np.linalg.norm(mat, axis=1)
+
+    max_sim = np.full(len(pool), -np.inf)  # vs picked items that have a vector; -inf = none yet
+    available = np.ones(len(pool), dtype=bool)
+    order: List[int] = []
+    while len(order) < n:
+        if order:
+            penalty = np.where(np.isfinite(max_sim), max_sim, 0.0)
+            scores = np.where(has_vec, MMR_LAMBDA * relevance - (1 - MMR_LAMBDA) * penalty, relevance)
+        else:
+            scores = relevance.copy()
+        scores[~available] = -np.inf
+        best = int(np.argmax(scores))
+        order.append(best)
+        available[best] = False
+        if has_vec[best]:
+            max_sim = np.maximum(max_sim, (mat @ mat[best]) / (norms * norms[best] + 1e-9))
+    return [pool[i] for i in order]
 
 
 def _load_items(session, user_id: int, ids: List[int]) -> Dict[int, Dict[str, Any]]:

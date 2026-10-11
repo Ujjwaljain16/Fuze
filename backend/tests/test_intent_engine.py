@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from ml.intent_engine import intent as intent_mod
 from ml.intent_engine.intent import IntentContext, compose_intent_text, parse_intent, resolve_intent
@@ -106,6 +107,52 @@ def test_mmr_prefers_a_different_item_over_a_near_duplicate():
     assert picked == [1, 3]
 
 
+def _mmr_reference(candidates, vectors, k, lam=0.7):
+    """The original pure-Python MMR, kept to check the vectorised version picks the same items."""
+    pool = list(candidates)
+    picked = []
+    while pool and len(picked) < k:
+        def mmr_score(c):
+            v = vectors.get(c["content_id"])
+            if v is None or not picked:
+                return c["relevance"]
+            sims = [float(np.dot(v, vectors[p["content_id"]]) /
+                          (np.linalg.norm(v) * np.linalg.norm(vectors[p["content_id"]]) + 1e-9))
+                    for p in picked if vectors.get(p["content_id"]) is not None]
+            return lam * c["relevance"] - (1 - lam) * (max(sims) if sims else 0.0)
+        best = max(pool, key=mmr_score)
+        picked.append(best)
+        pool.remove(best)
+    return picked
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_vectorised_mmr_matches_the_reference_on_random_data(seed):
+    from ml.intent_engine.engine import _mmr, MMR_LAMBDA
+    rng = np.random.default_rng(seed)
+    n = int(rng.integers(1, 120))
+    k = int(rng.integers(0, n + 5))
+    base = rng.normal(size=(8, 384)).astype(np.float32)
+    vecs = {}
+    for cid in range(n):
+        if rng.random() < 0.1:
+            continue  # some candidates have no stored embedding
+        # Clustered vectors so near-duplicates (and real MMR trade-offs) occur.
+        vecs[cid] = (base[cid % 8] + 0.3 * rng.normal(size=384)).astype(np.float32)
+    cands = [{"content_id": cid, "relevance": float(r)} for cid, r in enumerate(rng.random(n))]
+    cands.sort(key=lambda c: c["relevance"], reverse=True)
+
+    expected = [c["content_id"] for c in _mmr_reference(cands, vecs, k, MMR_LAMBDA)]
+    assert [c["content_id"] for c in _mmr(cands, vecs, k)] == expected
+
+
+def test_mmr_handles_empty_input_and_no_vectors():
+    from ml.intent_engine.engine import _mmr
+    assert _mmr([], {}, 5) == []
+    cands = [{"content_id": 1, "relevance": 0.2}, {"content_id": 2, "relevance": 0.9}]
+    assert [c["content_id"] for c in _mmr(cands, {1: None}, 5)] == [2, 1]
+
+
 def test_snippet_drops_the_title_prefix_and_truncates():
     from ml.intent_engine.engine import _snippet
     s = _snippet("Flask JWT\n" + "word " * 200, "Flask JWT")
@@ -166,7 +213,6 @@ def test_document_fallback_ranks_by_cosine_and_ignores_other_models(app):
 
 
 def test_document_candidates_enable_iterative_hnsw_scan_on_postgres():
-    from unittest.mock import MagicMock
     from ml.intent_engine.engine import _document_candidates
     session = MagicMock()
     session.get_bind.return_value.dialect.name = "postgresql"
