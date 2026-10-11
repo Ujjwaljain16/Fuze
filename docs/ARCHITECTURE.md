@@ -1357,33 +1357,8 @@ graph TB
 - **Memory Usage**: ~2-4GB of 16GB available (room for growth)
 
 **Current Performance:**
-- **Cached Requests**: 50-200ms
-- **Database Queries**: 100-500ms (indexed)
-- **Recommendations**: 200-2000ms (depending on cache)
-- **Background Tasks**: Async (non-blocking)
-
-**Current Throughput:**
-- **Read Operations**: 50-100 req/s (single database)
-- **Write Operations**: 20-50 req/s (single database)
-- **Cache Operations**: 10,000+ req/s (Redis)
-
-### Scalable Design Capacity (Future)
-
-**Scalable Deployment (With Multiple Workers):**
-- **Gunicorn**: 4+ workers per server
-- **Capacity per server**: to be established by load testing, not estimated
-- **Database Connections**: sized against the Supabase pooler limit (docs/OPERATIONS.md)
-
-**Scalable Performance:**
-- **Cached Requests**: 50-200ms
-- **Database Queries**: 100-500ms (indexed, with replicas)
-- **Recommendations**: 200-2000ms (depending on cache)
-- **Background Tasks**: Async (non-blocking)
-
-**Scalable Throughput:**
-- **Read Operations**: 1000+ req/s (with replicas)
-- **Write Operations**: 100-200 req/s (primary DB)
-- **Cache Operations**: 10,000+ req/s (Redis cluster)
+These targets for a scaled-out deployment (replicas, Redis cluster) are design goals, not
+measurements; nothing has been load-tested at that scale.
 
 ### Scaling Strategy Summary
 
