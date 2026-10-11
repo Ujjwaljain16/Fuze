@@ -97,35 +97,35 @@ def get_embedding_model():
     return _embedding_model
 
 
+class EmbeddingUnavailable(RuntimeError):
+    """The embedding model could not be loaded or failed to encode."""
+
+
 def _initialize_embedding_model_robust():
-    """Robust embedding model initialization with graceful fallback."""
+    """Load the configured model, or fail loudly.
+
+    There is deliberately no silent fallback: hash "embeddings" or a different model produce
+    vectors in another space, which would be stored next to real ones and corrupt every
+    similarity comparison. The hash model is only used when DISABLE_EMBEDDINGS opts into it
+    (local development without the model download).
+    """
     if os.environ.get('DISABLE_EMBEDDINGS', '').lower() in ('true', '1', 'yes'):
         logger.info("embeddings_disabled_by_env_using_fallback")
         return FallbackEmbeddingModel()
 
     global _embedding_model_name
-    model_options = [configured_model_name()]
-    for fallback in ('sentence-transformers/all-MiniLM-L6-v2', 'paraphrase-MiniLM-L6-v2'):
-        if fallback not in model_options:
-            model_options.append(fallback)
-
-    for model_name in model_options:
-        try:
-            logger.info("attempting_to_load_embedding_model", extra={"model_name": model_name})
-            model = SentenceTransformer(model_name)
-            test_embedding = model.encode(["test"])
-            if test_embedding is not None and len(test_embedding) > 0:
-                if test_embedding.shape[-1] != EMBEDDING_DIMENSION:
-                    raise ValueError(f"model dimension {test_embedding.shape[-1]} != {EMBEDDING_DIMENSION}")
-                _embedding_model_name = model_name
-                logger.info("embedding_model_loaded_successfully", extra={"model_name": model_name})
-                return model
-        except Exception as e:
-            logger.warning("failed_to_load_embedding_model", extra={"model_name": model_name, "error": str(e)})
-
-    logger.warning("all_embedding_models_failed_using_fallback")
-    _embedding_model_name = "fallback-hash"
-    return FallbackEmbeddingModel()
+    model_name = configured_model_name()
+    try:
+        logger.info("attempting_to_load_embedding_model", extra={"model_name": model_name})
+        model = SentenceTransformer(model_name)
+        dimension = model.encode(["test"]).shape[-1]
+    except Exception as e:
+        raise EmbeddingUnavailable(f"could not load embedding model {model_name}: {e}") from e
+    if dimension != EMBEDDING_DIMENSION:
+        raise EmbeddingUnavailable(f"model {model_name} has {dimension} dimensions, expected {EMBEDDING_DIMENSION}")
+    _embedding_model_name = model_name
+    logger.info("embedding_model_loaded_successfully", extra={"model_name": model_name})
+    return model
 
 
 def active_embedding_model_name() -> str:
@@ -152,14 +152,14 @@ def _embed_one(text: str, prefix: str) -> np.ndarray:
 
     try:
         embedding = np.asarray(model.encode([clean_text])[0], dtype=np.float32)
-        try:
-            redis_cache.cache_embedding(cache_text, embedding)
-        except Exception:
-            pass
-        return embedding
     except Exception as e:
-        logger.error("error_generating_embedding", extra={"error": str(e)})
-        return ZERO_EMBEDDING.copy()
+        # A zero vector here would be stored or ranked as if it meant something.
+        raise EmbeddingUnavailable(f"encoding failed: {e}") from e
+    try:
+        redis_cache.cache_embedding(cache_text, embedding)
+    except Exception:
+        pass
+    return embedding
 
 
 def get_embedding(text: str) -> np.ndarray:

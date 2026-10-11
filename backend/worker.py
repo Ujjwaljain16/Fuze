@@ -73,6 +73,19 @@ def run_single_worker(args, worker_index: int = 1):
         logger.error("worker_flask_context_failed", error=str(e))
         sys.exit(1)
 
+    # Load the embedding model once in this parent process. RQ forks a work horse per job, and
+    # each fork shares the loaded model copy-on-write instead of loading ~130 MB again.
+    # One torch thread per worker: the host has 2 vCPUs shared with the web workers.
+    try:
+        import torch
+        torch.set_num_threads(1)
+        from utils.embedding_utils import get_embedding_model
+        get_embedding_model()
+        logger.info("worker_embedding_model_preloaded", worker_name=worker_name)
+    except Exception as e:
+        # Jobs that need embeddings will fail and be retried; fetch-only work can still run.
+        logger.error("worker_embedding_model_preload_failed", error=str(e))
+
     # The default-queue worker also runs the pipeline reconciler: a periodic pass that
     # re-enqueues bookmarks whose fetch or embedding was lost or deferred.
     if args.queue == 'default' and not args.burst:

@@ -35,3 +35,35 @@ def test_get_embedding_empty_text():
     assert isinstance(emb, np.ndarray)
     assert emb.shape == (EMBEDDING_DIMENSION,)
     assert np.all(emb == 0)
+
+
+def _reset_model(monkeypatch):
+    import utils.embedding_utils as eu
+    monkeypatch.setattr(eu, '_embedding_model', None)
+    monkeypatch.setattr(eu, '_embedding_model_initialized', False)
+    return eu
+
+
+@pytest.mark.unit
+def test_model_load_failure_is_loud_not_hash_vectors(monkeypatch):
+    """A silent switch to hash 'embeddings' would store vectors that mean nothing."""
+    from unittest.mock import patch
+    eu = _reset_model(monkeypatch)
+    monkeypatch.delenv('DISABLE_EMBEDDINGS', raising=False)
+    with patch.object(eu, 'SentenceTransformer', side_effect=OSError('no network')):
+        with pytest.raises(eu.EmbeddingUnavailable):
+            eu.get_embedding('pgvector tuning')
+    assert eu._embedding_model_initialized is False  # the next call tries again
+
+
+@pytest.mark.unit
+def test_encode_failure_raises_instead_of_zero_vector(monkeypatch):
+    from unittest.mock import MagicMock
+    eu = _reset_model(monkeypatch)
+    broken = MagicMock()
+    broken.encode.side_effect = RuntimeError('out of memory')
+    monkeypatch.setattr(eu, '_embedding_model', broken)
+    monkeypatch.setattr(eu, '_embedding_model_initialized', True)
+    monkeypatch.setattr(eu.redis_cache, 'get_cached_embedding', lambda *_: None)
+    with pytest.raises(eu.EmbeddingUnavailable):
+        eu.get_embedding('pgvector tuning')
