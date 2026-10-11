@@ -168,13 +168,16 @@ def test_reconciler_gives_up_after_the_backoff_schedule(app, test_user):
                            saved_at=now - timedelta(days=5), scraped_at=now - timedelta(days=2))
         db.session.add(row)
         db.session.commit()
+        row_id = row.id
         fake = _FakeRedis()
-        fake.data[pipeline_reconciler._ATTEMPTS_KEY.format(row.id)] = len(pipeline_reconciler.FETCH_RETRY_BACKOFF)
+        fake.data[pipeline_reconciler._ATTEMPTS_KEY.format(row_id)] = len(pipeline_reconciler.FETCH_RETRY_BACKOFF)
         with patch.object(pipeline_reconciler, '_redis', return_value=fake), \
              patch('services.task_queue.enqueue_bookmark_processing') as enqueue_fetch:
             counts = pipeline_reconciler.reconcile(now)
     enqueue_fetch.assert_not_called()
     assert counts['fetch_gave_up'] >= 1
+    with app.app_context():
+        assert db.session.get(SavedContent, row_id).scrape_status == 'FAILED'  # out of the retry window
 
 
 def _analysis_row(test_user, url, now, **fields):

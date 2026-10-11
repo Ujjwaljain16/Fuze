@@ -99,6 +99,10 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
     for bookmark_id, url, user_id, status, scraped_at in candidates:
         attempts = _fetch_attempts(redis_conn, bookmark_id)
         if attempts >= len(FETCH_RETRY_BACKOFF):
+            # Terminal: drop it out of this oldest-first window so it can't crowd out new work.
+            db.session.query(SavedContent).filter(SavedContent.id == bookmark_id).update(
+                {SavedContent.scrape_status: 'FAILED'}, synchronize_session=False)
+            db.session.commit()
             counts["fetch_gave_up"] += 1
             continue
         if status == 'FAILED_FETCH' and scraped_at and _naive_utc(scraped_at) > now - FETCH_RETRY_BACKOFF[attempts]:
@@ -111,7 +115,7 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
 
     # 2. Fetched (or definitively failed) but never embedded: invisible to search until it is.
     missing_embeddings = (db.session.query(SavedContent.id, SavedContent.user_id)
-                          .filter(SavedContent.scrape_status.in_(('SUCCESS', 'FAILED_FETCH', 'BLOCKED', 'DISALLOWED')),
+                          .filter(SavedContent.scrape_status.in_(('SUCCESS', 'FAILED_FETCH', 'BLOCKED', 'DISALLOWED', 'FAILED')),
                                   SavedContent.embedding_status != 'SUCCESS',
                                   or_(SavedContent.scraped_at.is_(None), SavedContent.scraped_at < stale))
                           .order_by(SavedContent.saved_at)
