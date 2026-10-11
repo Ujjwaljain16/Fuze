@@ -76,6 +76,20 @@ def run_single_worker(args, worker_index: int = 1):
         logger.error("worker_flask_context_failed", error=str(e))
         sys.exit(1)
 
+    # RQ forks a work horse per job, and the fork inherits the parent's connection pool. The
+    # parent keeps using it (the reconciler thread), so a horse could talk over the same socket.
+    # The child drops its inherited connections without closing them (close=False leaves the
+    # parent's sockets intact) and opens its own.
+    def _drop_inherited_pool():
+        try:
+            with app.app_context():
+                from models import db
+                db.engine.dispose(close=False)
+        except Exception:
+            pass
+
+    os.register_at_fork(after_in_child=_drop_inherited_pool)
+
     # Load the embedding model once in this parent process. RQ forks a work horse per job, and
     # each fork shares the loaded model copy-on-write instead of loading ~130 MB again.
     # One torch thread per worker: the host has 2 vCPUs shared with the web workers.

@@ -27,3 +27,11 @@ def test_worker_runs_with_the_scheduler():
     calls = [n for n in ast.walk(ast.parse(inspect.getsource(worker))) if isinstance(n, ast.Call)
              and getattr(n.func, 'attr', None) == 'work']
     assert calls and any(k.arg == 'with_scheduler' and k.value.value is True for k in calls[0].keywords)
+
+
+def test_forked_work_horses_drop_the_inherited_db_pool():
+    """A forked job must not share the parent's pooled sockets (the reconciler thread uses them)."""
+    import inspect
+    import worker
+    source = inspect.getsource(worker.run_single_worker)
+    assert 'register_at_fork' in source and 'dispose(close=False)' in source
