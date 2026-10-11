@@ -9,6 +9,7 @@ from google.genai import types as genai_types
 from core.logging_config import get_logger
 
 from core.circuit_breaker import gemini_circuit_breaker
+from core.job_timeout import JobTimeoutException
 
 logger = get_logger(__name__)
 
@@ -133,6 +134,8 @@ class GeminiAnalyzer:
             for attempt in range(self.max_retries + 1):
                 try:
                     text = self._generate(model_name, prompt, json_mode)
+                except JobTimeoutException:
+                    raise
                 except genai_errors.ClientError as e:
                     # 4xx (bad key, quota, unknown model) will not succeed on retry. An unknown
                     # model moves on to the fallback model; anything else ends the request.

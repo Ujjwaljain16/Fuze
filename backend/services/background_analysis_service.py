@@ -22,6 +22,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from models import db, SavedContent, ContentAnalysis
+from core.job_timeout import JobTimeoutException
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import RedisCache
 from core.distributed_lock import DistributedLock
@@ -328,6 +329,10 @@ class BackgroundAnalysisService:
 
             logger.info("bg_analysis_completed_successfully", extra={"content_id": content.id, "duration_ms": analysis_duration_ms})
 
+        except JobTimeoutException:
+            db.session.rollback()
+            self._mark_failed(content.id)
+            raise
         except Exception as e:
             logger.error("bg_analysis_single_content_exception", extra={"content_id": content.id, "error": str(e)})
             db.session.rollback()
@@ -365,6 +370,8 @@ class BackgroundAnalysisService:
                 target_user_id = user_id or content.user_id
                 self._analyze_single_content(content, user_id=target_user_id)
                 return self.get_cached_analysis(content_id)
+        except JobTimeoutException:
+            raise
         except Exception as e:
             logger.error("bg_analysis_immediate_failed", extra={"content_id": content_id, "error": str(e)})
             return None

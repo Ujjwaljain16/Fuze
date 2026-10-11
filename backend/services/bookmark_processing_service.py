@@ -5,6 +5,7 @@ using the decoupled 5-stage ContentAcquisitionEngine and PipelineOrchestrator.
 """
 
 import time
+from core.job_timeout import JobTimeoutException
 from datetime import datetime
 
 import numpy as np
@@ -356,5 +357,7 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         # bookmark, with no failure visible in RQ's job status. Confirmed via
         # an end-to-end test against real production infra.
         analyze_content(bookmark_id, user_id)
+    except JobTimeoutException:
+        raise
     except Exception as e:
         logger.error("bg_embedding_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})

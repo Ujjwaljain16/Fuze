@@ -2,7 +2,7 @@
 """
 RQ Worker Script for Fuze
 Starts background workers that process queue jobs with unique worker naming,
-multiprocessing support for --workers, queue validation, and graceful signal handling.
+multiprocessing support for --workers, queue validation and the RQ scheduler (retries).
 
 Usage:
     python backend/worker.py
@@ -12,7 +12,6 @@ Usage:
 import os
 import sys
 import socket
-import signal
 import argparse
 import multiprocessing
 from rq import Worker, Queue
@@ -62,12 +61,8 @@ def run_single_worker(args, worker_index: int = 1):
         name=worker_name
     )
 
-    def handle_shutdown(signum, frame):
-        logger.info("worker_graceful_shutdown_requested", worker_name=worker_name)
-        worker.request_stop()
-
-    signal.signal(signal.SIGTERM, handle_shutdown)
-    signal.signal(signal.SIGINT, handle_shutdown)
+    # Graceful shutdown: RQ installs its own SIGTERM/SIGINT handlers in work() (finish the
+    # current job, then exit), so none are registered here.
 
     # Initialize Flask application context
     try:
@@ -81,7 +76,10 @@ def run_single_worker(args, worker_index: int = 1):
     try:
         with app.app_context():
             logger.info("worker_listening", worker_name=worker_name, queue=args.queue, burst=args.burst)
-            worker.work(burst=args.burst)
+            # with_scheduler: jobs enqueued with Retry(interval=...) or enqueue_in() sit in the
+            # ScheduledJobRegistry until a scheduler moves them back to the queue. Without it,
+            # every retry waited forever.
+            worker.work(burst=args.burst, with_scheduler=True)
     except Exception as e:
         logger.error("worker_execution_error", worker_name=worker_name, error=str(e))
         sys.exit(1)

@@ -21,6 +21,7 @@ from scrapers.event_publisher import ScrapingEventPublisher
 from scrapers.url_safety import is_safe_url
 from scrapers.models import ContentDocument, RawFetchResult, ParsedDocument, NormalizedDocument, Decision, compute_content_hash
 from core.circuit_breaker import RedisCircuitBreaker
+from core.job_timeout import JobTimeoutException
 from core.events import (
     FetchStarted, FetchCompleted, ParsingStarted, ParsingCompleted, NormalizationCompleted
 )
@@ -160,6 +161,8 @@ class ContentAcquisitionEngine:
                 else:
                     circuit_breaker.record_failure()
                     self.fetch_policy.record_failure(url, strategy)
+            except JobTimeoutException:
+                raise
             except Exception as fetch_err:
                 circuit_breaker.record_failure()
                 self.fetch_policy.record_failure(url, strategy)

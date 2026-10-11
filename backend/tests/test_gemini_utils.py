@@ -85,3 +85,15 @@ def test_client_errors_are_not_retried_and_unknown_model_falls_back():
         generate.side_effect = [client_error(404), MagicMock(text='from fallback')]
         assert analyzer._make_gemini_request('hi') == 'from fallback'
         assert generate.call_args_list[1].kwargs['model'] == analyzer.model_candidates[1]
+
+
+@pytest.mark.unit
+def test_job_timeout_is_not_swallowed_by_retries():
+    """RQ raises JobTimeoutException inside the job; catching it hid timeouts until SIGKILL."""
+    from core.job_timeout import JobTimeoutException
+    with patch('utils.gemini_utils.genai.Client') as client_cls, \
+         patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+        breaker.allow_request.return_value = True
+        client_cls.return_value.models.generate_content.side_effect = JobTimeoutException('timeout')
+        with pytest.raises(JobTimeoutException):
+            GeminiAnalyzer(api_key='k')._make_gemini_request('hi')

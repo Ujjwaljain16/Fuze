@@ -7,6 +7,7 @@ import time
 from scrapers.fetchers.base import BaseFetcher
 from scrapers.models import RawFetchResult, FetchMetadata
 from scrapers.safe_http import safe_get
+from core.job_timeout import JobTimeoutException
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -55,6 +56,8 @@ class HTTPFetcher(BaseFetcher):
                 raw_content=resp.content,
                 fetch_metadata=meta
             )
+        except JobTimeoutException:
+            raise
         except Exception as e:
             latency_ms = int((time.time() - start_time) * 1000)
             logger.warning("http_fetch_failed", extra={"url": url, "error": str(e)})
