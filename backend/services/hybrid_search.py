@@ -98,6 +98,27 @@ def user_has_chunks(session, user_id: int) -> bool:
     ).first() is not None
 
 
+# Nearest saved-text passages only. The 'profile' row is Gemini's own description of an item: right for
+# matching intent, wrong as evidence for an answer that must come from what the user actually saved.
+_PASSAGES_SQL = """
+SELECT c.content_id, c.chunk_index, c.text, 1 - (c.embedding <=> CAST(:emb AS vector)) AS similarity
+FROM content_chunks c
+WHERE c.user_id = :uid AND c.embedding_model = :model AND c.kind = 'passage'
+ORDER BY c.embedding <=> CAST(:emb AS vector)
+LIMIT :k
+"""
+
+
+def nearest_passages(session, user_id: int, query_vector, k: int = CANDIDATES_PER_QUERY) -> List[Dict[str, Any]]:
+    """Every nearest passage (several per bookmark allowed), best first. For answering, not ranking."""
+    configure_filtered_ann(session, k)
+    rows = session.execute(text(_PASSAGES_SQL), {
+        "emb": _vec_literal(query_vector), "uid": user_id, "k": k, "model": active_embedding_model_name(),
+    })
+    return [{"content_id": cid, "chunk_index": idx, "passage": passage, "similarity": float(sim)}
+            for cid, idx, passage, sim in rows]
+
+
 def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES_PER_QUERY) -> List[Dict[str, Any]]:
     """Union of nearest passages across query vectors; one entry per bookmark with its best passage."""
     configure_filtered_ann(session, k)

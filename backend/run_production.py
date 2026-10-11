@@ -110,6 +110,7 @@ try:
     from blueprints.search import search_bp
     from blueprints.events import events_bp
     from blueprints.account import account_bp
+    from blueprints.ask import ask_bp
     
     try:
         from blueprints.dashboard import dashboard_bp
@@ -378,6 +379,7 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(search_bp)
     app.register_blueprint(events_bp)
     app.register_blueprint(account_bp)
+    app.register_blueprint(ask_bp)
 
     if dashboard_available:
         app.register_blueprint(dashboard_bp)
