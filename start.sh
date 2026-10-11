@@ -16,6 +16,11 @@ if ! python -m alembic -c "$ALEMBIC_INI" upgrade head; then
     exit 1
 fi
 
+# Prometheus metrics from every process (2 gunicorn workers, RQ workers) are merged through
+# files here; without it /metrics showed whichever worker happened to answer.
+export PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc
+rm -rf "$PROMETHEUS_MULTIPROC_DIR" && mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+
 echo "Starting Fuze processes via supervisord..."
 CONF_PATH="/app/supervisord.conf"
 if [ ! -f "$CONF_PATH" ]; then

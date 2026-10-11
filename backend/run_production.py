@@ -156,6 +156,8 @@ except ImportError as e:
     logger.warning(f"Intent Analysis components not available: {e}")
     intent_analysis_available = False
 
+_REQUEST_ID = re.compile(r'[A-Za-z0-9._-]{1,64}')
+
 SENSITIVE_HEADERS = {'authorization', 'cookie', 'x-api-key', 'x-csrf-token', 'jwt'}
 
 def sanitize_headers(headers: dict) -> dict:
@@ -320,7 +322,19 @@ def create_app(config_name: str = None) -> Flask:
 
     @app.before_request
     def set_correlation_id():
-        g.correlation_id = request.headers.get('X-Request-ID') or uuid.uuid4().hex
+        # One id per request, from the caller's X-Request-ID when it is sane, bound into every
+        # log line written while handling the request (it used to reach no log at all, and a
+        # second hook generated a different id for the response header).
+        from core.logging_config import bind_request_context
+        incoming = request.headers.get('X-Request-ID', '')
+        request_id = incoming if _REQUEST_ID.fullmatch(incoming) else uuid.uuid4().hex
+        g.correlation_id = g.request_id = request_id
+        bind_request_context(correlation_id=request_id, method=request.method, path=request.path)
+
+    @app.teardown_request
+    def clear_correlation_id(_exc):
+        from core.logging_config import clear_request_context
+        clear_request_context()
 
     @app.before_request
     def handle_options_preflight():
@@ -386,7 +400,6 @@ def create_app(config_name: str = None) -> Flask:
     @app.before_request
     def before_request_logging():
         g.start_time = time.time()
-        g.request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())
 
     @app.after_request
     def after_request_logging(response):

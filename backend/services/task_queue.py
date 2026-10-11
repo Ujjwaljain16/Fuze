@@ -341,8 +341,8 @@ def get_queue_stats(queue_name: str = 'default') -> Dict[str, Any]:
         return {'status': 'disconnected', 'depth': 0, 'failed': 0, 'active_workers': 0}
     try:
         from rq import Worker
+        from rq.registry import FailedJobRegistry
         q = Queue(queue_name, connection=conn)
-        failed_q = Queue('failed', connection=conn)
         workers = Worker.all(connection=conn)
         active_workers = len([w for w in workers if queue_name in w.queue_names()])
 
@@ -350,7 +350,9 @@ def get_queue_stats(queue_name: str = 'default') -> Dict[str, Any]:
             'status': 'connected',
             'queue_name': queue_name,
             'depth': len(q),
-            'failed_count': len(failed_q),
+            # RQ >= 1.0 keeps failures in a per-queue registry; the legacy 'failed' queue is
+            # always empty, so this used to report 0 no matter what failed.
+            'failed_count': FailedJobRegistry(queue=q).count,
             'active_workers': active_workers
         }
     except Exception as e:

@@ -34,9 +34,12 @@ class FuzeWorker(Worker):
     """Custom RQ Worker that ensures SQLAlchemy session cleanup after every job."""
 
     def perform_job(self, job, queue):
+        from core.logging_config import bind_request_context, clear_request_context
+        bind_request_context(correlation_id=job.id, job=job.func_name)  # tag every log line of the job
         try:
             return super().perform_job(job, queue)
         finally:
+            clear_request_context()
             try:
                 from models import db
                 db.session.remove()

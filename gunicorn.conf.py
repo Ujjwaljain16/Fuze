@@ -38,3 +38,12 @@ def post_fork(server, worker):
         torch.set_num_threads(1)
     except Exception:
         pass
+
+
+def child_exit(server, worker):
+    # Drop a dead worker's live-gauge files from the shared Prometheus directory.
+    try:
+        from prometheus_client import multiprocess
+        multiprocess.mark_process_dead(worker.pid)
+    except Exception:
+        pass
