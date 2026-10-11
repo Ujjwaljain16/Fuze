@@ -28,6 +28,8 @@ def _resp(json_data=None, text="", content=b""):
     ("https://www.reddit.com/r/Python/comments/abc123/title/", sa.reddit),
     ("https://medium.com/@jane/a-story-516d5a29b252", sa.medium),
     ("https://jane.medium.com/a-story-516d5a29b252", sa.medium),
+    ("https://x.com/jack/status/20", sa.twitter),
+    ("https://twitter.com/jack/status/20", sa.twitter),
     ("https://example.com/blog/post", None),
 ])
 def test_routing(url, expected):
@@ -281,6 +283,45 @@ def test_medium_non_story_urls_fall_back(url):
 def test_medium_feed_errors_fall_back():
     with patch.object(sa, "_get", return_value=_resp(content=b"<html>not xml")):
         assert sa.fetch_from_source("https://medium.com/@jane/vector-search-in-postgres-516d5a29b252") is None
+
+
+X_OEMBED = {
+    "url": "https://twitter.com/jack/status/20", "author_name": "jack", "author_url": "https://twitter.com/jack",
+    "html": '<blockquote class="twitter-tweet"><p lang="en" dir="ltr">just setting up my twttr</p>&mdash; jack '
+            '(@jack) <a href="https://twitter.com/jack/status/20?ref_src=twsrc%5Etfw">March 21, 2006</a></blockquote>\n',
+    "provider_name": "Twitter", "type": "rich",
+}
+
+
+@pytest.mark.parametrize("url", [
+    "https://twitter.com/jack/status/20",
+    "https://x.com/jack/status/20?s=46",
+    "https://mobile.twitter.com/jack/status/20/photo/1",
+])
+def test_x_posts_come_from_oembed(url):
+    with patch.object(sa, "_get", return_value=_resp(X_OEMBED)) as get:
+        c = sa.fetch_from_source(url)
+    assert sa.adapter_for(url) is sa.twitter
+    assert get.call_args.args[0] == "https://publish.twitter.com/oembed"
+    assert get.call_args.kwargs["params"] == {"url": "https://twitter.com/jack/status/20", "omit_script": "true",
+                                              "dnt": "true"}
+    assert c.source == "twitter" and c.text == "just setting up my twttr" and c.author == "jack"
+    assert c.title == 'jack on X: "just setting up my twttr"' and c.published_at == "2006-03-21"
+    assert c.canonical_url == "https://twitter.com/jack/status/20"
+
+
+def test_x_deleted_or_protected_posts_fall_back():
+    with patch.object(sa, "_get", side_effect=requests.HTTPError("404 for oembed")):
+        assert sa.fetch_from_source("https://x.com/jack/status/20") is None
+    with patch.object(sa, "_get", return_value=_resp({"html": ""})):
+        assert sa.fetch_from_source("https://x.com/jack/status/20") is None
+
+
+@pytest.mark.parametrize("url", ["https://x.com/jack", "https://x.com/home", "https://twitter.com/search?q=x"])
+def test_x_non_post_urls_fall_back(url):
+    with patch.object(sa, "_get") as get:
+        assert sa.fetch_from_source(url) is None
+    get.assert_not_called()
 
 
 def test_api_errors_fall_back_to_page_extraction():

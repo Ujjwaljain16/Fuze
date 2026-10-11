@@ -3,6 +3,10 @@ Source adapters: for sites with an official public API, read the content through
 parsing the page. The result is the real text (a repo's README, a paper's abstract, a question
 and its answers) without layout noise, and it uses documented, rate-limited access.
 
+"Official API" here means a documented public endpoint that needs no key: REST APIs, oEmbed
+(YouTube, Reddit, X), RSS (Medium) and Reddit's .json listings. No scraping tricks: an adapter
+that reads a page at all (YouTube's description) checks robots.txt first.
+
 Each adapter returns SourceContent or None (unknown URL shape / API error); the caller then
 falls back to the normal HTML pipeline.
 """
@@ -392,6 +396,45 @@ def medium(url: str) -> Optional[SourceContent]:
     return None
 
 
+# --- X / Twitter -------------------------------------------------------------------------
+
+_X_HOSTS = {"twitter.com", "x.com", "mobile.twitter.com", "mobile.x.com"}
+_X_STATUS = re.compile(r"^/([A-Za-z0-9_]{1,15})/status(?:es)?/(\d+)")
+
+
+def twitter(url: str) -> Optional[SourceContent]:
+    m = _X_STATUS.match(urlparse(url).path)
+    if not m:
+        return None
+    user, status_id = m.groups()
+    post_url = f"https://twitter.com/{user}/status/{status_id}"
+    # X's public embed endpoint; dnt asks it not to use the embed for personalisation.
+    data = _get("https://publish.twitter.com/oembed",
+                params={"url": post_url, "omit_script": "true", "dnt": "true"}).json()
+    html = data.get("html") or ""
+    from bs4 import BeautifulSoup
+    quote = BeautifulSoup(html, "html.parser").find("blockquote")
+    if quote is None:
+        return None
+    paragraph = quote.find("p")
+    text = paragraph.get_text(" ", strip=True) if paragraph else ""
+    links = quote.find_all("a")
+    posted = links[-1].get_text(strip=True) if links else None  # "March 21, 2006"
+    if posted:
+        from datetime import datetime
+        try:
+            posted = datetime.strptime(posted, "%B %d, %Y").date().isoformat()
+        except ValueError:
+            posted = None
+    author = data.get("author_name") or user
+    if not text:
+        return None
+    title = f"{author} on X: \"{text[:80]}{'...' if len(text) > 80 else ''}\""
+    return SourceContent("twitter", title, text, author=author, published_at=posted,
+                         canonical_url=data.get("url") or post_url,
+                         raw={"status_id": status_id, "user": user, "author_url": data.get("author_url")})
+
+
 # --- dispatch ----------------------------------------------------------------------------
 
 _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
@@ -403,6 +446,7 @@ _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
     "m.youtube.com": youtube,
     "youtu.be": youtube,
     **{host: reddit for host in _REDDIT_HOSTS},
+    **{host: twitter for host in _X_HOSTS},
 }
 
 
