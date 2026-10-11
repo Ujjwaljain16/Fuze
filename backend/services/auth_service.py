@@ -1,7 +1,7 @@
 import re
+import secrets
 import uuid
 import random
-import string
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Tuple, Optional, List, Dict, Any
@@ -25,6 +25,15 @@ class AuthenticationFailed(AuthError):
 class RegistrationFailed(AuthError):
     """Raised when registration cannot proceed (e.g. conflict)"""
     pass
+
+
+class AccountLinkRequired(AuthError):
+    """A password account already uses this email; the owner must sign in and link the provider."""
+    pass
+
+
+def _supabase_field(supa_user: dict, name: str):
+    return supa_user.get(name) or (supa_user.get('user') or {}).get(name)
 
 
 class AuthService:
@@ -285,31 +294,29 @@ class AuthService:
 
     def handle_supabase_oauth(self, supa_user: dict) -> Tuple[User, str, str]:
         """
-        Full transactional OAuth flow: lookup/creation, provider metadata linking,
-        token generation, TokenFamily tracking, and lockout policy enforcement inside UoW.
+        Sign in with a verified Supabase identity: the account already linked to it, or a new one.
+
+        An existing account is never joined by matching email alone. /register does not prove
+        email ownership, so whoever registered an address first could otherwise keep a working
+        password into the account its real owner later signs into with Google.
         """
         from flask_jwt_extended import create_access_token, create_refresh_token, decode_token
 
-        email = supa_user.get('email')
-        if not email:
-            raise RegistrationFailed("OAuth provider returned no email address")
+        email, provider_id = self._verified_identity(supa_user)
 
-        email = email.lower().strip()
-        provider_id = supa_user.get('id') or (supa_user.get('user') or {}).get('id')
-
-        user = self.uow.users.get_by_email(email)
-        if not user and provider_id:
-            user = self.uow.users.get_by_provider_id(provider_id, provider_name='google')
-
+        user = self.uow.users.get_by_provider_id(provider_id, provider_name='google')
         if not user:
+            if self.uow.users.get_by_email(email):
+                raise AccountLinkRequired(
+                    "An account with this email already exists. Sign in with your password, "
+                    "then connect Google from your profile."
+                )
             username = self.generate_unique_username(email)
-            random_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=24))
-            hashed_pw = self.hash_password(random_pw)
-
             user = User(
                 username=username,
                 email=email,
-                password_hash=hashed_pw,
+                # Unusable random password: OAuth accounts sign in through the provider.
+                password_hash=self.hash_password(secrets.token_urlsafe(32)),
                 provider_name='google',
                 provider_user_id=provider_id,
                 user_metadata={'supabase_user_id': provider_id}
@@ -324,17 +331,6 @@ class AuthService:
                 logger.warning("auth_failed_oauth_account_locked", extra={"user_id": getattr(user, 'id', None)})
                 raise AuthenticationFailed("Account is temporarily locked. Please try again later.")
 
-            updated = False
-            if not getattr(user, 'provider_user_id', None) and provider_id:
-                user.provider_user_id = provider_id
-                updated = True
-            if not getattr(user, 'provider_name', None):
-                user.provider_name = 'google'
-                updated = True
-            if updated:
-                self.uow.users.add(user)
-                self.uow.flush()
-
         family_id = str(uuid.uuid4())
         access = create_access_token(identity=str(user.id), additional_claims={'family_id': family_id})
         refresh = create_refresh_token(identity=str(user.id), additional_claims={'family_id': family_id})
@@ -347,3 +343,32 @@ class AuthService:
         self.uow.token_families.add(family)
 
         return user, access, refresh
+
+    def link_supabase_identity(self, user_id: int, supa_user: dict) -> User:
+        """Attach a verified Google identity to the signed-in user's account."""
+        email, provider_id = self._verified_identity(supa_user)
+        user = self.uow.users.get_by_id(user_id)
+        if not user:
+            raise AuthenticationFailed("User not found")
+        if (user.email or '').lower() != email:
+            raise AuthenticationFailed("That Google account uses a different email address than this account.")
+        owner = self.uow.users.get_by_provider_id(provider_id, provider_name='google')
+        if owner and owner.id != user.id:
+            raise AuthenticationFailed("That Google account is already connected to another account.")
+        user.provider_name = 'google'
+        user.provider_user_id = provider_id
+        self.uow.users.add(user)
+        self.uow.flush()
+        return user
+
+    @staticmethod
+    def _verified_identity(supa_user: dict) -> Tuple[str, str]:
+        email = (_supabase_field(supa_user, 'email') or '').lower().strip()
+        provider_id = _supabase_field(supa_user, 'id')
+        if not email:
+            raise RegistrationFailed("OAuth provider returned no email address")
+        if not provider_id:
+            raise AuthenticationFailed("OAuth provider returned no user id")
+        if not (_supabase_field(supa_user, 'email_confirmed_at') or _supabase_field(supa_user, 'confirmed_at')):
+            raise AuthenticationFailed("Your Google email address is not verified.")
+        return email, str(provider_id)

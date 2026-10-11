@@ -21,9 +21,10 @@ def test_account_lockout_enforcement():
     assert 'temporarily locked' in str(exc_info.value)
 
     # 2. OAuth flow on locked account raises AuthenticationFailed
-    mock_uow.users.get_by_email.return_value = user
+    mock_uow.users.get_by_provider_id.return_value = user
     with pytest.raises(AuthenticationFailed) as exc_info_oauth:
-        service.handle_supabase_oauth({'email': 'locked@example.com', 'id': 'supa_123'})
+        service.handle_supabase_oauth({'email': 'locked@example.com', 'id': 'supa_123',
+                                       'email_confirmed_at': '2026-01-01T00:00:00Z'})
     assert 'temporarily locked' in str(exc_info_oauth.value)
 
 
@@ -40,7 +41,8 @@ def test_oauth_emits_user_registered_event():
          patch('flask_jwt_extended.create_refresh_token', return_value='refresh'), \
          patch('flask_jwt_extended.decode_token', return_value={'jti': 'jti-123'}):
 
-        user, access, refresh = service.handle_supabase_oauth({'email': 'new_oauth@example.com', 'id': 'supa_999'})
+        user, access, refresh = service.handle_supabase_oauth({'email': 'new_oauth@example.com', 'id': 'supa_999',
+                                                                 'email_confirmed_at': '2026-01-01T00:00:00Z'})
         assert user is not None
         assert access == 'access'
         # Verify emit was called for UserRegistered

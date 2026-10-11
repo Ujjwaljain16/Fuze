@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 import bcrypt
 
 from uow.unit_of_work import UnitOfWork
-from services.auth_service import AuthService, AuthenticationFailed, RegistrationFailed
+from services.auth_service import AuthService, AuthenticationFailed, RegistrationFailed, AccountLinkRequired
 from utils.database_utils import retry_on_connection_error
 from middleware.rate_limiting import limiter
 
@@ -509,6 +509,28 @@ def verify_token_status():
     return jsonify({'valid': True, 'user': user_data}), 200
 
 
+def _fetch_supabase_user(access_token):
+    """Resolve a Supabase access token to its user, or return an error response."""
+    if not access_token:
+        return None, (jsonify({'message': 'access_token is required'}), 400)
+    supabase_url = os.environ.get('SUPABASE_URL')
+    if not supabase_url:
+        return None, (jsonify({'message': 'Supabase not configured'}), 503)
+    resp = requests.get(
+        supabase_url.rstrip('/') + '/auth/v1/user',
+        headers={'Authorization': f'Bearer {access_token}', 'apikey': os.environ.get('SUPABASE_ANON_KEY', '')},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        logger.warning(f"Supabase token verification failed: {resp.status_code}")
+        return None, (jsonify({'message': 'Invalid Supabase token'}), 401)
+    supa_user = resp.json()
+    raw_email = supa_user.get('email') or (supa_user.get('user') or {}).get('email', '')
+    if not raw_email or not validate_email(raw_email.strip().lower()):
+        return None, (jsonify({'message': 'Unable to determine valid user email from Supabase'}), 400)
+    return supa_user, None
+
+
 @auth_bp.route('/supabase-oauth', methods=['POST', 'OPTIONS'])
 @retry_on_connection_error(max_retries=1, delay=1.0)
 def supabase_oauth():
@@ -516,41 +538,12 @@ def supabase_oauth():
     if request.method == 'OPTIONS':
         return '', 204
     try:
-        data = request.get_json() or {}
-        access_token = data.get('access_token')
-        if not access_token:
-            return jsonify({'message': 'access_token is required'}), 400
+        supa_user, error = _fetch_supabase_user((request.get_json(silent=True) or {}).get('access_token'))
+        if error:
+            return error
 
-        SUPABASE_URL = os.environ.get('SUPABASE_URL')
-        if not SUPABASE_URL:
-            return jsonify({'message': 'Supabase not configured'}), 503
-
-        anon_key = os.environ.get('SUPABASE_ANON_KEY', '')
-        if not anon_key:
-            logger.warning("SUPABASE_ANON_KEY not set — OAuth token verification may fail")
-
-        user_info_url = SUPABASE_URL.rstrip('/') + '/auth/v1/user'
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'apikey': anon_key,
-        }
-
-        resp = requests.get(user_info_url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            logger.warning(f"Supabase token verification failed: {resp.status_code}")
-            return jsonify({'message': 'Invalid Supabase token'}), 401
-
-        supa_user = resp.json()
-        raw_email = supa_user.get('email') or (supa_user.get('user') or {}).get('email', '')
-        email = raw_email.strip().lower() if raw_email else ''
-
-        if not email or not validate_email(email):
-            return jsonify({'message': 'Unable to determine valid user email from Supabase'}), 400
-
-        # Run complete OAuth user resolution & token family generation inside UoW
         with UnitOfWork() as uow:
-            auth_service = AuthService(uow)
-            user, access, refresh = auth_service.handle_supabase_oauth(supa_user)
+            user, access, refresh = AuthService(uow).handle_supabase_oauth(supa_user)
             user_data = {'id': user.id, 'username': user.username, 'email': user.email}
 
         response = jsonify({
@@ -562,6 +555,30 @@ def supabase_oauth():
         set_refresh_cookies(response, refresh)
         return response, 200
 
+    except AccountLinkRequired as e:
+        return jsonify({'message': str(e), 'error': 'account_link_required'}), 409
+    except (AuthenticationFailed, RegistrationFailed) as e:
+        return jsonify({'message': str(e), 'error': 'oauth_rejected'}), 403
     except Exception as e:
         logger.error(f"Supabase OAuth error: {e}", exc_info=True)
         return jsonify({'message': 'OAuth sign-in failed'}), 500
+
+
+@auth_bp.route('/link-oauth', methods=['POST'])
+@jwt_required()
+def link_oauth():
+    """Connect a Google identity to the signed-in account (the only way to join an existing account)."""
+    try:
+        supa_user, error = _fetch_supabase_user((request.get_json(silent=True) or {}).get('access_token'))
+        if error:
+            return error
+        with UnitOfWork() as uow:
+            user = AuthService(uow).link_supabase_identity(int(get_jwt_identity()), supa_user)
+            user_data = {'id': user.id, 'username': user.username, 'email': user.email,
+                         'provider_name': user.provider_name}
+        return jsonify({'message': 'Google account connected', 'user': user_data}), 200
+    except (AuthenticationFailed, RegistrationFailed) as e:
+        return jsonify({'message': str(e), 'error': 'link_rejected'}), 403
+    except Exception as e:
+        logger.error(f"OAuth link error: {e}", exc_info=True)
+        return jsonify({'message': 'Could not connect Google account'}), 500
