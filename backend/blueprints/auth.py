@@ -493,6 +493,62 @@ def refresh():
     return response, 200
 
 
+@auth_bp.route('/fork-session', methods=['POST'])
+@limiter.limit("20 per hour")
+def fork_session():
+    """Start a second session for another client (the browser extension) from a live one.
+
+    Refresh tokens rotate and a replayed one revokes its whole family, so two clients can't
+    share a family: whichever refreshed second would sign both out. The extension sends the web
+    app's current refresh token here and gets a family of its own; the web app's token is not
+    rotated and keeps working.
+
+    Only a refresh token is accepted, so a leaked access token can't be turned into a
+    long-lived session. The new family inherits the parent's start time, so it doesn't count as
+    a fresh sign-in for "signed in recently" checks. No cookies are set: they would replace the
+    web app's own on a same-site deployment.
+    """
+    try:
+        verify_jwt_in_request(refresh=True, locations=['headers'])
+    except (JWTExtendedException, PyJWTError):
+        return jsonify({'message': 'Refresh token missing or invalid', 'error': 'invalid_refresh_token'}), 401
+    jwt_data = get_jwt()
+    identity = get_jwt_identity()
+    parent_family_id = jwt_data.get('family_id')
+    if not parent_family_id:
+        return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
+
+    from models import TokenFamily
+    with UnitOfWork() as uow:
+        parent = uow.token_families.get_family(parent_family_id)
+        if not parent or parent.revoked or str(parent.user_id) != str(identity):
+            return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
+        if parent.current_jti != jwt_data['jti']:
+            # A spent token. Unlike /refresh this does not revoke the family: the web app may have
+            # rotated a moment after the extension read the token, and the user did nothing wrong.
+            logger.warning(f"Fork with a rotated refresh token refused: user={identity} family={parent_family_id}")
+            return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
+
+        user = uow.users.get_by_id(int(identity))
+        if not user:
+            return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
+        user_data = {'id': user.id, 'username': user.username, 'email': user.email}
+
+        family_id = str(uuid.uuid4())
+        access_token = create_access_token(identity=str(user.id), additional_claims={'family_id': family_id})
+        refresh_token = create_refresh_token(identity=str(user.id), additional_claims={'family_id': family_id})
+        uow.token_families.add(TokenFamily(
+            user_id=user.id,
+            family_id=family_id,
+            current_jti=decode_token(refresh_token)['jti'],
+            # Unknown start time: treat it as old rather than as a sign-in that just happened.
+            created_at=parent.created_at or datetime(1970, 1, 1),
+        ))
+
+    logger.info(f"Session forked: user={identity} parent={parent_family_id} family={family_id}")
+    return jsonify({'access_token': access_token, 'refresh_token': refresh_token, 'user': user_data}), 200
+
+
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
