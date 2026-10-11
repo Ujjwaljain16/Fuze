@@ -5,20 +5,15 @@ RQ job: pre-warm the Redis cache for a user immediately after login.
 
 warm_user_cache(user_id) is enqueued by blueprints/auth.py on successful login
 using the 'high' priority queue. It runs concurrently with the user's first
-request so that recommendations and bookmarks are served from cache.
+request so that its first recommendations are already computed.
 
 Distributed lock (fuze:warm_lock:{user_id}, TTL=30s) prevents thundering herd
 when the same user logs in from multiple devices simultaneously.
 
-Cache warming order (highest ROI first):
-  1. Recommendations — most latency-sensitive
-  2. Bookmarks list  — most frequently accessed
-  3. Project context — supplementary
+Only recommendations are warmed: the bookmark and project endpoints read the database
+directly, so caching their responses here only spent Redis commands on keys nobody read.
 
-TTLs are configured via env vars:
-  CACHE_WARM_TTL_RECOMMENDATIONS=300  (5 minutes)
-  CACHE_WARM_TTL_BOOKMARKS=60         (1 minute)
-  CACHE_WARM_TTL_PROJECTS=120         (2 minutes)
+CACHE_WARM_TTL_RECOMMENDATIONS=300 (5 minutes) sets how long a warm marker suppresses re-warming.
 """
 
 import os
@@ -30,8 +25,6 @@ from core.logging_config import get_logger
 logger = get_logger(__name__)
 
 WARM_TTL_RECOMMENDATIONS = int(os.getenv("CACHE_WARM_TTL_RECOMMENDATIONS", "300"))
-WARM_TTL_BOOKMARKS = int(os.getenv("CACHE_WARM_TTL_BOOKMARKS", "60"))
-WARM_TTL_PROJECTS = int(os.getenv("CACHE_WARM_TTL_PROJECTS", "120"))
 LOCK_TTL_MS = 30_000  # 30 seconds
 
 
@@ -69,8 +62,6 @@ def warm_user_cache(user_id: int) -> dict:
     results = {}
     try:
         results["recommendations"] = _warm_recommendations(user_id)
-        results["bookmarks"] = _warm_bookmarks(user_id)
-        results["projects"] = _warm_projects(user_id)
     finally:
         # Release lock
         if lock_owner:
@@ -133,75 +124,6 @@ def _warm_recommendations(user_id: int) -> str:
     except Exception as exc:
         logger.warning(
             "cache_warm_recommendations_error",
-            extra={"user_id": user_id, "error": str(exc)},
-        )
-        return f"error: {exc}"
-
-
-def _warm_bookmarks(user_id: int) -> str:
-    """
-    Pre-populate the bookmarks list cache.
-    Calls the same cache path that GET /api/bookmarks uses.
-    """
-    try:
-        from utils.redis_utils import redis_cache
-        from uow.unit_of_work import UnitOfWork
-        from services.bookmark_service import BookmarkService
-
-        cache_key = f"fuze:bookmarks:{user_id}:page1"
-        if redis_cache.redis_client and redis_cache.redis_client.exists(cache_key):
-            return "already_warm"
-
-        with UnitOfWork() as uow:
-            service = BookmarkService(uow)
-            pagination = service.list_bookmarks(user_id=user_id, page=1, per_page=20)
-            bookmarks = pagination.items if hasattr(pagination, "items") else pagination
-
-        if redis_cache.redis_client and bookmarks:
-            import json
-            serialized = json.dumps(
-                [b.to_dict() if hasattr(b, "to_dict") else {"id": getattr(b, "id", None)}
-                 for b in (bookmarks if isinstance(bookmarks, list) else [])],
-                default=str,
-            )
-            redis_cache.redis_client.setex(cache_key, WARM_TTL_BOOKMARKS, serialized)
-
-        return "warmed"
-    except Exception as exc:
-        logger.warning(
-            "cache_warm_bookmarks_error",
-            extra={"user_id": user_id, "error": str(exc)},
-        )
-        return f"error: {exc}"
-
-
-def _warm_projects(user_id: int) -> str:
-    """Pre-populate the project list in cache."""
-    try:
-        from utils.redis_utils import redis_cache
-        from uow.unit_of_work import UnitOfWork
-
-        cache_key = f"fuze:projects:{user_id}:list"
-        if redis_cache.redis_client and redis_cache.redis_client.exists(cache_key):
-            return "already_warm"
-
-        with UnitOfWork() as uow:
-            pagination = uow.projects.list_by_user(user_id=user_id, page=1, per_page=20)
-            projects = pagination.items if hasattr(pagination, "items") else pagination
-
-        if redis_cache.redis_client and projects:
-            import json
-            serialized = json.dumps(
-                [{"id": getattr(p, "id", None), "title": getattr(p, "title", "")}
-                 for p in projects],
-                default=str,
-            )
-            redis_cache.redis_client.setex(cache_key, WARM_TTL_PROJECTS, serialized)
-
-        return "warmed"
-    except Exception as exc:
-        logger.warning(
-            "cache_warm_projects_error",
             extra={"user_id": user_id, "error": str(exc)},
         )
         return f"error: {exc}"
