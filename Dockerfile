@@ -56,14 +56,8 @@ COPY wsgi.py .
 COPY app.py .
 COPY start.sh .
 COPY supervisord.conf .
-# CRITICAL: alembic.ini was never copied into the image before this fix.
-# alembic.ini's own script_location (`%(here)s/backend/alembic`) requires it
-# to sit at /app alongside backend/. Without it, every `alembic upgrade head`
-# invocation in start.sh has been silently failing (caught by `|| echo
-# "Warning: ..."`) on every single container boot -- meaning the automatic
-# migration step has likely never actually run in the deployed Space at all.
-# Whatever kept the production schema at head was some other, out-of-band
-# process (e.g. someone running alembic manually against the prod DB).
+# alembic.ini's script_location (`%(here)s/backend/alembic`) needs it at /app next to
+# backend/. start.sh runs `alembic upgrade head` and exits if it fails.
 COPY alembic.ini .
 
 # Environment

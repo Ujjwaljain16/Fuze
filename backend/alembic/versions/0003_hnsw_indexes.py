@@ -31,10 +31,7 @@ down_revision = '0002'
 
 def upgrade():
     # Ensure pgvector extension exists (idempotent)
-    try:
-        op.execute('CREATE EXTENSION IF NOT EXISTS vector')
-    except Exception as e:
-        print(f"Warning: pgvector extension creation skipped or unsupported: {e}")
+    op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     
     with op.get_context().autocommit_block():
         op.execute("""

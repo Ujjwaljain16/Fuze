@@ -436,20 +436,24 @@ def create_app(config_name: str = None) -> Flask:
     @app.route('/health/readiness')
     @app.route('/api/health/readiness')
     def readiness_probe():
+        from core.schema_version import schema_status
         db_ready = False
+        schema_ready = False
         try:
             with db.engine.connect() as conn:
-                conn.execute(text('SELECT 1'))
+                # Code running against an older schema 500s on every query that touches new columns.
+                schema_ready = schema_status(conn)['up_to_date']
             db_ready = True
         except Exception:
             db_ready = False
 
         redis_ready = getattr(redis_cache, 'connected', False)
-        is_ready = db_ready and redis_ready
+        is_ready = db_ready and schema_ready and redis_ready
 
         return jsonify({
             'status': 'ready' if is_ready else 'not_ready',
             'database': 'ready' if db_ready else 'unhealthy',
+            'schema': 'current' if schema_ready else 'outdated',
             'redis': 'ready' if redis_ready else 'unhealthy'
         }), 200 if is_ready else 503
 

@@ -15,10 +15,7 @@ depends_on = None
 
 def upgrade():
     # 1. Enable pgvector extension (idempotent)
-    try:
-        op.execute('CREATE EXTENSION IF NOT EXISTS vector')
-    except Exception as e:
-        print(f"Note: pgvector extension creation skipped or unsupported: {e}")
+    op.execute('CREATE EXTENSION IF NOT EXISTS vector')
 
     # 2. Base tables creation (idempotent with IF NOT EXISTS)
     op.execute("""

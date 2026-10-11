@@ -2,17 +2,18 @@
 # Startup script for Hugging Face Spaces / Docker environments
 # Uses supervisord for process supervision
 
-set -e
+set -euo pipefail
 
-echo "Running automatic database migrations..."
-if [ -f "/app/alembic.ini" ]; then
-    python -m alembic -c /app/alembic.ini upgrade head || echo "Warning: Alembic migration auto-run failed, continuing startup..."
-elif [ -f "./alembic.ini" ]; then
-    python -m alembic -c ./alembic.ini upgrade head || echo "Warning: Alembic migration auto-run failed, continuing startup..."
-elif [ -f "./backend/alembic.ini" ]; then
-    python -m alembic -c ./backend/alembic.ini upgrade head || echo "Warning: Alembic migration auto-run failed, continuing startup..."
-else
-    python -m alembic upgrade head || echo "Warning: Alembic migration auto-run failed, continuing startup..."
+ALEMBIC_INI="/app/alembic.ini"
+[ -f "$ALEMBIC_INI" ] || ALEMBIC_INI="./alembic.ini"
+
+# Never serve traffic on a schema older than the code: every query touching a newer
+# column would 500, and security migrations (e.g. 0013's RLS lockdown) would be missing.
+# Each revision runs in its own transaction, so a failure leaves the last good revision.
+echo "Running database migrations ($ALEMBIC_INI)..."
+if ! python -m alembic -c "$ALEMBIC_INI" upgrade head; then
+    echo "FATAL: database migration failed; refusing to start." >&2
+    exit 1
 fi
 
 echo "Starting Fuze processes via supervisord..."
