@@ -50,29 +50,43 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --no-deps /wheels/*.whl --root-user-action=ignore && \
     rm -rf /wheels
 
+# Run as an unprivileged user (UID 1000, the UID Hugging Face Spaces runs containers with) so a
+# compromise of anything parsing untrusted fetched HTML doesn't get root in the container.
+# Created before the model download so the model files are owned by it in the same layer.
+RUN useradd --create-home --uid 1000 appuser
+
+# Bake the embedding model (DEFAULT_EMBEDDING_MODEL in backend/utils/embedding_utils.py) into
+# the image. Otherwise every new container downloads it on first use: slow cold starts, and a
+# Hub outage leaves the app on hash fallback vectors. This layer sits above the app code, so
+# code changes don't download it again; the chown in the same RUN avoids a second copy of the
+# model in a later layer.
+ENV HF_HOME=/app/.cache/huggingface
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')" && \
+    chown -R appuser:appuser /app/.cache
+
 # Copy application code
-COPY backend/ ./backend/
-COPY wsgi.py .
-COPY app.py .
-COPY start.sh .
-COPY supervisord.conf .
-COPY gunicorn.conf.py .
+COPY --chown=appuser:appuser backend/ ./backend/
+COPY --chown=appuser:appuser wsgi.py .
+COPY --chown=appuser:appuser app.py .
+COPY --chown=appuser:appuser start.sh .
+COPY --chown=appuser:appuser supervisord.conf .
+COPY --chown=appuser:appuser gunicorn.conf.py .
 # alembic.ini's script_location (`%(here)s/backend/alembic`) needs it at /app next to
 # backend/. start.sh runs `alembic upgrade head` and exits if it fails.
-COPY alembic.ini .
+COPY --chown=appuser:appuser alembic.ini .
 
 # Environment
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
+# Never reach out to the Hub at run time: the model baked in above is all production loads.
+# Changing EMBEDDING_MODEL_NAME or turning on SEARCH_RERANK_ENABLED needs another model: bake
+# it in the same way (or run with HF_HUB_OFFLINE=0), or loading it fails and the app falls back.
+ENV HF_HUB_OFFLINE=1
 
-# Run as an unprivileged user (UID 1000, the UID Hugging Face Spaces runs containers with) so a
-# compromise of anything parsing untrusted fetched HTML doesn't get root in the container.
-# HOME must be writable: the embedding model is downloaded into ~/.cache on first use.
-RUN useradd --create-home --uid 1000 appuser && \
-    chmod +x start.sh && \
-    chown -R appuser:appuser /app
+RUN chmod +x start.sh && \
+    chown appuser:appuser /app
 USER appuser
 ENV HOME=/home/appuser
 

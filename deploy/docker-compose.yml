@@ -9,8 +9,8 @@ services:
     restart: unless-stopped
     expose:
       - "7860"
-    volumes:
-      - model_cache:/root/.cache
+    # No model cache volume: the embedding model is baked into the image (HF_HOME in the
+    # Dockerfile). A volume over that path would hide a newer model after a rebuild.
 
   caddy:
     image: caddy:2
@@ -28,6 +28,5 @@ services:
       - caddy_config:/config
 
 volumes:
-  model_cache:
   caddy_data:
   caddy_config:

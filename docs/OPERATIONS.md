@@ -57,6 +57,14 @@ select scrape_status, embedding_status, count(*) from saved_content group by 1, 
 select id, url, scraped_at from saved_content where scrape_status in ('FAILED_FETCH', 'BLOCKED', 'DISALLOWED');
 ```
 
+## Embedding model
+
+The Docker image ships with `BAAI/bge-small-en-v1.5` in `HF_HOME=/app/.cache/huggingface`, and
+runs with `HF_HUB_OFFLINE=1`, so containers never download a model. If you change
+`EMBEDDING_MODEL_NAME` or set `SEARCH_RERANK_ENABLED=true`, add that model to the download step in
+the `Dockerfile` (or run with `HF_HUB_OFFLINE=0`). Otherwise it fails to load: embeddings fall back
+to hash vectors (logged as `all_embedding_models_failed_using_fallback`) and the reranker stays off.
+
 ## Secrets
 
 Production refuses to start unless `SECRET_KEY` and `JWT_SECRET_KEY` are set, at least 16

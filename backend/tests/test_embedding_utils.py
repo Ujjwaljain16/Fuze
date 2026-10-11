@@ -67,3 +67,22 @@ def test_encode_failure_raises_instead_of_zero_vector(monkeypatch):
     monkeypatch.setattr(eu.redis_cache, 'get_cached_embedding', lambda *_: None)
     with pytest.raises(eu.EmbeddingUnavailable):
         eu.get_embedding('pgvector tuning')
+
+
+@pytest.mark.unit
+def test_docker_image_bakes_the_default_model_and_runs_offline():
+    """Production runs with HF_HUB_OFFLINE=1, so the image must contain the model the code loads."""
+    import os
+    import re
+    from utils.embedding_utils import DEFAULT_EMBEDDING_MODEL
+    dockerfile = os.path.join(os.path.dirname(__file__), '..', '..', 'Dockerfile')
+    with open(dockerfile, encoding='utf-8') as f:
+        text = f.read()
+    runtime = text.split('AS runtime', 1)[1]
+    assert f"SentenceTransformer('{DEFAULT_EMBEDDING_MODEL}')" in runtime
+    assert re.search(r'^ENV HF_HUB_OFFLINE=1$', runtime, re.M)
+    hf_home = re.search(r'^ENV HF_HOME=(\S+)$', runtime, re.M)
+    assert hf_home and hf_home.group(1).startswith('/app/')  # inside the tree chowned to appuser
+    # Download before going offline, and before the app code so code changes keep the layer cached.
+    assert runtime.index('SentenceTransformer(') < runtime.index('HF_HUB_OFFLINE=1')
+    assert runtime.index('SentenceTransformer(') < runtime.index('COPY --chown=appuser:appuser backend/')
