@@ -160,7 +160,14 @@ def main():
     ap.add_argument("--long-docs", type=int, default=0,
                     help="bury each document among N unrelated abstracts (0 = original corpus)")
     ap.add_argument("--long-docs-distractors", type=int, default=2000)
+    ap.add_argument("--i-know", metavar="DB_HOST", help="Confirm a non-local or non-development target by typing its host")
     args = ap.parse_args()
+
+    # --load deletes and recreates the benchmark user; make sure --db-url is the throwaway database.
+    from dotenv import load_dotenv
+    load_dotenv()
+    from core.destructive_guard import require_safe_target
+    require_safe_target(args.db_url)
 
     if args.model:
         os.environ["EMBEDDING_MODEL_NAME"] = args.model

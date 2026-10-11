@@ -19,6 +19,10 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# `run_production.app` builds the app on import, so the target is checked first.
+from core.destructive_guard import configured_database_url, require_safe_target
+require_safe_target(configured_database_url())
+
 from run_production import app
 from models import db, SavedContent, ContentAnalysis, User
 import json
@@ -237,6 +241,7 @@ def main():
     parser.add_argument('--user-id', type=int, help='User ID to analyze (optional, analyzes all users if not specified)')
     parser.add_argument('--dry-run', action='store_true', help='Only show poor analyses without re-analyzing')
     parser.add_argument('--export', type=str, help='Export poor analysis IDs to file')
+    parser.add_argument('--i-know', metavar='DB_HOST', help='Confirm a non-local or non-development target by typing its host')
     
     args = parser.parse_args()
     

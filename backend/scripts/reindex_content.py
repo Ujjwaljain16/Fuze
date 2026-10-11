@@ -39,7 +39,11 @@ def main():
     ap = argparse.ArgumentParser(description="Re-embed bookmarks with the active embedding model")
     ap.add_argument("--limit", type=int, default=1000)
     ap.add_argument("--verify", action="store_true", help="Only print counts")
+    ap.add_argument("--i-know", metavar="DB_HOST", help="Confirm a non-local or non-development target by typing its host")
     args = ap.parse_args()
+
+    from core.destructive_guard import configured_database_url, require_safe_target
+    require_safe_target(configured_database_url())
 
     from run_production import create_app
     from models import db, ContentAnalysis, SavedContent

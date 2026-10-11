@@ -22,6 +22,10 @@ class TestEnqueueIsolation(unittest.TestCase):
         self.client = self.app.test_client()
         
         with self.app.app_context():
+            # create_all/drop_all hit whatever engine create_app() bound, which comes from .env's
+            # DATABASE_URL, not the sqlite URL set above. Check the real target before touching it.
+            from core.destructive_guard import require_safe_target
+            require_safe_target(str(db.engine.url), argv=())
             db.create_all()
             from werkzeug.security import generate_password_hash
             self.test_user = User(

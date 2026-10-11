@@ -44,6 +44,10 @@ SAMPLE_TEXT = (
 
 
 def seed():
+    # create_all() below runs against DATABASE_URL (run_production has loaded .env by now).
+    from core.destructive_guard import require_safe_target
+    require_safe_target(os.environ.get('DATABASE_URL', ''))
+
     app = create_app('production' if os.environ.get('FLASK_ENV') == 'production' else 'development')
     with app.app_context():
         db.create_all()

@@ -526,8 +526,13 @@ def main():
     parser.add_argument('--analyze-only', action='store_true', help='Only analyze current state, do not clear or scrape')
     parser.add_argument('--batch-size', type=int, default=10, help='Batch size for commits (default: 10)')
     parser.add_argument('--delay', type=float, default=2.0, help='Delay between requests in seconds (default: 2.0)')
+    parser.add_argument('--i-know', metavar='DB_HOST', help='Confirm a non-local or non-development target by typing its host')
     
     args = parser.parse_args()
+
+    # This app always uses DevelopmentConfig, i.e. DATABASE_URL (config.py has loaded .env by now).
+    from core.destructive_guard import require_safe_target
+    require_safe_target(os.environ.get('DATABASE_URL', ''))
     
     try:
         # If analyze-only, just run analysis and exit

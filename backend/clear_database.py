@@ -212,8 +212,12 @@ def main():
     parser = argparse.ArgumentParser(description='Clear all data from Fuze database')
     parser.add_argument('--force', action='store_true', help='Skip confirmation prompt (dangerous!)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be deleted without actually deleting')
+    parser.add_argument('--i-know', metavar='DB_HOST', help='Confirm a non-local or non-development target by typing its host')
 
     args = parser.parse_args()
+
+    from core.destructive_guard import configured_database_url, require_safe_target
+    require_safe_target(configured_database_url())
 
     print("🗑️  Fuze Database Clearing Script")
     print("="*40)
