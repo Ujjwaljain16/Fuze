@@ -59,3 +59,30 @@ def test_lookup_requires_a_url(app, client, test_user):
 
 def test_lookup_requires_auth(client):
     assert client.get('/api/bookmarks/lookup?url=https%3A%2F%2Fexample.com').status_code == 401
+
+
+def test_delete_by_url_path_keeps_percent_escapes_in_the_saved_url(app, client, test_user):
+    """The path is decoded once by the server; a second decode turned '%20' into ' ' and missed."""
+    from models import db, SavedContent
+    url = f'https://example.com/docs/{uuid.uuid4().hex}/Page%20One?q=a%2Fb'
+    bookmark_id = _save(app, test_user['id'], url)
+    headers = _headers(app, test_user['id'])
+
+    resp = client.delete(f'/api/bookmarks/url/{quote(url, safe="")}', headers=headers)
+    assert resp.status_code == 200, resp.get_json()
+    with app.app_context():
+        assert db.session.get(SavedContent, bookmark_id) is None
+
+
+def test_delete_by_url_path_repairs_a_collapsed_scheme(app, client, test_user):
+    """A proxy that merges '//' leaves 'https:/host/...' in the path."""
+    from models import db, SavedContent
+    url = f'https://example.com/{uuid.uuid4().hex}'
+    bookmark_id = _save(app, test_user['id'], url)
+    headers = _headers(app, test_user['id'])
+
+    collapsed = url.replace('https://', 'https:/')
+    resp = client.delete(f'/api/bookmarks/url/{collapsed}', headers=headers)
+    assert resp.status_code == 200, resp.get_json()
+    with app.app_context():
+        assert db.session.get(SavedContent, bookmark_id) is None

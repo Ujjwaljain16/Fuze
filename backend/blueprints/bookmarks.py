@@ -9,6 +9,7 @@ from core import cache_keys
 from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
 import logging
+import re
 import traceback
 from datetime import datetime, timedelta
 from utils.timefmt import iso_utc
@@ -708,11 +709,14 @@ def delete_bookmark(bookmark_id):
 @bookmarks_bp.route('/url/<path:url>', methods=['DELETE'])
 @jwt_required()
 def delete_bookmark_by_url(url):
-    """Delete bookmark by URL (for Chrome extension compatibility)"""
+    """Delete bookmark by URL (kept for extension builds older than the /lookup + delete-by-id flow).
+
+    Werkzeug has already percent-decoded the path once; decoding again would turn a saved
+    '%2F' or '%20' into a different URL. Proxies may also collapse the scheme's '//' to '/'.
+    """
     user_id = int(get_jwt_identity())
-    from urllib.parse import unquote
-    decoded_url = unquote(url)
-    
+    decoded_url = re.sub(r'^(https?):/(?!/)', r'\1://', url)
+
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
     
