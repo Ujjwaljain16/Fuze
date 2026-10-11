@@ -12,7 +12,8 @@ import {
   User,
   X,
   Menu,
-  LogOut
+  LogOut,
+  MessageSquareText
 } from 'lucide-react'
 import './sidebar-styles.css'
 
@@ -24,6 +25,7 @@ const Sidebar = ({ isMobile }) => {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Grid3X3 },
     { name: 'All Bookmarks', href: '/bookmarks', icon: Bookmark },
+    { name: 'Ask', href: '/ask', icon: MessageSquareText },
     { name: 'Projects', href: '/projects', icon: FolderOpen },
     { name: 'Save Content', href: '/save-content', icon: Plus },
     { name: 'Recommendations', href: '/recommendations', icon: Sparkles },

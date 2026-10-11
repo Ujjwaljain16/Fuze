@@ -20,6 +20,7 @@ const Projects = lazy(() => import('./pages/Projects'));
 const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
 const Recommendations = lazy(() => import('./pages/Recommendations'));
 const Bookmarks = lazy(() => import('./pages/Bookmarks'));
+const Ask = lazy(() => import('./pages/Ask'));
 const SaveContent = lazy(() => import('./pages/SaveContent'));
 const ShareHandler = lazy(() => import('./pages/ShareHandler'));
 const ExtensionDownload = lazy(() => import('./pages/ExtensionDownload'));
@@ -203,6 +204,14 @@ function AppContent() {
                     <Bookmarks />
                   </ProtectedRoute>
                 } 
+              />
+              <Route
+                path="/ask"
+                element={
+                  <ProtectedRoute>
+                    <Ask />
+                  </ProtectedRoute>
+                }
               />
               <Route 
                 path="/save-content" 
