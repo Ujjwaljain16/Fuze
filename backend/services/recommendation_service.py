@@ -9,6 +9,8 @@ logger = get_logger(__name__)
 
 VALID_FEEDBACK_TYPES = {"helpful", "not_relevant", "clicked", "saved", "like", "dislike", "completed"}
 DEFAULT_LEARNING_STYLE = "adaptive"
+# Keys a client may attach to feedback. Anything else is dropped before it is stored.
+FEEDBACK_DATA_KEYS = {"source", "timestamp", "project_id", "task_id", "query", "position", "score"}
 
 
 class RecommendationService:
@@ -53,7 +55,7 @@ class RecommendationService:
             content_id=content_id,
             recommendation_id=recommendation_id,
             feedback_type=clean_feedback_type,
-            context_data=feedback_data or {},
+            context_data=self._clean_feedback_data(user_id, feedback_data),
             timestamp=datetime.now(timezone.utc)
         )
 
@@ -70,6 +72,28 @@ class RecommendationService:
         )
 
         return feedback
+
+    def _clean_feedback_data(self, user_id: int, feedback_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Keep known keys with scalar values; drop project/task references the user doesn't own."""
+        if not isinstance(feedback_data, dict):
+            return {}
+        clean = {k: v for k, v in feedback_data.items()
+                 if k in FEEDBACK_DATA_KEYS and isinstance(v, (str, int, float, bool)) and len(str(v)) <= 500}
+        if 'project_id' in clean:
+            try:
+                owned = self.uow.projects.get_by_id(int(clean['project_id']), user_id)
+            except (TypeError, ValueError):
+                owned = None
+            if not owned:
+                clean.pop('project_id')
+        if 'task_id' in clean:
+            try:
+                owned = self.uow.projects.get_task_by_id(int(clean['task_id']), user_id=user_id)
+            except (TypeError, ValueError):
+                owned = None
+            if not owned:
+                clean.pop('task_id')
+        return clean
 
     def get_analysis_stats(self, user_id: int) -> Dict[str, Any]:
         """Get aggregate statistics about content analysis for a user."""

@@ -731,7 +731,7 @@ def get_suggested_contexts():
                         project_id = context_info.get('project_id')
                         
                         if project_id:
-                            project = Project.query.get(project_id)
+                            project = Project.query.filter_by(id=project_id, user_id=user_id).first()
                             if project:
                                 time_ago = _get_time_ago(feedback.timestamp)
                                 contexts.append({
