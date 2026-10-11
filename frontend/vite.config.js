@@ -43,11 +43,12 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           // React vendor chunk
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+          // Match whole package directories: 'node_modules/react' alone also matches react-router.
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
             return 'react-vendor'
           }
           // Router chunk
-          if (id.includes('node_modules/react-router')) {
+          if (id.includes('node_modules/react-router/')) {
             return 'router-vendor'
           }
           // Axios chunk
