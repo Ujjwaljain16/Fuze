@@ -26,6 +26,9 @@ load_dotenv()
 # ran against production and dropped its tables (Oct 2026).
 os.environ['DATABASE_URL'] = os.getenv('TEST_DATABASE_URL') or 'sqlite:///:memory:'
 
+# Unset means production (fail closed), so the suite must say what it is.
+os.environ['APP_ENV'] = 'testing'
+
 # .env points at production Upstash; without this the suite writes cache keys and rate-limit
 # counters there and enqueues RQ jobs that a production worker would later run against the real DB.
 os.environ['REDIS_URL'] = os.getenv('TEST_REDIS_URL', 'redis://127.0.0.1:6379/15')

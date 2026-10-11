@@ -283,7 +283,7 @@ JWT_SECRET_KEY=<second_generated_key>
 #### 4. Environment (Required) ✅
 
 ```
-ENVIRONMENT=production
+APP_ENV=production
 DEBUG=false
 ```
 
@@ -312,7 +312,7 @@ DATABASE_URL=postgresql://user:password@host:5432/database
 REDIS_URL=rediss://default:password@host:6379
 SECRET_KEY=your_secret_key_here
 JWT_SECRET_KEY=your_jwt_secret_key_here
-ENVIRONMENT=production
+APP_ENV=production
 DEBUG=false
 CORS_ORIGINS=https://your-frontend.vercel.app,https://your-space.hf.space
 GEMINI_API_KEY=your_gemini_key_optional

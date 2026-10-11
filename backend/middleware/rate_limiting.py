@@ -10,8 +10,8 @@ logger = get_logger(__name__)
 
 def get_default_limits() -> List[str]:
     """Dynamically resolve rate limits based on environment at runtime."""
-    app_env = os.environ.get('ENVIRONMENT', os.environ.get('APP_ENV', os.environ.get('FLASK_ENV', 'development'))).lower()
-    is_development = app_env in ('development', 'dev', 'local', 'test')
+    from core.app_env import app_env
+    is_development = app_env() in ('development', 'testing')
 
     if is_development:
         return ["100000 per day", "10000 per hour", "1000 per minute"]
@@ -56,9 +56,10 @@ def init_rate_limiter(app) -> Limiter:
     and custom 429 response handling.
     Fails fast in production if Redis storage is unavailable.
     """
-    app_env = os.environ.get('ENVIRONMENT', os.environ.get('APP_ENV', os.environ.get('FLASK_ENV', 'development'))).lower()
+    from core.app_env import app_env as current_env
+    app_env = current_env()
     is_testing = app_env == 'testing' or bool(os.environ.get('PYTEST_CURRENT_TEST'))
-    is_production = app_env in ('production', 'prod', 'staging')
+    is_production = app_env == 'production'
 
     if is_testing and not app.config.get('RATELIMIT_ENABLED', False):
         limiter.enabled = False

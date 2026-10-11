@@ -30,7 +30,7 @@ def test_jwt_exception_handled_safely(app):
 
 def test_production_fails_fast_without_redis(app):
     """Verify production environment raises RuntimeError if REDIS_URL is missing"""
-    with patch.dict(os.environ, {'ENVIRONMENT': 'production', 'REDIS_URL': ''}):
+    with patch.dict(os.environ, {'APP_ENV': 'production', 'REDIS_URL': ''}):
         with pytest.raises(RuntimeError) as exc_info:
             init_rate_limiter(app)
         assert "REDIS_URL is required for production rate limiting" in str(exc_info.value)

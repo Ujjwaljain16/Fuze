@@ -24,7 +24,8 @@ from backend.run_production import create_app
 app = create_app()
 
 # Log that app is ready (for debugging)
-if os.environ.get('FLASK_ENV') == 'production':
+from core.app_env import is_production
+if is_production():
     import logging
     logger = logging.getLogger(__name__)
     logger.info("WSGI app created and ready for Gunicorn")

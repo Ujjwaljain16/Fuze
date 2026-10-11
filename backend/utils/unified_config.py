@@ -174,7 +174,8 @@ class UnifiedConfig:
         self.logging = LoggingConfig()
         
         # Environment name
-        self.environment = os.getenv('ENVIRONMENT', 'development')
+        from core.app_env import app_env
+        self.environment = app_env()
         self.debug = os.getenv('DEBUG', 'true' if self.environment == 'development' else 'false').lower() == 'true'
         
         # Validate configuration
@@ -191,12 +192,10 @@ class UnifiedConfig:
         if not self.database.url:
             errors.append("DATABASE_URL is not set")
         
-        # Check secret keys in production
+        # Deployed environments must not run on missing or published default secrets
         if self.environment == 'production':
-            if self.security.secret_key == 'dev-secret-key-change-in-production':
-                errors.append("SECRET_KEY must be changed in production")
-            if self.security.jwt_secret_key == 'dev-jwt-secret-change-in-production':
-                errors.append("JWT_SECRET_KEY must be changed in production")
+            from core.app_env import secret_problems
+            errors.extend(secret_problems())
             if self.debug:
                 warnings.append("DEBUG mode should be disabled in production")
         

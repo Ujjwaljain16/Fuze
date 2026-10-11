@@ -180,23 +180,6 @@ def sanitize_headers(headers: dict) -> dict:
         for k, v in headers.items()
     }
 
-def _validate_production_env():
-    """Validate critical environment variables for production"""
-    if os.environ.get('FLASK_ENV') == 'testing' or os.environ.get('PYTEST_CURRENT_TEST'):
-        return
-    
-    critical_vars = {
-        'SECRET_KEY': 'dev-secret-key-change-in-production',
-        'JWT_SECRET_KEY': 'dev-jwt-secret-change-in-production',
-    }
-    errors = []
-    for var, default_val in critical_vars.items():
-        val = os.environ.get(var)
-        if not val or val == default_val:
-            errors.append(f"{var} must be set to a secure value in production")
-    if errors:
-        raise ValueError(f"Critical production configuration errors: {', '.join(errors)}")
-
 def create_app(config_name: str = None) -> Flask:
     # Run startup integrity checks before booting the app
     if not os.environ.get('SKIP_STARTUP_VALIDATION'):
@@ -210,10 +193,11 @@ def create_app(config_name: str = None) -> Flask:
 
     app = Flask(__name__)
     
-    env = config_name or os.environ.get('FLASK_ENV', 'development')
+    from core.app_env import app_env, require_secrets
+    env = config_name or app_env()
     if env == 'production':
         app.config.from_object('config.ProductionConfig')
-        _validate_production_env()
+        require_secrets()
     elif env == 'testing':
         app.config.from_object('config.TestingConfig')
         app.config['RATELIMIT_ENABLED'] = False

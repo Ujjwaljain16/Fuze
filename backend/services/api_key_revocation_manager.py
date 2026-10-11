@@ -13,8 +13,6 @@ from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_REVOCATION_SECRET = b"fuze_key_revocation_default_secret_salt_2026"
-
 
 class APIKeyRevocationManager:
     """
@@ -49,8 +47,13 @@ class APIKeyRevocationManager:
         self.REVOCATION_TTL = 7 * 24 * 60 * 60  # 7 days in seconds
         self.fail_open = os.environ.get('REVOCATION_FAIL_OPEN', 'true').lower() == 'true'
 
+        # Never a constant: a published HMAC key lets anyone precompute hashes of candidate keys.
         secret_env = os.environ.get('REVOCATION_SECRET')
-        self._secret = secret_env.encode() if secret_env else DEFAULT_REVOCATION_SECRET
+        if secret_env:
+            self._secret = secret_env.encode()
+        else:
+            from core.app_env import derived_secret
+            self._secret = derived_secret('fuze-api-key-revocation-v1')
 
     def _hash_api_key(self, api_key: str) -> str:
         """

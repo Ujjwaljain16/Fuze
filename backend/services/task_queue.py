@@ -58,7 +58,8 @@ def _create_redis_connection() -> Optional[Redis]:
 
     redis_host = os.environ.get('REDIS_HOST')
     if not redis_host:
-        if os.environ.get('FLASK_ENV') == 'production':
+        from core.app_env import is_production
+        if is_production():
             logger.error("rq_redis_host_missing_in_production")
             return None
         redis_host = 'localhost'

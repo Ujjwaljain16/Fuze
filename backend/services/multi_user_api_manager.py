@@ -73,7 +73,8 @@ class MultiUserAPIManager:
 
         secret_key = os.environ.get('SECRET_KEY') or os.environ.get('ENCRYPTION_SECRET')
         if not secret_key:
-            if os.environ.get('FLASK_ENV') == 'production':
+            from core.app_env import is_production
+            if is_production():
                 raise RuntimeError("SECRET_KEY environment variable required in production")
             logger.warning("SECRET_KEY missing, using development fallback key")
             secret_key = "development-fallback-secret-key-do-not-use-in-prod"
