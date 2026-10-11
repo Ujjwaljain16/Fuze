@@ -118,8 +118,11 @@ def _warm_recommendations(user_id: int) -> str:
                 return "no_project"
             project_id = projects[0].id
             intent = resolve_intent(load_context(uow.session, user_id, project_id=project_id), schedule=False)
-            if intent.text and not intent.statement:
-                compute_intent_job(intent.hash, intent.text, user_id)
+
+        # Gemini with no session open, then a fresh session for the (database-only) ranking.
+        if intent.text and not intent.statement:
+            compute_intent_job(intent.hash, intent.text, user_id)
+        with UnitOfWork() as uow:
             recommend(uow.session, user_id, project_id=project_id)
 
         # Mark as warm so subsequent calls skip re-computation

@@ -183,10 +183,13 @@ def generate_personalized_context():
         if not user_api_key:
             return jsonify({'error': 'User API key not found. Please add your Gemini API key in settings.'}), 400
 
-        from ml.intent_engine.explain import explain_item
+        from ml.intent_engine.explain import build_explain_prompt, generate_explanation
         with UnitOfWork() as uow:
-            summary = explain_item(uow.session, user_id, content_id, query=query, project_id=project_id,
-                                   task_id=task_id, subtask_id=subtask_id, api_key=user_api_key)
+            prompt = build_explain_prompt(uow.session, user_id, content_id, query=query, project_id=project_id,
+                                          task_id=task_id, subtask_id=subtask_id)
+        # Gemini runs after the session is closed: a transaction held for the call pins a pooled
+        # connection for seconds, and a few slow calls exhaust the pool for every other request.
+        summary = generate_explanation(prompt, content_id, api_key=user_api_key) if prompt else None
         if summary is None:
             return jsonify({'success': False, 'error': 'Could not generate an explanation for this item'}), 404
 

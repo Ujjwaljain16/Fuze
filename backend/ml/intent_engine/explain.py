@@ -28,12 +28,11 @@ In 2-3 sentences, tell them specifically how this item helps with what they are 
 to take from it. If it only partly applies, say which part. Do not restate the title. Plain text only."""
 
 
-def explain_item(session, user_id: int, content_id: int, query: str = "", project_id: Optional[int] = None,
-                 task_id: Optional[int] = None, subtask_id: Optional[int] = None,
-                 api_key: Optional[str] = None) -> Optional[str]:
-    """Return the explanation, or None if the item isn't the user's or the model gave nothing usable."""
+def build_explain_prompt(session, user_id: int, content_id: int, query: str = "",
+                         project_id: Optional[int] = None, task_id: Optional[int] = None,
+                         subtask_id: Optional[int] = None) -> Optional[str]:
+    """Read what the explanation needs; None if the item isn't the user's or there is no intent."""
     from models import ContentAnalysis, SavedContent
-    from utils.gemini_utils import GeminiAnalyzer
 
     item = session.query(SavedContent).filter_by(id=content_id, user_id=user_id).first()
     if item is None:
@@ -55,6 +54,12 @@ def explain_item(session, user_id: int, content_id: int, query: str = "", projec
         concepts=", ".join(profile.get("key_concepts") or []) or "(unknown)",
         excerpt=(item.extracted_text or item.notes or "")[:1500],
     )
+    return prompt
+
+
+def generate_explanation(prompt: str, content_id: int, api_key: Optional[str] = None) -> Optional[str]:
+    """The Gemini call. Takes seconds, so callers must not hold a database transaction around it."""
+    from utils.gemini_utils import GeminiAnalyzer
     text = GeminiAnalyzer(api_key=api_key)._make_gemini_request(prompt)
     if not text or len(text.strip()) < 20:
         logger.warning("explain_item_no_output", extra={"content_id": content_id})
