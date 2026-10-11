@@ -17,6 +17,8 @@ def test_own_origins_allowed(origin):
     "https://evil.vercel.app",
     "https://itsfuze.vercel.app.evil.com",
     "https://notitsfuze-abc.vercel.app",
+    "https://itsfuze-attacker.vercel.app",  # a project name anyone can claim
+    "https://itsfuze-x-ujjwaljain16s-projects.vercel.app.evil.com",
     "http://itsfuze-abc.vercel.app",
     "https://evil.com",
     None,

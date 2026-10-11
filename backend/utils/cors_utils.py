@@ -22,8 +22,9 @@ logger = get_logger(__name__)
 PRODUCTION_ORIGINS: List[Union[str, "re.Pattern"]] = [
     'https://itsfuze.vercel.app',
     # This project's Vercel preview deployments only (itsfuze-<hash>-<team>, itsfuze-git-<branch>-<team>).
-    # Any *.vercel.app would let every other Vercel-hosted site make credentialed requests.
-    re.compile(r"^https://itsfuze-[a-z0-9-]+\.vercel\.app$"),
+    # Any *.vercel.app would let every other Vercel-hosted site make credentialed requests, and
+    # anyone can create a project named itsfuze-<anything>, so the team suffix is required.
+    re.compile(r"^https://itsfuze-[a-z0-9-]+-ujjwaljain16s-projects\.vercel\.app$"),
 ]
 
 # Dev servers. Never allowed in production: any process on a visitor's machine can listen there.
