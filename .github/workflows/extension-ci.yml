@@ -1,0 +1,53 @@
+name: Extension CI
+
+# Tests the pinned BookmarkExtension commit and checks that the downloadable zip in
+# frontend/public/extension was built from exactly that commit.
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'BookmarkExtension'
+      - '.gitmodules'
+      - 'scripts/build_extension_zip.py'
+      - 'frontend/public/extension/**'
+      - '.github/workflows/extension-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'BookmarkExtension'
+      - '.gitmodules'
+      - 'scripts/build_extension_zip.py'
+      - 'frontend/public/extension/**'
+      - '.github/workflows/extension-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code with the extension submodule
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          submodules: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '20'
+
+      - name: Run extension tests
+        working-directory: BookmarkExtension
+        run: npm test
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Check the committed zip matches the pinned commit
+        run: python scripts/build_extension_zip.py --check
