@@ -28,7 +28,7 @@ from scrapers.safe_http import UnsafeURLError, safe_get
 logger = get_logger(__name__)
 
 AVAILABILITY_API = "https://archive.org/wayback/available"
-LOOKUP_TIMEOUT_SECONDS = 10
+LOOKUP_TIMEOUT_SECONDS = 15  # the availability API is often slow
 SNAPSHOT_TIMEOUT_SECONDS = 15
 MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024  # same cap as our own page fetch
 USER_AGENT = "FuzeBot/1.0 (+https://itsfuze.vercel.app; bookmark content extraction on user request)"
