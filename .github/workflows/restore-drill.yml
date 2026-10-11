@@ -1,0 +1,219 @@
+name: Weekly Restore Drill
+
+# A backup that has never been restored is a hope, not a backup. Every week this restores the
+# newest nightly backup (backup-db.yml) into a scratch Postgres, checks that Alembic sees the
+# schema at the head revision, and that the core tables came back with rows in them.
+on:
+  schedule:
+    - cron: '0 5 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Same client as backup-db.yml: the dump's archive format needs a pg_restore at least as new.
+  PG_CLIENT_IMAGE: pgvector/pgvector:pg17
+  BACKUP_WORKFLOW: backup-db.yml
+  # Fail when the newest successful backup is older than this: the nightly job has stalled.
+  MAX_BACKUP_AGE_HOURS: '72'
+  PGHOST: localhost
+  PGPORT: '5432'
+  PGUSER: postgres
+  PGPASSWORD: restore-drill
+  PGDATABASE: fuze_restore
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+
+    services:
+      postgres:
+        # Match production's major version (set the SUPABASE_PG_MAJOR variable when Supabase moves to 17).
+        image: pgvector/pgvector:pg${{ vars.SUPABASE_PG_MAJOR || '15' }}
+        env:
+          POSTGRES_PASSWORD: restore-drill
+          POSTGRES_DB: fuze_restore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fuze_restore"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check required secrets
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Missing repository secret BACKUP_PASSPHRASE (see docs/OPERATIONS.md)."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Download the newest backup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          run=$(gh run list --workflow "$BACKUP_WORKFLOW" --status success --limit 1 \
+            --json databaseId,createdAt --jq '.[0] // empty | "\(.databaseId) \(.createdAt)"')
+          if [ -z "$run" ]; then
+            echo "::error::No successful $BACKUP_WORKFLOW run found. Run the backup workflow first."
+            exit 1
+          fi
+          read -r run_id created <<<"$run"
+          age_hours=$(( ( $(date +%s) - $(date -d "$created" +%s) ) / 3600 ))
+          echo "Restoring backup from run $run_id ($created, ${age_hours}h old)"
+          echo "### Restore drill (backup run $run_id, taken $created)" >> "$GITHUB_STEP_SUMMARY"
+          gh run download "$run_id" --name fuze-db-backup --dir "$RUNNER_TEMP/backup"
+          (cd "$RUNNER_TEMP/backup" && sha256sum --check --strict SHA256SUMS)
+          if [ "$age_hours" -gt "$MAX_BACKUP_AGE_HOURS" ]; then
+            echo "::error::The newest successful backup is ${age_hours}h old (limit ${MAX_BACKUP_AGE_HOURS}h); the nightly backup has stopped."
+            exit 1
+          fi
+
+      - name: Decrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/drill"
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 --decrypt \
+            --output "$RUNNER_TEMP/drill/fuze.dump" "$RUNNER_TEMP/backup/fuze-db.dump.gpg" 3<<<"$BACKUP_PASSPHRASE"
+
+      - name: Restore into the scratch database
+        run: |
+          pg() {
+            docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+              -v "$RUNNER_TEMP/drill:/work" "$PG_CLIENT_IMAGE" "$@"
+          }
+          docker pull --quiet "$PG_CLIENT_IMAGE"
+          cd "$RUNNER_TEMP/drill"
+          pg pg_restore --list /work/fuze.dump > toc.full
+          sed -n 's/^;[[:space:]]*Dumped from database version: /Dumped from Postgres /p' toc.full
+          # Restore only the application schema. Supabase's own schemas (auth, storage, realtime,
+          # vault...) need its extensions and roles, which a plain Postgres doesn't have.
+          # TOC lines read "<id>; <oid> <oid> <TYPE> <schema> <name> <owner>".
+          grep -E '^[0-9]+; [0-9]+ [0-9]+ [A-Z ]+ public ' toc.full | grep -v ' PUBLICATION ' > toc.public || true
+          if [ ! -s toc.public ]; then
+            echo "::error::The backup holds no objects in the public schema."
+            exit 1
+          fi
+          # pgvector may live in "public" or in Supabase's "extensions" schema; columns name it
+          # schema-qualified, so create the extension where the dump expects it.
+          vector_schema=$(pg pg_restore --schema-only --use-list /work/toc.public --file - /work/fuze.dump \
+            | grep -oE '[a-z_]+\.vector\(' | head -n 1 | cut -d. -f1 || true)
+          vector_schema=${vector_schema:-public}
+          echo "pgvector schema: $vector_schema"
+          pg psql -v ON_ERROR_STOP=1 -q \
+            -c "CREATE SCHEMA IF NOT EXISTS \"$vector_schema\"" \
+            -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA \"$vector_schema\"" \
+            -c "ALTER DATABASE fuze_restore SET search_path = public, \"$vector_schema\""
+          rc=0
+          pg pg_restore --no-owner --no-privileges --dbname fuze_restore --use-list /work/toc.public /work/fuze.dump \
+            2> restore.log || rc=$?
+          # A pg17 pg_restore sets transaction_timeout, which a pg15 server doesn't know. That one
+          # error is harmless; anything else means the backup does not restore cleanly.
+          errors=$(grep 'pg_restore: error:' restore.log | grep -v 'unrecognized configuration parameter "transaction_timeout"' || true)
+          if [ -n "$errors" ]; then
+            echo "::error::pg_restore reported errors (exit $rc):"
+            cat restore.log
+            exit 1
+          fi
+          echo "pg_restore finished (exit $rc, only known-harmless errors)"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.11'
+
+      # Only what backend/alembic/env.py imports (it loads models.py), at the pinned versions;
+      # the full requirements bring in torch for nothing.
+      - name: Install Alembic and its model dependencies
+        run: |
+          mapfile -t pins < <(grep -iE '^(alembic|sqlalchemy|flask|flask-sqlalchemy|pgvector|psycopg2-binary|python-dotenv|structlog|numpy)==' requirements.txt)
+          echo "Installing: ${pins[*]}"
+          pip install --quiet "${pins[@]}"
+
+      - name: Check the schema is at the head revision
+        env:
+          DATABASE_URL: postgresql://postgres:restore-drill@localhost:5432/fuze_restore
+          APP_ENV: testing
+          PYTHONPATH: backend
+        run: |
+          heads=$(python -m alembic heads | awk 'NF {print $1}')
+          if [ "$(printf '%s\n' "$heads" | wc -l)" -ne 1 ]; then
+            echo "::error::Expected exactly one Alembic head, found: $heads"
+            exit 1
+          fi
+          current=$(python -m alembic current | awk 'NF {print $1}' | tail -n 1)
+          echo "Restored revision: ${current:-none}   Repository head: $heads"
+          echo "- Alembic: restored \`${current:-none}\`, head \`$heads\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$current" != "$heads" ]; then
+            echo "::error::Restored database is at revision '${current:-none}', not the head '$heads'. If a migration shipped after this backup was taken, run backup-db.yml and then this drill again."
+            exit 1
+          fi
+
+      - name: Check the core tables came back
+        run: |
+          pg() {
+            docker run --rm --network host -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+              "$PG_CLIENT_IMAGE" "$@"
+          }
+          failed=0
+          echo "| table | rows |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for table in alembic_version users projects saved_content tasks bookmark_events; do
+            exists=$(pg psql -tAq -c "SELECT to_regclass('public.$table') IS NOT NULL")
+            if [ "$exists" != "t" ]; then
+              echo "::error::Table $table is missing from the restored database"
+              echo "| $table | missing |" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+              continue
+            fi
+            rows=$(pg psql -tAq -c "SELECT count(*) FROM public.$table")
+            echo "$table: $rows rows"
+            echo "| $table | $rows |" >> "$GITHUB_STEP_SUMMARY"
+            # A production backup without a single user (or schema version row) restored nothing useful.
+            if { [ "$table" = users ] || [ "$table" = alembic_version ]; } && [ "$rows" -eq 0 ]; then
+              echo "::error::Table $table restored empty"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Remove the decrypted dump
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/drill" "$RUNNER_TEMP/backup"
+
+      - name: Open or update an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Weekly restore drill is failing
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          note="Failed again at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number,title \
+            --jq "map(select(.title == \"$TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$note"
+          else
+            gh issue create --title "$TITLE" --body "The weekly restore drill failed at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL
+
+          The newest backup could not be downloaded, decrypted or restored to a working schema, so it may not save you when you need it. Check the run log (and docs/OPERATIONS.md, Restore drill), and close this issue once the drill passes again. Later failures are added here as comments."
+          fi
