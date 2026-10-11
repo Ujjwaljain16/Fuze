@@ -68,5 +68,20 @@ to hash vectors (logged as `all_embedding_models_failed_using_fallback`) and the
 ## Secrets
 
 Production refuses to start unless `SECRET_KEY` and `JWT_SECRET_KEY` are set, at least 16
-characters and not a known default. Rotating `JWT_SECRET_KEY` signs everyone out. Rotating
-`SECRET_KEY` makes stored Gemini keys undecryptable: users must re-enter them.
+characters and not a known default. `API_KEY_ENCRYPTION_KEY` is optional; when set it gets the same
+checks. Rotating `JWT_SECRET_KEY` signs everyone out.
+
+Users' Gemini keys are stored encrypted. Without `API_KEY_ENCRYPTION_KEY` the encryption key is
+derived from `SECRET_KEY`, so rotating `SECRET_KEY` makes every stored key undecryptable and users
+must re-enter them. To make `SECRET_KEY` rotatable:
+
+1. Set `API_KEY_ENCRYPTION_KEY` (a new random value of 16+ characters) and deploy, keeping
+   `SECRET_KEY` unchanged. New keys are encrypted with it. Existing keys still decrypt with the
+   `SECRET_KEY`-derived key and are re-encrypted with the new one the next time they are used.
+2. Move the keys nobody has used yet: from `backend/`, with the production environment,
+   `python scripts/reencrypt_api_keys.py`. It prints how many were re-encrypted and how many could
+   not be decrypted. Safe to re-run.
+3. Rotate `SECRET_KEY`.
+
+`API_KEY_ENCRYPTION_KEY` itself cannot be rotated this way: changing or losing it makes the keys
+encrypted with it undecryptable.

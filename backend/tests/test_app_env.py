@@ -41,6 +41,22 @@ def test_production_rejects_weak_secrets(monkeypatch, secret, jwt_secret):
         app_env.require_secrets()
 
 
+def test_api_key_encryption_key_is_optional_but_checked_when_set(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'production')
+    monkeypatch.setenv('SECRET_KEY', STRONG)
+    monkeypatch.setenv('JWT_SECRET_KEY', 'y' * 48)
+    monkeypatch.delenv('API_KEY_ENCRYPTION_KEY', raising=False)
+    app_env.require_secrets()  # not required
+
+    monkeypatch.setenv('API_KEY_ENCRYPTION_KEY', 'z' * 16)
+    app_env.require_secrets()  # 16+ characters is accepted
+
+    for weak in ('short', 'change-me'):
+        monkeypatch.setenv('API_KEY_ENCRYPTION_KEY', weak)
+        with pytest.raises(RuntimeError, match='API_KEY_ENCRYPTION_KEY'):
+            app_env.require_secrets()
+
+
 def test_development_allows_defaults(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'development')
     monkeypatch.delenv('SECRET_KEY', raising=False)

@@ -33,6 +33,8 @@ KNOWN_DEFAULT_SECRETS = {
 }
 
 REQUIRED_SECRETS = ('SECRET_KEY', 'JWT_SECRET_KEY')
+# Checked like the required ones when set, but may be left unset.
+OPTIONAL_SECRETS = ('API_KEY_ENCRYPTION_KEY',)
 _MIN_SECRET_LENGTH = 16
 
 
@@ -57,10 +59,11 @@ def is_development() -> bool:
 def secret_problems() -> list:
     """Reasons the configured secrets are unsafe for a deployed environment (empty when fine)."""
     problems = []
-    for name in REQUIRED_SECRETS:
+    for name in REQUIRED_SECRETS + OPTIONAL_SECRETS:
         value = os.environ.get(name, '')
         if not value:
-            problems.append(f'{name} is not set')
+            if name in REQUIRED_SECRETS:
+                problems.append(f'{name} is not set')
         elif value in KNOWN_DEFAULT_SECRETS:
             problems.append(f'{name} is a published default value')
         elif len(value) < _MIN_SECRET_LENGTH:

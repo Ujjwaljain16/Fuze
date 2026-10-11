@@ -81,6 +81,16 @@ class UserAPIKey:
     expires_at: Optional[datetime] = None
 
 
+def _hkdf(key_material: str) -> bytes:
+    """32-byte Fernet key for stored API keys, derived with a purpose-specific info string."""
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"fuze-api-key-encryption-v1",
+    ).derive(key_material.encode('utf-8'))
+
+
 class MultiUserAPIManager:
     """Manages multi-tenant API keys with distributed Redis rate limiting and thread safety."""
 
@@ -102,29 +112,25 @@ class MultiUserAPIManager:
             logger.warning("SECRET_KEY missing, using development fallback key")
             secret_key = "development-fallback-secret-key-do-not-use-in-prod"
 
-        # Primary key: HKDF-derived from SECRET_KEY with a fixed, purpose-specific
-        # `info` string, so this key is cryptographically independent of any other
-        # use of SECRET_KEY (e.g. Flask session signing) even if SECRET_KEY leaks
-        # in another context. HKDF (not a plain hash) is the correct KDF here.
-        hkdf_key_bytes = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=b"fuze-api-key-encryption-v1",
-        ).derive(secret_key.encode('utf-8'))
-        self.cipher = Fernet(base64.urlsafe_b64encode(hkdf_key_bytes))
+        # SECRET_KEY-derived keys. HKDF with a fixed, purpose-specific `info` string keeps this
+        # key independent of other uses of SECRET_KEY (e.g. Flask session signing). The legacy
+        # plain-SHA256 derivation is read-only: values encrypted before HKDF keep decrypting.
+        secret_hkdf = Fernet(base64.urlsafe_b64encode(_hkdf(secret_key)))
+        secret_legacy = Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret_key.encode('utf-8')).digest()))
 
-        # Legacy key: the original plain-SHA256 derivation. Read-only fallback so
-        # API keys encrypted before this change keep decrypting -- no forced
-        # re-encryption migration, no downtime. Every value re-saved (new key
-        # add, or an opportunistic re-encrypt in get_user_api_key) moves onto the
-        # HKDF key; anything never touched again stays decryptable via this path
-        # indefinitely.
-        legacy_key_bytes = hashlib.sha256(secret_key.encode('utf-8')).digest()
-        self.legacy_cipher = Fernet(base64.urlsafe_b64encode(legacy_key_bytes))
+        # API_KEY_ENCRYPTION_KEY (optional) decouples stored keys from SECRET_KEY, so SECRET_KEY can
+        # be rotated without locking users out of their Gemini keys. When set it encrypts all new
+        # values; the SECRET_KEY-derived keys are only read, for values written before it was set.
+        encryption_key = os.environ.get('API_KEY_ENCRYPTION_KEY', '').strip()
+        if encryption_key:
+            self.cipher = Fernet(base64.urlsafe_b64encode(_hkdf(encryption_key)))
+            self._fallback_ciphers = (secret_hkdf, secret_legacy)
+        else:
+            self.cipher = secret_hkdf
+            self._fallback_ciphers = (secret_legacy,)
 
     def encrypt_api_key(self, api_key: str) -> str:
-        """Encrypt API key using Fernet symmetric encryption (current/HKDF key)."""
+        """Encrypt API key using Fernet symmetric encryption (current key)."""
         return self.cipher.encrypt(api_key.encode('utf-8')).decode('utf-8')
 
     def decrypt_api_key(self, encrypted_key: str) -> Optional[str]:
@@ -133,24 +139,57 @@ class MultiUserAPIManager:
         return decrypted
 
     def _decrypt_with_source(self, encrypted_key: str) -> "tuple[Optional[str], bool]":
-        """Decrypt, trying the current key first then the legacy key.
+        """Decrypt, trying the current key first, then the older ones (newest first).
 
-        Returns (decrypted_value, used_legacy_key) so callers with DB write
-        access can opportunistically re-encrypt onto the current key on read.
+        Returns (decrypted_value, used_legacy_key): used_legacy_key is True when an older key
+        decrypted it, so callers with DB write access can re-encrypt onto the current key on read.
         """
-        try:
-            return self.cipher.decrypt(encrypted_key.encode('utf-8')).decode('utf-8'), False
-        except InvalidToken:
-            pass
-        except Exception:
-            logger.error("api_key_decryption_failed")
-            return None, False
+        token = encrypted_key.encode('utf-8')
+        for index, cipher in enumerate((self.cipher, *self._fallback_ciphers)):
+            try:
+                return cipher.decrypt(token).decode('utf-8'), index > 0
+            except InvalidToken:
+                continue
+            except Exception:
+                break
+        logger.error("api_key_decryption_failed")
+        return None, False
 
-        try:
-            return self.legacy_cipher.decrypt(encrypted_key.encode('utf-8')).decode('utf-8'), True
-        except Exception:
-            logger.error("api_key_decryption_failed")
-            return None, False
+    def _reencrypt_stored_key(self, user: User, plaintext: str) -> str:
+        """Replace the user's stored ciphertext with one under the current key (caller commits)."""
+        from sqlalchemy.orm.attributes import flag_modified
+        encrypted = self.encrypt_api_key(plaintext)
+        metadata = dict(user.user_metadata) if user.user_metadata else {}
+        key_meta = dict(metadata.get('api_key', {}))
+        key_meta['encrypted'] = encrypted
+        metadata['api_key'] = key_meta
+        user.user_metadata = metadata
+        flag_modified(user, 'user_metadata')
+        return encrypted
+
+    def reencrypt_all_stored_keys(self) -> Dict[str, int]:
+        """Move every stored key onto the current key now instead of waiting for it to be used.
+
+        Run after setting API_KEY_ENCRYPTION_KEY and before rotating SECRET_KEY
+        (scripts/reencrypt_api_keys.py). Returns counts: current, reencrypted, undecryptable.
+        """
+        counts = {'current': 0, 'reencrypted': 0, 'undecryptable': 0}
+        for user in db.session.query(User).filter(User.user_metadata.isnot(None)):
+            encrypted = ((user.user_metadata or {}).get('api_key') or {}).get('encrypted')
+            if not encrypted:
+                continue
+            plaintext, used_older_key = self._decrypt_with_source(encrypted)
+            if plaintext is None:
+                counts['undecryptable'] += 1
+            elif used_older_key:
+                self._reencrypt_stored_key(user, plaintext)
+                counts['reencrypted'] += 1
+            else:
+                counts['current'] += 1
+        db.session.commit()
+        with self.lock:
+            self.user_api_keys.clear()  # cached entries may hold the old ciphertext
+        return counts
 
     def hash_api_key(self, api_key: str) -> str:
         """One-way SHA256 hash for API key validation."""
@@ -244,18 +283,11 @@ class MultiUserAPIManager:
 
                         current_encrypted = api_key_info['encrypted']
                         if used_legacy_key:
-                            # Opportunistic migration: re-encrypt onto the current
-                            # (HKDF) key now that we have the plaintext, so this
-                            # value stops depending on the legacy key going forward.
+                            # Opportunistic migration: re-encrypt onto the current key
+                            # (API_KEY_ENCRYPTION_KEY, else SECRET_KEY's HKDF key) now that
+                            # we have the plaintext, so it stops depending on the older key.
                             try:
-                                current_encrypted = self.encrypt_api_key(decrypted)
-                                metadata = dict(user.user_metadata) if user.user_metadata else {}
-                                key_meta = dict(metadata.get('api_key', {}))
-                                key_meta['encrypted'] = current_encrypted
-                                metadata['api_key'] = key_meta
-                                user.user_metadata = metadata
-                                from sqlalchemy.orm.attributes import flag_modified
-                                flag_modified(user, 'user_metadata')
+                                current_encrypted = self._reencrypt_stored_key(user, decrypted)
                                 db.session.commit()
                                 logger.info("api_key_migrated_to_current_key", extra={"user_id": user_id})
                             except Exception as e:
