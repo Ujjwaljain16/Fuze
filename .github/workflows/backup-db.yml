@@ -1,0 +1,137 @@
+name: Nightly Database Backup
+
+# Supabase's free plan takes no backups we can restore from. This dumps the production
+# database every night, encrypts it, and keeps it as a workflow artifact for 30 days.
+# The repository is public and any signed-in GitHub user can download its artifacts, so the
+# dump must never leave this job unencrypted. restore-drill.yml restores the newest one weekly.
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Explicit bash adds -o pipefail: a failing pg_dump inside the encrypt pipeline must fail the step.
+    shell: bash
+
+env:
+  # pg_dump must be at least as new as the server. The pg17 client dumps any older server
+  # (Supabase runs 15 or 17), and restore-drill.yml restores with the same image.
+  PG_CLIENT_IMAGE: pgvector/pgvector:pg17
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Check required secrets
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL || secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          missing=""
+          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
+          [ -n "$BACKUP_PASSPHRASE" ] || missing="$missing BACKUP_PASSPHRASE"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them under Settings > Secrets and variables > Actions (see docs/OPERATIONS.md)."
+            exit 1
+          fi
+          if [ "${#BACKUP_PASSPHRASE}" -lt 20 ]; then
+            echo "::error::BACKUP_PASSPHRASE is shorter than 20 characters; the artifacts are public, use a long random passphrase."
+            exit 1
+          fi
+          # Supabase's transaction pooler (port 6543) breaks pg_dump; the session pooler (5432) works.
+          case "$DATABASE_URL" in
+            *:6543/*) echo "::warning::DATABASE_URL points at the transaction pooler (port 6543). If the dump fails, set BACKUP_DATABASE_URL to the session pooler URL (port 5432)." ;;
+          esac
+
+      - name: Pull the Postgres client image
+        run: docker pull --quiet "$PG_CLIENT_IMAGE"
+
+      - name: Dump and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL || secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          EXTRA_ARGS: ${{ vars.BACKUP_PG_DUMP_ARGS }}
+        run: |
+          mkdir -p backup
+          # The URL travels as an environment variable and is expanded inside the container, so it
+          # never appears in a command line or the log. The plaintext dump only exists in the pipe.
+          # shellcheck disable=SC2016
+          docker run --rm -e DATABASE_URL -e EXTRA_ARGS "$PG_CLIENT_IMAGE" \
+            sh -c 'exec pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges $EXTRA_ARGS' \
+            | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+                --symmetric --cipher-algo AES256 --output backup/fuze-db.dump.gpg 3<<<"$BACKUP_PASSPHRASE"
+          size=$(stat -c %s backup/fuze-db.dump.gpg)
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::Encrypted dump is only $size bytes; pg_dump produced no usable output."
+            exit 1
+          fi
+
+      # Prove the artifact is usable before keeping it: it must decrypt with the passphrase and
+      # read as a pg_dump archive that contains the schema history table.
+      - name: Verify the encrypted dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 --decrypt backup/fuze-db.dump.gpg 3<<<"$BACKUP_PASSPHRASE" \
+            | docker run --rm -i "$PG_CLIENT_IMAGE" pg_restore --list > toc.txt
+          if ! grep -qE ' TABLE DATA [a-z_]+ alembic_version ' toc.txt; then
+            echo "::error::The dump has no alembic_version data; it is not a Fuze database backup."
+            exit 1
+          fi
+          server=$(sed -n 's/^;[[:space:]]*Dumped from database version: //p' toc.txt)
+          tables=$(grep -cE ' TABLE DATA ' toc.txt || true)
+          size=$(du -h backup/fuze-db.dump.gpg | cut -f1)
+          sha=$(sha256sum backup/fuze-db.dump.gpg | cut -d' ' -f1)
+          printf '%s  fuze-db.dump.gpg\n' "$sha" > backup/SHA256SUMS
+          {
+            echo "### Database backup"
+            echo "- Encrypted size: $size"
+            echo "- Server version: ${server:-unknown}"
+            echo "- Tables with data: $tables"
+            echo "- SHA-256: \`$sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f toc.txt
+
+      - name: Upload the encrypted dump
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: fuze-db-backup
+          path: |
+            backup/fuze-db.dump.gpg
+            backup/SHA256SUMS
+          retention-days: 30
+          if-no-files-found: error
+          # Already compressed by pg_dump and encrypted; zipping again only costs time.
+          compression-level: 0
+
+      - name: Open or update an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Nightly database backup is failing
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          note="Failed again at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number,title \
+            --jq "map(select(.title == \"$TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$note"
+          else
+            gh issue create --title "$TITLE" --body "The nightly database backup failed at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL
+
+          Backups are kept for 30 days, so every failed night shortens the window you can restore from. Check the run log and the DATABASE_URL / BACKUP_PASSPHRASE secrets, and close this issue once a backup succeeds again. Later failures are added here as comments."
+          fi
