@@ -7,7 +7,7 @@ from sqlalchemy import or_, text
 
 from models import SavedContent
 from uow.unit_of_work import UnitOfWork
-from services.hybrid_search import _vec_literal
+from services.hybrid_search import _vec_literal, configure_filtered_ann
 from utils.embedding_utils import active_embedding_model_name, calculate_cosine_similarity, embed_query
 from utils.query_sanitizer import sanitize_like_query
 from core.logging_config import get_logger
@@ -87,6 +87,7 @@ class SearchService:
         session = self.uow.session
         model = active_embedding_model_name()
         if session.get_bind().dialect.name == 'postgresql':
+            configure_filtered_ann(session, limit)
             unchunked = ("AND NOT EXISTS (SELECT 1 FROM content_chunks c WHERE c.content_id = s.id "
                          "AND c.embedding_model = :model)") if only_unchunked else ""
             rows = session.execute(text(f"""

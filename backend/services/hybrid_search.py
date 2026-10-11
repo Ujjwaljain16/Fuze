@@ -79,6 +79,18 @@ SELECT id, title, url, notes, saved_at FROM saved_content WHERE user_id = :uid A
 """
 
 
+def configure_filtered_ann(session, k: int) -> None:
+    """Make the next HNSW queries in this transaction return k rows despite a per-user filter.
+
+    HNSW returns at most ef_search candidates before the WHERE clause runs, so a filter on
+    user_id can leave a user with fewer than k results (or none). With iterative scan
+    (pgvector >= 0.8) the index keeps scanning until k rows pass the filter. Settings are
+    transaction-local (set_config(..., true)). Postgres only.
+    """
+    session.execute(text("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)"))
+    session.execute(text("SELECT set_config('hnsw.ef_search', :ef, true)"), {"ef": str(max(k, 40))})
+
+
 def user_has_chunks(session, user_id: int) -> bool:
     return session.execute(
         text("SELECT 1 FROM content_chunks WHERE user_id = :uid AND embedding_model = :model LIMIT 1"),
@@ -88,9 +100,7 @@ def user_has_chunks(session, user_id: int) -> bool:
 
 def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES_PER_QUERY) -> List[Dict[str, Any]]:
     """Union of nearest passages across query vectors; one entry per bookmark with its best passage."""
-    # Keep scanning HNSW when the per-user filter removes most neighbours (pgvector >= 0.8).
-    session.execute(text("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)"))
-    session.execute(text("SELECT set_config('hnsw.ef_search', :ef, true)"), {"ef": str(max(k, 40))})
+    configure_filtered_ann(session, k)
 
     model = active_embedding_model_name()
     best: Dict[int, Dict[str, Any]] = {}

@@ -163,3 +163,16 @@ def test_document_fallback_ranks_by_cosine_and_ignores_other_models(app):
         out = _document_candidates(db.session, u.id, [vec(1, 0)], k=10)
         assert [c["content_id"] for c in out] == [near.id, far.id]
         assert out[0]["similarity"] > 0.99 and abs(out[1]["similarity"]) < 0.2
+
+
+def test_document_candidates_enable_iterative_hnsw_scan_on_postgres():
+    from unittest.mock import MagicMock
+    from ml.intent_engine.engine import _document_candidates
+    session = MagicMock()
+    session.get_bind.return_value.dialect.name = "postgresql"
+    session.execute.return_value = []
+    _document_candidates(session, 7, [np.ones(384, dtype=np.float32)], k=60)
+    sql = [str(c.args[0]) for c in session.execute.call_args_list]
+    assert "hnsw.iterative_scan" in sql[0] and "hnsw.ef_search" in sql[1]
+    assert session.execute.call_args_list[1].args[1] == {"ef": "60"}
+    assert "<=>" in sql[2]

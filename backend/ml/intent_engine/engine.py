@@ -67,7 +67,8 @@ def _document_candidates(session, user_id: int, vectors, k: int) -> List[Dict[st
             best[cid] = {"content_id": cid, "passage": passage or "", "similarity": sim}
 
     if session.get_bind().dialect.name == "postgresql":
-        from services.hybrid_search import _vec_literal
+        from services.hybrid_search import _vec_literal, configure_filtered_ann
+        configure_filtered_ann(session, k)
         for vec in vectors:
             rows = session.execute(text(
                 "SELECT id, COALESCE(LEFT(extracted_text, 1200), title) AS passage, "

@@ -87,3 +87,20 @@ def test_failed_query_embedding_is_an_error_not_a_ranking():
     with patch('services.search_service.embed_query', return_value=[0.0] * 384):
         with pytest.raises(RuntimeError):
             SearchService(mock_uow).semantic_search(user_id=1, query='anything')
+
+
+@pytest.mark.unit
+def test_document_vector_search_enables_iterative_hnsw_scan_on_postgres():
+    """The per-user filter runs after HNSW; without iterative scan a user can get truncated results."""
+    mock_uow = MagicMock()
+    session = mock_uow.session
+    session.get_bind.return_value.dialect.name = 'postgresql'
+    session.execute.return_value.mappings.return_value = []
+    with patch('services.search_service.active_embedding_model_name', return_value='test-model'):
+        SearchService(mock_uow)._document_hits(7, [0.1] * 384, 5)
+
+    calls = session.execute.call_args_list
+    sql = [str(c.args[0]) for c in calls]
+    assert "hnsw.iterative_scan" in sql[0] and "relaxed_order" in sql[0]
+    assert "hnsw.ef_search" in sql[1] and calls[1].args[1] == {"ef": "40"}
+    assert "<=>" in sql[2]  # the ANN query runs after both settings
