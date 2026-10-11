@@ -222,18 +222,10 @@ class BackgroundAnalysisService:
         from utils.event_bus import publish_pipeline_event, generate_pipeline_run_id
         run_id = pipeline_run_id or generate_pipeline_run_id()
         target_user_id = user_id or content.user_id
+        analysis_announced = False
 
         try:
             logger.info("bg_analysis_analyzing_content", extra={"content_id": content.id, "user_id": target_user_id, "run_id": run_id})
-
-            # Emit Stage 3 Started
-            publish_pipeline_event(
-                event_type="bookmark.pipeline.analysis.started",
-                bookmark_id=content.id,
-                user_id=target_user_id,
-                pipeline_run_id=run_id,
-                sequence=5
-            )
 
             start_time = time.time()
             text_to_analyze = content.extracted_text or content.title or content.url or "Untitled content"
@@ -262,6 +254,17 @@ class BackgroundAnalysisService:
                         return
                 except Exception as e:
                     logger.warning("bg_analysis_api_key_failed", extra={"user_id": target_user_id, "error": str(e)})
+
+            # Stage 3 started: announced only once the analysis will really run (a deferred one
+            # would otherwise leave the live "analyzing" counter up with no event to bring it down).
+            publish_pipeline_event(
+                event_type="bookmark.pipeline.analysis.started",
+                bookmark_id=content.id,
+                user_id=target_user_id,
+                pipeline_run_id=run_id,
+                sequence=5
+            )
+            analysis_announced = True
 
             gemini_analyzer = GeminiAnalyzer(api_key=api_key)
 
@@ -331,16 +334,42 @@ class BackgroundAnalysisService:
             except Exception as inv_err:
                 logger.warning("bg_analysis_cache_invalidation_error", extra={"error": str(inv_err)})
 
+            publish_pipeline_event(
+                event_type="bookmark.pipeline.analysis.completed",
+                bookmark_id=content.id,
+                user_id=target_user_id,
+                pipeline_run_id=run_id,
+                sequence=6,
+                data={"duration_ms": analysis_duration_ms}
+            )
             logger.info("bg_analysis_completed_successfully", extra={"content_id": content.id, "duration_ms": analysis_duration_ms})
 
         except JobTimeoutException:
             db.session.rollback()
             self._mark_failed(content.id)
+            if analysis_announced:
+                publish_pipeline_event(
+                    event_type="bookmark.pipeline.analysis.failed",
+                    bookmark_id=content.id,
+                    user_id=target_user_id,
+                    pipeline_run_id=run_id,
+                    sequence=6,
+                    error={"error_code": "ANALYSIS_TIMEOUT", "retryable": True}
+                )
             raise
         except Exception as e:
             logger.error("bg_analysis_single_content_exception", extra={"content_id": content.id, "error": str(e)})
             db.session.rollback()
             self._mark_failed(content.id)
+            if analysis_announced:
+                publish_pipeline_event(
+                    event_type="bookmark.pipeline.analysis.failed",
+                    bookmark_id=content.id,
+                    user_id=target_user_id,
+                    pipeline_run_id=run_id,
+                    sequence=6,
+                    error={"error_code": "ANALYSIS_FAILED", "retryable": True}
+                )
 
     def get_cached_analysis(self, content_id: int) -> Optional[Dict]:
         """Get cached analysis for a content item."""
