@@ -79,6 +79,7 @@ class RealtimeClient {
         'system.connected',
         'bookmark.pipeline.scraping.started',
         'bookmark.pipeline.scraping.completed',
+        'bookmark.pipeline.scraping.failed',
         'bookmark.pipeline.embedding.started',
         'bookmark.pipeline.embedding.completed',
         'bookmark.pipeline.embedding.failed',

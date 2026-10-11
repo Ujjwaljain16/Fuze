@@ -9,7 +9,6 @@ from typing import Generator
 from flask import Blueprint, Response, request, jsonify, stream_with_context
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from core.logging_config import get_logger
-from utils.event_bus import read_events_for_replay
 from utils.cors_utils import is_allowed_origin
 from utils.stream_tickets import mint_stream_ticket, consume_stream_ticket
 
@@ -69,80 +68,49 @@ def stream_realtime_events():
         # 1. Initial Connection Handshake
         yield f"event: system.connected\ndata: {json.dumps({'status': 'connected', 'user_id': user_id_int, 'time': time.time()})}\n\n"
 
-        # 2. Replay missed events if Last-Event-ID is provided
-        if last_event_id:
-            try:
-                replayed_events = read_events_for_replay(user_id_int, last_event_id=last_event_id)
-                for evt in replayed_events:
-                    evt_type = evt.get('type', 'message')
-                    evt_id = evt.get('event_id', '')
-                    yield f"id: {evt_id}\nevent: {evt_type}\ndata: {json.dumps(evt)}\n\n"
-            except Exception as replay_err:
-                logger.warning(f"sse_replay_error: {replay_err}", extra={"user_id": user_id_int})
-
-        # 3. Live Event Loop using Redis Pub/Sub / Stream polling
-        # Uses a dedicated pubsub connection pool (utils.redis_utils.get_pubsub_client),
-        # separate from the shared request-path cache pool -- see that function's
-        # docstring for why sharing the pool would let SSE viewers starve every
-        # other Redis-backed request in this worker.
+        # 2. Live events straight from the user's Redis Stream, which is where producers write
+        # (utils.event_bus.publish_pipeline_event). The old loop subscribed to a pub/sub channel
+        # nothing published to, so no live event ever arrived. Each SSE id is the stream entry id:
+        # on reconnect the browser sends it back as Last-Event-ID and reading resumes right after
+        # it, so missed events are replayed without a separate code path.
+        #
+        # Uses the dedicated long-lived connection pool (utils.redis_utils.get_pubsub_client):
+        # sharing the request-path pool would let SSE viewers starve every other Redis request.
         from utils.redis_utils import get_pubsub_client
+        from utils.event_bus import read_user_stream, valid_stream_id
         client = get_pubsub_client()
         if not client:
             yield f"event: system.warning\ndata: {json.dumps({'message': 'Redis unavailable for live stream'})}\n\n"
             return
 
-        pubsub = None
-        try:
-            pubsub = client.pubsub()
-            user_channel = f"fuze:events:channel:{user_id_int}"
-            pubsub.subscribe(user_channel)
+        cursor = last_event_id if valid_stream_id(last_event_id) else '$'
+        last_ping = time.time()
+        consecutive_errors = 0
+        stream_started = time.time()
+        MAX_STREAM_SECONDS = 30 * 60  # force periodic reconnect so one connection can't hold its
+        # pool slot indefinitely; EventSource reconnects (with Last-Event-ID) on close.
 
-            last_ping = time.time()
-            consecutive_errors = 0
-            stream_started = time.time()
-            MAX_STREAM_SECONDS = 30 * 60  # force periodic reconnect so any one
-            # connection can't hold its pool slot indefinitely; EventSource
-            # clients auto-reconnect (with Last-Event-ID replay) on close.
+        while time.time() - stream_started <= MAX_STREAM_SECONDS:
+            try:
+                entries = read_user_stream(client, user_id_int, cursor, block_ms=5000)
+                consecutive_errors = 0
+            except Exception as loop_err:
+                consecutive_errors += 1
+                if consecutive_errors > 10:
+                    logger.error(f"sse_loop_fatal_errors: {loop_err}", extra={"user_id": user_id_int})
+                    return
+                time.sleep(1)
+                continue
 
-            while True:
-                if time.time() - stream_started > MAX_STREAM_SECONDS:
-                    yield f"event: system.reconnect\ndata: {json.dumps({'message': 'stream_ttl_reached'})}\n\n"
-                    break
+            for stream_id, evt in entries:
+                cursor = stream_id
+                yield f"id: {stream_id}\nevent: {evt.get('type', 'message')}\ndata: {json.dumps(evt)}\n\n"
 
-                # Keep-alive heartbeat every 15 seconds
-                if time.time() - last_ping > 15:
-                    yield f": heartbeat {int(time.time())}\n\n"
-                    last_ping = time.time()
+            if time.time() - last_ping > 15:
+                yield f": heartbeat {int(time.time())}\n\n"
+                last_ping = time.time()
 
-                try:
-                    message = pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                    if message and message['type'] == 'message':
-                        raw_data = message['data']
-                        if isinstance(raw_data, bytes):
-                            raw_data = raw_data.decode('utf-8')
-                        
-                        evt_obj = json.loads(raw_data)
-                        evt_type = evt_obj.get('type', 'message')
-                        evt_id = evt_obj.get('event_id', '')
-                        
-                        yield f"id: {evt_id}\nevent: {evt_type}\ndata: {json.dumps(evt_obj)}\n\n"
-                        consecutive_errors = 0
-                except Exception as loop_err:
-                    consecutive_errors += 1
-                    if consecutive_errors > 10:
-                        logger.error(f"sse_loop_fatal_errors: {loop_err}", extra={"user_id": user_id_int})
-                        break
-                    time.sleep(1)
-
-        except Exception as stream_err:
-            logger.error(f"sse_stream_exception: {stream_err}", extra={"user_id": user_id_int})
-        finally:
-            if pubsub:
-                try:
-                    pubsub.unsubscribe()
-                    pubsub.close()
-                except Exception:
-                    pass
+        yield f"event: system.reconnect\ndata: {json.dumps({'message': 'stream_ttl_reached'})}\n\n"
 
     sse_headers = {
         'Content-Type': 'text/event-stream',
