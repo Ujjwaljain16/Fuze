@@ -20,7 +20,9 @@ DEFAULT_ALLOWED_ORIGINS: List[Union[str, "re.Pattern"]] = [
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    re.compile(r"^https://.*\.vercel\.app$"),
+    # This project's Vercel preview deployments only (itsfuze-<hash>-<team>, itsfuze-git-<branch>-<team>).
+    # Any *.vercel.app would let every other Vercel-hosted site make credentialed requests.
+    re.compile(r"^https://itsfuze-[a-z0-9-]+\.vercel\.app$"),
 ]
 
 _cached_origins: Optional[List[Union[str, "re.Pattern"]]] = None
