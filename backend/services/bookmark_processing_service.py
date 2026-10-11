@@ -366,15 +366,38 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         url = bookmark.url
         has_content = bool(text.strip())
 
-    start_embed = time.time()
-    embedding = generate_comprehensive_embedding(
-        title=title,
-        description=notes,
-        meta_description="",
-        headings=[],
-        extracted_text=text,
-        url=url
+    publish_pipeline_event(
+        event_type="bookmark.pipeline.embedding.started",
+        bookmark_id=bookmark_id,
+        user_id=user_id,
+        pipeline_run_id=pipeline_run_id,
+        sequence=3,
     )
+
+    def _failed(code, message):
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.embedding.failed",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=4,
+            error={"code": code, "message": message},
+        )
+
+    start_embed = time.time()
+    try:
+        embedding = generate_comprehensive_embedding(
+            title=title,
+            description=notes,
+            meta_description="",
+            headings=[],
+            extracted_text=text,
+            url=url
+        )
+    except Exception as e:
+        # RQ retries the job; the dashboard still learns this attempt failed.
+        _failed("embedding_unavailable", str(e)[:200])
+        raise
     embed_duration_ms = round((time.time() - start_embed) * 1000)
 
     is_embedded = False
@@ -390,6 +413,18 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
                 is_embedded = True
             else:
                 bookmark.embedding_status = 'FAILED'
+
+    if is_embedded:
+        publish_pipeline_event(
+            event_type="bookmark.pipeline.embedding.completed",
+            bookmark_id=bookmark_id,
+            user_id=user_id,
+            pipeline_run_id=pipeline_run_id,
+            sequence=4,
+            data={"model": active_embedding_model_name(), "duration_ms": embed_duration_ms},
+        )
+    elif not validate_embedding(embedding):
+        _failed("invalid_embedding", "The model returned an unusable vector")
 
     # Passage chunks (full-text coverage beyond the model's input limit). Separate transaction so a
     # chunking failure never loses the document embedding above.

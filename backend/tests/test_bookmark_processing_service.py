@@ -37,6 +37,49 @@ def test_generate_embedding_task_persists_numpy_embedding(app):
         assert bookmark.embedding_status == 'SUCCESS'
 
 
+def _run_embedding_task(embedding=None, side_effect=None, events=None):
+    """Run generate_embedding_task with mocks; return the event types it published, in order."""
+    from services.bookmark_processing_service import generate_embedding_task
+    with patch('services.bookmark_processing_service.UnitOfWork') as mock_uow_cls, \
+         patch('services.bookmark_processing_service.generate_comprehensive_embedding',
+               return_value=embedding, side_effect=side_effect), \
+         patch('services.bookmark_processing_service.redis_cache'), \
+         patch('services.background_analysis_service.analyze_content'), \
+         patch('utils.event_bus.publish_pipeline_event') as publish:
+        mock_uow = MagicMock()
+        mock_uow_cls.return_value.__enter__.return_value = mock_uow
+        mock_uow.bookmarks.get_by_id.return_value = MagicMock(
+            title='T', notes='', extracted_text='text', url='https://example.com')
+        events = [] if events is None else events
+        try:
+            generate_embedding_task(bookmark_id=1, user_id=10)
+        finally:
+            events.extend((c.kwargs['event_type'], c.kwargs['sequence']) for c in publish.call_args_list)
+    return events
+
+
+def test_embedding_task_publishes_started_then_completed(app):
+    import numpy as np
+    events = _run_embedding_task(np.full(384, 0.2, dtype=np.float32))
+    assert events == [('bookmark.pipeline.embedding.started', 3),
+                      ('bookmark.pipeline.embedding.completed', 4)]
+
+
+def test_embedding_task_publishes_failed_for_an_unusable_vector(app):
+    import numpy as np
+    events = _run_embedding_task(np.zeros(384, dtype=np.float32))
+    assert events[-1] == ('bookmark.pipeline.embedding.failed', 4)
+
+
+def test_embedding_task_publishes_failed_and_reraises_when_the_model_is_down(app):
+    from utils.embedding_utils import EmbeddingUnavailable
+    events = []
+    with pytest.raises(EmbeddingUnavailable):
+        _run_embedding_task(side_effect=EmbeddingUnavailable('model missing'), events=events)
+    assert events == [('bookmark.pipeline.embedding.started', 3),
+                      ('bookmark.pipeline.embedding.failed', 4)]
+
+
 def test_truncate_title():
     short_title = "Short Title"
     assert truncate_title(short_title) == "Short Title"
