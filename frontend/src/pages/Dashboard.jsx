@@ -6,6 +6,8 @@ import { useErrorHandler } from '../hooks/useErrorHandler'
 import useResize from '../hooks/useResize'
 import useMousePosition from '../hooks/useMousePosition'
 import { getSafeHref } from '../utils/urlSafety'
+import { applyPipelineEvent, pipelineEventToast } from '../utils/pipelineEvents'
+import { useToast } from '../contexts/ToastContext'
 import {
   Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
@@ -13,6 +15,8 @@ import {
 } from 'lucide-react'
 import OnboardingBanner from '../components/OnboardingBanner'
 import logo1 from '../assets/logo1.svg'
+
+const PIPELINE_TOAST_INTERVAL_MS = 10000
 
 const Dashboard = () => {
   const { isAuthenticated, user, logout } = useAuth()
@@ -53,6 +57,8 @@ const Dashboard = () => {
   const { isMobile, isSmallMobile } = useResize({ mobile: 768, smallMobile: 480 })
   const mousePos = useMousePosition(true, 16) // Throttle to 16ms (60fps)
   const fetchedRef = useRef(false) // Prevent double fetch in StrictMode
+  const { addToast } = useToast()
+  const lastToastAtRef = useRef({})
 
   useEffect(() => {
     if (isAuthenticated && !fetchedRef.current) {
@@ -62,32 +68,28 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  // Listen for real-time background pipeline SSE events
+  // Live pipeline events (bookmark.pipeline.<stage>.<status>) relayed by services/realtime.js.
   useEffect(() => {
     const handleRealtimeEvent = (e) => {
-      const data = e.detail;
-      if (!data) return;
+      const event = e.detail
+      if (!event) return
 
-      if (data.type === 'bookmark.scraping.started') {
-        setPipelineStats(prev => ({ ...prev, scraping: prev.scraping + 1 }))
-      } else if (data.type === 'bookmark.scraping.completed') {
-        setPipelineStats(prev => ({ ...prev, scraping: Math.max(0, prev.scraping - 1) }))
-      } else if (data.type === 'bookmark.embedding.started') {
-        setPipelineStats(prev => ({ ...prev, embedding: prev.embedding + 1 }))
-      } else if (data.type === 'bookmark.embedding.completed') {
-        setPipelineStats(prev => ({ ...prev, embedding: Math.max(0, prev.embedding - 1) }))
-      } else if (data.type === 'bookmark.analysis.completed') {
-        setPipelineStats(prev => ({
-          ...prev,
-          analyzing: Math.max(0, prev.analyzing - 1),
-          analyzed: prev.analyzed + 1
-        }))
+      setPipelineStats(prev => applyPipelineEvent(prev, event))
+
+      const toast = pipelineEventToast(event)
+      if (toast) {
+        // A bulk import can fail many items at once: one toast per message every few seconds.
+        const now = Date.now()
+        if (now - (lastToastAtRef.current[toast.message] || 0) > PIPELINE_TOAST_INTERVAL_MS) {
+          lastToastAtRef.current[toast.message] = now
+          addToast(toast)
+        }
       }
     }
 
     window.addEventListener('fuzeRealtimeEvent', handleRealtimeEvent)
     return () => window.removeEventListener('fuzeRealtimeEvent', handleRealtimeEvent)
-  }, [])
+  }, [addToast])
 
   const fetchDashboardData = async () => {
     // Use AbortController to cancel requests if component unmounts
@@ -469,7 +471,7 @@ const Dashboard = () => {
                       <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                       🟡 Scraping
                     </span>
-                    <div className="text-2xl font-black text-amber-200 mt-1">{pipelineStats.scraping}</div>
+                    <div className="text-2xl font-black text-amber-200 mt-1" data-testid="pipeline-scraping">{pipelineStats.scraping}</div>
                   </div>
                   <div className="p-2.5 bg-amber-500/20 rounded-lg text-amber-400">
                     <Zap className={`w-5 h-5 ${pipelineStats.scraping > 0 ? 'animate-pulse' : ''}`} />
@@ -483,7 +485,7 @@ const Dashboard = () => {
                       <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                       🔵 Embedding
                     </span>
-                    <div className="text-2xl font-black text-blue-200 mt-1">{pipelineStats.embedding}</div>
+                    <div className="text-2xl font-black text-blue-200 mt-1" data-testid="pipeline-embedding">{pipelineStats.embedding}</div>
                   </div>
                   <div className="p-2.5 bg-blue-500/20 rounded-lg text-blue-400">
                     <Clock className={`w-5 h-5 ${pipelineStats.embedding > 0 ? 'animate-spin' : ''}`} />
@@ -497,7 +499,7 @@ const Dashboard = () => {
                       <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
                       🟣 Analyzing
                     </span>
-                    <div className="text-2xl font-black text-purple-200 mt-1">{pipelineStats.analyzing}</div>
+                    <div className="text-2xl font-black text-purple-200 mt-1" data-testid="pipeline-analyzing">{pipelineStats.analyzing}</div>
                   </div>
                   <div className="p-2.5 bg-purple-500/20 rounded-lg text-purple-400">
                     <Sparkles className={`w-5 h-5 ${pipelineStats.analyzing > 0 ? 'animate-bounce' : ''}`} />
@@ -511,7 +513,7 @@ const Dashboard = () => {
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       🟢 Analyzed
                     </span>
-                    <div className="text-2xl font-black text-emerald-200 mt-1">{pipelineStats.analyzed}</div>
+                    <div className="text-2xl font-black text-emerald-200 mt-1" data-testid="pipeline-analyzed">{pipelineStats.analyzed}</div>
                   </div>
                   <div className="p-2.5 bg-emerald-500/20 rounded-lg text-emerald-400">
                     <BarChart3 className="w-5 h-5" />

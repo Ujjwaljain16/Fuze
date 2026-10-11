@@ -97,7 +97,10 @@ class RealtimeClient {
             this.lastEventId = e.lastEventId
           }
           try {
-            const data = JSON.parse(e.data)
+            const parsed = JSON.parse(e.data)
+            // Pipeline events carry their type in the body; system events (system.connected)
+            // only in the SSE `event:` line. Listeners on the window get it either way.
+            const data = parsed && typeof parsed === 'object' && !parsed.type ? { ...parsed, type: eventType } : parsed
             this.notifyListeners(eventType, data)
             window.dispatchEvent(new CustomEvent('fuzeRealtimeEvent', { detail: data }))
           } catch (err) {
