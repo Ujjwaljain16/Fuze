@@ -109,6 +109,10 @@ def run_single_worker(args, worker_index: int = 1):
 
 
 def main():
+    # Before anything reads the configuration: worker processes (and the ones spawned below)
+    # get the small worker connection pool from utils/unified_config.py, not the web one.
+    os.environ.setdefault('FUZE_PROCESS_ROLE', 'worker')
+
     parser = argparse.ArgumentParser(description='Start RQ worker for background tasks')
     parser.add_argument('--queue', type=str, default='default', help='Queue name to listen to')
     parser.add_argument('--workers', type=int, default=1, help='Number of worker processes')

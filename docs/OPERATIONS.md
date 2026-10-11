@@ -40,6 +40,34 @@ docker rm -f fuze-restore
 - To roll back a bad release: deploy the previous image, then `alembic downgrade <its head>`.
   If data was destroyed, restore a backup instead.
 
+## Database connections
+
+Production reaches Postgres through the Supabase session pooler. In session mode every connection
+in an app pool holds one pooler connection, and the pooler caps connections per database (the
+"Pool Size" under Database settings → Connection pooling; it depends on the compute size). Each
+process has its own SQLAlchemy pool, so the worst case is:
+
+```
+total = Σ over processes (pool_size + max_overflow)  must stay below the pooler's pool size
+```
+
+| Process (`supervisord.conf`)         | Count | Settings (defaults)                                  | Connections |
+|--------------------------------------|-------|------------------------------------------------------|-------------|
+| gunicorn workers (`gunicorn.conf.py`) | 2     | `DB_POOL_SIZE` 5 + `DB_MAX_OVERFLOW` 5               | 2 × 10 = 20 |
+| RQ workers (`rq_worker`, `rq_worker_high`) | 2 | `DB_WORKER_POOL_SIZE` 2 + `DB_WORKER_MAX_OVERFLOW` 1 | 2 × 3 = 6   |
+| **Total**                            |       |                                                      | **26**      |
+
+- `backend/worker.py` sets `FUZE_PROCESS_ROLE=worker`, which selects the `DB_WORKER_*` pair; every
+  other process uses the web pair. `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` never size worker pools.
+- RQ runs each job in a forked work horse with its own copy of the pool, so while a job runs a
+  worker program can hold up to twice its pool (the reconciler thread in the parent plus the horse).
+  Budget `2 × 3` per RQ program if the margin is thin: 20 + 12 = 32.
+- Migrations at boot use a separate, short-lived connection (`NullPool`); scripts run by hand
+  (`scripts/*.py`) open their own pool too.
+- If the total exceeds the pooler's limit, lower the settings (for example `DB_POOL_SIZE=3`,
+  `DB_MAX_OVERFLOW=2` gives 2 × 5 = 10 for the web workers) rather than adding gunicorn or RQ
+  processes. A request that can't get a connection waits `DB_POOL_TIMEOUT` (20 s) and then fails.
+
 ## Pipeline health
 
 - Bookmarks move through `scrape_status` and `embedding_status`. Anything stuck is picked up by the

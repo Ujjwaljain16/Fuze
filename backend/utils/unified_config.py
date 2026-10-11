@@ -31,12 +31,36 @@ def _default_ssl_mode() -> str:
     return 'require' if is_production() else 'prefer'
 
 
+WEB_ROLE = 'web'
+WORKER_ROLE = 'worker'
+
+# Every process has its own connection pool, and all of them share the database pooler's
+# connection limit (docs/OPERATIONS.md, "Database connections"). Web workers serve concurrent
+# requests; RQ workers run one job at a time plus the reconciler, so they need few connections.
+# (env var for pool_size, default), (env var for max_overflow, default)
+_POOL_SETTINGS = {
+    WEB_ROLE: (('DB_POOL_SIZE', 5), ('DB_MAX_OVERFLOW', 5)),
+    WORKER_ROLE: (('DB_WORKER_POOL_SIZE', 2), ('DB_WORKER_MAX_OVERFLOW', 1)),
+}
+
+
+def process_role() -> str:
+    """'worker' in RQ worker processes (backend/worker.py sets FUZE_PROCESS_ROLE), else 'web'."""
+    role = os.getenv('FUZE_PROCESS_ROLE', '').strip().lower()
+    return role if role in _POOL_SETTINGS else WEB_ROLE
+
+
+def _pool_setting(index: int) -> int:
+    name, default = _POOL_SETTINGS[process_role()][index]
+    return int(os.getenv(name) or default)
+
+
 @dataclass
 class DatabaseConfig:
     """Database configuration"""
     url: str = field(default_factory=lambda: os.getenv('DATABASE_URL', ''))
-    pool_size: int = field(default_factory=lambda: int(os.getenv('DB_POOL_SIZE', '5')))
-    max_overflow: int = field(default_factory=lambda: int(os.getenv('DB_MAX_OVERFLOW', '10')))
+    pool_size: int = field(default_factory=lambda: _pool_setting(0))
+    max_overflow: int = field(default_factory=lambda: _pool_setting(1))
     pool_timeout: int = field(default_factory=lambda: int(os.getenv('DB_POOL_TIMEOUT', '20')))
     pool_recycle: int = field(default_factory=lambda: int(os.getenv('DB_POOL_RECYCLE', '300')))
     pool_pre_ping: bool = field(default_factory=lambda: os.getenv('DB_POOL_PRE_PING', 'true').lower() == 'true')
@@ -403,7 +427,9 @@ DEBUG=true
 # ==============================================================================
 DATABASE_URL=postgresql://user:password@localhost:5432/fuze
 DB_POOL_SIZE=5
-DB_MAX_OVERFLOW=10
+DB_MAX_OVERFLOW=5
+DB_WORKER_POOL_SIZE=2
+DB_WORKER_MAX_OVERFLOW=1
 DB_POOL_TIMEOUT=20
 DB_POOL_RECYCLE=300
 DB_POOL_PRE_PING=true
