@@ -133,7 +133,7 @@ def _login(client, email, password):
 
 def test_wrong_password_is_rejected(client, app, test_user, auth_headers):
     response = client.delete('/api/account', json={'password': 'not-my-password'}, headers=auth_headers)
-    assert response.status_code == 401
+    assert response.status_code == 403  # not 401: that would make the SPA refresh and retry
     assert response.json['error'] == 'invalid_password'
     assert _row_counts(app, test_user['id'])['users'] == 1
 
@@ -151,13 +151,37 @@ def test_oauth_account_needs_a_recent_sign_in(client, app):
     later = time.time() + RECENT_SIGN_IN_SECONDS + 60
     with patch('blueprints.account.time.time', return_value=later):
         response = client.delete('/api/account', json={'password': 'anything'}, headers=headers)
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert response.json['error'] == 'recent_sign_in_required'
     assert _row_counts(app, user_id)['users'] == 1
 
     # Just signed in: no password to ask for, and none needed.
     response = client.delete('/api/account', headers=headers)
     assert response.status_code == 200
+    assert _row_counts(app, user_id)['users'] == 0
+
+
+def test_refreshing_the_token_does_not_count_as_signing_in(client, app):
+    """A refreshed access token has a fresh iat; the session itself began an hour ago."""
+    from datetime import datetime, timedelta
+    from models import db, TokenFamily
+    user_id = _make_user(app, user_metadata={'supabase_user_id': 'supa-old'})
+    with app.app_context():
+        old, fresh = str(uuid.uuid4()), str(uuid.uuid4())
+        db.session.add_all([
+            TokenFamily(user_id=user_id, family_id=old, current_jti=str(uuid.uuid4()),
+                        created_at=datetime.utcnow() - timedelta(hours=1)),
+            TokenFamily(user_id=user_id, family_id=fresh, current_jti=str(uuid.uuid4()),
+                        created_at=datetime.utcnow()),
+        ])
+        db.session.commit()
+        stale_session = create_access_token(identity=str(user_id), additional_claims={'family_id': old})
+        new_session = create_access_token(identity=str(user_id), additional_claims={'family_id': fresh})
+
+    response = client.delete('/api/account', headers={'Authorization': f'Bearer {stale_session}'})
+    assert response.status_code == 403
+    assert response.json['error'] == 'recent_sign_in_required'
+    assert client.delete('/api/account', headers={'Authorization': f'Bearer {new_session}'}).status_code == 200
     assert _row_counts(app, user_id)['users'] == 0
 
 

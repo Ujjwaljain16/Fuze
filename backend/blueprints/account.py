@@ -22,6 +22,23 @@ logger = get_logger(__name__)
 account_bp = Blueprint('account', __name__, url_prefix='/api/account')
 
 
+def _signed_in_at(uow, jwt_data: dict) -> float:
+    """When this session began, as a Unix time.
+
+    A refreshed access token carries a fresh `iat`, and the SPA refreshes and retries on any
+    401, so `iat` alone would let a month-old session pass a "signed in recently" check. The
+    session's token family is created at sign-in and survives refreshes. Tokens without a
+    family can't be refreshed, so for them `iat` is the sign-in time.
+    """
+    family = uow.token_families.get_family(jwt_data.get('family_id'))
+    if family and family.created_at:
+        created = family.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)  # stored as naive UTC
+        return created.timestamp()
+    return jwt_data.get('iat', 0)
+
+
 def _block_current_access_token(jwt_data: dict) -> None:
     """Sessions are revoked by family; this also covers the token making the request."""
     exp = jwt_data.get('exp')  # absent when access tokens are configured not to expire
@@ -48,18 +65,19 @@ def delete_account():
             if not user:
                 return jsonify({'message': 'User not found'}), 404
 
-            # Same rule as set-password: an account created by Google sign-in has no password
-            # its owner knows, so a recent sign-in stands in for it.
+            # As for set-password: an account created by Google sign-in has no password its owner
+            # knows, so a recent sign-in stands in for it. Failures are 403, not 401: the session
+            # is valid, and a 401 makes the SPA refresh the token and silently retry.
             if has_usable_password(user):
                 password = data.get('password')
                 if not password:
                     return jsonify({'message': 'Password is required', 'error': 'password_required'}), 400
                 if not AuthService(None).verify_password(user.password_hash, password):
                     logger.warning("account_delete_wrong_password", user_id=user_id)
-                    return jsonify({'message': 'Password is incorrect', 'error': 'invalid_password'}), 401
-            elif time.time() - jwt_data.get('iat', 0) > RECENT_SIGN_IN_SECONDS:
+                    return jsonify({'message': 'Password is incorrect', 'error': 'invalid_password'}), 403
+            elif time.time() - _signed_in_at(uow, jwt_data) > RECENT_SIGN_IN_SECONDS:
                 return jsonify({'message': 'Please sign in again to delete your account',
-                                'error': 'recent_sign_in_required'}), 401
+                                'error': 'recent_sign_in_required'}), 403
 
             AccountService(uow).delete_account(user_id)
     except Exception:
