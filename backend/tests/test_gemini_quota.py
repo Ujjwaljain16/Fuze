@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from freezegun import freeze_time
+from datetime import datetime, timezone
 
 
 class _CountingRedis:
@@ -22,6 +22,11 @@ class _CountingRedis:
         return None if key not in self.data else str(self.data[key]).encode()
 
 
+def _at(stamp):
+    moment = datetime.fromisoformat(stamp).replace(tzinfo=timezone.utc)
+    return patch('services.multi_user_api_manager._now', return_value=moment)
+
+
 @pytest.fixture
 def manager(monkeypatch):
     monkeypatch.setenv('SECRET_KEY', 'x' * 48)
@@ -37,17 +42,17 @@ def manager(monkeypatch):
 
 def test_minute_limit_resets_in_the_next_minute_even_for_a_busy_user(manager):
     mgr, _ = manager
-    with freeze_time('2026-10-12 10:00:05'):
+    with _at('2026-10-12 10:00:05'):
         for _ in range(mgr.REQUESTS_PER_MINUTE):
             mgr.record_user_request(7)
         assert not mgr.check_user_rate_limit(7)['can_make_request']
-    with freeze_time('2026-10-12 10:01:01'):
+    with _at('2026-10-12 10:01:01'):
         assert mgr.check_user_rate_limit(7)['can_make_request']
 
 
 def test_window_ttl_is_set_once_not_rearmed(manager):
     mgr, client = manager
-    with freeze_time('2026-10-12 10:00:05'):
+    with _at('2026-10-12 10:00:05'):
         for _ in range(5):
             mgr.record_user_request(7)
     assert all(len(ttls) == 1 for ttls in client.ttls.values())

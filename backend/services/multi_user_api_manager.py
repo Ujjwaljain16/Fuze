@@ -36,9 +36,13 @@ from models import db, User
 
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _quota_windows(user_id: int, now: Optional[datetime] = None):
     """(key, ttl) for the minute, day and month windows that `now` falls in."""
-    now = now or datetime.now(timezone.utc)
+    now = now or _now()
     return (
         (f"fuze:rate:{user_id}:minute:{now:%Y%m%d%H%M}", 120),
         (f"fuze:rate:{user_id}:day:{now:%Y%m%d}", 2 * 86400),
