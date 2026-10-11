@@ -1,0 +1,28 @@
+{
+  "dataset": "scifact",
+  "variant": "orig",
+  "split": "test",
+  "queries": 300,
+  "documents": 5183,
+  "chunks": 7794,
+  "embedding_model": "intfloat/e5-small-v2",
+  "generated_at": "20261011T183323Z",
+  "results": {
+    "doc_vector": {
+      "ndcg@10": 0.6361188529118836,
+      "recall@10": 0.7692777777777777,
+      "recall@100": 0.9216666666666666,
+      "mrr@10": 0.6023439153439153,
+      "latency_p50_ms": 50.68499999833875,
+      "latency_p95_ms": 66.55300000056741
+    },
+    "chunk_vector": {
+      "ndcg@10": 0.6866753126905862,
+      "recall@10": 0.8101111111111111,
+      "recall@100": 0.916,
+      "mrr@10": 0.6577354497354497,
+      "latency_p50_ms": 33.302600000752136,
+      "latency_p95_ms": 45.882099999289494
+    }
+  }
+}

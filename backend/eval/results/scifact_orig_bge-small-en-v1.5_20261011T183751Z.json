@@ -1,0 +1,28 @@
+{
+  "dataset": "scifact",
+  "variant": "orig",
+  "split": "test",
+  "queries": 300,
+  "documents": 5183,
+  "chunks": 7794,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "generated_at": "20261011T183751Z",
+  "results": {
+    "chunk_vector": {
+      "ndcg@10": 0.718008907302249,
+      "recall@10": 0.8312222222222222,
+      "recall@100": 0.9193333333333333,
+      "mrr@10": 0.6900939153439154,
+      "latency_p50_ms": 15.227500000037253,
+      "latency_p95_ms": 30.706400000781287
+    },
+    "chunk_vector_rerank": {
+      "ndcg@10": 0.7099298304341821,
+      "recall@10": 0.8343888888888888,
+      "recall@100": 0.9193333333333333,
+      "mrr@10": 0.6782037037037038,
+      "latency_p50_ms": 716.5913999997429,
+      "latency_p95_ms": 768.6229000028106
+    }
+  }
+}

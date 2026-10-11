@@ -1,0 +1,28 @@
+{
+  "dataset": "scifact",
+  "variant": "long8",
+  "split": "test",
+  "queries": 300,
+  "documents": 2283,
+  "chunks": 30252,
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "generated_at": "20261011T173717Z",
+  "results": {
+    "doc_vector": {
+      "ndcg@10": 0.0010219119879424307,
+      "recall@10": 0.0016666666666666668,
+      "recall@100": 0.03177777777777778,
+      "mrr@10": 0.0011111111111111111,
+      "latency_p50_ms": 38.327800000843126,
+      "latency_p95_ms": 67.6738000001933
+    },
+    "chunk_vector": {
+      "ndcg@10": 0.44054609862932603,
+      "recall@10": 0.5817777777777777,
+      "recall@100": 0.722,
+      "mrr@10": 0.4084378306878307,
+      "latency_p50_ms": 9.510500000033062,
+      "latency_p95_ms": 24.04509999905713
+    }
+  }
+}
