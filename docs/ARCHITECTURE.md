@@ -47,7 +47,7 @@ Fuze is built as a scalable, multi-tenant system designed to handle thousands of
 
 1. **User Isolation**: Complete data isolation per user
 2. **Horizontal Scalability**: Stateless design for easy scaling
-3. **Multi-Layer Caching**: Redis + In-memory caching
+3. **Shared Caching**: Redis (per-process caches only for feature flags and API keys)
 4. **Background Processing**: Non-blocking async operations
 5. **Connection Pooling**: Efficient database connection management
 6. **Rate Limiting**: Per-user and per-IP rate limits
@@ -227,18 +227,29 @@ graph TB
 ### Layer 3: Application Layer (Stateless Workers)
 
 **Current Implementation:**
-- ✅ **1 Gunicorn Worker**: Single worker with gevent async I/O
-- ✅ **Gevent Worker Class**: Handles 1000+ concurrent connections per worker
+- ✅ **2 Gunicorn Workers**: gevent async I/O, sized for the 2-vCPU host
+- ✅ **Gevent Worker Class**: up to 1000 connections per worker; psycogreen makes
+  Postgres queries yield (5 concurrent `pg_sleep(1)`: 5.05 s unpatched, 1.01 s
+  patched), and `model.encode` / bcrypt run on gevent's thread pool
+  (`utils/cooperative.py`)
 - ✅ **Stateless Design**: No local state, all state in Redis/DB
-- ✅ **Connection Pooling**: 5 base, 10 overflow connections
-- ✅ **RQ Worker**: Separate background worker for async jobs
+- ✅ **Connection Pooling**: 5 base, 10 overflow connections, 5 s connect timeout,
+  15 s `statement_timeout` per connection, `sslmode=require` in production
+- ✅ **RQ Workers**: `default` and `high` queues, supervised next to Gunicorn
 
-**Current Configuration** (`start.sh`):
-```bash
-gunicorn app:app \
-    --workers 1 \
-    --worker-class gevent \
-    --worker-connections 1000
+**Current Configuration** (`gunicorn.conf.py`, started by `supervisord.conf`):
+```python
+workers = 2
+worker_class = "gevent"
+worker_connections = 1000
+timeout = 60            # was 2000 s; a stuck worker is recycled within a minute
+graceful_timeout = 30
+preload_app = False     # each worker opens its own DB/Redis connections after fork
+
+def post_fork(server, worker):
+    from psycogreen.gevent import patch_psycopg
+    patch_psycopg()
+    torch.set_num_threads(1)
 ```
 
 **Scalable Design (Future):**
@@ -269,7 +280,7 @@ gunicorn app:app \
 - ✅ **Single PostgreSQL**: Supabase (single database instance)
 - ✅ **pgvector Extension**: For vector search
 - ✅ **Connection Pooling**: 5 base, 10 overflow connections
-- ✅ **24 Production Indexes**: Optimized for performance
+- ✅ **Alembic-Managed Indexes**: Optimized for performance (HNSW for vectors)
 - ❌ **No Read Replicas**: All operations to single database
 
 **Scalable Design (Future):**
@@ -458,42 +469,32 @@ sequenceDiagram
 
 ## Caching Architecture
 
-### Multi-Layer Caching Strategy
+### Caching Strategy
 
 ```mermaid
 graph TB
-    subgraph "Layer 1: Application Cache"
-        InMemory[In-Memory Cache<br/>Python dict<br/>TTL: 5 minutes]
-    end
-    
-    subgraph "Layer 2: Redis Cache"
+    subgraph "Redis Cache (shared)"
+        RedisUser[Per-user pages<br/>profile · dashboard · bookmarks · projects]
+        RedisRecommendations[Recommendation results<br/>keyed by content version]
         RedisEmbedding[Embedding Cache<br/>24 hours TTL]
-        RedisContent[Content Cache<br/>1 hour TTL]
-        RedisUser[User Bookmarks<br/>5 minutes TTL]
-        RedisRecommendations[Recommendations<br/>30 minutes TTL]
-        RedisAnalysis[Analysis Results<br/>24 hours TTL]
+        RedisAnalysis[Analysis Results]
     end
-    
-    subgraph "Layer 3: Database"
+
+    subgraph "Database"
         PostgreSQL[(PostgreSQL<br/>Permanent Storage)]
     end
-    
-    Request[API Request] --> InMemory
-    InMemory -->|Cache Miss| RedisEmbedding
-    InMemory -->|Cache Miss| RedisContent
-    InMemory -->|Cache Miss| RedisUser
-    InMemory -->|Cache Miss| RedisRecommendations
-    InMemory -->|Cache Miss| RedisAnalysis
-    
-    RedisEmbedding -->|Cache Miss| PostgreSQL
-    RedisContent -->|Cache Miss| PostgreSQL
-    RedisUser -->|Cache Miss| PostgreSQL
-    RedisRecommendations -->|Cache Miss| PostgreSQL
-    RedisAnalysis -->|Cache Miss| PostgreSQL
-    
-    style InMemory fill:#ffd700
+
+    Request[API Request] --> RedisUser
+    Request --> RedisRecommendations
+    Request --> RedisEmbedding
+    Request --> RedisAnalysis
+
+    RedisUser -->|Miss or Redis down| PostgreSQL
+    RedisRecommendations -->|Miss or Redis down| PostgreSQL
+    RedisEmbedding -->|Miss| PostgreSQL
+    RedisAnalysis -->|Miss or Redis down| PostgreSQL
+
     style RedisEmbedding fill:#ff6b6b
-    style RedisContent fill:#ff6b6b
     style RedisUser fill:#ff6b6b
     style RedisRecommendations fill:#ff6b6b
     style RedisAnalysis fill:#ff6b6b
@@ -502,56 +503,42 @@ graph TB
 
 ### Cache Layers Explained
 
-#### Layer 1: In-Memory Cache (Application Level)
+#### In-Process (per worker)
 
-**Location**: `backend/utils/redis_utils.py`
+Only values that rarely change: the embedding model instance (singleton), feature
+flags (5 s TTL) and decrypted user API keys. User data is never cached per worker.
 
-**Cached Items:**
-- Query results (5 minutes TTL)
-- Embedding model instance (singleton)
-- Request deduplication results
+#### Redis Cache (Shared Across Workers)
 
-**Characteristics:**
-- Fastest access (in-process)
-- Limited to single worker
-- Auto-eviction on TTL expiry
-- Thread-safe with locks
-
-#### Layer 2: Redis Cache (Shared Across Workers)
-
-**Location**: `backend/utils/redis_utils.py`
+**Location**: `backend/utils/redis_utils.py` (`RedisCache`); every per-user key is
+built by `backend/core/cache_keys.py`, so readers and invalidators can't drift apart
 
 **Cache Types:**
 
-1. **Embedding Cache**
-   - Key: `fuze:embedding:{content_hash}`
-   - TTL: 24 hours
-   - Stores: NumPy arrays (pickled)
-   - Purpose: Avoid regenerating embeddings
+1. **Per-user pages**
+   - Keys: `profile:{user_id}`, `dashboard:v1:summary:{user_id}`, `dashboard:stats:{user_id}`,
+     `bookmarks:{user_id}:{page}:{per_page}:{search}:{category}`, `bookmarks:{user_id}:list`,
+     `projects:{user_id}:{page}:{per_page}:{include_tasks}`
+   - Purpose: fast page loads; the bookmark list also serves import dedup
 
-2. **Content Cache**
-   - Key: `fuze:scraped:{url_hash}`
-   - TTL: 1 hour
-   - Stores: Scraped content JSON
-   - Purpose: Avoid re-scraping URLs
-
-3. **User Bookmarks Cache**
-   - Key: `fuze:user_bookmarks:{user_id}`
-   - TTL: 5 minutes
-   - Stores: User's bookmark list
-   - Purpose: Fast duplicate checking
-
-4. **Recommendation Cache**
-   - Key: `fuze:recommendations:{user_id}:{request_hash}`
-   - TTL: 30 minutes (configurable)
-   - Stores: Recommendation results
+2. **Recommendation Cache**
+   - Keys include a per-user content version that bumps on every change, so stale
+     results are never served
    - Purpose: Avoid recomputing recommendations
 
-5. **Analysis Cache**
-   - Key: `fuze:content_analysis:{content_id}`
+3. **Embedding Cache**
+   - Key: hash of the text (`RedisCache.cache_embedding`)
    - TTL: 24 hours
+   - Purpose: Avoid re-encoding identical text
+
+4. **Analysis Cache**
+   - Key: `content_analysis:{content_id}`
    - Stores: Gemini analysis results
    - Purpose: Reuse AI analysis
+
+Fetched pages are not cached (the raw-HTML cache was never read, so it was removed).
+Redis is optional on the request path: 2 s timeouts, no PING per operation, and a
+reconnect attempt at most every 5 s while it is down.
 
 **Cache Invalidation Strategy:**
 
@@ -569,7 +556,7 @@ flowchart TD
     InvalidateProject --> InvalidateUser
     InvalidateAnalysis --> InvalidateUser
     
-    InvalidateUser --> ClearPatterns[Clear Cache Patterns:<br/>- user_bookmarks:*<br/>- recommendations:*<br/>- embeddings:*]
+    InvalidateUser --> ClearPatterns[Clear keys from core/cache_keys.py:<br/>- profile / dashboard<br/>- bookmarks:user:*<br/>- projects:user:*<br/>+ bump content version]
     
     ClearPatterns --> UpdateDB[Update Database]
     
@@ -581,8 +568,11 @@ flowchart TD
 **Cache Invalidation Service:**
 - Location: `backend/services/cache_invalidation_service.py`
 - Automatic invalidation on data changes
-- Pattern-based invalidation (wildcards)
-- Comprehensive coverage (all related caches)
+- Pattern-based invalidation (wildcards), using the same key builders as the readers
+- Comprehensive coverage (project lists included); `DELETE /api/bookmarks/all`
+  clears synchronously
+- Web requests invalidate on a background thread; RQ jobs invalidate inline (work
+  horses exit via `os._exit()` and would kill the thread first)
 
 ---
 
@@ -624,7 +614,7 @@ graph LR
 - ✅ JWT tokens (no server-side sessions)
 - ✅ All state in Redis or Database
 - ✅ No file uploads to workers
-- ✅ No in-memory caches (shared Redis instead)
+- ✅ No per-worker caches of user data (shared Redis instead)
 - ✅ Connection pooling (managed by SQLAlchemy)
 
 **Benefits:**
@@ -780,7 +770,7 @@ graph TB
     end
     
     subgraph "Layer 3: Row-Level Security"
-        RLS[PostgreSQL RLS Policies<br/>Future: Additional security layer]
+        RLS[PostgreSQL RLS enabled on every table<br/>no policies: Supabase API roles see no rows]
     end
     
     Request[API Request] --> AppFilter
@@ -804,6 +794,9 @@ graph TB
    - Composite indexes on `user_id`
    - Foreign keys with CASCADE
    - Unique constraints per user
+   - Row level security on every table and no `anon`/`authenticated` privileges
+     (migration 0013), so Supabase's REST API exposes nothing; the backend connects
+     as the table owner
 
 3. **API Level:**
    - JWT token contains `user_id`
@@ -870,29 +863,34 @@ graph TB
 
 **Background Services (Current Implementation):**
 
-1. **RQ (Redis Queue) Worker** ⭐ **Primary Background System**
+1. **RQ (Redis Queue) Workers** ⭐ **Primary Background System**
    - Location: `backend/worker.py` and `backend/services/task_queue.py`
    - Processes: Bookmark content extraction, embedding generation, analysis
-   - Queue System: Redis-based task queue
-   - Runs: Automatically alongside web server (via `start.sh`)
-   - Deployment: 1 RQ worker in same container as web server
+   - Queue System: Redis-based task queue (`default` and `high`)
+   - Runs: supervised by supervisord next to Gunicorn (`start.sh` → `supervisord.conf`)
+   - Deployment: one `default` and one `high` worker in the same container as the web server
 
-2. **Content Analysis Service**
-   - Location: `backend/services/background_analysis_service.py`
-   - Processes: Unanalyzed bookmarks
-   - Uses: User's own Gemini API key
-   - Runs: Continuously (every 30 seconds)
+2. **Pipeline Reconciler**
+   - Location: `backend/services/pipeline_reconciler.py`
+   - Runs: a thread in the `default` worker, every 5 minutes (a Redis lock keeps it to one pass at a time)
+   - Re-enqueues: fetches stuck in `PENDING` for 15+ minutes, `FAILED_FETCH` after
+     1 h / 6 h / 24 h backoff, and bookmarks that were fetched but never embedded
 
-3. **Cache Invalidation Service**
+3. **Content Analysis**
+   - Location: `backend/services/background_analysis_service.py` (`analyze_content`)
+   - Runs: at the end of the embedding job, skipped when there is no fetched text
+   - Uses: the user's own Gemini key, or the shared system key up to
+     `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day
+
+4. **Cache Invalidation Service**
    - Location: `backend/services/cache_invalidation_service.py`
    - Processes: Cache invalidation on data changes
-   - Runs: Synchronously (on data mutations)
+   - Runs: on a background thread for web requests, inline inside RQ jobs
 
-4. **Import Processing**
+5. **Import Processing**
    - Location: `backend/blueprints/bookmarks.py`
-   - Processes: Bulk bookmark imports
-   - Uses: ThreadPoolExecutor for parallel processing
-   - Progress: Tracked via SSE streams
+   - Processes: Bulk bookmark imports (at most 5000 per request)
+   - Progress: kept in Redis (`import_progress:{user_id}`) and pushed over SSE
 
 ### RQ Worker Architecture
 
@@ -908,36 +906,46 @@ User Action → API Endpoint → Enqueue Job → Immediate Response
 
 1. **Task Queue Service** (`backend/services/task_queue.py`)
    - Manages RQ queues and job enqueueing
-   - Handles Redis connection
-   - Provides job status checking
-   - Automatic fallback to threading if Redis unavailable
+   - `enqueue_unique()`: one job id per bookmark and stage, so re-enqueueing is always safe
+   - Web enqueues use a 5 s socket timeout; workers get a connection without one
+     (they block in BLPOP between jobs)
+   - Enqueueing never raises: if Redis is down the bookmark stays `PENDING` and the
+     reconciler enqueues it later
+   - Queue stats read failures from RQ's `FailedJobRegistry`
 
-2. **Bookmark Processing Task** (`backend/blueprints/bookmarks.py`)
-   - `process_bookmark_content_task()`: The actual task function that RQ workers execute
-   - Handles content extraction, embedding generation, and analysis
-   - Updates bookmark with full data after processing
+2. **Bookmark Processing Tasks** (`backend/services/bookmark_processing_service.py`)
+   - `process_bookmark_content_task()`: fetches and extracts the page through the
+     acquisition engine (official APIs first, then robots.txt, the per-domain rate
+     limit and the SSRF-safe fetch). A failed or blocked fetch keeps the user's title
+     and notes and is stored as `FAILED_FETCH`, `BLOCKED` or `DISALLOWED`, never as
+     content; transient failures (no response, 5xx, 429, over the domain's rate
+     limit) raise so RQ retries them
+   - `generate_embedding_task()`: enqueued by `PipelineOrchestrator` when a fetch
+     completes (backpressure defers it to the reconciler instead of dropping it);
+     stores the document embedding, indexes passage chunks, then runs Gemini analysis
 
 3. **RQ Worker** (`backend/worker.py`)
    - Background process that listens to queues and executes tasks
-   - Can run multiple workers for parallel processing
-   - Automatic retry logic (up to 2 retries with exponential backoff)
-   - Job timeout: 10 minutes per job
+   - Started `with_scheduler=True`, so `Retry(interval=...)` retries actually run
+   - Loads the embedding model once in the parent; forked work horses share it
+   - `JobTimeoutException` is re-raised through the fetch/Gemini/analysis paths, so
+     a timed-out job really fails
+   - supervisord gives a running job up to 630 s to finish on shutdown
 
 **Queue Configuration:**
 
-- **Default Queue**: Normal priority bookmark processing
-- **High Priority Queue**: Urgent tasks (optional)
-- **Retry Logic**: 2 attempts (after 1min, then 5min)
-- **Job Timeout**: 10 minutes per job
+- **Default Queue**: bookmark fetch and embedding jobs, project intent jobs
+- **High Priority Queue**: login-triggered cache warming
+- **Retry Logic**: fetch jobs 2 retries (after 1 min, then 5 min); project jobs 3
+- **Job Timeout**: 10 minutes per job (cache warming: 30 s)
 
 **Current Deployment (Hugging Face Spaces):**
 
-The RQ worker runs automatically:
-- ✅ `start.sh` script starts both RQ worker and Gunicorn
-- ✅ Both processes run in the same Docker container
-- ✅ Worker uses same Redis connection as web server
+The RQ workers run automatically:
+- ✅ `start.sh` migrates the database (and exits if that fails), then execs supervisord
+- ✅ supervisord runs Gunicorn plus the `default` and `high` RQ workers in the same Docker container
+- ✅ Workers use the same Redis as the web server
 - ✅ No manual configuration needed
-- ✅ 1 RQ worker handles all background jobs
 
 **Scalable Deployment (Future):**
 - Can run RQ workers on separate machines
@@ -981,10 +989,13 @@ graph TB
 ```
 
 **Model Management:**
-- **Singleton Pattern**: One model instance per worker
+- **Model**: `BAAI/bge-small-en-v1.5` (384 dimensions); queries use its query instruction (`embed_query`)
+- **Singleton Pattern**: One model instance per process; RQ work horses share the parent's
 - **Lazy Loading**: Model loaded on first use (prevents OOM at startup)
 - **Thread Safety**: Locking prevents race conditions
-- **Fallback Model**: Works even if primary model fails
+- **No Silent Fallback**: if the model can't load, `EmbeddingUnavailable` is raised (embedding
+  jobs fail and retry, search returns 503); an encode error raises instead of storing a zero
+  vector. Hash vectors exist only as an explicit `DISABLE_EMBEDDINGS` opt-in for local work
 - **Redis Caching**: Embeddings cached to avoid regeneration
 
 ### Intent × Content Engine
@@ -1282,14 +1293,20 @@ graph TB
 - **Gunicorn Workers**: 2 workers (gevent async, sized for a 2-vCPU host)
 - **Worker Class**: gevent (handles 1000+ concurrent connections per worker)
 - **Worker Connections**: 1000 per worker
-- **Deployment target**: single Docker container (Hugging Face Space)
-- **Health Checks**: `/api/health` (readiness) and `/health/liveness` (Docker `HEALTHCHECK`)
+- **Worker timeout**: 60 s (graceful 30 s); psycogreen patch in `post_fork`
+- **Deployment target**: single Docker container (Hugging Face Space), deployed only
+  after Backend CI passes on that commit
+- **Startup**: `start.sh` runs `alembic upgrade head` and refuses to start if it fails
+- **Health Checks**: `/health/readiness` (503 unless DB, Redis and the schema at this
+  build's Alembic head are ready), `/health/liveness` (Docker `HEALTHCHECK`), and
+  `/api/health` (public up/down only)
 
 **Database (Current):**
-- **Connection Pool**: 5 base connections, 10 overflow
+- **Connection Pool**: 5 base connections, 10 overflow, `pool_pre_ping`, 5 s connect
+  timeout, 15 s `statement_timeout`; one engine configured by `UnifiedConfig`
 - **Single Database**: All operations to one PostgreSQL instance
-- **Connection Manager**: Auto-recovery on failures
-- **Indexes**: 24 production indexes for performance
+- **Schema**: Alembic is the only source of schema; each revision runs in its own transaction
+- **Indexes**: defined in the migrations (HNSW for embeddings and passage chunks)
 
 **Redis (Current):**
 - **Single Instance**: Upstash (free tier)
@@ -1297,9 +1314,9 @@ graph TB
 - **Sufficient**: For current scale
 
 **Background Workers (Current):**
-- **RQ Workers**: 1 RQ worker (separate from web worker)
+- **RQ Workers**: one on `default` (pipeline + reconciler), one on `high` (cache warming)
 - **Queue**: Redis as message broker
-- **Deployment**: Runs in same container as web server
+- **Deployment**: supervisord runs them in the same container as the web server
 
 ### Scalable Design Configuration (Future)
 
@@ -1337,8 +1354,8 @@ graph TB
 - **Concurrent Users**: 50-100 (estimated based on typical usage)
 - **Requests/Second**: 20-50 (depending on operation complexity)
 - **Database Connections**: 5-15 (pool_size=5, max_overflow=10)
-- **Cache Hit Rate**: 70-80% (Redis + in-memory caching)
-- **Background Jobs**: RQ worker processes ~10-50 jobs/hour
+- **Cache Hit Rate**: 70-80% (Redis caching)
+- **Background Jobs**: RQ workers process ~10-50 jobs/hour
 - **Memory Usage**: ~2-4GB of 16GB available (room for growth)
 
 **Current Performance:**
@@ -1404,13 +1421,12 @@ graph TB
 
 ### 2. Connection Pooling
 - ✅ Efficient database connections
-- ✅ Automatic connection recovery
+- ✅ Fail-fast timeouts (connect 5 s, statement 15 s)
 - ✅ Configurable pool sizes
 - ✅ Health checks (pool_pre_ping)
 
-### 3. Multi-Layer Caching
-- ✅ In-memory cache (fastest)
-- ✅ Redis cache (shared)
+### 3. Caching
+- ✅ Redis cache (shared, key builders in `core/cache_keys.py`)
 - ✅ Database (persistent)
 - ✅ Smart invalidation
 
@@ -1422,7 +1438,7 @@ graph TB
 
 ### 5. Database Optimization
 - ✅ Comprehensive indexes
-- ✅ Read/write splitting
+- ✅ Read/write splitting (design only; one database today)
 - ✅ Connection pooling
 - ✅ Query optimization
 

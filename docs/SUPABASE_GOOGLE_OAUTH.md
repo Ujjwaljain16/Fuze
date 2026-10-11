@@ -8,10 +8,10 @@ This document explains how to enable "Sign in with Google" for your Fuze app usi
 
 The application supports Supabase-hosted OAuth sign-in. The flow implemented in the codebase is:
 
-- Frontend redirects the browser to Supabase OAuth authorize URL (provider=google).
+- Frontend (`frontend/src/services/oauth.js`) records that this browser started a Google sign-in (or a link), then redirects to the Supabase OAuth authorize URL (provider=google).
 - Supabase performs OAuth with Google and redirects back to `/oauth/callback` with tokens in the URL fragment.
-- The frontend reads `access_token` from the URL fragment and POSTs it to the backend endpoint `/api/auth/supabase-oauth`.
-- The backend verifies the token with Supabase (`/auth/v1/user`), finds or creates a local `User`, and issues the application's own JWTs.
+- The frontend accepts the redirect only if this browser started it in the last 10 minutes (otherwise a link carrying an attacker's token could sign the victim into the attacker's account), reads `access_token` from the fragment and POSTs it to `/api/auth/supabase-oauth` (sign-in) or `/api/auth/link-oauth` (connect Google to the signed-in account).
+- The backend verifies the token with Supabase (`/auth/v1/user`), requires a verified email, signs in the account **linked to that Google identity** (or creates a new one), and issues the application's own JWTs. It never joins an existing account by matching email.
 
 This enables single sign-on while keeping the application session management under your control.
 
@@ -68,40 +68,40 @@ The repository already contains environment handling. To enable OAuth in the app
 Add to backend `.env` (or set in your host environment):
 
 - `SUPABASE_URL=https://xqfgfalwwfwtzvuuvroq.supabase.co`
-- `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>`  # Keep secret, used by backend to access Supabase admin endpoints if needed
-
-(Optional — for advanced control if you prefer managing provider via env instead of Supabase UI):
-- `SUPABASE_CLIENT_ID=<google-client-id>`
-- `SUPABASE_CLIENT_SECRET=<google-client-secret>`
+- `SUPABASE_ANON_KEY=<your-supabase-anon-key>`  # sent as the `apikey` header when verifying tokens
 
 Add to frontend `.env` (Vite uses `VITE_` prefix):
 
 - `VITE_SUPABASE_URL=https://xqfgfalwwfwtzvuuvroq.supabase.co`
 - `VITE_API_URL=http://127.0.0.1:5000` (development) or your production API URL
 
-Note: The Supabase provider configuration (Client IDs and Client Secret) is typically stored in the Supabase Dashboard. The backend only needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to verify tokens server-side and to optionally manage Supabase programmatically.
+Note: The Supabase provider configuration (Client IDs and Client Secret) is stored in the Supabase Dashboard. The backend only needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` to verify tokens server-side; it does not read a service role key.
 
 ---
 
 ## Step 4 — Code changes (already applied)
 
-The repository already contains the minimal flow needed for Sign in with Google:
+The repository already contains the flow for Sign in with Google:
 
 - Frontend:
-  - Login page (`frontend/src/pages/Login.jsx`) has a "Sign in with Google" button that redirects to:
+  - `frontend/src/services/oauth.js` is the one OAuth module. `startGoogleOAuth()` stores a pending marker (mode `signin` or `link`, timestamp) and redirects to:
     `https://<SUPABASE_URL>/auth/v1/authorize?provider=google&redirect_to=<APP_ORIGIN>/oauth/callback`
-  - `frontend/src/pages/OAuthCallback.jsx` extracts the `access_token` from the URL fragment and POSTs it to `/api/auth/supabase-oauth`.
+  - `frontend/src/pages/OAuthCallback.jsx` finishes the flow: tokens are read from the URL fragment only, and only if a pending marker from this browser is under 10 minutes old. Other routes forward a stray fragment to `/oauth/callback` instead of handling it.
+  - On `409 account_link_required` the callback explains what to do instead of failing.
+  - The Profile page has a **Connect Google** card that starts the flow in `link` mode; `/api/profile` reports `google_connected`.
 
-- Backend:
-  - `POST /api/auth/supabase-oauth` endpoint in `backend/blueprints/auth.py`:
+- Backend (`backend/blueprints/auth.py`, `backend/services/auth_service.py`):
+  - `POST /api/auth/supabase-oauth`:
     - Verifies the `access_token` by calling `GET https://<SUPABASE_URL>/auth/v1/user` with the Bearer token.
-    - Finds or creates a local `User` in the database by email.
-    - Issues local JWT tokens (access + refresh cookie) and returns an `access_token` to the frontend.
+    - Rejects identities whose email isn't verified (`403`).
+    - Signs in the user whose `provider_name='google'` / `provider_user_id` match the identity. If none exists and **an account with that email already exists**, it returns `409 account_link_required`: `/register` does not prove email ownership, so joining by email would let whoever registered the address first keep a password into the real owner's account.
+    - Otherwise creates a new user with a random, unusable password and issues local JWT tokens (access + refresh, in cookies and in the response body).
+  - `POST /api/auth/link-oauth` (requires a signed-in user): connects the Google identity to the caller's own account. The Google email must match the account's email, and the identity must not already belong to another account.
+  - A Google-created account can set its first password only after a sign-in in the last 15 minutes (it has no current password to confirm).
 
 If you want stronger validation you can (optional):
 - Verify the Google `id_token` audience (`aud`) matches your Google client ID.
 - Verify `iss` (issuer) is `https://accounts.google.com` or `accounts.google.com`.
-- Store provider name and provider user id (`sub`) in the `User` model for easier linking of accounts.
 
 ---
 
@@ -114,8 +114,9 @@ If you want stronger validation you can (optional):
 # Activate venv (already active in your environment)
 & .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-# Run your Flask app (example)
-python -m backend.run_production
+# Local work needs APP_ENV=development (unset means production, which refuses default secrets)
+cd backend
+python run_production.py
 ```
 
 3. Start the frontend (from `frontend/`):
@@ -131,27 +132,24 @@ npm run dev
 Troubleshooting tips:
 - If the redirect fails or you get `Invalid Supabase token`, ensure the callback URL is registered in Google Cloud and matches exactly the value registered in Supabase.
 - If `access_token` is missing in the redirect, check that the Supabase `authorize` URL used in the frontend is correct and that the provider is enabled in Supabase Dashboard.
+- If the callback says the sign-in wasn't started from this browser, start it again from the same browser within 10 minutes.
+- `account_link_required`: an account with that email exists. Sign in with its password, then use **Connect Google** on the Profile page.
 - Check backend logs for errors from the `/auth/v1/user` call (network, timeout, or invalid token).
 
 ---
 
 ## Security considerations
 
-- Protect `SUPABASE_SERVICE_ROLE_KEY`. It provides elevated privileges and must not be exposed to browsers or client code.
+- If you keep a `SUPABASE_SERVICE_ROLE_KEY` anywhere, protect it: it provides elevated privileges and must not be exposed to browsers or client code. The backend doesn't need it.
 - `Skip nonce checks` weakens security. Only enable if you have a platform limitation that prevents using nonces.
-- `Allow users without an email` can create non-unique user entries. If enabled, implement additional verification or a step to collect an email later.
+- `Allow users without an email` has no effect on Fuze: the backend rejects identities without a verified email.
 - For production, always run under HTTPS and ensure all callback/redirect URIs use `https`.
 
 ---
 
 ## Optional improvements & recommendations
 
-- Store provider metadata on `User` model:
-  - Add columns `provider_name` (e.g., `google`) and `provider_user_id` (the provider-specific user id) for linking accounts.
-- Add a migration script to create those columns and backfill from `user_metadata`.
-- When creating user accounts without email, prompt the user to add an email address before allowing full account access.
 - Validate `id_token` fields (`aud`, `iss`, `exp`) if you accept ID tokens directly.
-- Consider rotating or limiting the service role key usage: the backend should use the access token (Bearer) to get user info; only use service role key for admin operations.
 
 ---
 
@@ -161,7 +159,7 @@ Add to backend `.env` (do not commit secrets):
 
 ```env
 SUPABASE_URL=https://xqfgfalwwfwtzvuuvroq.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJI...   # Keep secret
+SUPABASE_ANON_KEY=eyJhbGciOiJI...
 ```
 
 Add to frontend `.env` (for Vite):
@@ -170,12 +168,3 @@ Add to frontend `.env` (for Vite):
 VITE_SUPABASE_URL=https://xqfgfalwwfwtzvuuvroq.supabase.co
 VITE_API_URL=http://127.0.0.1:5000
 ```
-
----
-
-If you'd like, I can:
-- Add database migration code to store `provider_name` and `provider_user_id` on `User` and wire it into the OAuth creation flow.
-- Add audience (`aud`) validation using the Google `id_token` if you prefer additional checks.
-- Add README section or inline comments in code to indicate where to toggle the "Skip nonce checks" and "Allow users without email" settings.
-
-Tell me which of the optional improvements you want next and I'll implement them.

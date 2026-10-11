@@ -12,7 +12,7 @@ This is called **stale authorization** and can create a security window of minut
 
 ## ✅ The Solution: Active Revocation List (ARL)
 
-We've implemented an **Active Revocation List** using Redis Sets to provide **instant invalidation** of deleted API keys.
+We've implemented an **Active Revocation List** using one Redis key per revoked API key (`fuze:revoked:<hmac>`, 7-day TTL) to provide **instant invalidation** of deleted API keys.
 
 ### How It Works
 
@@ -23,8 +23,8 @@ We've implemented an **Active Revocation List** using Redis Sets to provide **in
                     │
                     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  1. Check Revocation List (Redis Set) - 0.2ms               │
-│     SADD revoked_keys <key_hash>                            │
+│  1. Check Revocation List (Redis) - 0.2ms                   │
+│     EXISTS fuze:revoked:<hmac_sha256(key)>                  │
 └───────────────────┬─────────────────────────────────────────┘
                     │
         ┌───────────┴──────────┐
@@ -55,10 +55,13 @@ We've implemented an **Active Revocation List** using Redis Sets to provide **in
 **File:** `backend/services/api_key_revocation_manager.py`
 
 **Key Features:**
-- Stores **hashed** API keys in Redis Set (never plain text)
-- O(1) lookup performance (~0.2ms)
-- 7-day TTL on revoked keys (handles edge cases)
-- Fail-open strategy (if Redis down, allow requests)
+- Stores **HMAC-SHA256** hashes of API keys (never plain text), one Redis key each
+- The HMAC key is derived from `SECRET_KEY` (`core.app_env.derived_secret`), or
+  `REVOCATION_SECRET` if set; it is never a constant in the source, so nobody can
+  precompute hashes of candidate keys
+- O(1) `EXISTS` lookup (~0.2ms)
+- Independent 7-day TTL per revoked key (automatic cleanup)
+- Fail-open strategy (if Redis down, allow requests; `REVOCATION_FAIL_OPEN=false` flips it)
 
 **Key Methods:**
 ```python
@@ -182,7 +185,7 @@ We chose **Active Revocation List** over other solutions because:
 
 ### ✅ Advantages
 - **Zero stale auth** - Immediate invalidation
-- **No DB load** - Redis Set lookup is fast
+- **No DB load** - Redis `EXISTS` lookup is fast
 - **Simple to implement** - No versioning or event system needed
 - **Fail-safe** - If Redis down, falls back to DB check
 - **Battle-tested** - Used by Stripe, GitHub, AWS
@@ -241,21 +244,20 @@ We chose **Active Revocation List** over other solutions because:
 
 **Check:**
 1. Is Redis connected? `redis_cache.connected`
-2. Is key actually in revocation set? `SISMEMBER fuze:api_keys:revoked <hash>`
+2. Is key actually revoked? `EXISTS fuze:revoked:<hmac>` (the hash depends on `SECRET_KEY`: rotating it orphans existing entries)
 3. Are you calling `is_api_key_revoked()` before validation?
 
 ### Issue: All requests blocked
 
 **Check:**
 1. Is Redis returning errors? Check logs
-2. Is revocation set corrupted? `SCARD fuze:api_keys:revoked`
+2. How many keys are revoked? `SCAN 0 MATCH fuze:revoked:*`
 3. Clear if needed: `manager.clear_all_revocations()` (admin only)
 
 ---
 
 ## 📚 References
 
-- [Redis Sets Performance](https://redis.io/docs/data-types/sets/)
 - [Stripe API Key Architecture](https://stripe.com/docs/keys)
 - [AWS IAM Revocation](https://aws.amazon.com/blogs/security/how-to-revoke-aws-credentials/)
 

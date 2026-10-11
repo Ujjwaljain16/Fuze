@@ -110,8 +110,11 @@ Raw outputs: `backend/eval/results/`. Reproduce: `backend/scripts/eval_retrieval
 
 ### 2.4 Search
 `/api/search/supabase-semantic` (what the frontend calls) and `/semantic` run the same engine with
-intent = the query. Same response shape. Users with no chunks yet fall back to document-level
-pgvector search (not the 500-row HTTP scan).
+intent = the query. Same response shape. Bookmarks without chunks yet (still processing, or
+chunking failed) are ranked by their document embedding and merged with the passage hits, so
+nothing drops out of search. Document-level ranking only compares embeddings from the active
+model and reports the real cosine similarity; a query that can't be embedded is a 503, not a
+ranking of zero vectors.
 
 ## 3. What gets deleted
 - All keyword/rule logic in ranking and intent: tech lists & synonym dicts
@@ -154,7 +157,10 @@ not assumed; rerank stays off if it doesn't earn its cost).
 - **Gemini quota/cost**: one call per bookmark (same as today) plus one per project/task edit; all async, cached, retried.
 - **Reranker latency on CPU**: flag-gated, top-N tuned by measurement.
 - **Supabase free tier**: chunks ≈ 1.5 KB each; 10k bookmarks × 10 chunks ≈ 150 MB — fine; monitored.
-- **Model swap**: re-embedding is a backfill job; reads fall back to document-level search until done.
+- **Model swap**: re-embedding is a backfill job. Vectors from the old model are never compared
+  with the new one, so bookmarks not yet re-embedded are missing from results until the backfill
+  reaches them. If the configured model can't load, embedding jobs fail and retry and search
+  returns 503; there is no silent fallback model.
 
 ## 7. Later (enabled by this engine)
 - **Ask your bookmarks**: grounded answers with citations, built on the same passage retrieval.

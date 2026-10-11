@@ -124,7 +124,7 @@ flowchart TD
 - Per-user key isolation
 - Rate limiting per user
 - Automatic key validation
-- Fallback to demo mode if no key
+- Without a key, users share the system key up to `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day (default 30); after that they're asked to add a key and background analysis waits
 
 ---
 
@@ -138,47 +138,48 @@ sequenceDiagram
     participant Extension as Chrome Extension
     participant Frontend as Web Frontend
     participant Backend as Flask Backend
-    participant Scraper as Content Scraper
     participant DB as Database
-    participant Analysis as Background Analysis
+    participant Queue as RQ (Redis)
+    participant Worker as RQ Worker
     participant Redis as Redis Cache
-    
+
     User->>Extension: Click 'Save to Fuze' button
     Extension->>Extension: Get current tab URL & title
     Extension->>Extension: Get auth token from storage
     Extension->>Backend: POST /api/bookmarks<br/>{url, title, description, category, tags}
-    
+
     Backend->>Backend: Validate JWT token
-    Backend->>Backend: Sanitize inputs
+    Backend->>Backend: Sanitize inputs (URL ≤ 2048 bytes)
     Backend->>DB: Check for duplicate URL (normalized)
-    
+
     alt Duplicate Found
         DB-->>Backend: Existing bookmark
         Backend->>DB: Update existing bookmark
         Backend->>Redis: Invalidate cache
         Backend-->>Extension: 200 OK (updated)
     else New Bookmark
-        Backend->>Scraper: Extract content from URL
-        Scraper->>Scraper: Scrape webpage content
-        Scraper->>Scraper: Extract text, headings, meta
-        Scraper->>Scraper: Calculate quality score
-        Scraper-->>Backend: {content, title, headings, quality_score}
-        
-        Backend->>Backend: Generate embedding<br/>(title + content)
-        Backend->>DB: Save bookmark with embedding
-        DB-->>Backend: Bookmark ID
-        
-        Backend->>Redis: Invalidate user bookmarks cache
-        Backend->>Analysis: Trigger background analysis (async)
-        Backend-->>Extension: 201 Created {bookmark_id}
-        
-        Note over Analysis: Background Process
-        Analysis->>Analysis: Get user's API key
-        Analysis->>Analysis: Analyze with Gemini AI
-        Analysis->>DB: Save ContentAnalysis record
-        Analysis->>Redis: Cache analysis results
+        Backend->>DB: Save bookmark (scrape_status PENDING)
+        Backend->>Queue: Enqueue fetch job (one job id per bookmark)
+        Note over Backend,Queue: If Redis is down the bookmark stays PENDING<br/>and the reconciler enqueues it later
+        Backend->>Redis: Invalidate user caches
+        Backend-->>Extension: 201 Created {bookmark_id, processing: background}
+
+        Note over Worker: Background pipeline
+        Queue->>Worker: process_bookmark_content_task
+        Worker->>Worker: Official API, or robots.txt + domain rate limit + SSRF-safe fetch
+        alt Fetched
+            Worker->>DB: Save extracted text (SUCCESS)
+        else Failed / blocked / disallowed
+            Worker->>DB: Keep title + notes (FAILED_FETCH / BLOCKED / DISALLOWED)
+        end
+        Worker->>Queue: Enqueue embedding job
+        Queue->>Worker: generate_embedding_task
+        Worker->>DB: Document embedding + passage chunks
+        Worker->>Worker: Gemini content profile (only with fetched text)
+        Worker->>DB: Save ContentAnalysis record
+        Worker->>Redis: XADD pipeline events (live SSE updates)
     end
-    
+
     Extension->>Extension: Show success notification
     Extension-->>User: Bookmark saved successfully
 ```
@@ -212,30 +213,27 @@ flowchart TD
     WaitComplete -->|Yes| ShowResults[Show Import Results]
     
     HasProgress -->|No| StartImport[POST /api/bookmarks/import<br/>Array of bookmarks]
-    StartImport --> InitProgress[Initialize Progress in Redis]
+    StartImport --> SizeCheck{More than 5000 items?}
+    SizeCheck -->|Yes| TooLarge[413 - extension sends 1000 at a time]
+    SizeCheck -->|No| InitProgress[Initialize Progress in Redis]
     InitProgress --> StartSSE[Start SSE Stream for Progress]
-    
-    StartSSE --> ProcessBatch[Backend: Process Bookmarks in Parallel]
+
+    StartSSE --> ProcessBatch[Backend: Process Bookmarks]
     ProcessBatch --> ForEachBookmark{For Each Bookmark}
-    
-    ForEachBookmark --> CheckDuplicate[Check if Duplicate]
-    CheckDuplicate --> IsDuplicate{Duplicate?}
+
+    ForEachBookmark --> CheckDuplicate[Check if Duplicate or invalid URL]
+    CheckDuplicate --> IsDuplicate{Skip?}
     IsDuplicate -->|Yes| SkipBookmark[Skip - Increment skipped_count]
-    IsDuplicate -->|No| ScrapeContent[Scrape & Extract Content]
-    
-    ScrapeContent --> QualityCheck{Quality Score >= 5?}
-    QualityCheck -->|No| SkipBookmark
-    QualityCheck -->|Yes| GenerateEmbedding[Generate Embedding]
-    GenerateEmbedding --> AddToBatch[Add to Batch]
-    
+    IsDuplicate -->|No| AddToBatch[Save bookmark as PENDING]
+
     SkipBookmark --> UpdateProgress[Update Progress in Redis]
     AddToBatch --> UpdateProgress
-    
+
     UpdateProgress --> MoreBookmarks{More Bookmarks?}
     MoreBookmarks -->|Yes| ForEachBookmark
-    MoreBookmarks -->|No| SaveBatch[Save Batch to Database]
-    
-    SaveBatch --> TriggerAnalysis[Trigger Background Analysis]
+    MoreBookmarks -->|No| SaveBatch[Commit]
+
+    SaveBatch --> TriggerAnalysis[Enqueue one fetch job per bookmark<br/>fetch, embed and analyze run in RQ]
     TriggerAnalysis --> MarkComplete[Mark Import Complete]
     MarkComplete --> SendSSE[Send Final Progress via SSE]
     SendSSE --> ShowResults
@@ -255,48 +253,35 @@ flowchart TD
 
 ## Content Analysis Flow
 
-Background analysis of saved bookmarks using Gemini AI.
+Analysis of saved bookmarks using Gemini AI. It runs at the end of the embedding job
+in the RQ worker, not on a polling thread.
 
 ```mermaid
 sequenceDiagram
-    participant Bookmark as Bookmark Saved
-    participant Backend as Flask Backend
-    participant Thread as Background Thread
+    participant Worker as RQ Worker (embedding job)
     participant AnalysisService as Analysis Service
     participant Gemini as Gemini AI
     participant DB as Database
     participant Redis as Redis Cache
     participant User as User Dashboard
-    
-    Bookmark->>Backend: Bookmark saved with ID
-    Backend->>Thread: Trigger async analysis thread
-    Note over Thread: Non-blocking background process
-    
-    Thread->>AnalysisService: analyze_content(bookmark_id, user_id)
+
+    Worker->>Worker: Embedding + passage chunks stored
+    Worker->>AnalysisService: analyze_content(bookmark_id, user_id)
     AnalysisService->>DB: Get bookmark & user data
-    DB-->>AnalysisService: Bookmark + User API Key
-    
-    AnalysisService->>AnalysisService: Check if already analyzed
-    alt Already Analyzed
-        AnalysisService-->>Thread: Skip (already done)
-    else Needs Analysis
-        AnalysisService->>Gemini: Analyze content with user's API key
-        Note over Gemini: Uses user's own Gemini API key<br/>for quota isolation
-        
-        Gemini->>Gemini: Extract:<br/>- Technologies<br/>- Key Concepts<br/>- Difficulty Level<br/>- Content Type<br/>- Learning Insights
-        Gemini-->>AnalysisService: Analysis results
-        
+
+    AnalysisService->>AnalysisService: Skip if already analyzed or no fetched text
+    alt Needs Analysis
+        AnalysisService->>AnalysisService: Pick key: user's own, or shared system key<br/>(daily per-user cap)
+        AnalysisService->>Gemini: Content profile request<br/>(own genai.Client bound to that key)
+        Note over Gemini: Every call gets its own client, so a<br/>prompt can never run on another user's key
+        Gemini-->>AnalysisService: Summary, what it teaches/solves,<br/>key concepts, when it's useful
+
         AnalysisService->>DB: Save ContentAnalysis record
-        AnalysisService->>Redis: Cache analysis (24h TTL)
+        AnalysisService->>Redis: Cache analysis
         AnalysisService->>Redis: Invalidate recommendation cache
-        
-        Note over User: User can see analysis status<br/>on Dashboard
-        AnalysisService->>User: Update analysis progress
+
+        Note over User: Live status via the SSE stream
     end
-    
-    Note over Thread: Runs continuously every 30s<br/>for unanalyzed content
-    Thread->>Thread: Check for more unanalyzed content
-    Thread->>AnalysisService: Process next batch
 ```
 
 ---

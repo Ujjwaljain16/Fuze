@@ -31,6 +31,7 @@ Complete API documentation for Fuze - Intelligent Bookmark Manager.
 - `403` - Forbidden
 - `404` - Not Found
 - `409` - Conflict
+- `413` - Payload Too Large (request body over `MAX_REQUEST_BYTES`, 5 MB by default; imports over 5000 items)
 - `429` - Too Many Requests
 - `500` - Internal Server Error
 - `503` - Service Unavailable
@@ -47,19 +48,28 @@ sequenceDiagram
     participant API as API Server
     
     Client->>API: POST /api/auth/login<br/>{username, password}
-    API-->>Client: {access_token, user}
-    
+    API-->>Client: {access_token, refresh_token, user}
+
     Client->>API: GET /api/*<br/>Header: Authorization: Bearer {token}
     API-->>Client: Protected Resource
-    
-    Note over Client,API: Token expires after 24 hours
+
+    Note over Client,API: Access token expires after 1 hour (JWT_ACCESS_TOKEN_EXPIRES_HOURS)
     Client->>API: POST /api/auth/refresh<br/>Header: Authorization: Bearer {refresh_token}
-    API-->>Client: {access_token}
+    API-->>Client: {access_token, refresh_token} (rotated)
 ```
 
-**Token Storage**: 
-- Access token: Client storage (localStorage/sessionStorage)
-- Refresh token: HTTP-only cookie (secure)
+**Token Storage**:
+- The web app keeps both tokens in `localStorage['user']`. The SPA is served from a
+  different site than the API, so the SameSite=Lax refresh cookie isn't sent on its
+  requests; it sends the refresh token in the `Authorization` header instead
+  (`/api/auth/refresh` also accepts the cookie)
+- Tokens are also set as HTTP-only cookies
+
+**Sessions**: every login starts a token family. A refresh rotates the refresh token;
+reusing an old one revokes the whole family. Refresh tokens without a family are
+rejected. Revoking a session (logout, password change, reuse) also blocks its
+still-valid access tokens through a short-lived `revoked_family` marker the JWT
+blocklist checks. Changing the password ends every other session.
 
 **Token Validation**: All protected endpoints validate JWT on every request
 
@@ -73,11 +83,21 @@ sequenceDiagram
 |--------|----------|------|-------------|
 | `POST` | `/api/auth/register` | ❌ | Register new user |
 | `POST` | `/api/auth/login` | ❌ | Login user |
-| `POST` | `/api/auth/refresh` | ✅ | Refresh access token |
-| `POST` | `/api/auth/logout` | ❌ | Logout user |
-| `GET` | `/api/auth/verify` | ✅ | Verify token validity |
+| `POST` | `/api/auth/refresh` | Refresh token | Rotate tokens |
+| `POST` | `/api/auth/logout` | ✅ | Logout user (revokes the session) |
+| `GET` | `/api/auth/verify` | ✅ | Verify token; returns a whitelisted profile |
 | `POST` | `/api/auth/verify-token` | ✅ | Verify token status |
 | `POST` | `/api/auth/check-username` | ❌ | Check username availability |
+| `POST` | `/api/auth/bulk-check-usernames` | ❌ | Check several usernames |
+| `POST` | `/api/auth/set-password` | ✅ | Set a password (Google-created accounts: needs a sign-in in the last 15 minutes) |
+| `POST` | `/api/auth/update-username` | ✅ | Change username |
+| `POST` | `/api/auth/supabase-oauth` | ❌ | Exchange a Supabase (Google) access token for a session. Signs in only the account linked to that Google identity; `409 account_link_required` if an unlinked account has the same email |
+| `POST` | `/api/auth/link-oauth` | ✅ | Connect Google to the signed-in account (email must match) |
+
+**Login lockout**: failed passwords are counted per (account, client IP): five wrong
+guesses block that client, not the owner signing in from elsewhere. The account-wide
+lock is at 50 failures (5 when Redis is unavailable). A password lockout doesn't
+block Google sign-in.
 
 **Register Request**:
 ```json
@@ -100,6 +120,7 @@ sequenceDiagram
 ```json
 {
   "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
   "user": {
     "id": 1,
     "username": "johndoe",
@@ -127,8 +148,26 @@ sequenceDiagram
 | `GET` | `/api/bookmarks/import/progress/stream` | ✅ | Stream import progress (SSE) |
 | `GET` | `/api/bookmarks/analysis/progress` | ✅ | Get analysis progress |
 | `GET` | `/api/bookmarks/analysis/progress/stream` | ✅ | Stream analysis progress (SSE) |
-| `GET` | `/api/bookmarks/progress/stream` | ✅ | Stream general progress (SSE) |
-| `POST` | `/api/bookmarks/extract-url` | ✅ | Extract content from URL |
+| `GET` | `/api/bookmarks/progress/check` | ✅ | One-shot pipeline progress |
+| `POST` | `/api/bookmarks/extract-url` | ✅ | Extract content from URL (fetched through the SSRF-safe client) |
+
+Saving never fails because the queue is down: the bookmark is committed as `PENDING`
+and the pipeline reconciler enqueues it later. URLs over 2048 bytes are rejected.
+
+### Live Events (`/api/realtime`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/realtime/stream-ticket` | ✅ | Mint a short-lived, single-use ticket for opening the SSE stream |
+| `GET` | `/api/realtime/stream` | ✅ or `?ticket=` | Pipeline and domain events for the user (SSE). Also served at `/api/bookmarks/progress/stream` |
+
+`EventSource` can't send an `Authorization` header, so the browser first mints a
+ticket and opens the stream with `?ticket=...`; access tokens never go in URLs. The
+stream reads the user's Redis Stream (`fuze:events:stream:{user_id}`) with blocking
+`XREAD`, and each entry's stream id is the SSE `id`: on reconnect the browser sends
+it back as `Last-Event-ID` and reading resumes right after it. The progress SSE
+endpoints authenticate with `verify_jwt_in_request` or a stream ticket, so revoked
+tokens and refresh tokens are refused.
 
 **Save Bookmark Request**:
 ```json
@@ -143,11 +182,11 @@ sequenceDiagram
 
 **List Bookmarks Query Params**:
 - `page` (default: 1)
-- `per_page` (default: 10)
+- `per_page` (default: 10, max: 100)
 - `search` (optional)
 - `category` (optional)
 
-**Bulk Import Request**:
+**Bulk Import Request** (at most 5000 items per request; the extension sends 1000 at a time):
 ```json
 [
   {
@@ -203,10 +242,11 @@ sequenceDiagram
 | `POST` | `/api/recommendations/cache/clear-context` | ✅ | Clear context cache |
 | `POST` | `/api/recommendations/cache/clear-all-recommendations` | ✅ | Clear all recommendation cache |
 | `GET` | `/api/recommendations/analysis/stats` | ✅ | Get analysis statistics |
-| `GET` | `/api/recommendations/analysis/analyze-content/<id>` | ✅ | Analyze specific content |
-| `POST` | `/api/recommendations/analysis/start-background` | ✅ | Start background analysis |
-| `POST` | `/api/recommendations/analysis/batch-analyze` | ✅ | Batch analyze content |
-| `POST` | `/api/recommendations/feedback` | ✅ | Submit recommendation feedback |
+| `POST` | `/api/recommendations/analysis/analyze-content/<id>` | ✅ | Analyze specific content |
+| `POST` | `/api/recommendations/feedback` | ✅ | Submit recommendation feedback (`feedback_data` keys are whitelisted; references to other users' projects/tasks are dropped) |
+| `GET` | `/api/recommendations/suggested-contexts` | ✅ | Suggested contexts (only the caller's own projects) |
+| `GET` | `/api/recommendations/recent-contexts` | ✅ | Recently used contexts |
+| `GET` | `/api/recommendations/gemini-status` | ✅ | Gemini availability for the user |
 
 **Unified Orchestrator Request**:
 ```json
@@ -251,6 +291,11 @@ sequenceDiagram
 | `POST` | `/api/search/semantic` | ✅ | Semantic search (vector similarity) |
 | `GET` | `/api/search/text` | ✅ | Text search (keyword-based) |
 
+Semantic search ranks passages, and merges in bookmarks that have no chunks yet by
+their document embedding, so nothing still processing drops out. It only compares
+embeddings from the active model and returns the real cosine similarity. If the
+query can't be embedded the endpoint returns 503 rather than a meaningless ranking.
+
 **Semantic Search Request**:
 ```json
 {
@@ -269,7 +314,7 @@ sequenceDiagram
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/profile` | ✅ | Get user profile |
+| `GET` | `/api/profile` | ✅ | Get user profile (includes `has_password` and `google_connected`) |
 | `PUT` | `/api/profile` | ✅ | Update profile |
 | `PUT` | `/api/users/<id>` | ✅ | Update user (compatibility) |
 | `PUT` | `/api/users/<id>/password` | ✅ | Change password |
@@ -304,7 +349,7 @@ sequenceDiagram
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `POST` | `/api/linkedin/extract` | ✅ | Extract LinkedIn post content |
-| `POST` | `/api/linkedin/analyze` | ✅ | Analyze LinkedIn content |
+| `POST` | `/api/linkedin/analyze` | ✅ | Analyze LinkedIn content (same content profile as other bookmarks; 502 when the model returns nothing usable) |
 | `POST` | `/api/linkedin/batch-extract` | ✅ | Batch extract LinkedIn posts |
 | `GET` | `/api/linkedin/history` | ✅ | Get extraction history |
 | `POST` | `/api/linkedin/save-to-bookmarks` | ✅ | Save LinkedIn content to bookmarks |
@@ -339,15 +384,21 @@ sequenceDiagram
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/health` | ❌ | System health status |
+| `GET` | `/api/health` | ❌ | Up/down for database and Redis |
+| `GET` | `/health/liveness` | ❌ | Process alive (Docker `HEALTHCHECK`) |
+| `GET` | `/health/readiness` | ❌ | 503 unless database, Redis and schema (Alembic head of this build) are ready |
+| `GET` | `/api/health/database`, `/api/health/redis` | ❌ | Single-dependency up/down |
+| `GET` | `/api/health/queue`, `/api/health/detailed` | `X-Internal-Token` | Queue depth and failed jobs / cache stats; 404 unless `INTERNAL_HEALTH_TOKEN` is set and sent |
+| `GET` | `/metrics` | Bearer `METRICS_AUTH_TOKEN` | Prometheus metrics; 404 unless the token is configured |
 
-**Response**:
+Public health endpoints report up/down only: no hostnames, error text or environment.
+
+**Response** (`/api/health`):
 ```json
 {
   "status": "healthy",
   "database": "connected",
-  "redis": "connected",
-  "timestamp": "2024-01-01T00:00:00Z"
+  "redis": {"connected": true}
 }
 ```
 
@@ -491,12 +542,23 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
 
 | Endpoint Pattern | Limit | Window | Scope |
 |------------------|-------|--------|-------|
-| `/api/auth/login` | 5 requests | 15 minutes | Per IP |
-| `/api/auth/register` | 5 requests | 15 minutes | Per IP |
-| `/api/recommendations/*` | 20 requests | 1 minute | Per User |
-| All other endpoints | 100 requests | 1 minute | Per User |
+| `/api/auth/login`, `/api/auth/set-password`, `PUT /api/users/<id>/password` | 5 requests | 15 minutes | Per user, else per IP |
+| `/api/auth/register`, `/api/auth/update-username` | 10 requests | 1 hour | Per user, else per IP |
+| `/api/auth/check-username` | 30 requests | 1 minute | Per IP |
+| `/api/recommendations/unified-orchestrator` | 15 requests | 1 minute | Per User |
+| `/api/recommendations/generate-context` | 10 requests | 1 minute | Per User |
+| `/api/search/semantic` | 30 requests | 1 minute | Per User |
+| `/api/linkedin/batch-extract` | 5 requests | 1 minute | Per User |
+| All other endpoints | 50/min, 200/hour, 1000/day | moving window | Per user, else per IP |
 
-**Note**: Rate limits use Redis backend for production, falls back to in-memory storage if Redis unavailable. Limits are configurable via environment variables.
+**Note**: Limits use Redis storage (moving window). In production a missing
+`REDIS_URL` or a limiter setup failure aborts startup; in-memory storage is only used
+outside production. Development and testing use much higher defaults.
+
+**Gemini usage**: users without their own Gemini key share the system key, up to
+`SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day each (default 30); after that they
+are asked to add a key and background analysis waits. Per-user quota counters are
+fixed windows (minute/day/month) that reset.
 
 ### Rate Limit Headers
 
@@ -510,8 +572,9 @@ X-RateLimit-Reset: 1609459200
 **Rate Limit Exceeded Response**:
 ```json
 {
-  "message": "Too many requests. Please try again later.",
-  "retry_after": 60
+  "error": "rate_limit_exceeded",
+  "message": "Too many requests. Please slow down and try again later.",
+  "retry_after": "60"
 }
 ```
 

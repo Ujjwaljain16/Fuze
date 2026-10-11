@@ -22,147 +22,111 @@ Complete documentation of all optimizations and performance improvements in Fuze
 | **Model Loading** | 6-7 seconds | 0.1 seconds | **98% faster** |
 | **Database Queries** | No indexes, slow | Indexed, optimized | **10-100x faster** |
 | **API Response Time** | No caching | Multi-layer cache | **70-80% faster** |
-| **Duplicate Requests** | All executed | Deduplicated | **50% reduction** |
+| **Duplicate Requests** | All executed | Deduplicated (frontend) | **50% reduction** |
+| **5 concurrent `pg_sleep(1)` on one gevent worker** | 5.05 s | 1.01 s | **psycogreen** (measured in the built image) |
 | **Cache Hit Rate** | 0% | 70-80% | **High efficiency** |
 
 ---
 
 ## Backend Optimizations
 
-### 1. Model Caching (MiniLM)
+### 1. Model Caching (bge-small-en-v1.5)
 
 **Problem**: Embedding model loaded on every request (6-7 seconds)
 
-**Solution**: Singleton pattern with thread-safe locking
+**Solution**: Lazily loaded singleton with double-checked locking
 
 **Implementation**: `backend/utils/embedding_utils.py`
 
 ```python
-# Global cache for embedding models (singleton pattern)
-_embedding_model_cache = {}
-_embedding_model_lock = threading.Lock()
+_embedding_lock = threading.RLock()
 
-def get_cached_embedding_model(model_name='all-MiniLM-L6-v2'):
-    """Get cached embedding model with thread-safe lazy loading"""
-    if model_name in _embedding_model_cache:
-        return _embedding_model_cache[model_name]
-
-    with _embedding_model_lock:
-        # Double-check after acquiring lock
-        if model_name in _embedding_model_cache:
-            return _embedding_model_cache[model_name]
-
-        logger.info(f"Loading embedding model: {model_name}")
-        model = SentenceTransformer(model_name)
-        _embedding_model_cache[model_name] = model
-        logger.info(f"Embedding model loaded and cached: {model_name}")
-        return model
+def get_embedding_model():
+    """Get or lazy-load the embedding model singleton with thread safety."""
+    global _embedding_model, _embedding_model_initialized
+    if not _embedding_model_initialized:
+        with _embedding_lock:
+            if not _embedding_model_initialized:
+                _embedding_model = _initialize_embedding_model_robust()
+                _embedding_model_initialized = True
+    return _embedding_model
 ```
 
+The model is `BAAI/bge-small-en-v1.5` (override with `EMBEDDING_MODEL_NAME`; it must
+be 384-dimensional). If it can't load, `_initialize_embedding_model_robust` raises
+`EmbeddingUnavailable`: embedding jobs fail and are retried, search returns 503.
+There is no silent fallback to another model or to hash vectors, which would be
+stored next to real ones; hash vectors are only an explicit `DISABLE_EMBEDDINGS`
+opt-in for local work. The RQ worker loads the model once in the parent process,
+so forked per-job work horses share it instead of reloading ~130 MB per job.
+
 **Benefits**:
-- ✅ Model loaded once per worker
+- ✅ Model loaded once per process (once per RQ worker, shared by its jobs)
 - ✅ Thread-safe access
 - ✅ 98% reduction in model loading time
 - ✅ Memory efficient (single instance)
 
 ---
 
-### 2. Request Deduplication
+### 2. Keeping gevent Workers Responsive
 
-**Problem**: Multiple identical requests processed simultaneously
+**Problem**: gevent only switches greenlets at I/O it has patched. psycopg2 is a C
+extension that blocks the whole process while it waits on Postgres, and
+`model.encode()` / bcrypt are pure CPU, so one slow query or encode froze every
+other request on that worker.
 
-**Solution**: Deduplicate requests within TTL window
-
-**Implementation**: `backend/utils/embedding_utils.py` and `backend/ml/unified_recommendation_orchestrator.py`
-
-```python
-# In embedding_utils.py
-_pending_embedding_requests = {}
-
-def deduplicate_embedding_request(request_key: str, embedding_fn: Callable, ttl: int = 30):
-    """Dedup embedding requests to prevent redundant computation"""
-    if request_key in _pending_embedding_requests:
-        return _pending_embedding_requests[request_key]
-
-    result = embedding_fn()
-    _pending_embedding_requests[request_key] = result
-
-    # Cleanup after TTL
-    def cleanup():
-        time.sleep(ttl)
-        _pending_embedding_requests.pop(request_key, None)
-
-    threading.Thread(target=cleanup, daemon=True).start()
-    return result
-```
+**Solution**:
+- `gunicorn.conf.py` installs psycogreen in `post_fork`, so every query yields to
+  other greenlets. Measured in the built image: 5 concurrent `pg_sleep(1)` take
+  **5.05 s unpatched vs 1.01 s patched**.
+- `backend/utils/cooperative.py` `run_cpu_bound()` moves `model.encode` and bcrypt
+  onto gevent's thread pool (torch and bcrypt release the GIL), and calls the
+  function directly outside a patched worker (RQ, scripts, tests).
+- Gunicorn: 2 gevent workers, worker timeout 60 s (was 2000 s, so one stuck worker
+  held half the capacity for half an hour), graceful timeout 30 s, one torch
+  thread per worker.
+- Duplicate concurrent requests are collapsed on the client instead (see
+  [Frontend Request Deduplication](#4-request-deduplication)).
 
 **Benefits**:
-- ✅ Prevents duplicate work
-- ✅ Reduces database load
-- ✅ Faster response for concurrent requests
-- ✅ Automatic cleanup after TTL
+- ✅ A slow query or encode no longer stalls unrelated requests
+- ✅ Stuck workers are recycled within a minute
+- ✅ Long work stays in RQ jobs, not requests
 
 ---
 
-### 3. Multi-Layer Caching Strategy
+### 3. Redis Caching
 
 **Problem**: Database queries and expensive computations repeated
 
-**Solution**: Three-layer caching: Redis → In-memory → Database
+**Solution**: Shared Redis cache for per-user read models (profile, dashboard,
+bookmark and project pages), embeddings and content analyses. Small in-process
+caches exist only where values rarely change (feature flags, decrypted API keys).
 
-**Implementation**: `backend/utils/redis_utils.py` and `backend/blueprints/`
+**Implementation**: `backend/utils/redis_utils.py` (`RedisCache`) and
+`backend/core/cache_keys.py`
 
 ```python
-# Redis cache layer (shared across workers)
-def redis_cache_get(key: str):
-    """Get from Redis with error handling"""
-    try:
-        return redis_client.get(key)
-    except Exception:
-        return None
+# core/cache_keys.py: every per-user key is built here, by readers and invalidators alike
+def profile(user_id: int) -> str:
+    return f"profile:{user_id}"
 
-def redis_cache_set(key: str, value, ttl: int = 300):
-    """Set in Redis with TTL"""
-    try:
-        redis_client.setex(key, ttl, json.dumps(value))
-    except Exception:
-        pass
+def dashboard_summary(user_id: int) -> str:
+    return f"dashboard:v1:summary:{user_id}"
 
-# In-memory cache layer (per worker)
-_request_cache = {}
-
-def get_cached_result(cache_key: str, fetch_fn: Callable, ttl: int = 60):
-    """Two-level caching: Redis first, then in-memory"""
-    # Check Redis first (shared)
-    cached = redis_cache_get(cache_key)
-    if cached:
-        return json.loads(cached)
-
-    # Check in-memory (worker-specific)
-    if cache_key in _request_cache:
-        entry = _request_cache[cache_key]
-        if time.time() < entry['expires']:
-            return entry['result']
-
-    # Fetch fresh data
-    result = fetch_fn()
-
-    # Cache in both layers
-    redis_cache_set(cache_key, result, ttl)
-    _request_cache[cache_key] = {
-        'result': result,
-        'expires': time.time() + ttl
-    }
-
-    return result
+def bookmarks_page(user_id: int, page, per_page, search, category) -> str:
+    return f"bookmarks:{user_id}:{page}:{per_page}:{search}:{category}"
 ```
 
+Redis is optional on the request path, and a slow or dead Redis can't hang a
+request: the pool uses 2 s connect/read timeouts without retry-on-timeout, there
+is no PING before each operation (the pool's 15 s health check covers idle
+connections), and while Redis is down a reconnect is attempted at most every 5 s.
+
 **Benefits**:
-- ✅ Fast in-memory access (< 1ms)
-- ✅ Automatic expiration with cleanup
-- ✅ Thread-safe with locks
-- ✅ 70-80% cache hit rate
-- ✅ Memory-efficient with size limits
+- ✅ Shared across all workers and processes
+- ✅ Readers and invalidators can't drift apart on key names
+- ✅ Degrades to the database when Redis is unavailable
 
 ---
 
@@ -170,36 +134,26 @@ def get_cached_result(cache_key: str, fetch_fn: Callable, ttl: int = 60):
 
 **Problem**: No visibility into performance bottlenecks
 
-**Solution**: Comprehensive performance tracking
+**Solution**: Prometheus metrics plus structured logs with a request id
 
-**Implementation**: `backend/utils/redis_utils.py` and `backend/services/cache_invalidation_service.py`
+**Implementation**: `backend/core/metrics.py` and `backend/core/logging_config.py`
 
-```python
-def track_performance(operation: str, duration: float, metadata: Dict = None):
-    """Track performance metrics"""
-    _performance_metrics[operation].append({
-        'duration': duration,
-        'timestamp': time.time(),
-        'metadata': metadata or {}
-    })
-
-def get_performance_stats(operation: str):
-    """Get statistics: avg, min, max, p95, p99"""
-    durations = [m['duration'] for m in metrics]
-    return {
-        'avg_duration': sum(durations) / len(durations),
-        'min_duration': min(durations),
-        'max_duration': max(durations),
-        'p95_duration': sorted(durations)[int(len(durations) * 0.95)],
-        'p99_duration': sorted(durations)[int(len(durations) * 0.99)]
-    }
-```
+- Recorded today: HTTP request duration and recommendation latency histograms,
+  Gemini call and pipeline event counters, and the RQ queue depth gauge (a few more
+  series, such as cache hits and embedding duration, are declared in
+  `core/metrics.py` but not yet recorded anywhere)
+- Metrics are merged across the gunicorn and RQ processes through
+  `PROMETHEUS_MULTIPROC_DIR` (set in `start.sh`; dead workers are cleaned up), so
+  `/metrics` doesn't show whichever worker happened to answer
+- `/metrics` returns 404 unless `METRICS_AUTH_TOKEN` is configured and sent as a
+  Bearer token
+- One request id per request (the caller's `X-Request-ID` when sane, else a new
+  one) is bound into every structlog line; RQ jobs log with their job id
 
 **Benefits**:
-- ✅ Real-time performance metrics
+- ✅ Percentiles from histograms (p95, p99) in Grafana
 - ✅ Identify slow operations
-- ✅ Percentile tracking (p95, p99)
-- ✅ Operation-level insights
+- ✅ Logs of one request can be followed across lines
 
 ---
 
@@ -353,9 +307,10 @@ export const deduplicateRequest = async (requestKey, requestFn) => {
 
 **Problem**: Slow queries without indexes
 
-**Solution**: 24 production indexes on all frequently queried columns
+**Solution**: Indexes on the frequently queried columns, created by the Alembic
+migrations (Alembic is the only source of schema)
 
-**Implementation**: `backend/utils/database_indexes.py`
+**Implementation**: `backend/alembic/versions/`
 
 **Index Types**:
 
@@ -366,13 +321,15 @@ export const deduplicateRequest = async (requestKey, requestFn) => {
    CREATE INDEX idx_saved_content_user_saved_at ON saved_content(user_id, saved_at DESC);
    ```
 
-2. **Vector Search Indexes** (pgvector)
+2. **Vector Search Indexes** (pgvector HNSW)
    ```sql
-   CREATE INDEX idx_saved_content_embedding ON saved_content 
-   USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-   
-   CREATE INDEX idx_projects_embedding ON projects 
-   USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+   -- 0003_hnsw_indexes.py
+   CREATE INDEX CONCURRENTLY idx_saved_content_embedding_hnsw ON saved_content
+   USING hnsw (embedding vector_cosine_ops);
+
+   -- 0011_content_chunks.py (passage-level search)
+   CREATE INDEX idx_content_chunks_embedding_hnsw ON content_chunks
+   USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
    ```
 
 3. **Composite Indexes** (Common query patterns)
@@ -401,27 +358,36 @@ export const deduplicateRequest = async (requestKey, requestFn) => {
 
 **Solution**: Connection pool with health checks
 
-**Implementation**: `backend/utils/database_connection_manager.py`
+**Implementation**: one engine, configured in one place: `UnifiedConfig`
+(`backend/utils/unified_config.py`) builds the engine options, and
+`backend/run_production.py` sets a per-connection `statement_timeout`
 
-**Configuration**:
+**Configuration** (defaults; each is overridable with a `DB_*` variable):
 ```python
 SQLALCHEMY_ENGINE_OPTIONS = {
     'pool_size': 5,              # Base connections
     'max_overflow': 10,          # Additional connections
+    'pool_timeout': 20,          # Wait at most 20 s for a free connection
     'pool_recycle': 300,         # Recycle after 5 minutes
     'pool_pre_ping': True,       # Health check before use
     'connect_args': {
-        'connect_timeout': 30,
-        'sslmode': 'prefer'      # Auto-detect SSL
+        'connect_timeout': 5,    # Fail fast instead of hanging a request
+        'sslmode': 'require',    # in production; 'prefer' elsewhere
+        'keepalives': 1,
     }
 }
+# plus SET statement_timeout = 15000 (DB_STATEMENT_TIMEOUT_MS) on every new connection
 ```
+
+Gemini is never called while a transaction is open: handlers read what they need,
+close the session, call the model, and open a new session only if there is more to
+write, so slow model calls can't exhaust the pool.
 
 **Benefits**:
 - ✅ Reuses connections (faster)
 - ✅ Limits total connections
 - ✅ Automatic health checks
-- ✅ Handles connection failures gracefully
+- ✅ One runaway query can't hold a connection for more than 15 s
 
 ---
 
@@ -452,44 +418,33 @@ query = SavedContent.query.options(
 
 ## Caching Strategy
 
-### Multi-Layer Caching Architecture
+### Caching Architecture
 
 ```mermaid
 graph TB
-    Request[API Request] --> Layer1{In-Memory Cache?}
-    
-    Layer1 -->|Hit| Return1[Return Result<br/>~1ms]
-    Layer1 -->|Miss| Layer2{Redis Cache?}
-    
-    Layer2 -->|Hit| Return2[Return Result<br/>~5ms]
-    Layer2 -->|Miss| Layer3[Database Query<br/>~50-200ms]
-    
-    Layer3 --> Store1[Store in Redis]
-    Store1 --> Store2[Store in Memory]
-    Store2 --> Return3[Return Result]
-    
-    style Layer1 fill:#ffd700
-    style Layer2 fill:#ff6b6b
-    style Layer3 fill:#9b59b6
+    Request[API Request] --> Layer1{Redis Cache?}
+
+    Layer1 -->|Hit| Return1[Return Result<br/>~5ms]
+    Layer1 -->|Miss or Redis down| Layer2[Database Query<br/>~50-200ms]
+
+    Layer2 --> Store1[Store in Redis]
+    Store1 --> Return2[Return Result]
+
+    style Layer1 fill:#ff6b6b
+    style Layer2 fill:#9b59b6
 ```
 
 ### Cache Layers
 
-#### Layer 1: In-Memory Cache
-- **Location**: Application memory
-- **TTL**: 5 minutes
-- **Speed**: ~1ms
-- **Scope**: Single worker
-- **Use Cases**: Query results, request deduplication
-
-#### Layer 2: Redis Cache
+#### Layer 1: Redis Cache
 - **Location**: Redis server
-- **TTL**: Variable (5 min - 24 hours)
+- **TTL**: Variable (minutes to 24 hours)
 - **Speed**: ~5ms
 - **Scope**: All workers
-- **Use Cases**: Embeddings, content, recommendations, analysis
+- **Use Cases**: Per-user pages (profile, dashboard, bookmarks, projects), embeddings, analysis
+- **In-process exceptions**: feature flags and decrypted API keys are also cached per process
 
-#### Layer 3: Database
+#### Layer 2: Database
 - **Location**: PostgreSQL
 - **TTL**: Permanent
 - **Speed**: ~50-200ms
@@ -498,14 +453,19 @@ graph TB
 
 ### Cache Types & TTLs
 
-| Cache Type | Key Pattern | TTL | Purpose |
-|------------|-------------|-----|---------|
-| **Embeddings** | `fuze:embedding:{hash}` | 24 hours | Avoid regenerating embeddings |
-| **Content** | `fuze:scraped:{url_hash}` | 1 hour | Avoid re-scraping URLs |
-| **User Bookmarks** | `fuze:user_bookmarks:{user_id}` | 5 minutes | Fast duplicate checking |
-| **Recommendations** | `fuze:recommendations:{user_id}:{hash}` | 30 minutes | Reuse recommendation results |
-| **Analysis** | `fuze:content_analysis:{content_id}` | 24 hours | Reuse AI analysis |
-| **Query Results** | `fuze:query:{hash}` | 5 minutes | Cache database query results |
+Per-user keys are built only through `backend/core/cache_keys.py`:
+
+| Cache Type | Key Pattern | Purpose |
+|------------|-------------|---------|
+| **Profile** | `profile:{user_id}` | Profile page |
+| **Dashboard** | `dashboard:v1:summary:{user_id}`, `dashboard:stats:{user_id}` | Dashboard counters |
+| **Bookmarks** | `bookmarks:{user_id}:{page}:{per_page}:{search}:{category}`, `bookmarks:{user_id}:list` | Bookmark pages; import dedup |
+| **Projects** | `projects:{user_id}:{page}:{per_page}:{include_tasks}` | Project lists |
+| **Analysis** | `content_analysis:{content_id}` | Reuse AI analysis |
+| **Embeddings** | hashed text (`RedisCache.cache_embedding`, 24 h) | Avoid re-encoding identical text |
+
+There is no cache of fetched pages: the raw-HTML cache was written on every fetch
+and never read, so it was removed.
 
 ### Cache Invalidation
 
@@ -532,8 +492,13 @@ class CacheInvalidator:
 
 **Invalidation Patterns**:
 - Content saved/updated/deleted → Invalidate content, user, recommendations
-- Project created/updated/deleted → Invalidate project, user, recommendations
+- Project created/updated/deleted → Invalidate project, user (project lists included), recommendations
 - Analysis completed → Invalidate analysis, recommendations
+- `DELETE /api/bookmarks/all` clears the user's caches synchronously
+
+Web requests run invalidation on a background thread; invalidations requested from
+RQ jobs run inline, because work horses exit via `os._exit()` and would kill the
+thread before it ran.
 
 **Benefits**:
 - ✅ Always fresh data
@@ -582,10 +547,10 @@ class CacheInvalidator:
 
 ### Backend ✅
 - ✅ Model caching (singleton pattern)
-- ✅ Request deduplication
-- ✅ Query result caching
-- ✅ Performance monitoring
-- ✅ Database indexing (24 indexes)
+- ✅ Query result caching (Redis)
+- ✅ Performance monitoring (Prometheus)
+- ✅ Database indexing (Alembic-managed, HNSW for vectors)
+- ✅ Cooperative gevent workers (psycogreen, CPU work on the thread pool)
 - ✅ Connection pooling
 - ✅ Query optimization (eager loading)
 - ✅ Background processing
@@ -598,9 +563,8 @@ class CacheInvalidator:
 - ✅ Code splitting (future)
 
 ### Caching ✅
-- ✅ Multi-layer caching (3 layers)
-- ✅ Redis caching (5 types)
-- ✅ In-memory caching
+- ✅ Redis caching (shared key builders)
+- ✅ Small in-process caches (feature flags, API keys)
 - ✅ Cache invalidation
 - ✅ Cache statistics
 
@@ -659,22 +623,22 @@ Added comprehensive test files for all previously untested endpoints:
 ### Security Enhancements
 - ✅ **Authentication**: All protected endpoints use `@jwt_required()` decorator
 - ✅ **Authorization**: User ownership verified for all resource operations
-- ✅ **Input validation**: Security middleware validates and sanitizes all inputs
+- ✅ **Input validation**: `middleware/security_middleware.py` validates and sanitizes inputs; length limits are read from the database columns, URLs over 2048 bytes are rejected, request bodies over 5 MB get a 413
 - ✅ **SQL Injection Prevention**: All queries use parameterized statements
 - ✅ **XSS Prevention**: Input validation checks for XSS patterns
-- ✅ **Rate Limiting**: Implemented with Redis fallback to memory storage
-- ✅ **Security Headers**: Comprehensive security headers middleware
-- ✅ **Environment Variable Validation**: Production mode validates critical secrets
+- ✅ **Rate Limiting**: Flask-Limiter on Redis; production refuses to start without it (memory storage only outside production)
+- ✅ **Security Headers**: `add_security_headers` adds HSTS, nosniff, frame denial and `default-src 'none'` to every API response
+- ✅ **Environment Variable Validation**: `APP_ENV` (unset = production) refuses missing, default or short secrets
 
 ### Database Optimization
-- ✅ **Indexes**: 24 comprehensive indexes defined
+- ✅ **Indexes**: defined in the Alembic migrations
   - User isolation indexes (critical for security)
   - Composite indexes for common query patterns
   - Vector search indexes for embeddings
   - Case-insensitive indexes for username/email lookups
 - ✅ **Connection Pooling**: Optimized pool settings for production
-- ✅ **SSL Support**: Database connection manager handles SSL connections
-- ✅ **Connection Retry Logic**: Automatic retry on connection failures
+- ✅ **SSL Support**: `sslmode=require` in production
+- ✅ **Fail Fast**: 5 s connect timeout and 15 s statement timeout
 
 ### Error Handling
 - ✅ **Consistent error responses**: All endpoints return proper HTTP status codes
@@ -691,13 +655,13 @@ Added comprehensive test files for all previously untested endpoints:
 ### Performance Optimizations
 - ✅ **Response Compression**: Flask-Compress enabled for all responses
 - ✅ **Caching**: Redis caching for frequently accessed data
-- ✅ **Lazy Loading**: Database connections initialized on first request
+- ✅ **Lazy Loading**: the app is built on first use of `run_production.app`, so gunicorn and the RQ worker each construct it once
 - ✅ **Connection Pooling**: Optimized database connection pool settings
 - ✅ **Background Jobs**: RQ worker for async processing
 
 ### Logging
 - ✅ **UTC Timestamps**: All logs use UTC timezone
-- ✅ **Structured Logging**: Consistent log format across all modules
+- ✅ **Structured Logging**: structlog (`core/logging_config.py`) with a request id on every line
 - ✅ **Log Levels**: Appropriate log levels (INFO, WARNING, ERROR)
 - ✅ **Error Context**: Full traceback and context in error logs
 
