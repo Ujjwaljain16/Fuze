@@ -330,11 +330,8 @@ def create_app(config_name: str = None) -> Flask:
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRF-TOKEN, X-Request-ID, Accept'
 
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        return response
+        from middleware.security_middleware import add_security_headers
+        return add_security_headers(response)
 
     # Blueprint Registration
     app.register_blueprint(auth_bp)
