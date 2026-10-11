@@ -6,19 +6,28 @@
 frontend/
 BookmarkExtension/
 venv/
-__pycache__/
-*.pyc
-.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
 .ruff_cache/
 .kombai/
 .vscode/
 interview/
 docs/
 scripts/
-*.log
-*.pem
-.env
-.env.*
+**/*.log
+**/*.pem
+**/.env
+**/.env.*
+
+# Local-only working files under backend/ (gitignored, but `COPY backend/` would still
+# bake them into the image): scratch scripts can hold live credentials, logs hold JWTs.
+backend/scratch/
+backend/brain/
+backend/instance/
+backend/tests/
+backend/eval/
+backend/*.txt
 image.png
 index.html
 sw.html
