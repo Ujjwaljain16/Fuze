@@ -107,3 +107,15 @@ class TestProjects:
             deleted = Project.query.get(project_id)
             assert deleted is None
 
+
+def test_project_creation_succeeds_when_ml_enqueue_fails(client, auth_headers):
+    """The ML job is a side effect of ProjectCreated; a queue failure must not fail the save."""
+    from unittest.mock import patch
+    with patch('services.task_queue.enqueue_project_ml_job', side_effect=Exception('queue down')) as enqueue:
+        response = client.post('/api/projects', json={
+            'title': 'Enqueue isolation', 'description': 'Saved even though the enqueue fails',
+            'technologies': 'Python'}, headers=auth_headers)
+    assert response.status_code == 201
+    assert 'project_id' in response.json
+    enqueue.assert_called_once()
+
