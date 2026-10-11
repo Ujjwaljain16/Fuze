@@ -226,8 +226,8 @@ def test_import_during_redis_outage_self_heals_after_reconcile(app, client, test
         assert {(row['scrape'], row['embed']) for row in rows.values()} == {('PENDING', 'PENDING')}
 
         with app.app_context():  # a reconciler pass during the outage changes nothing
-            assert pipeline_reconciler.reconcile() == {'fetch_requeued': 0, 'fetch_gave_up': 0,
-                                                       'embedding_requeued': 0, 'deferred': 0}
+            # Nothing left to do: every counter is zero, whatever passes the reconciler grows.
+            assert not any(pipeline_reconciler.reconcile().values())
 
     # 2. Redis is back. The next reconciler pass after the stale window re-enqueues every row.
     monkeypatch.setattr(pipeline_reconciler, 'BATCH_LIMIT', 10_000)  # other tests' rows may share this DB
