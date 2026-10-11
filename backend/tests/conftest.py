@@ -48,6 +48,10 @@ os.environ['REDIS_DB'] = '15'
 os.environ.pop('REDIS_PASSWORD', None)
 os.environ.pop('REDIS_SSL', None)
 
+# A SENTRY_DSN from .env would make importing run_production report every deliberately
+# raised test error to the production Sentry project.
+os.environ.pop('SENTRY_DSN', None)
+
 def pytest_sessionstart(session):
     session._start_time = time.perf_counter()
     print(f"\n[TIMING HOOK] pytest_sessionstart at {time.strftime('%H:%M:%S')}")

@@ -120,3 +120,6 @@ scripts/benchmark_results.json
 
 # server-side deploy secrets
 deploy/.env
+
+# Written by the HF deploy (sync-to-hf-space.yml) for Sentry releases; never committed here
+backend/RELEASE

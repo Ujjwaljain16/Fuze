@@ -38,7 +38,8 @@ jobs:
         run: |
           # --delete: modules removed from the repo must disappear from the Space too
           # (cp -r only ever added files, so deleted code kept running there).
-          rsync -a --delete --delete-excluded --exclude '__pycache__/' --exclude '*.pyc' \
+          # P /RELEASE: the release marker is only rewritten when code changes (next step).
+          rsync -a --delete --delete-excluded --filter 'P /RELEASE' --exclude '__pycache__/' --exclude '*.pyc' \
             --exclude 'tests/' --exclude 'scratch/' --exclude 'brain/' --exclude 'eval/' \
             --exclude '*.log' --exclude '.env*' \
             backend/ hf-space/backend/
@@ -55,6 +56,10 @@ jobs:
           cd hf-space
           git add -A
           if ! git diff --staged --quiet; then
+            # Sentry's release. HF builds from this repository and takes no build args, so the
+            # SHA ships as a file that core/sentry_setup.py reads at boot.
+            printf '%s\n' "$SHA" > backend/RELEASE
+            git add backend/RELEASE
             git commit -m "chore: sync from main @ ${SHA::7} [skip ci]"
             echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi

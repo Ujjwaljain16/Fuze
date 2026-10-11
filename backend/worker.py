@@ -49,6 +49,11 @@ class FuzeWorker(Worker):
 
 def run_single_worker(args, worker_index: int = 1):
     """Run a single RQ worker instance within a process context."""
+    # Per process (each --workers child), before run_production is imported, so job failures are
+    # reported tagged component=worker. RQ's work horses are forked from here and inherit it.
+    from core.sentry_setup import init_sentry
+    init_sentry(component='worker')
+
     from services.task_queue import get_queue_connection
     rq_redis = get_queue_connection()
 

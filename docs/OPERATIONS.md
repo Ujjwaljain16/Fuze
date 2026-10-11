@@ -93,6 +93,33 @@ runs with `HF_HUB_OFFLINE=1`, so containers never download a model. If you chang
 the `Dockerfile` (or run with `HF_HUB_OFFLINE=0`). Otherwise it fails to load: embeddings fall back
 to hash vectors (logged as `all_embedding_models_failed_using_fallback`) and the reranker stays off.
 
+## Error tracking (Sentry)
+
+Both halves report to Sentry only when a DSN is configured. Without one, nothing is imported or sent.
+
+- **Backend.** Set `SENTRY_DSN` as a *Space secret* on Hugging Face (Settings, Variables and
+  secrets), not a GitHub secret. `core/sentry_setup.py` initialises sentry-sdk in the web
+  process (`run_production.py`, tag `component=web`) and in every RQ worker process (`worker.py`,
+  `component=worker`), with the Flask, RQ and SQLAlchemy integrations.
+  - Environment: `APP_ENV` (`core.app_env.app_env()`).
+  - Release: `GIT_SHA` if set, otherwise `backend/RELEASE`. HF can't take build args from the
+    sync, so `sync-to-hf-space.yml` writes the deployed commit SHA there on each deploy that
+    changes code. Without either, events carry no release.
+  - Privacy: `send_default_pii=False`, so there are no request bodies, user IPs or RQ job
+    arguments. `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `X-Internal-Token` and
+    `X-CSRF-Token` are replaced with `[Filtered]` in every event and transaction, in any letter case.
+  - `SENTRY_TRACES_SAMPLE_RATE` (default `0.1`) sets performance tracing.
+- **Frontend.** `frontend/src/main.jsx` calls `Sentry.init` only when `VITE_SENTRY_DSN` is set,
+  with `VITE_ENVIRONMENT` as the environment (default `production`). Session replay masks all
+  text and blocks media, and `Authorization` is filtered. Vite inlines these at build time, so
+  set them in the Vercel project's environment variables and redeploy.
+  - The CSP in `frontend/vercel.json` allows `*.ingest.sentry.io` and `*.ingest.us.sentry.io`
+    only. A DSN in another region (for example `ingest.de.sentry.io`) needs its host added to `connect-src`.
+  - `vite.config.js` uploads source maps only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and
+    `SENTRY_PROJECT` are set at build time. The build sets `sourcemap: false`, so stack traces
+    stay minified until that is turned on.
+- Tests never report: `tests/conftest.py` removes `SENTRY_DSN` before the app is imported.
+
 ## Keeping the free tiers alive
 
 Every production service is on a free tier that is paused, archived or put to sleep when idle.

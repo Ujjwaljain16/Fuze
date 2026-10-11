@@ -28,32 +28,11 @@ from core.logging_config import configure_logging, get_logger
 configure_logging(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true')
 logger = get_logger(__name__)
 
-# Initialize Sentry SDK for Backend Error Tracking if SENTRY_DSN configured
-SENTRY_DSN = os.environ.get("SENTRY_DSN")
-if SENTRY_DSN:
-    try:
-        import sentry_sdk
-        from sentry_sdk.integrations.flask import FlaskIntegration
-        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+# Error tracking, before Flask is imported so its integration hooks in. A no-op without
+# SENTRY_DSN; the RQ worker initialises it first with its own component tag.
+from core.sentry_setup import init_sentry
 
-        def before_send_scrub_pii(event, hint):
-            if "request" in event and "headers" in event["request"]:
-                headers = event["request"]["headers"]
-                for key in ["Authorization", "Cookie", "X-Api-Key"]:
-                    if key in headers:
-                        headers[key] = "[REDACTED]"
-            return event
-
-        sentry_sdk.init(
-            dsn=SENTRY_DSN,
-            integrations=[FlaskIntegration(), SqlalchemyIntegration()],
-            traces_sample_rate=0.1,
-            environment=os.environ.get("ENVIRONMENT", "development"),
-            before_send=before_send_scrub_pii
-        )
-        logger.info("✅ Sentry backend error tracking initialized successfully")
-    except Exception as sentry_err:
-        logger.warning(f"⚠️ Could not initialize Sentry SDK: {sentry_err}")
+init_sentry(component='web')
 
 from flask import Flask, request, jsonify, g, make_response
 from core.http_errors import error_response, rate_limit_response, DEFAULT_CODES
