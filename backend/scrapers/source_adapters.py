@@ -276,6 +276,63 @@ def youtube(url: str) -> Optional[SourceContent]:
                               "author_url": data.get("author_url")})
 
 
+# --- Reddit ------------------------------------------------------------------------------
+
+_REDDIT_HOSTS = {"reddit.com", "old.reddit.com", "new.reddit.com", "np.reddit.com", "m.reddit.com"}
+_REDDIT_POST = re.compile(r"^/r/([^/]+)/comments/([a-z0-9]+)(?:/[^/]*)?/?$", re.IGNORECASE)
+
+
+def _reddit_oembed(post_url: str, subreddit: str, post_id: str) -> Optional[SourceContent]:
+    """Title, author and subreddit from Reddit's public embed endpoint."""
+    data = _get("https://www.reddit.com/oembed", params={"url": post_url}).json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        return None
+    author = data.get("author_name") or None
+    byline = f" by u/{author}" if author else ""
+    return SourceContent("reddit", title, f"Reddit post in r/{subreddit}{byline}: {title}", author=author,
+                         canonical_url=post_url, keywords=[subreddit],
+                         raw={"post_id": post_id, "subreddit": subreddit, "via": "oembed"})
+
+
+def reddit(url: str) -> Optional[SourceContent]:
+    parsed = urlparse(url)
+    m = _REDDIT_POST.match(parsed.path)
+    if not m:
+        return None
+    subreddit, post_id = m.group(1), m.group(2).lower()
+    post_url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/"
+    try:
+        listing = _get(f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json",
+                       params={"raw_json": 1, "limit": 20, "sort": "top"}).json()
+    except requests.HTTPError as e:
+        # Reddit has answered unauthenticated .json requests with 403 since mid-2026. The embed
+        # endpoint still names the post, which beats an empty bookmark.
+        logger.info("reddit_json_refused", extra={"url": url, "error": str(e)})
+        return _reddit_oembed(post_url, subreddit, post_id)
+    post = listing[0]["data"]["children"][0]["data"]
+    comments = [c["data"] for c in listing[1]["data"]["children"] if c.get("kind") == "t1"] if len(listing) > 1 else []
+    comments = [c for c in comments if c.get("body") and c.get("body") not in ("[deleted]", "[removed]")]
+    comments.sort(key=lambda c: -c.get("score", 0))
+    parts = [post.get("selftext") or ""]
+    linked = None if post.get("is_self") else post.get("url_overridden_by_dest") or post.get("url")
+    if linked:
+        parts.append(f"Link: {linked}")
+    for c in comments[:MAX_ANSWERS]:
+        parts.append(f"## Comment by u/{c.get('author')} ({c.get('score', 0)} points)\n\n{c['body']}")
+    published = post.get("created_utc")
+    if isinstance(published, (int, float)):
+        from datetime import datetime, timezone
+        published = datetime.fromtimestamp(published, tz=timezone.utc).isoformat()
+    return SourceContent("reddit", post.get("title") or "", "\n\n".join(p for p in parts if p),
+                         author=post.get("author"), published_at=published,
+                         canonical_url=f"https://www.reddit.com{post['permalink']}" if post.get("permalink") else post_url,
+                         keywords=[post.get("subreddit") or subreddit],
+                         raw={"post_id": post_id, "subreddit": post.get("subreddit") or subreddit,
+                              "score": post.get("score"), "num_comments": post.get("num_comments"), "via": "json"},
+                         follow_url=linked)
+
+
 # --- dispatch ----------------------------------------------------------------------------
 
 _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
@@ -286,6 +343,7 @@ _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
     "youtube.com": youtube,
     "m.youtube.com": youtube,
     "youtu.be": youtube,
+    **{host: reddit for host in _REDDIT_HOSTS},
 }
 
 
@@ -307,7 +365,8 @@ def fetch_from_source(url: str) -> Optional[SourceContent]:
         return None
     try:
         content = adapter(url)
-    except (requests.RequestException, ValueError, ET.ParseError, json.JSONDecodeError) as e:
+    except (requests.RequestException, ValueError, ET.ParseError, json.JSONDecodeError,
+            KeyError, IndexError, TypeError) as e:  # the last three: an API answered in an unexpected shape
         logger.warning("source_adapter_failed", extra={"url": url, "adapter": adapter.__name__, "error": str(e)})
         return None
     if content is None or not ((content.text or "").strip() or content.follow_url):

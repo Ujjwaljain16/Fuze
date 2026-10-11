@@ -25,6 +25,7 @@ def _resp(json_data=None, text="", content=b""):
     ("https://news.ycombinator.com/item?id=8863", sa.hackernews),
     ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", sa.youtube),
     ("https://youtu.be/dQw4w9WgXcQ", sa.youtube),
+    ("https://www.reddit.com/r/Python/comments/abc123/title/", sa.reddit),
     ("https://example.com/blog/post", None),
 ])
 def test_routing(url, expected):
@@ -160,6 +161,75 @@ def test_youtube_non_video_urls_fall_back(url):
 def test_youtube_oembed_error_falls_back():
     with patch.object(sa, "_get", side_effect=requests.HTTPError("401 embedding disabled")):
         assert sa.fetch_from_source("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is None
+
+
+REDDIT_LISTING = [
+    {"kind": "Listing", "data": {"children": [{"kind": "t3", "data": {
+        "title": "Why is asyncio so hard?", "selftext": "I keep mixing threads and tasks.", "is_self": True,
+        "author": "pyuser", "subreddit": "Python", "created_utc": 1700000000, "score": 120, "num_comments": 3,
+        "permalink": "/r/Python/comments/abc123/why_is_asyncio_so_hard/"}}]}},
+    {"kind": "Listing", "data": {"children": [
+        {"kind": "t1", "data": {"author": "helper", "body": "Use asyncio.run once.", "score": 50}},
+        {"kind": "t1", "data": {"author": "x", "body": "[deleted]", "score": 90}},
+        {"kind": "t1", "data": {"author": "top", "body": "Read the docs on task groups.", "score": 80}},
+        {"kind": "more", "data": {"children": ["def456"]}},
+    ]}},
+]
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.reddit.com/r/Python/comments/abc123/why_is_asyncio_so_hard/",
+    "https://old.reddit.com/r/Python/comments/abc123/",
+    "https://reddit.com/r/Python/comments/abc123",
+])
+def test_reddit_reads_the_json_listing(url):
+    with patch.object(sa, "_get", return_value=_resp(REDDIT_LISTING)) as get:
+        c = sa.fetch_from_source(url)
+    assert sa.adapter_for(url) is sa.reddit
+    assert get.call_args.args[0] == "https://www.reddit.com/r/Python/comments/abc123.json"
+    assert c.source == "reddit" and c.title == "Why is asyncio so hard?" and c.author == "pyuser"
+    assert c.text.startswith("I keep mixing threads and tasks.")
+    assert c.text.index("task groups") < c.text.index("asyncio.run once") and "[deleted]" not in c.text
+    assert c.published_at.startswith("2023-11-14") and c.keywords == ["Python"] and c.follow_url is None
+    assert c.canonical_url == "https://www.reddit.com/r/Python/comments/abc123/why_is_asyncio_so_hard/"
+
+
+def test_reddit_link_post_follows_the_link():
+    listing = [{"data": {"children": [{"data": {**REDDIT_LISTING[0]["data"]["children"][0]["data"],
+                                                "is_self": False, "selftext": "",
+                                                "url": "https://blog.example.com/asyncio"}}]}},
+               {"data": {"children": []}}]
+    with patch.object(sa, "_get", return_value=_resp(listing)):
+        c = sa.fetch_from_source("https://www.reddit.com/r/Python/comments/abc123/")
+    assert c.follow_url == "https://blog.example.com/asyncio" and "Link: https://blog.example.com/asyncio" in c.text
+
+
+def test_reddit_refused_json_falls_back_to_oembed():
+    oembed = {"title": "Why is asyncio so hard?", "author_name": "pyuser", "provider_name": "reddit"}
+
+    def fake_get(u, **kw):
+        if u.endswith(".json"):
+            raise requests.HTTPError("403 Blocked")
+        assert u == "https://www.reddit.com/oembed"
+        assert kw["params"] == {"url": "https://www.reddit.com/r/Python/comments/abc123/"}
+        return _resp(oembed)
+
+    with patch.object(sa, "_get", side_effect=fake_get):
+        c = sa.fetch_from_source("https://www.reddit.com/r/Python/comments/abc123/why/")
+    assert c.title == "Why is asyncio so hard?" and c.author == "pyuser"
+    assert c.text == "Reddit post in r/Python by u/pyuser: Why is asyncio so hard?" and c.raw["via"] == "oembed"
+
+
+def test_reddit_unexpected_shape_falls_back():
+    with patch.object(sa, "_get", return_value=_resp({"error": 404})):
+        assert sa.fetch_from_source("https://www.reddit.com/r/Python/comments/abc123/") is None
+
+
+@pytest.mark.parametrize("url", ["https://www.reddit.com/r/Python/", "https://www.reddit.com/user/pyuser"])
+def test_reddit_listing_pages_fall_back(url):
+    with patch.object(sa, "_get") as get:
+        assert sa.fetch_from_source(url) is None
+    get.assert_not_called()
 
 
 def test_api_errors_fall_back_to_page_extraction():
