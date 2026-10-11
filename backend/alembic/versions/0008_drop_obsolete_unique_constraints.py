@@ -25,4 +25,15 @@ def upgrade():
     op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_token_families_family_id ON token_families (family_id);")
 
 def downgrade():
-    pass
+    # Put the table-level UNIQUE constraints back (the unique indexes stay: they predate 0008 on
+    # databases built from the models).
+    for table, name, column in (("users", "users_username_key", "username"),
+                                ("users", "users_email_key", "email"),
+                                ("token_families", "token_families_family_id_key", "family_id")):
+        op.execute(f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '{name}') THEN
+                    ALTER TABLE {table} ADD CONSTRAINT {name} UNIQUE ({column});
+                END IF;
+            END $$;
+        """)

@@ -61,7 +61,7 @@ def upgrade():
 
 def downgrade():
     with op.get_context().autocommit_block():
-        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_saved_content_embedding_hnsw')
-        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_subtask_embedding_hnsw')
-        op.execute('DROP INDEX CONCURRENTLY IF NOT EXISTS idx_saved_content_user_unanalyzed')
+        op.execute('DROP INDEX CONCURRENTLY IF EXISTS idx_saved_content_embedding_hnsw')
+        op.execute('DROP INDEX CONCURRENTLY IF EXISTS idx_subtask_embedding_hnsw')
+        op.execute('DROP INDEX CONCURRENTLY IF EXISTS idx_saved_content_user_unanalyzed')
 

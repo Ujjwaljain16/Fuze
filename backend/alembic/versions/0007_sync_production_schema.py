@@ -27,4 +27,7 @@ def upgrade():
     op.execute("CREATE INDEX IF NOT EXISTS ix_feedback_content_id ON feedback (content_id);")
 
 def downgrade():
-    pass
+    # The embedding_metadata columns belong to 0005 and idx_saved_content_user_unanalyzed to 0003;
+    # their own downgrades remove them. Only the feedback indexes are 0007's.
+    for index in ("ix_feedback_content_id", "ix_feedback_project_id", "ix_feedback_user_id"):
+        op.execute(f"DROP INDEX IF EXISTS {index};")

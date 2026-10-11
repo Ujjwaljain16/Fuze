@@ -26,4 +26,7 @@ def upgrade():
     op.execute("CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));")
 
 def downgrade():
+    # Nothing to undo: 0002 only backfilled columns and indexes onto databases created before
+    # they were part of 0001. 0001 creates all of them, and dropping them here would destroy
+    # 0001's schema (the provider indexes went with the columns).
     pass

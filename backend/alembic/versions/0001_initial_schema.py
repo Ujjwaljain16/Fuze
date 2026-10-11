@@ -170,5 +170,6 @@ def upgrade():
     op.execute("CREATE INDEX IF NOT EXISTS ix_token_families_user_id ON token_families (user_id);")
 
 def downgrade():
-    # Non-destructive downgrade stub to prevent accidental schema drop in production
-    pass
+    # Undoing the initial schema means dropping every table and all user data. That is never
+    # what a rollback should do; restore from a backup instead (docs/OPERATIONS.md).
+    raise RuntimeError("Refusing to downgrade past 0001: it would drop every table. Restore a backup instead.")
