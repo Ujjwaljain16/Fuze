@@ -24,8 +24,7 @@ from core.destructive_guard import configured_database_url, require_safe_target
 require_safe_target(configured_database_url())
 
 from run_production import app
-from models import db, SavedContent, ContentAnalysis, User
-import json
+from models import db, SavedContent, ContentAnalysis
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -203,14 +202,14 @@ def re_analyze_poor_content(poor_analyses, user_id=None):
                         new_concepts = analysis_result.get('key_concepts', [])
                         new_summary = analysis_result.get('summary', '')
                         
-                        logger.info(f"  Re-analyzed successfully")
+                        logger.info("  Re-analyzed successfully")
                         logger.info(f"  New tech: {new_tech}")
                         logger.info(f"  New concepts: {new_concepts}")
                         logger.info(f"  New summary: {new_summary[:80]}...")
                         
                         total_reanalyzed += 1
                     else:
-                        logger.warning(f"  Analysis returned None")
+                        logger.warning("  Analysis returned None")
                         total_failed += 1
                     
                     # Add delay between requests
@@ -229,7 +228,7 @@ def re_analyze_poor_content(poor_analyses, user_id=None):
             continue
     
     logger.info("\n" + "=" * 80)
-    logger.info(f"Re-analysis complete:")
+    logger.info("Re-analysis complete:")
     logger.info(f"  Successfully re-analyzed: {total_reanalyzed}")
     logger.info(f"  Failed: {total_failed}")
     logger.info(f"  Total processed: {len(poor_analyses)}")

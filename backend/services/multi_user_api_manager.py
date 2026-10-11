@@ -7,7 +7,6 @@ secure Fernet encryption, and UTC timezone tracking.
 
 import os
 import sys
-import logging
 import hashlib
 import base64
 import threading
@@ -21,7 +20,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from dotenv import load_dotenv
 
 from core.logging_config import get_logger
-from utils.redis_utils import RedisCache, redis_cache
+from utils.redis_utils import redis_cache
 
 logger = get_logger("MultiUserAPIManager")
 

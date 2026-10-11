@@ -1,5 +1,4 @@
 """Inputs longer than their columns are rejected with a 400 or trimmed, never a 500."""
-import pytest
 
 
 def test_project_title_over_the_column_is_a_400(client, auth_headers):

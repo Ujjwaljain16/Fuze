@@ -5,18 +5,13 @@ Unit & Integration Tests for 5-Stage Content Acquisition Engine & Pipeline Sub-C
 import pytest
 from unittest.mock import MagicMock
 from scrapers.models import (
-    QualityMetrics, Decision, FetchMetadata, RawFetchResult,
-    ParsedDocument, NormalizedDocument, ContentDocument, compute_content_hash
+    QualityMetrics, FetchMetadata, RawFetchResult,
+    ContentDocument, compute_content_hash
 )
 from scrapers.quality_evaluator import QualityEvaluator
 from scrapers.decision_engine import DecisionEngine
 from scrapers.fetch_policy import FetchPolicy
-from scrapers.extractors.base import ExtractorPlugin
 from scrapers.extractors.registry import ExtractorRegistry
-from scrapers.extractors.opengraph_plugin import OpenGraphPlugin
-from scrapers.extractors.jsonld_plugin import JSONLDPlugin
-from scrapers.extractors.readability_plugin import ReadabilityPlugin
-from scrapers.extractors.markdown_plugin import MarkdownPlugin
 from scrapers.extractor_pipeline import ExtractorPipeline
 from scrapers.normalizer import MetadataNormalizer
 from scrapers.acquisition_engine import ContentAcquisitionEngine

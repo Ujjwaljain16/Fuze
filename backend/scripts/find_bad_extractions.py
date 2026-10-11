@@ -15,7 +15,6 @@ if backend_dir not in sys.path:
 from flask import Flask
 from config import DevelopmentConfig
 from models import db, SavedContent
-from sqlalchemy import func
 import logging
 from urllib.parse import urlparse
 import re
@@ -197,14 +196,14 @@ def find_bad_extractions():
             logger.info("\n" + "=" * 80)
             logger.info("EXPORT")
             logger.info("=" * 80)
-            logger.info(f"Problematic bookmark IDs (for re-scraping):")
+            logger.info("Problematic bookmark IDs (for re-scraping):")
             logger.info(f"{','.join(map(str, sorted(problematic_ids)))}")
             logger.info("")
             logger.info("To re-scrape these bookmarks, run:")
             logger.info(f"  python backend/scripts/rescrape_specific_bookmarks.py --ids \"{','.join(map(str, sorted(problematic_ids)))}\"")
             logger.info("")
             logger.info("Or save IDs to a file and use:")
-            logger.info(f"  python backend/scripts/rescrape_specific_bookmarks.py --ids-file bad_extractions_ids.txt")
+            logger.info("  python backend/scripts/rescrape_specific_bookmarks.py --ids-file bad_extractions_ids.txt")
             
             return {
                 'total': total,

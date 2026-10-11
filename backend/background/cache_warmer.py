@@ -18,7 +18,6 @@ CACHE_WARM_TTL_RECOMMENDATIONS=300 (5 minutes) sets how long a warm marker suppr
 
 import os
 import time
-import logging
 
 from core.logging_config import get_logger
 

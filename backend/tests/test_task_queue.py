@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 from services.task_queue import (
     get_redis_connection,
-    get_queue,
     enqueue_bookmark_processing,
     get_job_status,
     is_rq_available

@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 

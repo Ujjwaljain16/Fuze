@@ -3,7 +3,6 @@ Unit tests for backend services
 """
 import pytest
 from unittest.mock import patch, MagicMock, Mock
-from datetime import datetime
 
 @pytest.mark.unit
 class TestBackgroundAnalysisService:
@@ -37,7 +36,6 @@ class TestBackgroundAnalysisService:
             
             # Store content ID and user ID before calling service (to avoid DetachedInstanceError)
             content_id = content.id
-            user_id = user.id
             
             # Clean up ALL other unanalyzed content from ALL users to ensure our content is returned
             # The service groups by user and returns first user's content, so we need to clean all
@@ -144,20 +142,17 @@ class TestCacheInvalidationService:
     @patch('run_production.app')
     def test_invalidate_recommendation_cache(self, mock_app, mock_db, mock_redis_cache):
         """Test invalidating recommendation cache"""
-        from services.cache_invalidation_service import CacheInvalidationService
         
         # Mock the redis_cache methods that are actually used
         mock_redis_cache.invalidate_recommendation_cache.return_value = True
         mock_redis_cache.delete_keys_pattern.return_value = 0
         
         # Mock the database operations to avoid actual DB calls
-        mock_app_context = MagicMock()
         mock_app.app_context.return_value.__enter__ = Mock(return_value=None)
         mock_app.app_context.return_value.__exit__ = Mock(return_value=None)
         
         mock_session = MagicMock()
         mock_db.session = mock_session
-        mock_query = MagicMock()
         mock_session.query.return_value.filter.return_value.update.return_value = 0
         mock_session.commit.return_value = None
         

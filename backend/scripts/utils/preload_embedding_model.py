@@ -62,7 +62,7 @@ def preload_embedding_model():
         ]
         
         start_time = time.time()
-        batch_embeddings = model.encode(test_texts, batch_size=5)
+        model.encode(test_texts, batch_size=5)
         batch_time = time.time() - start_time
         
         print(f" Batch processing completed in {batch_time*1000:.1f}ms")
@@ -90,7 +90,7 @@ def optimize_embedding_utils():
         from embedding_utils import get_embedding
         
         test_text = "Python web development with Flask and SQLAlchemy"
-        embedding = get_embedding(test_text)
+        get_embedding(test_text)
         test_time = time.time() - start_time
         
         print(f" Current function: {test_time*1000:.1f}ms")
@@ -99,7 +99,7 @@ def optimize_embedding_utils():
         print("🧪 Testing with Redis cache...")
         
         start_time = time.time()
-        cached_embedding = get_embedding(test_text)  # Should be cached now
+        get_embedding(test_text)  # Should be cached now
         cached_time = time.time() - start_time
         
         print(f" Cached function: {cached_time*1000:.1f}ms")

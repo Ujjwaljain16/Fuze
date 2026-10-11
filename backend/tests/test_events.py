@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from core.events import (
     Event,
     ProjectCreated,
-    UserRegistered,
     RecommendationFeedbackRecorded,
     FeedbackType,
 )

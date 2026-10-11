@@ -1,5 +1,4 @@
 import pytest
-from werkzeug.exceptions import NotFound, Unauthorized
 from run_production import sanitize_headers, create_app
 
 

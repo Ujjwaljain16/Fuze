@@ -6,7 +6,6 @@ from services.search_service import SearchService, MAX_QUERY_LENGTH, MAX_SEARCH_
 from core.logging_config import get_logger
 
 from middleware.rate_limiting import limiter
-from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 

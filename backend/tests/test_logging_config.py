@@ -1,5 +1,3 @@
-import pytest
-import structlog
 from core.logging_config import (
     configure_logging,
     get_logger,

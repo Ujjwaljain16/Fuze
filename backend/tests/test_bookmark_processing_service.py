@@ -94,7 +94,7 @@ def test_process_bookmark_content_task_flow(app):
     with patch('services.bookmark_processing_service.UnitOfWork') as mock_uow_cls, \
          patch('services.bookmark_processing_service.extract_article_content') as mock_extract, \
          patch('services.bookmark_processing_service.generate_comprehensive_embedding') as mock_emb, \
-         patch('services.bookmark_processing_service.redis_cache') as mock_redis:
+         patch('services.bookmark_processing_service.redis_cache'):
 
         mock_uow = MagicMock()
         mock_uow_cls.return_value.__enter__.return_value = mock_uow
@@ -112,7 +112,7 @@ def test_process_bookmark_content_task_flow(app):
         }
         mock_emb.return_value = [0.1] * 384
 
-        with patch('services.background_analysis_service.analyze_content') as mock_analyze, \
+        with patch('services.background_analysis_service.analyze_content'), \
              patch('core.feature_flags.is_enabled', return_value=False):
             process_bookmark_content_task(bookmark_id=1, url='https://example.com', user_id=10)
 

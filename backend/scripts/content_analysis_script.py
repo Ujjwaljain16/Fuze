@@ -11,8 +11,8 @@ import json
 import argparse
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from collections import defaultdict, Counter
+from typing import Dict, Optional
+from collections import Counter
 import statistics
 
 # Add backend directory to path
@@ -20,10 +20,9 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from models import db, SavedContent, ContentAnalysis, User
+from models import db, SavedContent, ContentAnalysis
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import redis_cache
-from services.multi_user_api_manager import get_user_api_key
 import flask
 
 # Configure logging
@@ -75,9 +74,9 @@ class ContentAnalysisEngine:
                 from services.multi_user_api_manager import get_user_api_key
                 self.user_api_key = get_user_api_key(self.user_id)
                 if self.user_api_key:
-                    logger.info(f"Using user's API key for analysis")
+                    logger.info("Using user's API key for analysis")
                 else:
-                    logger.info(f"No user API key found, using default")
+                    logger.info("No user API key found, using default")
             except Exception as e:
                 logger.warning(f"Could not get user API key: {e}")
 
@@ -584,22 +583,22 @@ def main():
             print(f"\nTotal Content Analyzed: {results.get('total_content_analyzed', 0)}")
 
             if results.get('total_content_analyzed', 0) > 0:
-                print(f"\nTechnology Expertise:")
+                print("\nTechnology Expertise:")
                 tech_expertise = results.get('technology_expertise', {})
                 for tech, count in tech_expertise.get('top_technologies', [])[:5]:
                     print(f"  • {tech}: {count} bookmarks")
 
-                print(f"\nLearning Profile:")
+                print("\nLearning Profile:")
                 learning = results.get('learning_profile', {})
                 print(f"  • Primary Skill Level: {learning.get('primary_skill_level', 'unknown')}")
                 print(f"  • Target Audience: {learning.get('target_audience_level', 'unknown')}")
 
-                print(f"\nRecommendations:")
+                print("\nRecommendations:")
                 recs = results.get('recommendations', {})
                 for step in recs.get('next_steps', [])[:3]:
                     print(f"  • {step}")
 
-                print(f"\nEngagement Metrics:")
+                print("\nEngagement Metrics:")
                 metrics = results.get('engagement_metrics', {})
                 print(f"  • Technologies Covered: {metrics.get('total_technologies_covered', 0)}")
                 print(f"  • Concepts Covered: {metrics.get('total_concepts_covered', 0)}")

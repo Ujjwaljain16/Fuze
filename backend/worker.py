@@ -14,7 +14,7 @@ import sys
 import socket
 import argparse
 import multiprocessing
-from rq import Worker, Queue
+from rq import Worker
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -145,7 +145,7 @@ def main():
 
     # Verify job handlers before starting workers
     try:
-        from services.bookmark_processing_service import process_bookmark_content_task
+        from services.bookmark_processing_service import process_bookmark_content_task  # noqa: F401 -- import check only
         logger.info("worker_task_handlers_verified")
     except Exception as e:
         logger.warning("worker_task_handler_verification_warning", error=str(e))

@@ -12,7 +12,7 @@ import scrapers.extractors.readability_plugin
 import scrapers.extractors.markdown_plugin
 import scrapers.extractors.image_plugin
 import scrapers.extractors.table_code_plugin
-import scrapers.extractors.main_content_plugin
+import scrapers.extractors.main_content_plugin  # noqa: F401 -- imported to register the plugin
 from scrapers.text_cleanup import clean_body
 from scrapers.models import RawFetchResult, ParsedDocument, ExtractionResult
 from core.logging_config import get_logger

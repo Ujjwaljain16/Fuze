@@ -20,8 +20,7 @@ from scrapers.quality_evaluator import QualityEvaluator
 from scrapers.decision_engine import DecisionEngine
 from scrapers.event_publisher import ScrapingEventPublisher
 from scrapers.url_safety import is_safe_url
-from scrapers.models import (ContentDocument, RawFetchResult, ParsedDocument, NormalizedDocument, Decision,
-                             QualityMetrics, compute_content_hash)
+from scrapers.models import (ContentDocument, RawFetchResult, NormalizedDocument, QualityMetrics, compute_content_hash)
 from core.circuit_breaker import RedisCircuitBreaker
 from core.job_timeout import JobTimeoutException
 from core.events import (

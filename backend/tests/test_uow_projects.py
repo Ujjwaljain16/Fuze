@@ -1,4 +1,3 @@
-import os
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -86,7 +85,7 @@ def test_post_commit_hook_failure_isolation(test_app, test_user):
     from models import db, Project
     from core.events import ProjectCreated
     from uow.unit_of_work import UnitOfWork
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     failing_handler = MagicMock(side_effect=Exception("Hook failed"))
     failing_handler.__name__ = "failing_handler"

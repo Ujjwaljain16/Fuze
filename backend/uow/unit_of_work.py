@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 from core.events import Event
 from core.logging_config import get_logger
 

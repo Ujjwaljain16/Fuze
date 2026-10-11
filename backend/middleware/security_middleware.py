@@ -57,7 +57,7 @@ def require_user_context(func):
             user_id = get_current_user_id()
             g.user_id = user_id
             return func(*args, **kwargs)
-        except Exception as e:
+        except Exception:
             logger.exception("security_context_failed")
             return error_response('authentication_failed', 'Authentication failed', 401)
 

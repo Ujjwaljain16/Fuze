@@ -1,7 +1,7 @@
 import uuid
 import time
 import random
-from typing import Optional, Union, Callable, Any
+from typing import Optional, Union, Callable
 from core.logging_config import get_logger
 from utils.redis_utils import redis_cache
 

@@ -1,5 +1,5 @@
 import pytest
-from models import User, db
+from models import db
 from repositories.user_repository import UserRepository
 
 

@@ -2,7 +2,7 @@
 Integration tests for API endpoints
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 @pytest.mark.integration
 @pytest.mark.requires_db
@@ -42,7 +42,6 @@ class TestAPIIntegration:
             'technologies': 'Python'
         }, headers=headers)
         assert project_response.status_code == 201
-        project_id = project_response.json['project']['id']
         
         # 4. Save bookmark
         with patch('blueprints.bookmarks.scrape_url_summary') as mock_scrape:

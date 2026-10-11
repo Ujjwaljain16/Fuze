@@ -430,7 +430,7 @@ def main():
     # Show content preview
     content = result.get('content', '')
     if content:
-        print(f"\n📄 Content Preview (first 500 chars):")
+        print("\n📄 Content Preview (first 500 chars):")
         print("-" * 40)
         print(content[:500] + "..." if len(content) > 500 else content)
         print("-" * 40)
@@ -444,7 +444,7 @@ def main():
     if save_text == 'y':
         text_filename = f"linkedin_content_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         with open(text_filename, 'w', encoding='utf-8') as f:
-            f.write(f"LinkedIn Post Content\n")
+            f.write("LinkedIn Post Content\n")
             f.write(f"URL: {url}\n")
             f.write(f"Title: {result.get('title', 'N/A')}\n")
             f.write(f"Scraped at: {result.get('scraped_at', 'N/A')}\n")

@@ -13,7 +13,7 @@ from uow.unit_of_work import UnitOfWork
 from services.bookmark_service import BookmarkService
 from scrapers.acquisition_engine import ContentAcquisitionEngine
 from scrapers.models import ContentDocument, compute_content_hash
-from core.events import ScrapingStarted, ScrapingCompleted, ScrapingSkipped, ScrapingFailed
+from core.events import ScrapingCompleted, ScrapingSkipped
 from core.job_timeout import JobTimeoutException
 from services.pipeline_orchestrator import PipelineOrchestrator
 from services.captured_content import fetch_beats_capture, has_captured_content
@@ -334,7 +334,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
 
     except TransientFetchError:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("bg_acquisition_task_failed", extra={"bookmark_id": bookmark_id, "user_id": user_id})
         with UnitOfWork() as uow:
             service = BookmarkService(uow)

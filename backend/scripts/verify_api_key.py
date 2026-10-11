@@ -156,13 +156,13 @@ def main():
                     print("Verification successful! API key is correctly stored.")
                     print(f"   Key (first 15 chars): {saved_key[:15]}...")
                 else:
-                    print(f"Warning: Saved key doesn't match!")
+                    print("Warning: Saved key doesn't match!")
                     print(f"   Expected (first 15): {api_key[:15]}...")
                     print(f"   Got (first 15): {saved_key[:15] if saved_key else 'None'}...")
-                    print(f"\n   This might indicate:")
-                    print(f"   1. Database still has old key (check hash above)")
-                    print(f"   2. Encryption/decryption issue")
-                    print(f"   3. Cache not cleared properly")
+                    print("\n   This might indicate:")
+                    print("   1. Database still has old key (check hash above)")
+                    print("   2. Encryption/decryption issue")
+                    print("   3. Cache not cleared properly")
             else:
                 print(f"Failed to add API key for user {user_id}")
                 sys.exit(1)

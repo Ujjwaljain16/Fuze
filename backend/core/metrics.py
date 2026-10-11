@@ -46,7 +46,6 @@ _registry = None
 _multiproc_enabled = False
 
 try:
-    import prometheus_client
     from prometheus_client import (
         CollectorRegistry,
         Counter,

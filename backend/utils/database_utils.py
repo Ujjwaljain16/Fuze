@@ -1,7 +1,7 @@
 import os
 import time
 from functools import wraps
-from typing import Optional, List, Tuple
+from typing import List, Tuple
 from sqlalchemy import text, inspect
 from sqlalchemy.exc import OperationalError, TimeoutError, DisconnectionError
 from core.logging_config import get_logger

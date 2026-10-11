@@ -1,6 +1,6 @@
 import json
 from typing import Optional, Tuple
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.orm import joinedload
@@ -261,7 +261,7 @@ Return ONLY the JSON array, no additional text.
                 'ai_powered': True
             }), 201
 
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             safe_resp = str(response)[:200]
             logger.exception("gemini_json_parse_failed", extra={"response_snippet": safe_resp})
             return error_response('ai_response_invalid', 'Failed to parse AI response', 500)

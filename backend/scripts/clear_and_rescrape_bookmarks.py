@@ -18,9 +18,6 @@ from models import db, SavedContent, ContentAnalysis
 from services.bookmark_processing_service import scrape_url_summary
 from utils.embedding_utils import get_embedding
 import logging
-from datetime import datetime
-from urllib.parse import urlparse
-from collections import defaultdict
 import re
 
 # Try to import tqdm for progress bar, fallback if not available
@@ -64,20 +61,12 @@ def analyze_extraction_quality():
                 SavedContent.extracted_text.like('%Unable to extract%')
             ).count()
             
-            # Get actual bookmarks with "Unable to extract"
-            unable_to_extract_bookmarks = db.session.query(SavedContent).filter(
-                SavedContent.extracted_text.like('%Unable to extract%')
-            ).limit(20).all()
             
             # "extraction failed" messages
             extraction_failed = db.session.query(SavedContent).filter(
                 SavedContent.extracted_text.like('%extraction failed%')
             ).count()
             
-            # Get actual bookmarks with "extraction failed"
-            extraction_failed_bookmarks = db.session.query(SavedContent).filter(
-                SavedContent.extracted_text.like('%extraction failed%')
-            ).limit(20).all()
             
             # Very short content (< 100 chars) but not empty
             short_content = db.session.query(SavedContent).filter(
@@ -275,7 +264,6 @@ def clear_extraction_data():
             logger.info(f" Cleared extraction data from {updated} bookmarks")
             
             # Also clear related ContentAnalysis records (they'll be regenerated)
-            analysis_count = db.session.query(ContentAnalysis).count()
             deleted = db.session.query(ContentAnalysis).delete()
             db.session.commit()
             
@@ -365,7 +353,7 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                         scraped = scrape_url_summary(bookmark.url)
 
                         if not scraped:
-                            logger.warning(f"   No result from scraper")
+                            logger.warning("   No result from scraper")
                             failed += 1
                             continue
 
@@ -565,7 +553,7 @@ def main():
             logger.info("=" * 80)
             logger.info("STEP 2: RE-SCRAPING BOOKMARKS")
             logger.info("=" * 80)
-            logger.info(f"Using enhanced scraper with Scrapling integration")
+            logger.info("Using enhanced scraper with Scrapling integration")
             logger.info(f"Batch size: {args.batch_size}, Delay: {args.delay}s")
             logger.info("")
             rescrape_bookmarks(batch_size=args.batch_size, delay=args.delay)

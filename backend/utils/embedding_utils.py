@@ -1,7 +1,7 @@
 import os
 import hashlib
 import threading
-from typing import Optional, Any, List
+from typing import Optional, Any
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from core.logging_config import get_logger

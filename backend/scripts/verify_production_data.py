@@ -34,7 +34,7 @@ with app.app_context():
     total_bookmarks = SavedContent.query.count()
     total_projects = Project.query.count()
     
-    print(f"\n📊 Total Database State:")
+    print("\n📊 Total Database State:")
     print(f"   Users: {total_users}")
     print(f"   Bookmarks: {total_bookmarks}")
     print(f"   Projects: {total_projects}")

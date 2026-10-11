@@ -12,8 +12,7 @@ import time
 import re
 import uuid
 import hmac
-import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Add backend directory to path

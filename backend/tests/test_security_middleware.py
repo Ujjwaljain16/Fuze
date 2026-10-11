@@ -1,8 +1,6 @@
-import pytest
 from flask import Response
 from middleware.security_middleware import (
     validate_input,
-    sanitize_string,
     add_security_headers,
     validate_user_owns_resource
 )

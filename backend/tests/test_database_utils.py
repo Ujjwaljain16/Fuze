@@ -3,8 +3,7 @@ from unittest.mock import MagicMock, patch
 from utils.database_utils import (
     get_database_connection,
     with_db_session,
-    retry_on_connection_error,
-    check_database_tables
+    retry_on_connection_error
 )
 
 

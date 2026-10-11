@@ -1,8 +1,7 @@
-import os
 import json
 import re
 import time
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Union
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -262,7 +261,7 @@ class GeminiAnalyzer:
                 if isinstance(res, list):
                     return [str(r) for r in res]
 
-            return [f"Relevant based on matching content topics and technologies." for _ in recommendations]
+            return ["Relevant based on matching content topics and technologies." for _ in recommendations]
         except Exception as e:
             logger.error("batch_reasoning_failed", extra={"error": str(e)})
-            return [f"Relevant content recommendation." for _ in batch_context.get('recommendations', [])]
+            return ["Relevant content recommendation." for _ in batch_context.get('recommendations', [])]

@@ -61,7 +61,7 @@ def seed(force: bool = False, dry_run: bool = False) -> None:
             r.hset(redis_key, mapping={
                 "enabled": "1" if default_enabled else "0",
                 "pct": "100",
-                "description": f"Seeded from env-var default (ENABLE_*). Updated by seed_feature_flags.py.",
+                "description": "Seeded from env-var default (ENABLE_*). Updated by seed_feature_flags.py.",
                 "updated_at": str(time.time()),
             })
 

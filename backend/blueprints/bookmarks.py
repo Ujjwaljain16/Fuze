@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, SavedContent, User, Project, ContentAnalysis, processed_bookmark_clause
+from models import db, SavedContent, Project, processed_bookmark_clause
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from services.bookmark_processing_service import scrape_url_summary
 from urllib.parse import urlparse, urlunparse
@@ -889,7 +889,7 @@ def stream_import_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active imports
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 
@@ -1206,7 +1206,6 @@ def stream_analysis_progress():
                             last_status = error_status
                 else:
                     # Analysis in progress - update status
-                    current_status = progress.get('status', 'unknown')
                     if progress != last_status:
                         yield f"data: {json.dumps(progress)}\n\n"
                         last_status = progress
@@ -1214,7 +1213,7 @@ def stream_analysis_progress():
                 
                 # Send heartbeat periodically to keep connection alive during active analysis
                 if progress and time.time() - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"  # SSE comment (keeps connection alive)
+                    yield ": heartbeat\n\n"  # SSE comment (keeps connection alive)
                     last_heartbeat = time.time()
                     consecutive_errors = 0  # Reset error count on successful heartbeat
                 

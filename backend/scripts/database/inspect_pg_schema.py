@@ -1,5 +1,4 @@
 import sys
-import os
 
 sys.path.insert(0, 'backend')
 
@@ -9,9 +8,9 @@ from run_production import create_app
 app = create_app()
 with app.app_context():
     def inspect_table(table_name):
-        print(f"\n==================================================")
+        print("\n==================================================")
         print(f"📋 TABLE: {table_name.upper()}")
-        print(f"==================================================")
+        print("==================================================")
         
         # Columns
         cols_query = db.text("""
@@ -55,9 +54,9 @@ with app.app_context():
     for t in ['users', 'token_families', 'saved_content']:
         inspect_table(t)
         
-    print(f"\n==================================================")
+    print("\n==================================================")
     print("🏷️ ALEMBIC VERSION")
-    print(f"==================================================")
+    print("==================================================")
     ver_query = db.text("SELECT * FROM alembic_version;")
     versions = db.session.execute(ver_query).fetchall()
     for v in versions:

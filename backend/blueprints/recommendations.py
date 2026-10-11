@@ -5,18 +5,13 @@ Combines all features from both versions with proper circular import handling
 """
 
 import os
-import hashlib
-import time
 import json
-from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta
-from collections import defaultdict
+from datetime import datetime
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from middleware.rate_limiting import limiter
-from dataclasses import asdict
 from core.logging_config import get_logger
 from uow.unit_of_work import UnitOfWork
 
@@ -27,7 +22,7 @@ recommendations_bp = Blueprint('recommendations', __name__, url_prefix='/api/rec
 
 # Import models for new endpoints
 try:
-    from models import db, SavedContent, Project, Task, User, UserFeedback
+    from models import Project, UserFeedback
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False

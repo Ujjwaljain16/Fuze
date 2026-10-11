@@ -1,5 +1,5 @@
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from core.circuit_breaker import RedisCircuitBreaker, CircuitState
 
 

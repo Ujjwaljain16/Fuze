@@ -21,7 +21,7 @@ def _fetched(text, outcome='ok', challenge=False, retryable=False):
 
 
 @pytest.fixture
-def captured_bookmark(app, client, auth_headers, no_queue):
+def captured_bookmark(app, client, auth_headers, no_queue):  # noqa: F811 -- fixture imported above
     resp = client.post('/api/bookmarks', headers=auth_headers, json={
         'url': _url(), 'title': 'Members only', 'captured': {'text': ARTICLE_WORDS},
     })

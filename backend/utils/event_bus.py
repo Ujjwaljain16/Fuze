@@ -6,7 +6,6 @@ event translation, and Last-Event-ID replay for real-time SSE consumers.
 
 import json
 import re
-import time
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple

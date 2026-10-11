@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from core.distributed_lock import DistributedLock, synchronized, LockAcquisitionError
+from core.distributed_lock import DistributedLock, synchronized
 
 
 def test_distributed_lock_acquisition_and_release():

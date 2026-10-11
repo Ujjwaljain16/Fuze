@@ -7,14 +7,13 @@ import uuid
 import re
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask_jwt_extended.exceptions import JWTExtendedException
 from jwt.exceptions import PyJWTError
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
     get_jwt, decode_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, verify_jwt_in_request
 )
-from flask_cors import cross_origin
 from sqlalchemy.exc import IntegrityError
 import bcrypt
 
@@ -184,7 +183,7 @@ def register():
                 return error_response('account_exists', 'An account already exists with those credentials.', 409)
 
             try:
-                user = auth_service.register(username=username, email=email, password=password)
+                auth_service.register(username=username, email=email, password=password)
             except RegistrationFailed as rf_err:
                 return error_response('registration_failed', str(rf_err), 400)
 

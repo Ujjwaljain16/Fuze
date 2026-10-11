@@ -4,9 +4,7 @@ Pytest configuration and fixtures for backend tests
 import pytest
 import os
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from flask import Flask
-from flask_jwt_extended import JWTManager
+from unittest.mock import patch, MagicMock
 from typing import Any, Optional
 from dotenv import load_dotenv
 

@@ -4,7 +4,7 @@ import uuid
 import random
 import bcrypt
 from datetime import datetime, timedelta
-from typing import Tuple, Optional, List, Dict, Any
+from typing import Tuple, Optional, Dict, Any
 from models import User, TokenFamily
 from core.events import UserRegistered
 from core.logging_config import get_logger

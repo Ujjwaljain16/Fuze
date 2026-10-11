@@ -5,7 +5,7 @@ import uuid
 import hashlib
 import threading
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 import numpy as np
 import redis
 from core.logging_config import get_logger

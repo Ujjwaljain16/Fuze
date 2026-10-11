@@ -5,7 +5,6 @@ Emits namespaced domain lifecycle events to Redis Pub/Sub for telemetry and pipe
 
 import json
 from dataclasses import asdict
-from typing import Any
 from utils.redis_utils import get_redis_client
 from core.events import Event
 from core.logging_config import get_logger

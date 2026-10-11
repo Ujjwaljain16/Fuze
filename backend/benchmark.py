@@ -1,8 +1,6 @@
 import requests
 import time
 import argparse
-import statistics
-import json
 import uuid
 
 def authenticate(base_url, username, password):
