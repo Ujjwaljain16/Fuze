@@ -333,6 +333,65 @@ def reddit(url: str) -> Optional[SourceContent]:
                          follow_url=linked)
 
 
+# --- Medium ------------------------------------------------------------------------------
+
+_MEDIUM_POST_ID = re.compile(r"(?:^|-)([0-9a-f]{8,12})$")
+_RSS_NS = {"content": "http://purl.org/rss/1.0/modules/content/", "dc": "http://purl.org/dc/elements/1.1/"}
+_MEDIUM_RESERVED = {"p", "m", "tag", "topic", "search", "me", "plans", "membership", "about"}
+
+
+def _medium_feed_and_post(url: str):
+    """(feed URL, post id) for a Medium story URL, or None. Medium publishes an RSS feed per author
+    (medium.com/feed/@user) and per publication (medium.com/feed/<publication>)."""
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.")
+    parts = [p for p in parsed.path.split("/") if p]
+    if not parts:
+        return None
+    m = _MEDIUM_POST_ID.search(parts[-1])
+    if not m:
+        return None
+    if host == "medium.com":
+        if len(parts) < 2 or parts[0] in _MEDIUM_RESERVED:
+            return None
+        return f"https://medium.com/feed/{parts[0]}", m.group(1)
+    user = host[:-len(".medium.com")]
+    if len(parts) != 1 or not re.fullmatch(r"[a-z0-9_.-]+", user):
+        return None
+    return f"https://medium.com/feed/@{user}", m.group(1)
+
+
+def medium(url: str) -> Optional[SourceContent]:
+    found = _medium_feed_and_post(url)
+    if not found:
+        return None
+    feed_url, post_id = found
+    channel = ET.fromstring(_get(feed_url, accept="application/rss+xml").content).find("channel")
+    if channel is None:
+        return None
+    # The feed holds the latest stories only; an older one falls back to the page.
+    for item in channel.findall("item"):
+        guid = (item.findtext("guid") or "").rstrip("/")
+        link = (item.findtext("link") or "").split("?")[0]
+        if not (guid.endswith(f"/p/{post_id}") or link.endswith(post_id)):
+            continue
+        body = _html_to_text(item.findtext("content:encoded", "", _RSS_NS))
+        if not body:
+            return None
+        published = item.findtext("pubDate")
+        if published:
+            from email.utils import parsedate_to_datetime
+            try:
+                published = parsedate_to_datetime(published).isoformat()
+            except (TypeError, ValueError):
+                pass
+        return SourceContent("medium", (item.findtext("title") or "").strip(), body,
+                             author=item.findtext("dc:creator", None, _RSS_NS), published_at=published,
+                             canonical_url=link or url, keywords=[c.text for c in item.findall("category") if c.text],
+                             raw={"post_id": post_id, "feed": feed_url})
+    return None
+
+
 # --- dispatch ----------------------------------------------------------------------------
 
 _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
@@ -353,6 +412,8 @@ def adapter_for(url: str) -> Optional[Callable[[str], Optional[SourceContent]]]:
         return _ADAPTERS[host]
     if host.endswith(".wikipedia.org"):
         return wikipedia
+    if host == "medium.com" or host.endswith(".medium.com"):
+        return medium
     if host in _SE_SITES or host.endswith(".stackexchange.com"):
         return stackexchange
     return None

@@ -26,6 +26,8 @@ def _resp(json_data=None, text="", content=b""):
     ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", sa.youtube),
     ("https://youtu.be/dQw4w9WgXcQ", sa.youtube),
     ("https://www.reddit.com/r/Python/comments/abc123/title/", sa.reddit),
+    ("https://medium.com/@jane/a-story-516d5a29b252", sa.medium),
+    ("https://jane.medium.com/a-story-516d5a29b252", sa.medium),
     ("https://example.com/blog/post", None),
 ])
 def test_routing(url, expected):
@@ -230,6 +232,55 @@ def test_reddit_listing_pages_fall_back(url):
     with patch.object(sa, "_get") as get:
         assert sa.fetch_from_source(url) is None
     get.assert_not_called()
+
+
+MEDIUM_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+<channel><title>Stories by Jane on Medium</title>
+<item><title><![CDATA[Another story]]></title><link>https://medium.com/@jane/another-story-111111111111?source=rss</link>
+<guid isPermaLink="false">https://medium.com/p/111111111111</guid><content:encoded><![CDATA[<p>Other.</p>]]></content:encoded></item>
+<item><title><![CDATA[Vector search in Postgres]]></title>
+<link>https://medium.com/@jane/vector-search-in-postgres-516d5a29b252?source=rss-abc</link>
+<guid isPermaLink="false">https://medium.com/p/516d5a29b252</guid>
+<category><![CDATA[postgres]]></category><category><![CDATA[ai]]></category>
+<dc:creator><![CDATA[Jane Doe]]></dc:creator><pubDate>Fri, 25 Sep 2026 16:01:02 GMT</pubDate>
+<content:encoded><![CDATA[<h3>Why pgvector</h3><p>HNSW indexes make approximate search fast.</p>]]></content:encoded>
+</item></channel></rss>"""
+
+
+@pytest.mark.parametrize("url,feed", [
+    ("https://medium.com/@jane/vector-search-in-postgres-516d5a29b252", "https://medium.com/feed/@jane"),
+    ("https://jane.medium.com/vector-search-in-postgres-516d5a29b252?source=x", "https://medium.com/feed/@jane"),
+    ("https://medium.com/better-programming/vector-search-in-postgres-516d5a29b252",
+     "https://medium.com/feed/better-programming"),
+])
+def test_medium_reads_the_story_from_the_rss_feed(url, feed):
+    with patch.object(sa, "_get", return_value=_resp(content=MEDIUM_FEED)) as get:
+        c = sa.fetch_from_source(url)
+    assert sa.adapter_for(url) is sa.medium
+    assert get.call_args.args[0] == feed
+    assert c.source == "medium" and c.title == "Vector search in Postgres" and c.author == "Jane Doe"
+    assert "HNSW indexes make approximate search fast." in c.text and "Other." not in c.text
+    assert c.keywords == ["postgres", "ai"] and c.published_at == "2026-09-25T16:01:02+00:00"
+    assert c.canonical_url == "https://medium.com/@jane/vector-search-in-postgres-516d5a29b252"
+
+
+def test_medium_story_not_in_the_feed_falls_back():
+    with patch.object(sa, "_get", return_value=_resp(content=MEDIUM_FEED)):
+        assert sa.fetch_from_source("https://medium.com/@jane/an-old-story-abcdef123456") is None
+
+
+@pytest.mark.parametrize("url", ["https://medium.com/@jane", "https://medium.com/tag/python",
+                                 "https://medium.com/p/516d5a29b252", "https://medium.com/@jane/about"])
+def test_medium_non_story_urls_fall_back(url):
+    with patch.object(sa, "_get") as get:
+        assert sa.fetch_from_source(url) is None
+    get.assert_not_called()
+
+
+def test_medium_feed_errors_fall_back():
+    with patch.object(sa, "_get", return_value=_resp(content=b"<html>not xml")):
+        assert sa.fetch_from_source("https://medium.com/@jane/vector-search-in-postgres-516d5a29b252") is None
 
 
 def test_api_errors_fall_back_to_page_extraction():
