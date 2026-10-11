@@ -124,7 +124,7 @@ if PROMETHEUS_AVAILABLE and METRICS_ENABLED:
         labelnames=["model", "status"],
     )
 
-    # Embedding generation latency — instrumented in embed_worker.py / bookmark save
+    # Embedding generation latency (bookmark embedding jobs)
     embedding_generation_duration = Histogram(
         "fuze_embedding_generation_duration_seconds",
         "Time to generate a single embedding",

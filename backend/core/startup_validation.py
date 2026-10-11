@@ -36,7 +36,6 @@ def _verify_queue_functions():
     
     required_functions = [
         "enqueue_project_ml_job",
-        "enqueue_embedding_job",
         "enqueue_bookmark_processing",
         "enqueue_cache_warm_job",
     ]
@@ -73,7 +72,6 @@ def _verify_feature_flags_registered():
         raise RuntimeError(f"Could not import feature_flags: {e}")
 
     required_flags = [
-        "async_embeddings",
         "cache_warm_on_login",
     ]
     for flag in required_flags:

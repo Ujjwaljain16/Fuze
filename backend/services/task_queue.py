@@ -228,47 +228,6 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def enqueue_embedding_job(bookmark_id: int, queue_name: str = 'default') -> Optional[Job]:
-    """
-    Enqueue an async embedding generation job for a single bookmark.
-    Idempotent at the job level — embed_bookmark_job checks IS NULL before generating.
-    Uses Retry(max=3) with exponential backoff: 60s, 300s, 900s.
-    """
-    queue = get_queue(queue_name)
-    if not queue:
-        logger.warning("rq_queue_unavailable_for_embedding", extra={"bookmark_id": bookmark_id})
-        return None
-
-    try:
-        from background.embed_worker import embed_bookmark_job
-        from core.metrics import rq_queue_depth
-        try:
-            rq_queue_depth.labels(queue=queue_name).set(len(queue))
-        except Exception:
-            pass
-
-        unique_job_id = f"embed_bookmark_{bookmark_id}_{uuid.uuid4().hex[:8]}"
-
-        job = queue.enqueue(
-            embed_bookmark_job,
-            bookmark_id,
-            job_timeout='5m',
-            retry=Retry(max=3, interval=[60, 300, 900]),
-            job_id=unique_job_id,
-        )
-
-        logger.info(
-            "rq_embedding_job_enqueued",
-            extra={"job_id": job.id, "bookmark_id": bookmark_id},
-        )
-        return job
-    except Exception as e:
-        logger.error(
-            "rq_embedding_job_enqueue_failed",
-            extra={"bookmark_id": bookmark_id, "error": str(e)},
-        )
-        return None
-
 def enqueue_project_ml_job(
     project_id: int,
     user_id: int,

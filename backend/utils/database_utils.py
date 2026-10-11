@@ -92,13 +92,9 @@ def ensure_database_connection() -> bool:
 
 
 def get_database_connection():
-    """Get a database connection from Flask-SQLAlchemy or connection manager without creating new engines."""
-    try:
-        from models import db
-        return db.engine.connect()
-    except Exception:
-        from utils.database_connection_manager import get_database_connection as get_mgr_conn
-        return get_mgr_conn()
+    """A connection from the app's single Flask-SQLAlchemy engine."""
+    from models import db
+    return db.engine.connect()
 
 
 def test_database_connection() -> bool:

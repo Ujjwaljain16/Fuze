@@ -588,9 +588,20 @@ def create_app(config_name: str = None) -> Flask:
 
     return app
 
-app = create_app()
+
+def __getattr__(name):
+    # `from run_production import app` (scripts, the background service) builds the app on first
+    # use. Building it at import time made every process that only imported create_app -- gunicorn
+    # via wsgi.py, the RQ worker -- construct the whole app twice.
+    if name == 'app':
+        global app
+        app = create_app()
+        return app
+    raise AttributeError(name)
+
 
 if __name__ == "__main__":
+    app = create_app()
     port = int(os.environ.get('PORT', 5000))
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
     logger.info("Starting Fuze Server...", extra={"port": port, "debug": debug_mode})

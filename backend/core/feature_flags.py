@@ -29,17 +29,7 @@ logger = get_logger(__name__)
 # primarily from UnifiedConfig rather than this dynamic Redis feature flag.
 # ---------------------------------------------------------------------------
 _ENV_DEFAULTS: Dict[str, bool] = {
-    # [RESERVED] Controlled by UnifiedConfig at startup
-    "gemini":                  os.getenv("ENABLE_GEMINI", "true").lower() == "true",
-    "diversity":               os.getenv("ENABLE_DIVERSITY", "true").lower() == "true",
-    "query_caching":           os.getenv("ENABLE_QUERY_CACHING", "true").lower() == "true",
-    "embedding_caching":       os.getenv("ENABLE_EMBEDDING_CACHING", "true").lower() == "true",
-    "parallel_processing":     os.getenv("ENABLE_PARALLEL_PROCESSING", "true").lower() == "true",
-    "prometheus_metrics":      os.getenv("METRICS_ENABLED", "true").lower() == "true",
-    "embeddings":              os.getenv("DISABLE_EMBEDDINGS", "false").lower() != "true",
-
-    # [ACTIVE] Dynamic runtime toggles evaluated via is_enabled()
-    "async_embeddings":        os.getenv("ASYNC_EMBEDDINGS", "false").lower() == "true",
+    # The only flag read at runtime (blueprints/auth.py). Static settings live in UnifiedConfig.
     "cache_warm_on_login":     os.getenv("CACHE_WARM_ON_LOGIN", "false").lower() == "true",
 }
 
