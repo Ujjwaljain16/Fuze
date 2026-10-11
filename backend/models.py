@@ -297,7 +297,9 @@ class TokenFamily(Base):
 class BookmarkEvent(Base):
     """Stores immutable audit and stage timeline events for pipeline execution."""
     __tablename__ = 'bookmark_events'
-    id = Column(BigInteger, primary_key=True)
+    # BIGSERIAL on Postgres. SQLite only auto-increments INTEGER primary keys, so with BigInteger
+    # every event insert failed there (silently: publish_pipeline_event logs and moves on).
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True)
     event_id = Column(String(64), unique=True, nullable=False, index=True)
     bookmark_id = Column(BigInteger, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
     user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
