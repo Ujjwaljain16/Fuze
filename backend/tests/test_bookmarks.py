@@ -252,6 +252,59 @@ class TestBookmarks:
             assert data['total'] == 3
             assert data['added'] == 3
 
+    def test_bulk_import_conflicting_row_does_not_lose_the_others(self, client, auth_headers, test_user, app, monkeypatch):
+        """A URL that lands in the DB after the import read the user's bookmarks hits the unique
+        constraint; only that row is skipped, the rest of the batch is still saved."""
+        from models import db, SavedContent
+        from utils.redis_utils import redis_cache
+
+        with app.app_context():
+            db.session.add(SavedContent(user_id=test_user['id'], url='https://example.com/raced', title='Raced'))
+            db.session.commit()
+
+        # A stale bookmark cache that predates the conflicting row, as when another request saves it mid-import.
+        monkeypatch.setattr(redis_cache, 'get_cached_user_bookmarks',
+                            lambda user_id: [{'url': 'https://example.com/older', 'title': 'Older', 'id': 0}])
+        progress = {}
+        monkeypatch.setattr(redis_cache, 'set_cache', lambda key, data, ttl=3600: progress.__setitem__(key, data) or True)
+        monkeypatch.setattr('blueprints.bookmarks.process_bookmark_content_async', lambda *a, **k: None)
+
+        response = client.post('/api/bookmarks/import', json=[
+            {'url': 'https://example.com/fresh-1', 'title': 'Fresh 1'},
+            {'url': 'https://example.com/raced', 'title': 'Raced again'},
+            {'url': 'https://example.com/fresh-2', 'title': 'Fresh 2'},
+        ], headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json
+        assert data['total'] == 3
+        assert data['added'] == 2
+        assert data['skipped'] == 1
+        assert data['skip_reasons'] == {'duplicate': 1}
+        assert progress[f"import_progress:{test_user['id']}"]['status'] == 'completed'
+
+        with app.app_context():
+            urls = {bm.url for bm in SavedContent.query.filter_by(user_id=test_user['id']).all()}
+        assert {'https://example.com/fresh-1', 'https://example.com/fresh-2', 'https://example.com/raced'} <= urls
+
+    def test_bulk_import_progress_is_terminal_after_an_exception(self, client, auth_headers, test_user, monkeypatch):
+        """The extension polls the progress key; it must not stay 'processing' for an hour when the import fails."""
+        from utils.redis_utils import redis_cache
+
+        progress = {}
+        monkeypatch.setattr(redis_cache, 'set_cache', lambda key, data, ttl=3600: progress.__setitem__(key, data) or True)
+
+        def boom(user_id):
+            raise RuntimeError('redis went away')
+        monkeypatch.setattr(redis_cache, 'get_cached_user_bookmarks', boom)
+
+        response = client.post('/api/bookmarks/import', json=[
+            {'url': 'https://example.com/a', 'title': 'A'},
+        ], headers=auth_headers)
+
+        assert response.status_code == 500
+        assert progress[f"import_progress:{test_user['id']}"]['status'] == 'failed'
+
     def test_check_duplicate_endpoint(self, client, auth_headers, test_user, app):
         """Test check-duplicate endpoint signature fix and functionality"""
         from models import db, SavedContent

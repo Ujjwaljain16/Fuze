@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent, User, Project, ContentAnalysis, processed_bookmark_clause
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from services.bookmark_processing_service import scrape_url_summary
 from urllib.parse import urlparse, urlunparse
 from core import cache_keys
@@ -339,6 +339,48 @@ def save_bookmark():
         'wasDuplicate': False
     }), 201
 
+IMPORT_INSERT_CHUNK = 200
+
+
+def _insert_import_rows(rows, skip_reasons):
+    """Insert the import's new rows, skipping any row the database rejects.
+
+    Each chunk goes in under its own savepoint, so the usual case stays a few batched
+    INSERTs. When a chunk fails (a URL another request saved after the import read the
+    user's bookmarks, or any other bad row) it is retried one row per savepoint, so only
+    the bad rows are lost. Returns [(id, url)] for the rows that were saved.
+    """
+    from uow.unit_of_work import UnitOfWork
+
+    inserted = []
+    with UnitOfWork() as uow:
+        session = uow.session
+        for start in range(0, len(rows), IMPORT_INSERT_CHUNK):
+            chunk = rows[start:start + IMPORT_INSERT_CHUNK]
+            try:
+                with session.begin_nested():
+                    # Fresh objects per attempt: a rolled-back savepoint leaves its objects unusable.
+                    bms = [SavedContent(**row) for row in chunk]
+                    session.add_all(bms)
+                inserted.extend((bm.id, bm.url) for bm in bms)
+                continue
+            except SQLAlchemyError as chunk_err:
+                logger.info(f"[IMPORT] Chunk insert failed, retrying row by row: {chunk_err.__class__.__name__}")
+
+            for row in chunk:
+                try:
+                    with session.begin_nested():
+                        bm = SavedContent(**row)
+                        session.add(bm)
+                    inserted.append((bm.id, bm.url))
+                except IntegrityError:
+                    skip_reasons['duplicate'] = skip_reasons.get('duplicate', 0) + 1
+                except SQLAlchemyError as row_err:
+                    logger.warning(f"[IMPORT] Skipping bookmark that could not be saved: {row_err.__class__.__name__}")
+                    skip_reasons['insert_failed'] = skip_reasons.get('insert_failed', 0) + 1
+    return inserted
+
+
 @bookmarks_bp.route('/import', methods=['POST'])
 @jwt_required()
 def bulk_import_bookmarks():
@@ -355,15 +397,12 @@ def bulk_import_bookmarks():
     total_count = len(data)
     added_count = 0
     skipped_count = 0
-    updated_count = 0
-    errors = []
     skip_reasons = {}  # Track skip reasons: {reason: count}
-    new_bookmarks = []
-    max_workers = 8  # Tune as needed
 
-    # Store import progress in Redis for real-time updates
+    # Store import progress in Redis for real-time updates. The extension polls this key,
+    # so it must always end in a terminal state, even when the import fails.
     import_key = f"import_progress:{user_id}"
-    redis_cache.set_cache(import_key, {
+    progress = {
         'total': total_count,
         'processed': 0,
         'added': 0,
@@ -371,121 +410,118 @@ def bulk_import_bookmarks():
         'updated': 0,
         'errors': 0,
         'status': 'processing'
-    }, ttl=3600)  # Expire in 1 hour
+    }
+    redis_cache.set_cache(import_key, progress, ttl=3600)  # Expire in 1 hour
 
-    # Try to get cached user bookmarks first
-    cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
-    if cached_bookmarks:
-        logger.debug(f"Using cached bookmarks for user {user_id}")
-        existing_urls = set(bm['url'] for bm in cached_bookmarks)
-        normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
-    else:
-        # Fallback to database query
-        logger.debug(f"Loading bookmarks from database for user {user_id}")
-        
-        from uow.unit_of_work import UnitOfWork
-        from services.bookmark_service import BookmarkService
-        
-        with UnitOfWork() as uow:
-            service = BookmarkService(uow)
-            existing_bms = service.uow.bookmarks.get_all_by_user(user_id)
-            
-            existing_urls = set(bm.url for bm in existing_bms)
-            normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
-            
-            # Cache the bookmarks for future use
-            bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
-            
-        redis_cache.cache_user_bookmarks(user_id, bookmarks_data)
+    try:
+        # Try to get cached user bookmarks first
+        cached_bookmarks = redis_cache.get_cached_user_bookmarks(user_id)
+        if cached_bookmarks:
+            logger.debug(f"Using cached bookmarks for user {user_id}")
+            existing_urls = set(bm['url'] for bm in cached_bookmarks)
+            normalized_urls = set(normalize_url(bm['url']) for bm in cached_bookmarks)
+        else:
+            # Fallback to database query
+            logger.debug(f"Loading bookmarks from database for user {user_id}")
 
-    created_bookmarks = []
-    
-    for bm_data in data:
-        if not isinstance(bm_data, dict):
-            skipped_count += 1
-            continue
-            
-        url = (bm_data.get('url') or '').strip()
-        title = (bm_data.get('title') or '').strip() or 'Untitled Bookmark'
-        category = bm_data.get('category', 'other')
-        
-        if not url:
-            skipped_count += 1
-            skip_reasons['empty_url'] = skip_reasons.get('empty_url', 0) + 1
-            continue
-        if url_too_long(url):
-            skipped_count += 1
-            skip_reasons['url_too_long'] = skip_reasons.get('url_too_long', 0) + 1
-            continue
-            
-        invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
-        if any(url.lower().startswith(s) for s in invalid_schemes):
-            skipped_count += 1
-            skip_reasons['invalid_scheme'] = skip_reasons.get('invalid_scheme', 0) + 1
-            continue
-            
-        try:
-            parsed = urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
+            from uow.unit_of_work import UnitOfWork
+            from services.bookmark_service import BookmarkService
+
+            with UnitOfWork() as uow:
+                service = BookmarkService(uow)
+                existing_bms = service.uow.bookmarks.get_all_by_user(user_id)
+
+                existing_urls = set(bm.url for bm in existing_bms)
+                normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
+
+                # Cache the bookmarks for future use
+                bookmarks_data = [{'url': bm.url, 'title': bm.title, 'id': bm.id} for bm in existing_bms]
+
+            redis_cache.cache_user_bookmarks(user_id, bookmarks_data)
+
+        new_rows = []
+
+        for bm_data in data:
+            if not isinstance(bm_data, dict):
+                skipped_count += 1
+                continue
+
+            url = (bm_data.get('url') or '').strip()
+            title = (bm_data.get('title') or '').strip() or 'Untitled Bookmark'
+            category = bm_data.get('category', 'other')
+
+            if not url:
+                skipped_count += 1
+                skip_reasons['empty_url'] = skip_reasons.get('empty_url', 0) + 1
+                continue
+            if url_too_long(url):
+                skipped_count += 1
+                skip_reasons['url_too_long'] = skip_reasons.get('url_too_long', 0) + 1
+                continue
+
+            invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
+            if any(url.lower().startswith(s) for s in invalid_schemes):
+                skipped_count += 1
+                skip_reasons['invalid_scheme'] = skip_reasons.get('invalid_scheme', 0) + 1
+                continue
+
+            try:
+                parsed = urlparse(url)
+                if not parsed.scheme or not parsed.netloc:
+                    skipped_count += 1
+                    skip_reasons['invalid_format'] = skip_reasons.get('invalid_format', 0) + 1
+                    continue
+            except Exception:
                 skipped_count += 1
                 skip_reasons['invalid_format'] = skip_reasons.get('invalid_format', 0) + 1
                 continue
-        except Exception:
-            skipped_count += 1
-            skip_reasons['invalid_format'] = skip_reasons.get('invalid_format', 0) + 1
-            continue
-            
-        norm_url = normalize_url(url)
-        if url in existing_urls or norm_url in normalized_urls:
-            skipped_count += 1
-            skip_reasons['duplicate'] = skip_reasons.get('duplicate', 0) + 1
-            continue
-            
-        if len(title) > 200:
-            title = title[:197] + "..."
-            
-        new_bm = SavedContent(
-            user_id=user_id,
-            url=url[:2048],
-            title=title,
-            notes='',
-            category=category,
-            quality_score=0
-        )
-        created_bookmarks.append(new_bm)
-        existing_urls.add(url)
-        normalized_urls.add(norm_url)
 
-    added_count = len(created_bookmarks)
-    
-    if created_bookmarks:
-        from uow.unit_of_work import UnitOfWork
-        with UnitOfWork() as uow:
-            for bm in created_bookmarks:
-                uow.bookmarks.add(bm)
-            uow.flush()
-            created_ids_urls = [(bm.id, bm.url) for bm in created_bookmarks]
+            norm_url = normalize_url(url)
+            if url in existing_urls or norm_url in normalized_urls:
+                skipped_count += 1
+                skip_reasons['duplicate'] = skip_reasons.get('duplicate', 0) + 1
+                continue
 
-        for bm_id, bm_url in created_ids_urls:
-            try:
-                process_bookmark_content_async(bm_id, bm_url, user_id)
-            except Exception as enqueue_err:
-                logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
+            if len(title) > 200:
+                title = title[:197] + "..."
 
-        redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
-        from blueprints.recommendations import invalidate_user_recommendations
-        invalidate_user_recommendations(user_id)
+            new_rows.append({
+                'user_id': user_id,
+                'url': url[:2048],
+                'title': title,
+                'notes': '',
+                'category': category,
+                'quality_score': 0
+            })
+            existing_urls.add(url)
+            normalized_urls.add(norm_url)
 
-    redis_cache.set_cache(import_key, {
-        'total': total_count,
-        'processed': total_count,
-        'added': added_count,
-        'skipped': skipped_count,
-        'updated': 0,
-        'errors': 0,
-        'skip_reasons': skip_reasons,
-        'status': 'completed'
-    }, ttl=3600)
+        if new_rows:
+            created_ids_urls = _insert_import_rows(new_rows, skip_reasons)
+            added_count = len(created_ids_urls)
+            skipped_count += len(new_rows) - added_count
+
+            for bm_id, bm_url in created_ids_urls:
+                try:
+                    process_bookmark_content_async(bm_id, bm_url, user_id)
+                except Exception as enqueue_err:
+                    logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
+
+            redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
+            from blueprints.recommendations import invalidate_user_recommendations
+            invalidate_user_recommendations(user_id)
+
+        progress.update({
+            'processed': total_count,
+            'added': added_count,
+            'skipped': skipped_count,
+            'skip_reasons': skip_reasons,
+            'status': 'completed'
+        })
+    finally:
+        if progress['status'] != 'completed':
+            progress['status'] = 'failed'
+        redis_cache.set_cache(import_key, progress, ttl=3600)
 
     logger.info(f"[IMPORT] Completed bulk import for user {user_id}: added={added_count}, skipped={skipped_count}")
     return jsonify({
