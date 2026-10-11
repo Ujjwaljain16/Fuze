@@ -56,6 +56,7 @@ COPY wsgi.py .
 COPY app.py .
 COPY start.sh .
 COPY supervisord.conf .
+COPY gunicorn.conf.py .
 # alembic.ini's script_location (`%(here)s/backend/alembic`) needs it at /app next to
 # backend/. start.sh runs `alembic upgrade head` and exits if it fails.
 COPY alembic.ini .

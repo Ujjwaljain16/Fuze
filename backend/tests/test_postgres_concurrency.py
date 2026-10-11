@@ -39,3 +39,12 @@ def test_concurrent_refreshes_mint_at_most_one_new_pair(app, client, test_user):
     refresh = login.get_json()['refresh_token']
     responses = _parallel(app, lambda c: c.post('/api/auth/refresh', headers={'Authorization': f'Bearer {refresh}'}), 4)
     assert [r.status_code for r in responses].count(200) <= 1
+
+
+def test_connections_carry_a_statement_timeout(app):
+    """A runaway query is cancelled by Postgres instead of holding a worker and a connection."""
+    from sqlalchemy import text
+    from models import db
+    with app.app_context():
+        with db.engine.connect() as conn:
+            assert conn.execute(text('SHOW statement_timeout')).scalar() == '15s'

@@ -42,7 +42,7 @@ jobs:
             --exclude 'tests/' --exclude 'scratch/' --exclude 'brain/' --exclude 'eval/' \
             --exclude '*.log' --exclude '.env*' \
             backend/ hf-space/backend/
-          for f in requirements.txt requirements.lock Dockerfile .dockerignore app.py wsgi.py start.sh supervisord.conf alembic.ini; do
+          for f in requirements.txt requirements.lock Dockerfile .dockerignore app.py wsgi.py start.sh supervisord.conf gunicorn.conf.py alembic.ini; do
             cp "$f" hf-space/
           done
 

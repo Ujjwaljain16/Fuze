@@ -20,6 +20,7 @@ from uow.unit_of_work import UnitOfWork
 from services.auth_service import AuthService, AuthenticationFailed, RegistrationFailed, AccountLinkRequired
 from utils.database_utils import retry_on_connection_error
 from middleware.rate_limiting import limiter
+from utils.cooperative import run_cpu_bound
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +37,15 @@ _TIMING_DUMMY_HASH = "$2b$12$AoiBV.KGmITlyHz1NWAY3eFksSfQnfebA9Fpmla92wdkacTPAf8
 def _constant_time_fail(password: str) -> None:
     """Always fails. Runs bcrypt so user-not-found timing == wrong-password timing."""
     pw = password.encode('utf-8') if isinstance(password, str) else password
-    bcrypt.checkpw(pw, _TIMING_DUMMY_HASH.encode('utf-8'))
+    run_cpu_bound(bcrypt.checkpw, pw, _TIMING_DUMMY_HASH.encode('utf-8'))
 
 def hash_password(password: str) -> str:
-    """Helper for password hashing - delegates to AuthService."""
-    with UnitOfWork() as uow:
-        return AuthService(uow).hash_password(password)
+    """Helper for password hashing - delegates to AuthService (no database session needed)."""
+    return AuthService(None).hash_password(password)
 
 def verify_password(password_hash: str, password: str) -> bool:
-    """Helper for password verification - delegates to AuthService."""
-    with UnitOfWork() as uow:
-        return AuthService(uow).verify_password(password_hash, password)
+    """Helper for password verification - delegates to AuthService (no database session needed)."""
+    return AuthService(None).verify_password(password_hash, password)
 
 def sanitize_input(text: str, max_length: int = 255):
     """Sanitize and validate input to prevent injection attacks"""

@@ -8,6 +8,7 @@ from typing import Tuple, Optional, List, Dict, Any
 from models import User, TokenFamily
 from core.events import UserRegistered
 from core.logging_config import get_logger
+from utils.cooperative import run_cpu_bound
 
 logger = get_logger(__name__)
 
@@ -67,7 +68,7 @@ class AuthService:
             password = password.encode('utf-8')
 
         salt = bcrypt.gensalt(rounds=self.work_factor)
-        hashed = bcrypt.hashpw(password, salt)
+        hashed = run_cpu_bound(bcrypt.hashpw, password, salt)
         return hashed.decode('utf-8')
 
     def verify_password(self, password_hash: str, password: str) -> bool:
@@ -80,7 +81,7 @@ class AuthService:
         if password_hash.startswith(('$2b$', '$2a$', '$2y$')):
             hash_bytes = password_hash.encode('utf-8') if isinstance(password_hash, str) else password_hash
             try:
-                return bcrypt.checkpw(pass_bytes, hash_bytes)
+                return run_cpu_bound(bcrypt.checkpw, pass_bytes, hash_bytes)
             except Exception as e:
                 logger.error("bcrypt_verification_error", extra={"error": str(e)})
                 return False

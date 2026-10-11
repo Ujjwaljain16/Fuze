@@ -6,6 +6,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from core.logging_config import get_logger
 from .redis_utils import redis_cache
+from .cooperative import run_cpu_bound
 
 logger = get_logger(__name__)
 
@@ -151,7 +152,7 @@ def _embed_one(text: str, prefix: str) -> np.ndarray:
         logger.warning("redis_cached_embedding_lookup_failed", extra={"error": str(cache_err)})
 
     try:
-        embedding = np.asarray(model.encode([clean_text])[0], dtype=np.float32)
+        embedding = np.asarray(run_cpu_bound(model.encode, [clean_text])[0], dtype=np.float32)
     except Exception as e:
         # A zero vector here would be stored or ranked as if it meant something.
         raise EmbeddingUnavailable(f"encoding failed: {e}") from e
@@ -181,7 +182,7 @@ def get_embeddings_batch(texts: list, batch_size: int = 32) -> np.ndarray:
     model = get_embedding_model()
     prefix = _prefixes(_embedding_model_name)[1]
     clean = [prefix + ((t or "").strip()[:MAX_EMBED_TEXT_LENGTH] or " ") for t in texts]
-    return np.asarray(model.encode(clean, batch_size=batch_size), dtype=np.float32)
+    return np.asarray(run_cpu_bound(model.encode, clean, batch_size=batch_size), dtype=np.float32)
 
 
 def calculate_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:

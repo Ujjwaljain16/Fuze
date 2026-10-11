@@ -197,13 +197,9 @@ def create_app(config_name: str = None) -> Flask:
             'pool_pre_ping': True,
         }
     else:
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-            'pool_pre_ping': True,
-            'pool_recycle': 300,
-            'pool_size': 5,
-            'max_overflow': 10,
-            'pool_timeout': 30
-        }
+        # One source of truth for pool sizes, TLS, keepalives and timeouts (DB_* environment vars).
+        from utils.unified_config import get_config
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = get_config().get_flask_config()['SQLALCHEMY_ENGINE_OPTIONS']
 
     # CORS setup - allowlist is shared with utils/cors_utils.is_allowed_origin(),
     # which any manual Access-Control-Allow-Origin header setter (below, and in
@@ -228,6 +224,19 @@ def create_app(config_name: str = None) -> Flask:
 
     # Database initialization
     db.init_app(app)
+    with app.app_context():
+        if db.engine.dialect.name == 'postgresql':
+            from sqlalchemy import event
+            from utils.unified_config import get_config
+            statement_timeout_ms = get_config().database.statement_timeout_ms
+
+            @event.listens_for(db.engine, 'connect')
+            def _limit_statement_time(dbapi_connection, _record):
+                # Set per connection, not as a startup option, so it also works through Supabase's
+                # pooler. Migrations use their own engine and lift the limit.
+                with dbapi_connection.cursor() as cursor:
+                    cursor.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
+                dbapi_connection.commit()
 
     # NOTE: migrations are applied exactly once by start.sh ("alembic upgrade head")
     # before supervisord launches gunicorn + the RQ workers. create_app() runs in

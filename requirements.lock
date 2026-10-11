@@ -148,6 +148,8 @@ postgrest==1.1.1 \
     --hash=sha256:98a6035ee1d14288484bfe36235942c5fb2d26af6d8120dfe3efbe007859251a
 prometheus_client==0.26.0 \
     --hash=sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6
+psycogreen==1.0.2 \
+    --hash=sha256:c429845a8a49cf2f76b71265008760bcd7c7c77d80b806db4dc81116dbcd130d
 psycopg2-binary==2.9.10 \
     --hash=sha256:512d29bb12608891e349af6a0cccedce51677725a921c07dba6342beaf576f9a
 pyasn1==0.6.4 \

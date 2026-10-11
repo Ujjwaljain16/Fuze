@@ -59,6 +59,7 @@ pgvector==0.5.1
 pillow==12.3.0
 postgrest==1.1.1
 psycopg2-binary==2.9.10
+psycogreen==1.0.2
 pydantic==2.11.7
 pydantic_core==2.33.2
 pyee==13.0.0

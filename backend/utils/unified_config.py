@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION DATA CLASSES
 # ============================================================================
 
+def _default_ssl_mode() -> str:
+    from core.app_env import is_production
+    return 'require' if is_production() else 'prefer'
+
+
 @dataclass
 class DatabaseConfig:
     """Database configuration"""
@@ -36,8 +41,11 @@ class DatabaseConfig:
     pool_recycle: int = field(default_factory=lambda: int(os.getenv('DB_POOL_RECYCLE', '300')))
     pool_pre_ping: bool = field(default_factory=lambda: os.getenv('DB_POOL_PRE_PING', 'true').lower() == 'true')
     echo: bool = field(default_factory=lambda: os.getenv('DB_ECHO', 'false').lower() == 'true')
-    connect_timeout: int = field(default_factory=lambda: int(os.getenv('DB_CONNECT_TIMEOUT', '30')))
-    ssl_mode: str = field(default_factory=lambda: os.getenv('DB_SSL_MODE', 'prefer'))
+    # A request must never wait 30 s for a connection or hang on one query: fail fast instead.
+    connect_timeout: int = field(default_factory=lambda: int(os.getenv('DB_CONNECT_TIMEOUT', '5')))
+    statement_timeout_ms: int = field(default_factory=lambda: int(os.getenv('DB_STATEMENT_TIMEOUT_MS', '15000')))
+    # Deployed environments only talk to Postgres over TLS; local Postgres usually has none.
+    ssl_mode: str = field(default_factory=lambda: os.getenv('DB_SSL_MODE') or _default_ssl_mode())
 
 @dataclass
 class RedisConfig:
