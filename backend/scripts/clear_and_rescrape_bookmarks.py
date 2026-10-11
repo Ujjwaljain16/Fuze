@@ -15,7 +15,7 @@ if backend_dir not in sys.path:
 from flask import Flask
 from config import DevelopmentConfig
 from models import db, SavedContent, ContentAnalysis
-from scrapers.enhanced_web_scraper import scrape_url_enhanced
+from services.bookmark_processing_service import scrape_url_summary
 from utils.embedding_utils import get_embedding
 import logging
 from datetime import datetime
@@ -362,7 +362,7 @@ def rescrape_bookmarks(batch_size=10, delay=2):
                         if not HAS_TQDM and i % 10 == 0:
                             logger.info(f"[{i}/{total}] Progress: {i}/{total} ({(i/total*100):.1f}%)")
                         logger.info(f"[{i}/{total}] Scraping: {bookmark.url[:80]}...")
-                        scraped = scrape_url_enhanced(bookmark.url)
+                        scraped = scrape_url_summary(bookmark.url)
 
                         if not scraped:
                             logger.warning(f"   No result from scraper")

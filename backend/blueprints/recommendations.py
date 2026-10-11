@@ -33,15 +33,6 @@ except ImportError:
 
 # Initialize global flags for engine availability
 UNIFIED_ORCHESTRATOR_AVAILABLE = False
-UNIFIED_ENGINE_AVAILABLE = False
-SMART_ENGINE_AVAILABLE = False
-ENHANCED_ENGINE_AVAILABLE = False
-PHASE3_ENGINE_AVAILABLE = False
-FAST_GEMINI_AVAILABLE = False
-ENHANCED_MODULES_AVAILABLE = False
-
-# Global engine instances (will be initialized lazily)
-unified_engine_instance = None
 
 def get_embedding_model():
     """Check if embedding model is available without loading it"""
@@ -74,50 +65,6 @@ def init_engines():
 
 
 
-# Lazy initialization functions
-def get_unified_engine():
-    """Get unified engine instance with lazy initialization"""
-    global unified_engine_instance, UNIFIED_ENGINE_AVAILABLE
-    if not UNIFIED_ENGINE_AVAILABLE:
-        try:
-            from unified_recommendation_engine import UnifiedRecommendationEngine
-            unified_engine_instance = UnifiedRecommendationEngine()
-            UNIFIED_ENGINE_AVAILABLE = True
-            logger.info("Unified engine initialized lazily")
-        except Exception as e:
-            logger.error(f"Failed to initialize unified engine: {e}")
-            return None
-    return unified_engine_instance
-
-def get_smart_engine(user_id):
-    """Get smart engine instance with lazy initialization"""
-    try:
-        from smart_recommendation_engine import SmartRecommendationEngine
-        return SmartRecommendationEngine(user_id)
-    except Exception as e:
-        logger.error(f"Failed to initialize smart engine: {e}")
-        return None
-
-
-
-# Cache management functions
-def get_cached_recommendations(cache_key):
-    """Get cached recommendations"""
-    try:
-        from redis_utils import redis_cache
-        return redis_cache.get_cache(cache_key)
-    except Exception as e:
-        logger.error(f"Error getting cached recommendations: {e}")
-        return None
-
-def cache_recommendations(cache_key, data, ttl=3600):
-    """Cache recommendations"""
-    try:
-        from redis_utils import redis_cache
-        return redis_cache.set_cache(cache_key, data, ttl)
-    except Exception as e:
-        logger.error(f"Error caching recommendations: {e}")
-        return False
 
 def invalidate_user_recommendations(user_id):
     """Invalidate all cached recommendations for a user"""
@@ -133,22 +80,6 @@ def invalidate_user_recommendations(user_id):
 # ============================================================================
 
 
-
-# ============================================================================
-# DEPRECATED ENDPOINTS - Removed from frontend, kept for backward compatibility
-# ============================================================================
-
-# @recommendations_bp.route('/ensemble', methods=['POST'])
-# @jwt_required()
-# def get_ensemble_recommendations():
-#     """DEPRECATED: Get ensemble recommendations - Use /unified-orchestrator instead"""
-#     return jsonify({'error': 'This endpoint is deprecated. Use /unified-orchestrator instead.'}), 410
-
-# @recommendations_bp.route('/ensemble/quality', methods=['POST'])
-# @jwt_required()
-# def get_quality_ensemble_recommendations():
-#     """DEPRECATED: Get quality ensemble recommendations - Use /unified-orchestrator instead"""
-#     return jsonify({'error': 'This endpoint is deprecated. Use /unified-orchestrator instead.'}), 410
 
 @recommendations_bp.route('/unified-orchestrator', methods=['POST'])
 @jwt_required()
@@ -326,17 +257,6 @@ def generate_personalized_context():
     except Exception:
         logger.exception("generate_personalized_context_failed")
         return jsonify({'error': 'Internal server error'}), 500
-
-# ============================================================================
-# API ROUTES - Using Standalone Engines (Legacy)
-# ============================================================================
-
-# NOTE: /unified, /unified-project/<id>, /project/<id> were removed here.
-# All three called get_unified_engine(), which imports a top-level
-# `unified_recommendation_engine` module that doesn't exist anywhere in this
-# codebase -- every call returned 500. Confirmed via grep that neither the
-# frontend nor the Chrome extension ever called them; superseded by
-# /unified-orchestrator (ml/unified_recommendation_orchestrator.py).
 
 @recommendations_bp.route('/task/<int:task_id>', methods=['POST'])
 @jwt_required()
@@ -619,192 +539,6 @@ def get_subtask_recommendations(subtask_id):
 
 
 
-@recommendations_bp.route('/smart-recommendations', methods=['POST'])
-@jwt_required()
-def get_smart_recommendations():
-    """Get smart recommendations using SmartRecommendationEngine"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        engine = get_smart_engine(user_id)
-        if not engine:
-            return jsonify({'error': 'Smart recommendation engine not available'}), 500
-        result = engine.get_recommendations(user_id, user_input)
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error in smart recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/enhanced', methods=['POST'])
-@jwt_required()
-def get_enhanced_recommendations_route():
-    """Get enhanced recommendations using enhanced_recommendation_engine"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        if not ENHANCED_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Enhanced recommendation engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from enhanced_recommendation_engine import get_enhanced_recommendations
-        
-        # Use enhanced recommendation engine
-        result = get_enhanced_recommendations(user_id, data)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/enhanced-project/<int:project_id>', methods=['POST'])
-@jwt_required()
-def get_enhanced_project_recommendations_route(project_id):
-    """Get enhanced project recommendations using enhanced_recommendation_engine"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        data['project_id'] = project_id
-        
-        if not ENHANCED_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Enhanced recommendation engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from enhanced_recommendation_engine import get_enhanced_recommendations
-        
-        # Use enhanced recommendation engine
-        result = get_enhanced_recommendations(user_id, data)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced project recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/enhanced-status', methods=['GET'])
-@jwt_required()
-def get_enhanced_engine_status():
-    """Get enhanced engine status"""
-    try:
-        status = {
-            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
-            'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
-            'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
-            'smart_engine_available': SMART_ENGINE_AVAILABLE,
-            'fast_gemini_available': FAST_GEMINI_AVAILABLE,
-            'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
-            'gemini_analyzer_available': False,  # Per-request instantiation via get_user_api_key; no global instance
-            'embedding_model_available': get_embedding_model() is not None
-        }
-        
-        return jsonify(status)
-        
-    except Exception as e:
-        logger.error(f"Error getting enhanced engine status: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/phase3/recommendations', methods=['POST'])
-@jwt_required()
-def get_phase3_recommendations():
-    """Get Phase 3 recommendations using phase3_enhanced_engine"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from phase3_enhanced_engine import get_enhanced_recommendations_phase3
-        
-        # Use Phase 3 enhanced engine
-        result = get_enhanced_recommendations_phase3(user_id, data)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in Phase 3 recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/phase3/feedback', methods=['POST'])
-@jwt_required()
-def record_phase3_feedback():
-    """Record Phase 3 feedback using phase3_enhanced_engine"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        recommendation_id = data.get('recommendation_id')
-        feedback_type = data.get('feedback_type')
-        feedback_data = data.get('feedback_data', {})
-        
-        if not recommendation_id or not feedback_type:
-            return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
-        
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from phase3_enhanced_engine import record_user_feedback_phase3
-        
-        # Use Phase 3 enhanced engine
-        record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
-        
-        return jsonify({'message': 'Feedback recorded successfully'})
-        
-    except Exception as e:
-        logger.error(f"Error recording Phase 3 feedback: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/phase3/insights', methods=['GET'])
-@jwt_required()
-def get_phase3_insights():
-    """Get Phase 3 insights using phase3_enhanced_engine"""
-    try:
-        user_id = get_jwt_identity()
-        
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from phase3_enhanced_engine import get_user_learning_insights
-        
-        # Use Phase 3 enhanced engine
-        result = get_user_learning_insights(user_id)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error getting Phase 3 insights: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/phase3/health', methods=['GET'])
-@jwt_required()
-def get_phase3_health():
-    """Get Phase 3 system health using phase3_enhanced_engine"""
-    try:
-        if not PHASE3_ENGINE_AVAILABLE:
-            return jsonify({'error': 'Phase 3 enhanced engine not available'}), 500
-        
-        # Import here to avoid circular imports
-        from phase3_enhanced_engine import get_system_health_phase3
-        
-        # Use Phase 3 enhanced engine
-        result = get_system_health_phase3()
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error getting Phase 3 health: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
 # ============================================================================
 # UTILITY ENDPOINTS
 # ============================================================================
@@ -821,22 +555,10 @@ def get_engine_status():
     try:
         status = {
             'unified_orchestrator_available': UNIFIED_ORCHESTRATOR_AVAILABLE,
-            'unified_engine_available': UNIFIED_ENGINE_AVAILABLE,
-            'smart_engine_available': SMART_ENGINE_AVAILABLE,
-            'enhanced_engine_available': ENHANCED_ENGINE_AVAILABLE,
-            'phase3_engine_available': PHASE3_ENGINE_AVAILABLE,
-            'fast_gemini_available': FAST_GEMINI_AVAILABLE,
-            'enhanced_modules_available': ENHANCED_MODULES_AVAILABLE,
-            'embedding_model_available': get_embedding_model() is not None,
-            'total_engines_available': sum([
-                UNIFIED_ORCHESTRATOR_AVAILABLE,
-                UNIFIED_ENGINE_AVAILABLE,
-                SMART_ENGINE_AVAILABLE,
-                ENHANCED_ENGINE_AVAILABLE,
-                PHASE3_ENGINE_AVAILABLE,
-                FAST_GEMINI_AVAILABLE
-            ]),
-            'recommended_engine': 'unified_orchestrator' if UNIFIED_ORCHESTRATOR_AVAILABLE else 'unified_engine'
+            'embedding_model_available': bool(get_embedding_model()),
+            'gemini_api_key_configured': bool(os.environ.get('GEMINI_API_KEY')),
+            'total_engines_available': int(UNIFIED_ORCHESTRATOR_AVAILABLE),
+            'recommended_engine': 'unified_orchestrator',
         }
         
         return jsonify(status)
@@ -855,6 +577,7 @@ def get_performance_metrics():
         # Get unified orchestrator metrics
         if UNIFIED_ORCHESTRATOR_AVAILABLE:
             try:
+                from ml.unified_recommendation_orchestrator import get_unified_orchestrator
                 orchestrator = get_unified_orchestrator()
                 metrics['unified_orchestrator'] = orchestrator.get_performance_metrics()
             except Exception as e:
@@ -865,7 +588,7 @@ def get_performance_metrics():
         
         # Get Redis cache stats
         try:
-            from redis_utils import redis_cache
+            from utils.redis_utils import redis_cache
             metrics['redis_cache'] = redis_cache.get_cache_stats()
         except Exception as e:
             logger.error(f"Error getting Redis metrics: {e}")
@@ -1019,86 +742,6 @@ def get_analysis_stats():
         logger.exception("get_analysis_stats_failed", extra={"user_id": user_id})
         return jsonify({'error': 'Internal server error'}), 500
 
-@recommendations_bp.route('/phase-status', methods=['GET'])
-def get_phase_status():
-    """Get status of all recommendation phases"""
-    try:
-        status = {
-            'phase1_smart_engine': SMART_ENGINE_AVAILABLE,
-            'phase2_enhanced_engine': ENHANCED_ENGINE_AVAILABLE,
-            'phase3_advanced_engine': PHASE3_ENGINE_AVAILABLE,
-            'unified_engine': UNIFIED_ENGINE_AVAILABLE,
-            'enhanced_modules': ENHANCED_MODULES_AVAILABLE,
-            'total_engines_available': sum([
-                SMART_ENGINE_AVAILABLE,
-                ENHANCED_ENGINE_AVAILABLE,
-                PHASE3_ENGINE_AVAILABLE,
-                UNIFIED_ENGINE_AVAILABLE,
-                FAST_GEMINI_AVAILABLE
-            ])
-        }
-        
-        return jsonify(status)
-        
-    except Exception as e:
-        logger.error(f"Error getting phase status: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-
-
-# ============================================================================
-# LEGACY ENDPOINTS (for backward compatibility)
-# ============================================================================
-
-@recommendations_bp.route('/learning-path-recommendations', methods=['POST'])
-@jwt_required()
-def get_learning_path_recommendations():
-    """Legacy endpoint - redirects to unified recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Redirect to unified recommendations
-        return get_unified_recommendations()
-        
-    except Exception as e:
-        logger.error(f"Error in learning path recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/project-recommendations', methods=['POST'])
-@jwt_required()
-def get_project_type_recommendations():
-    """Legacy endpoint - redirects to unified project recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        project_id = data.get('project_id')
-        if not project_id:
-            return jsonify({'error': 'Project ID required'}), 400
-        
-        # Redirect to unified project recommendations
-        return get_unified_project_recommendations(project_id)
-        
-    except Exception as e:
-        logger.error(f"Error in project type recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/phase3/contextual', methods=['POST'])
-@jwt_required()
-def get_contextual_recommendations():
-    """Legacy endpoint - redirects to Phase 3 recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Redirect to Phase 3 recommendations
-        return get_phase3_recommendations()
-        
-    except Exception as e:
-        logger.error(f"Error in contextual recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
 # ============================================================================
 # ANALYSIS ENDPOINTS
 # ============================================================================
@@ -1241,13 +884,6 @@ def record_recommendation_feedback():
             uow.flush()  # Obtain feedback.id before commit
             feedback_id = feedback.id
 
-        # Fire-and-forget: Phase 3 engine side-effect (non-critical)
-        if PHASE3_ENGINE_AVAILABLE:
-            try:
-                from phase3_enhanced_engine import record_user_feedback_phase3
-                record_user_feedback_phase3(user_id, recommendation_id, feedback_type, feedback_data)
-            except Exception:
-                logger.warning("phase3_feedback_recording_failed", extra={"recommendation_id": recommendation_id})
 
         logger.info("recommendation_feedback_recorded", extra={"user_id": user_id, "recommendation_id": recommendation_id, "feedback_type": mapped_feedback_type})
         return jsonify({'message': 'Feedback recorded successfully', 'feedback_id': feedback_id})
@@ -1281,15 +917,6 @@ def get_learning_insights():
     """Get learning insights for user"""
     user_id = int(get_jwt_identity())
     try:
-        # Prefer Phase 3 engine if available; fall back to RecommendationService
-        if PHASE3_ENGINE_AVAILABLE:
-            try:
-                from phase3_enhanced_engine import get_user_learning_insights
-                result = get_user_learning_insights(user_id)
-                return jsonify(result)
-            except Exception:
-                logger.warning("phase3_insights_fallback", extra={"user_id": user_id})
-
         from uow.unit_of_work import UnitOfWork
         from services.recommendation_service import RecommendationService
 
@@ -1304,199 +931,20 @@ def get_learning_insights():
         return jsonify({'error': 'Internal server error'}), 500
 
 # ============================================================================
-# SEARCH AND DISCOVERY ENDPOINTS
-# ============================================================================
-
-@recommendations_bp.route('/discover', methods=['POST'])
-@jwt_required()
-def discover_recommendations():
-    """Discover new recommendations based on exploration"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Use the best available engine for discovery
-        if PHASE3_ENGINE_AVAILABLE:
-            from phase3_enhanced_engine import get_enhanced_recommendations_phase3
-            result = get_enhanced_recommendations_phase3(user_id, {
-                **data,
-                'discovery_mode': True
-            })
-        elif ENHANCED_ENGINE_AVAILABLE:
-            from enhanced_recommendation_engine import get_enhanced_recommendations
-            result = get_enhanced_recommendations(user_id, {
-                **data,
-                'discovery_mode': True
-            })
-        elif UNIFIED_ENGINE_AVAILABLE:
-            engine = get_unified_engine()
-            if engine:
-                from models import SavedContent
-                user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
-                bookmarks_data = [{
-                    'id': b.id, 'title': b.title, 'url': b.url,
-                    'extracted_text': b.extracted_text or '', 'tags': b.tags or '',
-                    'quality_score': b.quality_score or 7.0, 'created_at': b.created_at
-                } for b in user_bookmarks]
-                
-                context = engine.extract_context_from_input(
-                    title=data.get('title', ''),
-                    description=data.get('description', ''),
-                    technologies=data.get('technologies', ''),
-                    user_interests=data.get('user_interests', '')
-                )
-                
-                recommendations = engine.get_recommendations(
-                    bookmarks=bookmarks_data,
-                    context=context,
-                    max_recommendations=15
-                )
-                
-                result = {
-                    'recommendations': recommendations,
-                    'discovery_mode': True,
-                    'engine_used': 'UnifiedRecommendationEngine'
-                }
-            else:
-                return jsonify({'error': 'No recommendation engine available'}), 500
-        else:
-            return jsonify({'error': 'No discovery engine available'}), 500
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in discovery recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/similar/<int:content_id>', methods=['GET'])
-@jwt_required()
-def get_similar_content(content_id):
-    """Get content similar to a specific bookmark"""
-    try:
-        user_id = get_jwt_identity()
-        
-        # Import models here to avoid circular imports
-        from models import SavedContent
-        
-        # Get the target content
-        target_content = SavedContent.query.filter_by(id=content_id, user_id=user_id).first()
-        if not target_content:
-            return jsonify({'error': 'Content not found'}), 404
-        
-        # Use unified engine for similarity
-        engine = get_unified_engine()
-        if not engine:
-            return jsonify({'error': 'Unified engine not available'}), 500
-        
-        # Get all user content
-        user_bookmarks = SavedContent.query.filter_by(user_id=user_id).all()
-        bookmarks_data = []
-        for bookmark in user_bookmarks:
-            if bookmark.id != content_id:  # Exclude the target content
-                bookmarks_data.append({
-                    'id': bookmark.id,
-                    'title': bookmark.title,
-                    'url': bookmark.url,
-                    'extracted_text': bookmark.extracted_text or '',
-                    'tags': bookmark.tags or '',
-                    'notes': bookmark.notes or '',
-                    'quality_score': bookmark.quality_score or 7.0,
-                    'created_at': bookmark.saved_at
-                })
-        
-        # Create context from target content
-        context = engine.extract_context_from_input(
-            title=target_content.title,
-            description=target_content.extracted_text or '',
-            technologies=target_content.tags or '',
-            user_interests=''
-        )
-        
-        # Get similar recommendations
-        recommendations = engine.get_recommendations(
-            bookmarks=bookmarks_data,
-            context=context,
-            max_recommendations=10
-        )
-        
-        result = {
-            'target_content': {
-                'id': target_content.id,
-                'title': target_content.title,
-                'url': target_content.url
-            },
-            'similar_content': recommendations,
-            'context_used': context,
-            'engine_used': 'UnifiedRecommendationEngine'
-        }
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error getting similar content: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-# ============================================================================
 # GEMINI-ENHANCED ENDPOINTS
 # ============================================================================
-
-@recommendations_bp.route('/ultra-fast', methods=['POST'])
-@jwt_required()
-def get_ultra_fast_recommendations():
-    """Get ultra-fast recommendations using vector similarity search"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        
-        try:
-            from ultra_fast_recommendation_engine import get_ultra_fast_engine
-            engine = get_ultra_fast_engine()
-            result = engine.get_ultra_fast_recommendations(user_id, user_input)
-            return jsonify(result)
-        except ImportError:
-            return jsonify({'error': 'Ultra-fast engine not available'}), 500
-        except Exception as e:
-            logger.error(f"Error in ultra-fast recommendations: {e}")
-            return jsonify({'error': 'Internal server error'}), 500
-            
-    except Exception as e:
-        logger.error(f"Error in ultra-fast recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/ultra-fast-project/<int:project_id>', methods=['POST'])
-@jwt_required()
-def get_ultra_fast_project_recommendations(project_id):
-    """Get ultra-fast project recommendations"""
-    try:
-        user_id = get_jwt_identity()
-        user_input = request.get_json() or {}
-        
-        try:
-            from ultra_fast_recommendation_engine import get_ultra_fast_engine
-            engine = get_ultra_fast_engine()
-            result = engine.get_project_recommendations(user_id, project_id)
-            return jsonify(result)
-        except ImportError:
-            return jsonify({'error': 'Ultra-fast engine not available'}), 500
-        except Exception as e:
-            logger.error(f"Error in ultra-fast project recommendations: {e}")
-            return jsonify({'error': 'Internal server error'}), 500
-            
-    except Exception as e:
-        logger.error(f"Error in ultra-fast project recommendations: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
 
 @recommendations_bp.route('/gemini-status', methods=['GET'])
 @jwt_required()
 def get_gemini_status():
     """Check if Gemini is available and working"""
     try:
+        api_key_set = bool(os.environ.get('GEMINI_API_KEY'))
         status_info = {
-            'gemini_available': FAST_GEMINI_AVAILABLE,
-            'status': 'available' if FAST_GEMINI_AVAILABLE else 'unavailable',
+            'gemini_available': api_key_set,
+            'status': 'available' if api_key_set else 'unavailable',
             'details': {
-                'fast_gemini_available': FAST_GEMINI_AVAILABLE,
-                'api_key_set': bool(os.environ.get('GEMINI_API_KEY')),
+                'api_key_set': api_key_set,
                 'test_result': None,
                 'error_message': None
             }

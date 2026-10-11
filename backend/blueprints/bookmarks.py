@@ -1,27 +1,14 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent, User, Project, ContentAnalysis
-import requests
-try:
-    from readability import Document
-except ImportError:
-    Document = None
-from bs4 import BeautifulSoup
-import numpy as np
 from sqlalchemy.exc import IntegrityError
-from scrapers.enhanced_web_scraper import scrape_url_enhanced
-from urllib.parse import urlparse, urljoin, urlunparse
-import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.bookmark_processing_service import scrape_url_summary
+from urllib.parse import urlparse, urlunparse
 from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
 import logging
 import traceback
 from datetime import datetime, timedelta
-from sqlalchemy import func
-
-# Import embedding function
-from utils.embedding_utils import get_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -94,178 +81,6 @@ def is_duplicate_url(service, url, user_id):
             return bookmark, 'similar'
     
     return None, None
-
-def extract_article_content(url):
-    """Extract main content, title, headings, and meta from a URL"""
-    return scrape_url_enhanced(url)
-
-def generate_comprehensive_embedding(title, description, meta_description, headings, extracted_text, url=None):
-    """
-    Generate comprehensive embedding using optimized strategy from test workflow.
-    Priority: title > meta_description > headings > notes > extracted_text (first 5000 + last 1000)
-    Always generates embedding even with minimal content - ensures semantic search works.
-    """
-    embedding_parts = []
-    
-    # Add title (highest priority)
-    if title and title.strip():
-        embedding_parts.append(title.strip())
-    
-    # Add meta description if available
-    if meta_description and meta_description.strip():
-        embedding_parts.append(meta_description.strip())
-    
-    # Add headings if available (limit to first 10)
-    if headings:
-        embedding_parts.append(' '.join(headings[:10]))
-    
-    # Add user notes/description if available
-    if description and description.strip():
-        embedding_parts.append(description.strip())
-    
-    # Add extracted text (first 5000 + last 1000 chars for better context)
-    if extracted_text and extracted_text.strip():
-        text_for_embedding = extracted_text[:5000]
-        if len(extracted_text) > 5000:
-            text_for_embedding += " " + extracted_text[-1000:]
-        embedding_parts.append(text_for_embedding)
-    
-    # Join all parts
-    content_for_embedding = ' '.join(embedding_parts).strip()
-    
-    # If we have no content at all, use URL as absolute minimum fallback
-    if not content_for_embedding:
-        content_for_embedding = url or "unknown content"
-    
-    # Generate embedding
-    try:
-        embedding = get_embedding(content_for_embedding)
-        return embedding
-    except Exception as embed_error:
-        logger.error(f"Embedding generation failed: {embed_error}")
-        # Fallback: try with just title and URL
-        try:
-            fallback_content = f"{title or 'Unknown'} {url or ''}".strip()
-            if fallback_content:
-                return get_embedding(fallback_content)
-        except Exception as fallback_error:
-            logger.error(f"Fallback embedding also failed: {fallback_error}")
-            # Last resort: return None (will be handled by caller)
-            return None
-
-def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
-    """
-    RQ Task function to process bookmark content extraction, embedding, and analysis
-    This is called by RQ workers in the background
-    """
-    import logging
-    task_logger = logging.getLogger(__name__)
-    
-    try:
-        # Get Flask app context for database operations
-        # Try multiple import paths for flexibility
-        try:
-            from run_production import app
-        except ImportError:
-            try:
-                from backend.run_production import app
-            except ImportError:
-                from backend.wsgi import app
-        
-        task_logger.info(f"Starting background processing for bookmark {bookmark_id}")
-        
-        with app.app_context():
-            from uow.unit_of_work import UnitOfWork
-            from services.bookmark_service import BookmarkService
-            
-            # First UoW: Fetch bookmark info to check existence and get initial context
-            with UnitOfWork() as uow:
-                service = BookmarkService(uow)
-                bookmark = service.get_bookmark(bookmark_id)
-                if not bookmark:
-                    logger.error(f"Bookmark {bookmark_id} not found for background processing")
-                    return
-                
-                # Extract primitives needed for ML tasks
-                bookmark_title = bookmark.title
-                bookmark_notes = bookmark.notes or ''
-            
-            task_logger.info(f"Background processing started for bookmark {bookmark_id}: {url}")
-            
-            # --- OUTSIDE UoW: Heavy side effects (scraping, ML) ---
-            
-            # Extract content from URL
-            scraped = extract_article_content(url)
-            extracted_text = scraped.get('content', '')
-            scraped_title = scraped.get('title', '')
-            headings = scraped.get('headings', [])
-            meta_description = scraped.get('meta_description', '')
-            quality_score = scraped.get('quality_score', 10)
-            
-            # Update title if we got a better one from scraping
-            final_title = bookmark_title
-            if scraped_title and (not bookmark_title or bookmark_title == 'Untitled Bookmark'):
-                final_title = scraped_title.strip()
-                if len(final_title) > 200:
-                    truncated = final_title[:197]
-                    last_space = truncated.rfind(' ')
-                    if last_space > 150:
-                        final_title = truncated[:last_space] + "..."
-                    else:
-                        final_title = truncated + "..."
-            
-            # Generate comprehensive embedding
-            embedding = generate_comprehensive_embedding(
-                title=final_title,
-                description=bookmark_notes,
-                meta_description=meta_description,
-                headings=headings,
-                extracted_text=extracted_text,
-                url=url
-            )
-            
-            # Clean up extracted text
-            if extracted_text:
-                extracted_text = extracted_text.replace('\x00', '')
-                if not isinstance(extracted_text, str):
-                    extracted_text = str(extracted_text)
-                    
-            # --- SECOND UoW: Save results ---
-            with UnitOfWork() as uow:
-                service = BookmarkService(uow)
-                # Re-fetch because previous instance is detached
-                bookmark = service.get_bookmark(bookmark_id)
-                if not bookmark:
-                    logger.error(f"Bookmark {bookmark_id} was deleted during background processing")
-                    return
-                    
-                bookmark.title = final_title
-                bookmark.extracted_text = extracted_text
-                
-                if embedding is not None:
-                    bookmark.embedding = embedding
-                    
-                bookmark.quality_score = quality_score
-                # Commit happens automatically on exit
-            
-            # Invalidate caches
-            from services.cache_invalidation_service import cache_invalidator
-            cache_invalidator.after_content_update(bookmark_id, user_id)
-            redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
-            
-            task_logger.info(f"Background processing completed for bookmark {bookmark_id}")
-            
-            # Trigger background analysis
-            try:
-                from services.background_analysis_service import analyze_content
-                analyze_content(bookmark_id, user_id)
-                task_logger.info(f"Background analysis triggered for bookmark {bookmark_id}")
-            except Exception as e:
-                task_logger.error(f"Error triggering background analysis for bookmark {bookmark_id}: {e}")
-                
-    except Exception as e:
-        task_logger.error(f"Error in background processing for bookmark {bookmark_id}: {e}", exc_info=True)
-        raise  # Re-raise so RQ can handle retries
 
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
     """
@@ -1449,34 +1264,14 @@ def extract_url_content():
         return jsonify({'message': 'URL is required'}), 400
     
     try:
-        # Extract content from URL (scrape_url_enhanced now handles LinkedIn URLs automatically)
-        scraped = scrape_url_enhanced(url)
+        scraped = scrape_url_summary(url)
         extracted_text = scraped.get('content', '')
         scraped_title = scraped.get('title', '')
         headings = scraped.get('headings', [])
         meta_description = scraped.get('meta_description', '')
         quality_score = scraped.get('quality_score', 0)
-        
-        # Use scraped title as primary, fallback to page title only if needed
         page_title = scraped_title or 'Untitled'
-        
-        # For LinkedIn URLs, the LinkedIn scraper already provides good title
-        # For other URLs, try to get title from the page if scraped title is generic
-        if not scraped_title or scraped_title in ['Untitled', 'LinkedIn Post']:
-            try:
-                headers = {"User-Agent": "Mozilla/5.0 (compatible; FuzeBot/1.0)"}
-                response = requests.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                
-                soup = BeautifulSoup(response.text, "html.parser")
-                title = soup.find('title')
-                if title:
-                    page_title = title.get_text().strip() or scraped_title or 'Untitled'
-            except Exception as e:
-                logger.debug(f"Error getting page title: {e}")
-                # Use scraped title as fallback
-                page_title = scraped_title or 'Untitled'
-        
+
         return jsonify({
             'title': page_title,
             'description': extracted_text[:1000],  # Limit preview content
@@ -1500,7 +1295,7 @@ def extract_url_content():
             'description': '',
             'url': url,
             'success': False,
-            'message': f'Error extracting content: {str(e)}'
+            'message': 'Could not extract content from this URL'
         }), 200  # Return 200 instead of 500 to avoid breaking the frontend 
 
 @bookmarks_bp.route('/all', methods=['DELETE'])

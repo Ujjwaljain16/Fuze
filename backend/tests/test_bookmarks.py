@@ -12,8 +12,7 @@ class TestBookmarks:
     
     def test_save_bookmark_success(self, client, auth_headers):
         """Test saving a bookmark successfully"""
-        with patch('blueprints.bookmarks.scrape_url_enhanced') as mock_scrape, \
-             patch('blueprints.bookmarks.get_embedding') as mock_embedding:
+        with patch('blueprints.bookmarks.scrape_url_summary') as mock_scrape:
             mock_scrape.return_value = {
                 'title': 'Test Article',
                 'content': 'Test content',
@@ -21,7 +20,6 @@ class TestBookmarks:
                 'meta_description': 'Test description',
                 'quality_score': 8
             }
-            mock_embedding.return_value = [0.1] * 384  # Mock embedding vector
             
             response = client.post('/api/bookmarks', json={
                 'url': 'https://example.com/article',
@@ -236,8 +234,7 @@ class TestBookmarks:
             {'url': 'https://example.com/3', 'title': 'Bookmark 3'}
         ]
         
-        with patch('blueprints.bookmarks.scrape_url_enhanced') as mock_scrape, \
-             patch('blueprints.bookmarks.get_embedding') as mock_embedding:
+        with patch('blueprints.bookmarks.scrape_url_summary') as mock_scrape:
             mock_scrape.return_value = {
                 'title': 'Scraped Title',
                 'content': 'Scraped content',
@@ -245,7 +242,6 @@ class TestBookmarks:
                 'meta_description': 'Scraped description',
                 'quality_score': 8
             }
-            mock_embedding.return_value = [0.1] * 384  # Mock embedding vector
             
             response = client.post('/api/bookmarks/import', 
                                  json=bookmarks_data,

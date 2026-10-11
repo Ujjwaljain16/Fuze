@@ -73,17 +73,6 @@ def get_embedding_model():
     if not _embedding_model_initialized:
         with _embedding_lock:
             if not _embedding_model_initialized:
-                try:
-                    from utils.production_optimizations import get_cached_embedding_model
-                    model = get_cached_embedding_model()
-                    if model:
-                        _embedding_model = model
-                        _embedding_model_initialized = True
-                        logger.info("using_production_optimized_embedding_model")
-                        return _embedding_model
-                except Exception as opt_err:
-                    logger.debug("production_optimization_unavailable", extra={"error": str(opt_err)})
-
                 _embedding_model = _initialize_embedding_model_robust()
                 _embedding_model_initialized = True
 

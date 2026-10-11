@@ -45,8 +45,7 @@ class TestAPIIntegration:
         project_id = project_response.json['project']['id']
         
         # 4. Save bookmark
-        with patch('blueprints.bookmarks.scrape_url_enhanced') as mock_scrape, \
-             patch('blueprints.bookmarks.get_embedding') as mock_embedding:
+        with patch('blueprints.bookmarks.scrape_url_summary') as mock_scrape:
             mock_scrape.return_value = {
                 'title': 'Test Article',
                 'content': 'Content',
@@ -54,7 +53,6 @@ class TestAPIIntegration:
                 'meta_description': 'Description',
                 'quality_score': 8
             }
-            mock_embedding.return_value = [0.1] * 384  # Mock embedding vector
             
             bookmark_response = client.post('/api/bookmarks', json={
                 'url': 'https://example.com/article',

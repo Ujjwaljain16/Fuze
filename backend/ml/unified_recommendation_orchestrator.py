@@ -470,23 +470,7 @@ class UnifiedDataLayer:
                 logger.error(f"Error getting content from database: {e}")
             return []
     
-    def _get_content_from_db(self, user_id: int, request: UnifiedRecommendationRequest) -> List[Dict[str, Any]]:
-        """Get content from database with focus on the requesting user's own saved content"""
-        try:
-            from database_utils import get_db_session
-            from models import SavedContent, ContentAnalysis
-            
-            session = get_db_session()
-            if not session:
-                logger.error("Could not get database session")
-                return []
-            
-            return self._get_content_from_db_with_session(user_id, request, session)
-                
-        except Exception as e:
-            logger.error(f"Error getting content from database: {e}")
-            return []
-    
+
     def _calculate_content_relevance(self, content: Dict[str, Any], request_techs: List[str], request_text: str, request: UnifiedRecommendationRequest) -> float:
         """Calculate relevance score for user's own content"""
         relevance_score = 0.0
@@ -2246,103 +2230,9 @@ class ContextAwareEngine:
         else:
             return "This may be useful as supplementary material."
     
-    def _generate_gemini_reasoning(self, content: Dict, context: Dict, components: Dict[str, float]) -> str:
-        """Generate reasoning using Gemini AI"""
-        try:
-            gemini_analyzer = get_cached_gemini_analyzer(user_id=request.user_id)
-            
-            # Prepare user context for Gemini
-            user_context = {
-                'title': context.get('title', ''),
-                'description': context.get('description', ''),
-                'technologies': context.get('technologies', []),
-                'project_type': context.get('project_type', 'general'),
-                'learning_needs': context.get('focus_areas', []),
-                'intent_goal': context.get('intent_goal', 'learn')
-            }
-            
-            # Generate reasoning using Gemini
-            reason = gemini_analyzer.generate_recommendation_reasoning(content, user_context)
-            
-            # Add AI insights indicator
-            if context.get('intent_goal') or context.get('project_type') or context.get('focus_areas'):
-                reason += " Enhanced with AI-powered intent analysis."
-            
-            return reason
-            
-        except Exception as e:
-            logger.error(f"Gemini reasoning failed: {e}")
-            return self._generate_fallback_reason(content, context, components)
-    
-    def _generate_low_relevance_reason(self, content: Dict, context: Dict, overall_score: float) -> str:
-        """Generate reason for low-relevance content using Gemini"""
-        try:
-            gemini_analyzer = get_cached_gemini_analyzer(user_id=request.user_id)
-            
-            # Create a special prompt for low-relevance content
-            prompt = f"""
-            This content has low relevance to the user's project. Generate a brief, honest reason explaining why.
-            
-            Content:
-            - Title: {content.get('title', '')}
-            - Technologies: {content.get('technologies', [])}
-            - Content Type: {content.get('content_type', '')}
-            
-            User Project:
-            - Title: {context.get('title', '')}
-            - Technologies: {context.get('technologies', [])}
-            - Project Type: {context.get('project_type', '')}
-            
-            Relevance Score: {overall_score:.2f}
-            
-            Provide a brief, honest explanation (1 sentence) about why this content might not be very relevant.
-            Be direct but helpful.
-            """
-            
-            response = gemini_analyzer._make_gemini_request(prompt)
-            if response:
-                return response.strip()
-            else:
-                return f"Limited relevance to your {context.get('project_type', 'project')} (score: {overall_score:.1f})."
-                
-        except Exception as e:
-            logger.error(f"Low relevance reasoning failed: {e}")
-            return f"Limited relevance to your {context.get('project_type', 'project')} (score: {overall_score:.1f})."
-    
-    def _generate_fallback_reason(self, content: Dict, context: Dict, components: Dict[str, float]) -> str:
-        """Generate fallback reasoning when Gemini is unavailable"""
-        reasons = []
-        
-        # Technology match
-        if components.get('technology', 0) > 0.5:
-            tech_list = ', '.join(content.get('technologies', [])[:3])
-            reasons.append(f"Directly covers {tech_list} technologies")
-        elif components.get('technology', 0) > 0.2:
-            reasons.append("Some technology overlap with your project")
-        
-        # Content type
-        if components.get('content_type', 0) > 0.8:
-            reasons.append(f"Perfect {content.get('content_type', 'article')} content for your needs")
-        elif components.get('content_type', 0) > 0.5:
-            reasons.append(f"Good {content.get('content_type', 'article')} material")
-        
-        # Quality
-        if components.get('quality', 0) > 0.8:
-            reasons.append("High-quality, well-curated content")
-        
-        # Semantic relevance
-        if components.get('semantic', 0) > 0.7:
-            reasons.append("High semantic relevance to your project")
-        
-        # User content boost
-        if content.get('is_user_content', False):
-            reasons.append("From your saved content")
-        
-        if not reasons:
-            reasons.append("Quality content from your saved bookmarks")
-        
-        return ". ".join(reasons) + "."
-    
+
+
+
     def _update_performance(self, start_time: float, success: bool):
         """Update performance metrics"""
         response_time = (time.time() - start_time) * 1000

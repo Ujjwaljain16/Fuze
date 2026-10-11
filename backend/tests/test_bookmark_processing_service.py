@@ -13,6 +13,30 @@ def test_validate_embedding():
     assert validate_embedding(None) is False
 
 
+def test_validate_embedding_accepts_numpy_and_rejects_fallback_vectors():
+    import numpy as np
+    assert validate_embedding(np.full(384, 0.1, dtype=np.float32)) is True
+    assert validate_embedding(np.zeros(384, dtype=np.float32)) is False
+    bad = np.full(384, 0.1, dtype=np.float32)
+    bad[3] = np.nan
+    assert validate_embedding(bad) is False
+    assert validate_embedding(np.full((2, 384), 0.1)) is False
+
+
+def test_generate_embedding_task_persists_numpy_embedding(app):
+    import numpy as np
+    from services.bookmark_processing_service import generate_embedding_task
+    emb = np.full(384, 0.2, dtype=np.float32)
+    with patch('services.bookmark_processing_service.UnitOfWork') as mock_uow_cls,          patch('services.bookmark_processing_service.generate_comprehensive_embedding', return_value=emb),          patch('services.bookmark_processing_service.redis_cache'),          patch('services.background_analysis_service.analyze_content'):
+        mock_uow = MagicMock()
+        mock_uow_cls.return_value.__enter__.return_value = mock_uow
+        bookmark = MagicMock(title='T', notes='', extracted_text='text', url='https://example.com')
+        mock_uow.bookmarks.get_by_id.return_value = bookmark
+        generate_embedding_task(bookmark_id=1, user_id=10)
+        assert bookmark.embedding is emb
+        assert bookmark.embedding_status == 'SUCCESS'
+
+
 def test_truncate_title():
     short_title = "Short Title"
     assert truncate_title(short_title) == "Short Title"
@@ -52,4 +76,5 @@ def test_process_bookmark_content_task_flow(app):
             assert mock_bookmark.title == 'Scraped Title'
             assert '\x00' not in mock_bookmark.extracted_text
             assert mock_bookmark.quality_score == 8
-            assert mock_bookmark.embedding == [0.1] * 384
+            # embeddings are produced by generate_embedding_task, not inline
+            mock_emb.assert_not_called()

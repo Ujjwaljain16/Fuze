@@ -6,6 +6,8 @@ using the decoupled 5-stage ContentAcquisitionEngine and PipelineOrchestrator.
 
 import time
 from datetime import datetime
+
+import numpy as np
 from typing import Optional, Union, Dict, Any
 from uow.unit_of_work import UnitOfWork
 from services.bookmark_service import BookmarkService
@@ -43,13 +45,36 @@ def extract_article_content(url: str) -> Union[ContentDocument, Dict[str, Any]]:
     return engine.acquire_and_normalize(url)
 
 
+def scrape_url_summary(url: str) -> Dict[str, Any]:
+    """Run the acquisition engine and return the flat dict shape used by previews and scripts."""
+    doc = extract_article_content(url)
+    content = doc.markdown_content or ""
+    headings = [line.lstrip("#").strip() for line in content.splitlines() if line.startswith("#")]
+    return {
+        "title": doc.metadata.title or "",
+        "content": content,
+        "headings": headings[:20],
+        "meta_description": doc.metadata.description or "",
+        # quality_metrics.score is 0-100; callers of this shape expect 1-10
+        "quality_score": max(1, min(10, round(doc.quality_metrics.score / 10))),
+    }
+
+
 def validate_embedding(embedding, expected_dim: int = EXPECTED_EMBEDDING_DIM) -> bool:
-    """Validate embedding shape and dimension."""
+    """Validate shape and values. Accepts lists/tuples and numpy arrays (what the model returns).
+
+    Rejects all-zero vectors: get_embedding() returns zeros when the model fails, and a zero
+    vector makes cosine distance undefined in pgvector.
+    """
     if embedding is None:
         return False
-    if isinstance(embedding, (list, tuple)):
-        return len(embedding) == expected_dim
-    return False
+    try:
+        arr = np.asarray(embedding, dtype=np.float32)
+    except (TypeError, ValueError):
+        return False
+    if arr.ndim != 1 or arr.shape[0] != expected_dim:
+        return False
+    return bool(np.all(np.isfinite(arr)) and np.any(arr))
 
 
 def generate_comprehensive_embedding(
@@ -212,21 +237,6 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                     except Exception as meta_err:
                         logger.warning("bg_bookmark_metadata_persistence_warning", extra={"bookmark_id": bookmark_id, "error": str(meta_err)})
 
-            # Async embeddings / direct embedding generation fallback for legacy tests
-            from core.feature_flags import is_enabled
-            if not is_enabled("async_embeddings", user_id=user_id):
-                embedding = generate_comprehensive_embedding(
-                    title=final_title,
-                    description=bookmark_notes,
-                    meta_description="",
-                    headings=[],
-                    extracted_text=extracted_text_raw,
-                    url=url
-                )
-                if validate_embedding(embedding):
-                    bookmark.embedding = embedding
-                    bookmark.embedding_status = 'SUCCESS'
-                    bookmark.embedded_at = datetime.utcnow()
 
         # Step 4: Publish Scraping Events & Trigger Pipeline Orchestrator
         orchestrator = PipelineOrchestrator()
