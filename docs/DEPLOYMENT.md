@@ -101,14 +101,24 @@ Your app is **perfectly suited** for Hugging Face Spaces deployment:
      - Since you have JWT auth, **Private is recommended** for security
 
 #### Step 3: Upload Files
-In your Space, upload these files:
-- ✅ `Dockerfile` (updated - runs start.sh)
-- ✅ `start.sh` (NEW - runs both processes)
+For the existing `fuze-backend` Space this step is automated: the
+`sync-to-hf-space.yml` workflow runs only after **Backend CI** passes on a push to
+`main`, checks out that exact commit, mirrors `backend/` into the Space with
+`rsync --delete` (so a module deleted from the repo also disappears from the Space;
+tests, scratch files, logs and `.env*` are excluded) and copies the root files listed
+below.
+
+For a new Space, upload these files:
+- ✅ `Dockerfile` (builds wheels from `requirements.lock` with `--require-hashes`, runs `start.sh`)
+- ✅ `start.sh` (runs migrations, then supervisord)
+- ✅ `supervisord.conf` (gunicorn + the `default` and `high` RQ workers)
+- ✅ `gunicorn.conf.py` (2 gevent workers, timeout 60 s, psycogreen patch)
+- ✅ `alembic.ini` (migrations run on every start)
 - ✅ `app.py` (entry point)
 - ✅ `wsgi.py` (Flask app)
-- ✅ `requirements.txt` (includes rq==1.15.1)
-- ✅ `backend/` folder (your entire backend code)
-- ✅ `README.md` (optional)
+- ✅ `requirements.txt` and `requirements.lock` (the image installs the lock: every transitive package, hash-checked)
+- ✅ `.dockerignore`
+- ✅ `backend/` folder (your entire backend code, without `tests/`)
 
 **Or use Git:**
 ```bash
@@ -122,13 +132,13 @@ huggingface-cli login
 git clone https://huggingface.co/spaces/your-username/fuze-backend
 cd fuze-backend
 
-# Copy files
-cp -r /path/to/fuze/backend .
-cp /path/to/fuze/requirements.txt .
-cp /path/to/fuze/Dockerfile .
-cp /path/to/fuze/app.py .
-cp /path/to/fuze/wsgi.py .
-cp /path/to/fuze/start.sh .
+# Copy files (--delete so removed modules don't linger in the Space)
+rsync -a --delete --exclude '__pycache__/' --exclude 'tests/' --exclude '*.log' --exclude '.env*' \
+  /path/to/fuze/backend/ backend/
+for f in requirements.txt requirements.lock Dockerfile .dockerignore app.py wsgi.py \
+         start.sh supervisord.conf gunicorn.conf.py alembic.ini; do
+  cp "/path/to/fuze/$f" .
+done
 
 # Commit and push
 git add .
@@ -142,10 +152,13 @@ See [Environment Variables Setup](#environment-variables-setup) section below.
 #### Step 5: Deploy & Test
 1. Space will auto-build (takes 5-10 minutes)
 2. Check logs for errors
-3. Test: `https://your-space.hf.space/api/health`
-4. Initialize database (one-time):
-   - Use Space terminal or HF CLI
-   - Run: `python -m alembic -c alembic.ini upgrade head` (the container also runs this on start)
+3. Test: `https://your-space.hf.space/api/health` (up/down only) and
+   `https://your-space.hf.space/health/readiness` (503 unless the database, Redis
+   and the schema are ready; the schema must be at the Alembic head shipped in this build)
+4. Database schema: `start.sh` runs `python -m alembic -c alembic.ini upgrade head`
+   on every start and **exits non-zero if it fails**, so the container never serves on
+   a half-migrated schema. Each revision runs in its own transaction, so a failure
+   leaves the last good revision in place.
 
 ### Architecture for Hugging Face Spaces
 
@@ -175,10 +188,13 @@ See [Environment Variables Setup](#environment-variables-setup) section below.
 ### Code Changes Made
 
 1. **Created `Dockerfile`**
-   - Python 3.11 base image
-   - Installs all dependencies (including RQ for background jobs)
+   - Python 3.11 base image, multi-stage (no compilers in the runtime image)
+   - Installs exactly `requirements.lock` (hash-checked; regenerate with
+     `scripts/lock-requirements.sh` after editing `requirements.txt`). Test tools
+     live in `requirements-dev.txt` and are not in the image
+   - Runs as an unprivileged user (UID 1000)
    - Exposes port 7860 (Hugging Face standard)
-   - Uses `start.sh` to run both web server and RQ worker
+   - Uses `start.sh` to migrate, then run the web server and RQ workers
 
 2. **Created `app.py`**
    - Entry point for Hugging Face Spaces
@@ -186,15 +202,20 @@ See [Environment Variables Setup](#environment-variables-setup) section below.
    - Compatible with Spaces requirements
 
 3. **Created `start.sh`**
-   - Startup script that runs both processes:
-     - RQ worker (background) - processes bookmark tasks
-     - Gunicorn web server (foreground) - handles API requests
-   - Handles graceful shutdown
+   - Runs `alembic upgrade head` and refuses to start if it fails
+   - Sets `PROMETHEUS_MULTIPROC_DIR` so `/metrics` merges every process
+   - Execs supervisord (`supervisord.conf`), which runs:
+     - Gunicorn web server (`gunicorn app:app -c gunicorn.conf.py`) - handles API requests
+     - RQ worker on the `default` queue (bookmark pipeline + the pipeline reconciler)
+     - RQ worker on the `high` queue (login-triggered cache warming)
+   - Graceful shutdown: supervisord waits up to 630 s for a running job (`stopwaitsecs`)
 
 4. **Background Job Processing ✅**
-   - RQ worker runs automatically alongside web server
-   - Processes bookmark content extraction, embeddings, and analysis
-   - Uses same Redis connection as web server
+   - RQ workers run automatically alongside the web server, started with the RQ
+     scheduler so `Retry(interval=...)` retries actually run
+   - Processes bookmark content extraction, embeddings, and analysis (one job id
+     per bookmark and stage, so re-enqueueing is safe)
+   - Uses the same Redis as the web server
 
 ### Configuration Details
 
@@ -204,9 +225,16 @@ See [Environment Variables Setup](#environment-variables-setup) section below.
 - App binds to `0.0.0.0:7860`
 
 #### CORS Configuration
-Update `CORS_ORIGINS` to include:
-- Your frontend URL (Vercel)
-- Your Hugging Face Space URL: `https://your-space.hf.space`
+The allowlist lives in `backend/utils/cors_utils.py`. In production it allows only
+`https://itsfuze.vercel.app` and this project's Vercel previews
+(`https://itsfuze-*.vercel.app`); localhost dev servers are allowed only outside
+production. `CORS_ORIGINS` adds extra **exact** origins (e.g. a custom frontend
+domain); entries containing wildcards are ignored with a warning. The Chrome
+extension uses `host_permissions` and needs no CORS entry (`EXTENSION_ID` pins one
+extension origin if a page inside it ever calls the API without them).
+
+If the API moves off `*.hf.space`, also update `connect-src` in the CSP in
+`frontend/vercel.json`, or the browser will block the calls.
 
 #### Database Setup
 1. Use **Supabase** (free PostgreSQL)
@@ -280,6 +308,9 @@ SECRET_KEY=<first_generated_key>
 JWT_SECRET_KEY=<second_generated_key>
 ```
 
+In production the app **refuses to start** if either key is missing, a known
+default value, or shorter than 16 characters.
+
 #### 4. Environment (Required) ✅
 
 ```
@@ -287,21 +318,35 @@ APP_ENV=production
 DEBUG=false
 ```
 
-#### 5. CORS Origins (Required) ✅
+`APP_ENV` is the single environment selector (`ENVIRONMENT` and `FLASK_ENV` are
+read only as fallbacks). Unset means production, so a forgotten variable makes the
+app stricter, never looser.
+
+#### 5. CORS Origins (Only for extra origins)
 
 ```
-CORS_ORIGINS=https://your-frontend.vercel.app,https://your-space.hf.space
+CORS_ORIGINS=https://your-custom-domain.example
 ```
 
-**Replace `your-frontend.vercel.app` with your actual Vercel URL.**
+The production app and its Vercel previews are allowed without this; see
+[CORS Configuration](#cors-configuration). Wildcards are ignored.
 
 #### 6. Gemini API Key (Optional) ⚠️
 
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
+SYSTEM_GEMINI_DAILY_LIMIT_PER_USER=30
 ```
 
-Only needed if you want Gemini AI features. Can be added later.
+Only needed if you want Gemini AI features. Can be added later. Users without their
+own key share this one, up to `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day each.
+
+#### 7. Operational tokens (Optional)
+
+```
+METRICS_AUTH_TOKEN=<random>      # /metrics returns 404 unless this is set and sent as a Bearer token
+INTERNAL_HEALTH_TOKEN=<random>   # /api/health/queue and /api/health/detailed need it in X-Internal-Token
+```
 
 ### Complete Environment Variables List
 
@@ -314,7 +359,6 @@ SECRET_KEY=your_secret_key_here
 JWT_SECRET_KEY=your_jwt_secret_key_here
 APP_ENV=production
 DEBUG=false
-CORS_ORIGINS=https://your-frontend.vercel.app,https://your-space.hf.space
 GEMINI_API_KEY=your_gemini_key_optional
 ```
 
@@ -338,9 +382,15 @@ For Hugging Face Spaces deployment, the RQ worker runs alongside the web server 
 ### How It Works
 
 The `start.sh` script:
-1. **Starts RQ worker** in the background (processes bookmark tasks)
-2. **Starts Gunicorn** in the foreground (handles API requests)
-3. **Handles graceful shutdown** when container stops
+1. **Runs migrations** and exits if they fail
+2. **Execs supervisord**, which starts Gunicorn and the `default` and `high` RQ workers
+3. **Handles graceful shutdown**: running jobs get up to 630 s to finish
+
+The `default` worker also runs the pipeline reconciler
+(`backend/services/pipeline_reconciler.py`) every 5 minutes: it re-enqueues fetches
+stuck in `PENDING`, retries `FAILED_FETCH` after 1 h / 6 h / 24 h, and enqueues
+embeddings for bookmarks that were fetched but never embedded. A lost enqueue (for
+example while Redis was down) is therefore picked up later instead of lost.
 
 ### Automatic Setup
 
@@ -352,9 +402,8 @@ When you deploy to Hugging Face Spaces:
    - Runs it as the entry point
 
 2. **The startup script automatically**:
-   - Starts RQ worker in background
-   - Starts Gunicorn web server
-   - Handles both processes
+   - Migrates the database (or stops)
+   - Starts supervisord, which supervises Gunicorn and both RQ workers
 
 ### No Manual Steps Required! ✅
 
@@ -371,20 +420,17 @@ After deployment, check the logs in Hugging Face Spaces:
 1. Go to your Space → **Logs** tab
 2. Look for:
    ```
-   Starting Fuze backend services...
-   Starting RQ worker...
-   Starting Gunicorn web server...
+   Running database migrations (/app/alembic.ini)...
+   Starting Fuze processes via supervisord...
    ```
+   followed by supervisord reporting `gunicorn`, `rq_worker` and `rq_worker_high` as running.
 
 ### Test Background Processing
 
 1. Save a bookmark via the share handler
-2. Check logs - you should see:
-   ```
-   Enqueued bookmark processing job ...
-   Background processing started for bookmark ...
-   Background processing completed for bookmark ...
-   ```
+2. Check the logs for the RQ job running and the bookmark's scrape and embedding
+   status moving out of `PENDING` (see [OPERATIONS.md](OPERATIONS.md) for the
+   pipeline health queries)
 
 ### Configuration
 
@@ -399,7 +445,7 @@ Same environment variables as before - no changes needed:
 - Check Redis connection is accessible from Spaces
 
 **Jobs Not Processing:**
-- Check if worker is running (look for "Starting RQ worker..." in logs)
+- Check that supervisord reports `rq_worker` as running
 - Verify Redis is accessible
 - Check worker logs for errors
 
@@ -442,17 +488,16 @@ Make sure your Hugging Face Spaces backend has the correct CORS configuration:
 
 1. Go to: https://huggingface.co/spaces/Ujjwaljain16/fuze-backend
 2. **Settings** → **Variables**
-3. Check `CORS_ORIGINS` includes:
-   ```
-   https://itsfuze.vercel.app,https://Ujjwaljain16-fuze-backend.hf.space
-   ```
+3. Nothing to add for `https://itsfuze.vercel.app` or its previews: they are built
+   into the production allowlist (`backend/utils/cors_utils.py`). Set `CORS_ORIGINS`
+   only for an extra exact origin such as a custom domain.
 
 ### Verification Checklist
 
 - [ ] `VITE_API_URL` set in Vercel
 - [ ] Environment variable set for **Production**
 - [ ] Frontend redeployed after setting variable
-- [ ] `CORS_ORIGINS` includes `https://itsfuze.vercel.app`
+- [ ] Frontend origin is on the CORS allowlist (built in for `itsfuze.vercel.app`; otherwise `CORS_ORIGINS`)
 - [ ] Backend is running (check logs)
 - [ ] Database connected (no errors in logs)
 - [ ] Redis connected (no errors in logs)
@@ -484,9 +529,12 @@ Make sure your Hugging Face Spaces backend has the correct CORS configuration:
 4. Deploy backend service
 5. Set environment variables
 
-**Start Command:**
+**Start Command:** deploy the Dockerfile (its `CMD ["./start.sh"]` migrates, then
+runs Gunicorn and the RQ workers). Without Docker, run the same pieces yourself:
 ```
-gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+python -m alembic -c alembic.ini upgrade head
+gunicorn app:app -c gunicorn.conf.py          # binds 0.0.0.0:$PORT
+python backend/worker.py --queue default
 ```
 
 ### Fly.io
@@ -514,6 +562,11 @@ gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 - Check logs for errors
 
 ### App Won't Start
+- `FATAL: database migration failed; refusing to start.`: fix the migration error
+  in the log (the schema stays at the last good revision)
+- `Refusing to start in production with unsafe secrets`: set strong
+  `SECRET_KEY` / `JWT_SECRET_KEY` (16+ characters, not a default), or
+  `APP_ENV=development` for local work
 - Check environment variables
 - Verify database connection
 - Check Redis connection
@@ -525,9 +578,9 @@ gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 - Optimize model loading if needed
 
 ### CORS Errors
-- Update `CORS_ORIGINS` in environment variables
-- Include your frontend URL
-- Include Spaces URL
+- The production allowlist only contains the app and its Vercel previews; add any
+  other frontend origin to `CORS_ORIGINS` as an exact origin (no wildcards)
+- localhost origins are rejected when `APP_ENV` is production (or unset)
 
 ### 404 Errors on API Calls
 
@@ -553,10 +606,11 @@ gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 - Dashboard data not appearing
 
 **Fixes:**
-- Increase frontend timeout (CSRF: 2s → 10s)
-- Increase backend timeout (Gunicorn: 120s → 300s)
-- Verify database connection
-- Check `DATABASE_URL` is set correctly
+- Check `/health/readiness`: a 503 names the part that isn't ready (database,
+  schema or Redis)
+- Verify database connection and that `DATABASE_URL` is set correctly
+- Don't raise the Gunicorn timeout: it is 60 s on purpose (each query has a 15 s
+  `statement_timeout`), and long work belongs in RQ jobs
 
 ### Database Connection Issues
 
@@ -610,7 +664,7 @@ gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 
 - Created Dockerfile (with RQ worker support)
 - Created app.py entry point
-- Created start.sh (runs web server + worker)
+- Created start.sh (migrates, then runs web server + workers via supervisord)
 - Updated README.md
 - **No backend code changes needed!**
 - **RQ worker starts automatically!**

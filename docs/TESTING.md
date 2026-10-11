@@ -1,18 +1,23 @@
 # Testing Guide
 
-Complete testing documentation for Frontend, Backend, and E2E tests.
+Complete testing documentation for Backend and Frontend tests, plus the smoke test
+against a running instance.
 
 ## Quick Start
 
 ```bash
+# Test tools live in requirements-dev.txt (requirements.txt + pytest etc.);
+# they are not installed in the production image.
+pip install -r requirements-dev.txt
+
 # Backend (Python/Pytest)
 cd backend && pytest
 
 # Frontend (Vitest)
 cd frontend && npm test
 
-# E2E (Playwright)
-cd e2e && npm test
+# Smoke test against a real running instance
+python scripts/e2e_smoke_test.py --base-url http://localhost:5000
 ```
 
 ## Backend Tests
@@ -27,22 +32,34 @@ pytest --cov=.            # With coverage
 pytest tests/test_auth.py # Specific file
 pytest -v                 # Verbose
 pytest -s                 # Show prints
+
+# Postgres + pgvector lane (pgvector queries, SELECT ... FOR UPDATE, real concurrency)
+docker run -d --name fuze-test-pg -e POSTGRES_PASSWORD=test -p 55432:5432 pgvector/pgvector:pg15
+TEST_DATABASE_URL=postgresql://postgres:test@localhost:55432/postgres pytest
 ```
 
 **Test Files:**
 - `test_auth.py` - Authentication (register, login, logout, token refresh)
 - `test_bookmarks.py` - Bookmarks CRUD, search, pagination
 - `test_projects.py` - Projects CRUD
-- `test_recommendations.py` - Recommendation engine
+- `test_recommendations.py` / `test_intent_engine.py` - Intent x content recommendations
 - `test_services.py` - Background services
+- `test_pipeline_recovery.py` - Pipeline reconciler and failed-fetch handling
+- `test_safe_http.py` - SSRF-safe fetching
+- `test_oauth_account_linking.py` - Google sign-in never joins an account by email; `/api/auth/link-oauth`
+- `test_postgres_concurrency.py` - Concurrent saves and refreshes (Postgres lane only)
 - `test_integration.py` - End-to-end API flows
 - `conftest.py` - Fixtures (app, db, auth_headers)
 
 **Key Features:**
-- In-memory SQLite database for tests
-- Mocked external services (Redis, Gemini)
-- JWT authentication fixtures
-- CSRF protection disabled in test mode
+- In-memory SQLite by default; `TEST_DATABASE_URL` runs the same suite on a local
+  Postgres + pgvector. `conftest.py` refuses any database that isn't SQLite or on
+  localhost, so the suite can never touch production
+- `APP_ENV=testing` is forced (unset would mean production)
+- Redis is pointed at a local DB 15 (`TEST_REDIS_URL` overrides); tests that need a
+  real Redis use `LIVE_REDIS_URL`
+- Mocked Gemini
+- JWT authentication fixtures; bcrypt at 4 rounds for speed
 
 ## Frontend Tests
 
@@ -71,52 +88,32 @@ npm test -- --watch      # Watch mode
 - localStorage mocking
 - BrowserRouter/MemoryRouter support
 
-## E2E Tests
+## Smoke Test
 
-**Location:** `e2e/tests/`
+There is no browser E2E suite (the Playwright `e2e/` folder was removed).
+`scripts/e2e_smoke_test.py` exercises real user journeys over HTTP against a running
+instance with real Postgres + pgvector, Redis and RQ workers:
 
-**Run:**
 ```bash
-cd e2e
-npm test                  # All tests (parallel locally)
-npm run test:ci          # Sequential (prevents rate limiting)
-npm run test:ui          # Interactive UI
-npm run test:headed      # See browser
-npm run test:debug       # Debug mode
+python scripts/e2e_smoke_test.py --base-url http://localhost:5000
 ```
-
-**Windows PowerShell:**
-```powershell
-$env:CI = "true"; npm test  # Sequential mode
-```
-
-**Test Files:**
-- `auth.spec.js` - Registration, login, error handling
-- `bookmarks.spec.js` - Bookmark operations
-- `projects.spec.js` - Project management
-- `recommendations.spec.js` - Recommendation flows
-- `helpers/auth.js` - Shared login helper
-
-**Key Features:**
-- Cross-browser (Chrome, Firefox, Safari)
-- Auto-starts frontend & backend servers
-- Sequential execution in CI (prevents rate limiting)
-- Automatic user creation for tests
 
 ## CI Configuration
 
-**Sequential Execution (CI):**
-- Set `CI=true` environment variable
-- Tests run with 1 worker (sequential)
-- Projects (browsers) run sequentially
-- Prevents rate limiting issues
+**Backend CI** (`.github/workflows/backend-ci.yml`), with Postgres (pgvector) and Redis services:
+1. Install `requirements-dev.txt`
+2. `pip-audit` over `requirements.lock` and `requirements.txt`: known vulnerabilities fail the build
+3. `alembic upgrade head`, `alembic check`, then `downgrade 0001` → `upgrade head` → `check`
+   (every downgrade must work and land on the same schema)
+4. Full suite on SQLite with coverage
+5. Full suite again on Postgres + pgvector (`TEST_DATABASE_URL`)
 
-**GitHub Actions:**
-```yaml
-env:
-  CI: true
-run: npm test
-```
+A successful Backend CI run on `main` is what triggers the Hugging Face deploy.
+
+**Frontend CI** (`.github/workflows/frontend-ci.yml`): Node 20; fails on high-severity
+advisories in production dependencies.
+
+All actions are pinned to commit SHAs and workflows get a read-only token by default.
 
 ## Test Structure
 
@@ -139,22 +136,11 @@ test('renders login form', () => {
 })
 ```
 
-### E2E Test Example
-```javascript
-test('user can login', async ({ page }) => {
-  await page.goto('/login')
-  await page.fill('input[name="email"]', 'test@example.com')
-  await page.fill('input[name="password"]', 'password123')
-  await page.click('button:has-text("Sign in")')
-  await expect(page).toHaveURL(/\/dashboard/)
-})
-```
-
 ## Coverage Goals
 
 - **Backend:** >80%
 - **Frontend:** >70%
-- **E2E:** All critical user flows
+- **Smoke test:** All critical user flows
 
 ## Best Practices
 
@@ -170,17 +156,13 @@ test('user can login', async ({ page }) => {
 **Backend:**
 - Database timeout: Check `conftest.py` teardown
 - Import errors: Ensure virtual environment activated
-- Rate limiting: Tests disable CSRF protection
+- Rate limiting: disabled in `APP_ENV=testing` unless a test enables it
+- `TEST_DATABASE_URL must be SQLite or a local Postgres`: point it at localhost
 
 **Frontend:**
 - localStorage issues: Check `setup.js` mock
 - API mocking: Verify `api.get/post` mocks
 - Timeouts: Increase `waitFor` timeouts
-
-**E2E:**
-- Rate limiting: Use `CI=true` for sequential execution
-- Server startup: Check `webServer` config in `playwright.config.js`
-- Button not found: Use exact button text ("Sign In to Fuze", "Create Your Account")
 
 ## Debugging
 
@@ -191,8 +173,5 @@ pytest --pdb              # Debugger on failure
 # Frontend
 npm test -- --reporter=verbose
 
-# E2E
-npm run test:debug        # Step through
-npm run test:headed       # See browser
 ```
 

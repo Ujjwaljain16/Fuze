@@ -9,7 +9,7 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
 - **[Architecture](ARCHITECTURE.md)** - Complete scalable system architecture
   - System overview and layers
   - Database architecture (PostgreSQL + pgvector)
-  - Caching architecture (multi-layer)
+  - Caching architecture (Redis)
   - Horizontal scaling strategy
   - ML/AI architecture
   - Deployment architecture
@@ -33,16 +33,16 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
   - Extension authentication
 
 - **[Optimizations](OPTIMIZATIONS.md)** - Performance optimizations
-  - Backend optimizations (model caching, request deduplication)
-  - Frontend optimizations (debouncing, batching, caching)
-  - Database optimizations (indexing, connection pooling)
-  - Multi-layer caching strategy
+  - Backend optimizations (model caching, cooperative gevent workers)
+  - Frontend optimizations (debouncing, batching, caching, deduplication)
+  - Database optimizations (indexing, connection pooling, timeouts)
+  - Redis caching strategy
   - Performance metrics and improvements
 
 - **[Testing](TESTING.md)** - Complete testing guide
   - Backend tests (Pytest)
   - Frontend tests (Vitest)
-  - E2E tests (Playwright)
+  - Postgres + pgvector test lane, smoke test and CI
   - Test structure and examples
   - Coverage goals
   - Troubleshooting
@@ -56,6 +56,16 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
   - RQ worker configuration
   - Frontend-backend connection
   - Troubleshooting
+
+- **[Operations](OPERATIONS.md)** - Running it in production
+  - Backups and the monthly restore drill
+  - Migrations and rollback
+  - Pipeline health queries
+  - Secret rotation effects
+
+- **[Intent x Content Engine](INTENT_ENGINE_PLAN.md)** - Recommendation design and benchmark results
+
+- **[Architecture Decision Records](adr/)** - ADR-001 to ADR-006 cover the legacy recommendation stack and are kept as history (superseded)
 
 - **[PWA](PWA.md)** - Progressive Web App guide
   - PWA installation and features
@@ -76,6 +86,7 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
 
 ### For DevOps
 - Start with [Deployment](DEPLOYMENT.md) for deployment guide
+- Keep [Operations](OPERATIONS.md) at hand for backups, rollback and pipeline health
 - Review [Architecture](ARCHITECTURE.md) for system design
 - Check [Optimizations](OPTIMIZATIONS.md) for performance tuning
 
@@ -90,7 +101,12 @@ docs/
 ├── OPTIMIZATIONS.md             # Performance optimizations
 ├── TESTING.md                   # Testing guide
 ├── DEPLOYMENT.md                # Deployment guide
+├── OPERATIONS.md                # Backups, restore, rollback, pipeline health
+├── INTENT_ENGINE_PLAN.md        # Recommendation engine design + benchmark
 ├── PWA.md                       # PWA guide
+├── API_KEY_REVOCATION.md        # API key revocation
+├── SUPABASE_GOOGLE_OAUTH.md     # Google sign-in setup
+└── adr/                         # Architecture decision records
 ```
 
 ## 🔄 Documentation Status
@@ -104,7 +120,7 @@ docs/
 | Testing | ✅ Complete | 2024 |
 | Deployment | ✅ Complete | 2024 |
 | PWA | ✅ Complete | 2024 |
-| Scraping Guide | ✅ Complete | 2024 |
+| Operations | ✅ Complete | 2026 |
 
 ## 📝 Contributing
 

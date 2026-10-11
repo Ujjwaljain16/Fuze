@@ -43,8 +43,8 @@
 - **Fast Queries**: Optimized database indexes for instant results
 
 ### ⚡ Performance & Reliability
-- **Multi-Layer Caching**: Redis + in-memory caching for blazing-fast responses
-- **Background Processing**: Async content analysis and processing
+- **Shared Caching**: Redis caching for fast responses, with fail-fast timeouts so a slow Redis can't hang requests
+- **Background Processing**: One RQ job per bookmark and stage, plus a reconciler that re-enqueues anything lost or deferred
 - **Connection Pooling**: Efficient database connection management
 - **Production-Ready**: Comprehensive error handling and logging
 
@@ -128,7 +128,7 @@
 - Python 3.11+
 - PostgreSQL 15+ (with pgvector extension)
 - Redis (Upstash or local)
-- Node.js 18+ (for frontend)
+- Node.js 20+ (for frontend)
 
 ### Backend Setup
 
@@ -194,11 +194,15 @@ JWT_SECRET_KEY=your-jwt-secret-key-here
 # AI Services
 GEMINI_API_KEY=your-gemini-api-key
 
-# Application
-FLASK_ENV=development
+# Application: development | testing | production (unset = production, which
+# refuses to start with missing, default or short SECRET_KEY / JWT_SECRET_KEY)
+APP_ENV=development
 DEBUG=true
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+# Extra exact origins only; the local dev servers are allowed outside production
+CORS_ORIGINS=
 ```
+
+See [`.env.example`](.env.example) for every setting the code reads.
 
 ---
 
@@ -213,6 +217,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[Testing Guide](docs/TESTING.md)** - Testing setup and examples
 - **[Optimizations](docs/OPTIMIZATIONS.md)** - Performance optimizations
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Complete deployment instructions
+- **[Operations Runbook](docs/OPERATIONS.md)** - Backups, restore drill, rollback, pipeline health and secret rotation
 - **[PWA Guide](docs/PWA.md)** - Progressive Web App features and setup
 
 ---
@@ -256,14 +261,15 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 #### **Model Caching & Performance Optimization**
 - **98% Faster Model Loading**: Reduced SentenceTransformer model loading from 6-7 seconds to 0.1 seconds using singleton pattern with thread-safe locking
-- **Request Deduplication**: Prevents duplicate processing of identical concurrent requests, reducing database load by 50%
-- **Multi-Layer Caching**: Redis + in-memory caching achieving 70-80% cache hit rate and sub-100ms API response times
+- **Request Deduplication**: The frontend shares one in-flight promise between identical concurrent requests, reducing duplicate load by 50%
+- **Redis Caching**: Shared per-user caches (keys built in one place, `core/cache_keys.py`) achieving 70-80% cache hit rate and sub-100ms API response times
+- **Responsive gevent Workers**: psycogreen makes Postgres queries yield (5 concurrent `pg_sleep(1)`: 5.05 s unpatched, 1.01 s patched) and CPU-bound encode/bcrypt run on gevent's thread pool
 - **Query Result Caching**: Intelligent TTL-based caching for expensive database queries
 
 #### **Per-User API Key Management System**
 - **Encrypted Storage**: Fernet encryption for user API keys with an HKDF-derived, purpose-specific key; values encrypted under the previous key are migrated on read
 - **Individual Rate Limiting**: Per-user rate limits (15/min, 1500/day, 45000/month) with usage tracking
-- **Automatic Fallback**: Graceful fallback to default API key when user key unavailable
+- **Shared System Key, Capped**: users without their own key share the system key, up to `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day each (default 30); after that they're asked to add a key and background analysis waits
 - **API Key Validation**: Built-in testing and validation endpoints for user API keys
 
 #### **Semantic Search with pgvector**
@@ -273,7 +279,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 ### 🎯 Unique Features
 
 #### **Bulk Import with Real-Time Progress Tracking**
-- **Redis-Based Progress**: Real-time progress updates for Chrome extension bulk imports using Redis streams
+- **Redis-Based Progress**: Real-time progress updates for Chrome extension bulk imports, kept in Redis and pushed over Server-Sent Events
 - **Optimized Deduplication**: Smart URL matching prevents duplicate bookmarks during bulk import
 - **Background Processing**: Async content analysis pipeline that doesn't block user requests
 - **Error Recovery**: Graceful handling of failed imports with detailed error reporting
@@ -296,12 +302,12 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 ### 📊 Performance Achievements
 
 - **98% Model Loading Speed Improvement**: From 6-7 seconds to 0.1 seconds
-- **70-80% Cache Hit Rate**: Multi-layer caching strategy achieving high efficiency
+- **70-80% Cache Hit Rate**: Redis caching strategy achieving high efficiency
 - **50% Reduction in Duplicate Requests**: Request deduplication system
 - **Sub-100ms API Response Times**: Through optimized queries and caching
-- **200+ Automated Tests**: Backend suite run in CI on every change
+- **300+ Automated Tests**: Backend suite run in CI on every change, once on SQLite and once on Postgres + pgvector
 - **Production-Ready Architecture**: Horizontal scaling with stateless workers, connection pooling, and graceful degradation
-- **Zero-Downtime Deployments**: CI/CD pipeline with automated testing and GitHub Actions workflows
+- **Gated Deployments**: the HF Space is deployed only after Backend CI passes on that exact commit, and the container refuses to serve if migrations fail
 
 ---
 
