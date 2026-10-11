@@ -209,6 +209,73 @@ def hackernews(url: str) -> Optional[SourceContent]:
                          follow_url=item.get("url"))
 
 
+# --- YouTube -----------------------------------------------------------------------------
+
+_YT_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def _youtube_id(url: str) -> Optional[str]:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.")
+    parts = [p for p in parsed.path.split("/") if p]
+    vid = None
+    if host == "youtu.be" and parts:
+        vid = parts[0]
+    elif parsed.path == "/watch":
+        vid = (parse_qs(parsed.query).get("v") or [None])[0]
+    elif len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
+        vid = parts[1]
+    return vid if vid and _YT_ID.match(vid) else None
+
+
+def _youtube_page_details(watch_url: str) -> Dict[str, Optional[str]]:
+    """Description and upload date from the watch page's JSON-LD (VideoObject), falling back to its
+    standard description meta tags. Only when robots.txt allows us the page; never fatal."""
+    from scrapers.robots_manager import RobotsManager
+    details: Dict[str, Optional[str]] = {"description": None, "published_at": None}
+    try:
+        if not RobotsManager().can_fetch(watch_url):
+            return details
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(_get(watch_url, params={"hl": "en"}, accept="text/html").text, "html.parser")
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string or "")
+            except ValueError:
+                continue
+            for item in data if isinstance(data, list) else [data]:
+                if isinstance(item, dict) and item.get("@type") == "VideoObject":
+                    details["description"] = details["description"] or item.get("description")
+                    details["published_at"] = details["published_at"] or item.get("uploadDate")
+        if not details["description"]:
+            meta = (soup.find("meta", attrs={"name": "description"})
+                    or soup.find("meta", attrs={"property": "og:description"}))
+            if meta:
+                details["description"] = (meta.get("content") or "").strip() or None
+    except (requests.RequestException, ValueError) as e:
+        logger.info("youtube_page_details_unavailable", extra={"url": watch_url, "error": str(e)})
+    return details
+
+
+def youtube(url: str) -> Optional[SourceContent]:
+    vid = _youtube_id(url)
+    if not vid:
+        return None
+    watch = f"https://www.youtube.com/watch?v={vid}"
+    data = _get("https://www.youtube.com/oembed", params={"url": watch, "format": "json"}).json()
+    title = data.get("title")
+    if not title:
+        return None
+    author = data.get("author_name")
+    details = _youtube_page_details(watch)
+    description = details["description"]
+    text = description or f"YouTube video by {author or 'unknown'}: {title}"
+    return SourceContent("youtube", title, text, author=author, published_at=details["published_at"],
+                         description=(description or "")[:300] or None, canonical_url=watch,
+                         raw={"video_id": vid, "thumbnail_url": data.get("thumbnail_url"),
+                              "author_url": data.get("author_url")})
+
+
 # --- dispatch ----------------------------------------------------------------------------
 
 _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
@@ -216,6 +283,9 @@ _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
     "arxiv.org": arxiv,
     "dev.to": devto,
     "news.ycombinator.com": hackernews,
+    "youtube.com": youtube,
+    "m.youtube.com": youtube,
+    "youtu.be": youtube,
 }
 
 

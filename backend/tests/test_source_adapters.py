@@ -23,6 +23,8 @@ def _resp(json_data=None, text="", content=b""):
     ("https://unix.stackexchange.com/questions/1/x", sa.stackexchange),
     ("https://dev.to/user/my-post-1a2b", sa.devto),
     ("https://news.ycombinator.com/item?id=8863", sa.hackernews),
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", sa.youtube),
+    ("https://youtu.be/dQw4w9WgXcQ", sa.youtube),
     ("https://example.com/blog/post", None),
 ])
 def test_routing(url, expected):
@@ -83,6 +85,81 @@ def test_hackernews_story_with_link():
     with patch.object(sa, "_get", return_value=_resp(item)):
         c = sa.fetch_from_source("https://news.ycombinator.com/item?id=8863")
     assert c.title == "Show HN: X" and "Link: https://x.dev" in c.text
+
+
+YT_OEMBED = {"title": "Never Gonna Give You Up", "author_name": "Rick Astley",
+             "author_url": "https://www.youtube.com/@RickAstleyYT",
+             "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"}
+YT_PAGE = """<html><head><meta name="description" content="Short meta description.">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoObject",
+ "name": "Never Gonna Give You Up", "uploadDate": "2009-10-24T23:57:33-07:00",
+ "description": "The official video, remastered in 4K."}</script></head><body></body></html>"""
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+    "https://youtu.be/dQw4w9WgXcQ?si=abc",
+    "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+])
+def test_youtube_uses_oembed_and_the_pages_json_ld(url):
+    calls = []
+
+    def fake_get(u, params=None, accept=None):
+        calls.append((u, params))
+        return _resp(YT_OEMBED) if u.endswith("/oembed") else _resp(text=YT_PAGE)
+
+    with patch.object(sa, "_get", side_effect=fake_get), \
+         patch("scrapers.robots_manager.RobotsManager.can_fetch", return_value=True):
+        c = sa.fetch_from_source(url)
+    assert sa.adapter_for(url) is sa.youtube
+    assert calls[0] == ("https://www.youtube.com/oembed",
+                        {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "format": "json"})
+    assert c.source == "youtube" and c.title == "Never Gonna Give You Up" and c.author == "Rick Astley"
+    assert c.text == "The official video, remastered in 4K." and c.published_at.startswith("2009-10-24")
+    assert c.canonical_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert c.raw["thumbnail_url"].endswith("hqdefault.jpg")
+
+
+def test_youtube_falls_back_to_the_meta_description():
+    page = '<html><head><meta name="description" content="Short meta description."></head></html>'
+    with patch.object(sa, "_get", side_effect=lambda u, **kw: _resp(YT_OEMBED) if u.endswith("/oembed")
+                      else _resp(text=page)), \
+         patch("scrapers.robots_manager.RobotsManager.can_fetch", return_value=True):
+        c = sa.fetch_from_source("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert c.text == "Short meta description."
+
+
+def test_youtube_skips_the_page_when_robots_disallow_it():
+    with patch.object(sa, "_get", return_value=_resp(YT_OEMBED)) as get, \
+         patch("scrapers.robots_manager.RobotsManager.can_fetch", return_value=False):
+        c = sa.fetch_from_source("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert get.call_count == 1  # oEmbed only
+    assert c.title == "Never Gonna Give You Up" and c.text == "YouTube video by Rick Astley: Never Gonna Give You Up"
+
+
+def test_youtube_page_errors_still_return_oembed_data():
+    def fake_get(u, **kw):
+        if u.endswith("/oembed"):
+            return _resp(YT_OEMBED)
+        raise requests.HTTPError("429")
+    with patch.object(sa, "_get", side_effect=fake_get), \
+         patch("scrapers.robots_manager.RobotsManager.can_fetch", return_value=True):
+        c = sa.fetch_from_source("https://youtu.be/dQw4w9WgXcQ")
+    assert c.author == "Rick Astley" and c.description is None
+
+
+@pytest.mark.parametrize("url", ["https://www.youtube.com/@RickAstleyYT", "https://www.youtube.com/watch?v=short",
+                                 "https://www.youtube.com/playlist?list=PL123"])
+def test_youtube_non_video_urls_fall_back(url):
+    with patch.object(sa, "_get") as get:
+        assert sa.fetch_from_source(url) is None
+    get.assert_not_called()
+
+
+def test_youtube_oembed_error_falls_back():
+    with patch.object(sa, "_get", side_effect=requests.HTTPError("401 embedding disabled")):
+        assert sa.fetch_from_source("https://www.youtube.com/watch?v=dQw4w9WgXcQ") is None
 
 
 def test_api_errors_fall_back_to_page_extraction():
