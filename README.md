@@ -14,7 +14,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
-![React](https://img.shields.io/badge/React-18-blue?logo=react)
+![React](https://img.shields.io/badge/React-19-blue?logo=react)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?logo=postgresql)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
@@ -236,7 +236,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **Authentication**: JWT (Flask-JWT-Extended)
 
 ### Frontend
-- **Framework**: React 18
+- **Framework**: React 19
 - **Build Tool**: Vite
 - **Styling**: Tailwind CSS
 - **State Management**: React Context + Hooks
@@ -262,7 +262,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 #### **Model Caching & Performance Optimization**
 - **Model Loaded Once Per Process**: a thread-safe singleton in the web workers; RQ workers load it in the parent before forking, so jobs share it instead of reloading it
-- **Request Deduplication**: The frontend shares one in-flight promise between identical concurrent requests
+- **Single-flight Token Refresh**: concurrent 401s share one refresh request, so a burst of calls never triggers several refreshes
 - **Redis Caching**: Shared per-user caches (keys built in one place, `core/cache_keys.py`)
 - **Responsive gevent Workers**: psycogreen makes Postgres queries yield (5 concurrent `pg_sleep(1)`: 5.05 s unpatched, 1.01 s patched) and CPU-bound encode/bcrypt run on gevent's thread pool
 - **Query Result Caching**: Intelligent TTL-based caching for expensive database queries

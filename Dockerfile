@@ -57,7 +57,7 @@ RUN useradd --create-home --uid 1000 appuser
 
 # Bake the embedding model (DEFAULT_EMBEDDING_MODEL in backend/utils/embedding_utils.py) into
 # the image. Otherwise every new container downloads it on first use: slow cold starts, and a
-# Hub outage leaves the app on hash fallback vectors. This layer sits above the app code, so
+# Hub outage means embeddings fail (EmbeddingUnavailable) until it recovers. This layer sits above the app code, so
 # code changes don't download it again; the chown in the same RUN avoids a second copy of the
 # model in a later layer.
 ENV HF_HOME=/app/.cache/huggingface
