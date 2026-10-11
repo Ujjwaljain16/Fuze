@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, Boolean
 from sqlalchemy.dialects.postgresql import TEXT, JSONB
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import event
 from sqlalchemy.orm import relationship
 from core.logging_config import get_logger
 
@@ -13,9 +14,30 @@ db = SQLAlchemy()
 
 class Base(db.Model):
     __abstract__ = True
+
     def to_dict(self):
         excluded_fields = ['password_hash', 'embedding', 'extracted_text']
         return {c.name: getattr(self, c.name) for c in self.__table__.columns if c.name not in excluded_fields}
+
+
+def _fit_strings_to_columns(mapper, connection, target):
+    """Trim VARCHAR values to their column length before they reach the database.
+
+    Request handlers reject over-long user input with a 400. This catches derived values (a
+    scraped author list, a page title, a category from an import) that would otherwise make
+    the INSERT/UPDATE fail: a 500 for a request, a permanently failing job for the pipeline.
+    """
+    for column in mapper.columns:
+        length = getattr(column.type, 'length', None)
+        if not length or not isinstance(column.type, String) or isinstance(column.type, Text):
+            continue
+        value = getattr(target, column.key, None)
+        if isinstance(value, str) and len(value) > length:
+            setattr(target, column.key, value[:length])
+
+
+event.listen(Base, 'before_insert', _fit_strings_to_columns, propagate=True)
+event.listen(Base, 'before_update', _fit_strings_to_columns, propagate=True)
 
 
 class User(Base):

@@ -8,6 +8,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from uow.unit_of_work import UnitOfWork
 from services.project_service import ProjectService
 from core import cache_keys
+from models import Project
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
@@ -15,7 +16,7 @@ logger = get_logger(__name__)
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/api/projects')
 
-MAX_TITLE_LENGTH = 200
+MAX_TITLE_LENGTH = Project.__table__.c.title.type.length  # 100: the column, not a guess
 MAX_DESC_LENGTH = 5000
 MAX_TECH_LENGTH = 1000
 

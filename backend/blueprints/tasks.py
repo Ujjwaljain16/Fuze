@@ -12,7 +12,8 @@ logger = get_logger(__name__)
 
 tasks_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 
-MAX_TITLE_LENGTH = 255
+MAX_TITLE_LENGTH = Task.__table__.c.title.type.length  # 100: the column, not a guess
+MAX_SUBTASK_TITLE_LENGTH = Subtask.__table__.c.title.type.length  # 200
 MAX_DESCRIPTION_LENGTH = 10000
 MAX_AI_TASKS = 20
 
@@ -373,8 +374,8 @@ def create_subtask(task_id):
     if not title:
         return jsonify({'success': False, 'error': 'Subtask title is required'}), 400
 
-    if len(title) > MAX_TITLE_LENGTH:
-        return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_TITLE_LENGTH}'}), 400
+    if len(title) > MAX_SUBTASK_TITLE_LENGTH:
+        return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}'}), 400
 
     description = str(data.get('description', '')).strip() if data.get('description') is not None else ''
     if len(description) > MAX_DESCRIPTION_LENGTH:
@@ -456,8 +457,8 @@ def update_subtask(subtask_id):
             title = str(data['title']).strip()
             if not title:
                 return jsonify({'success': False, 'error': 'Subtask title cannot be empty'}), 400
-            if len(title) > MAX_TITLE_LENGTH:
-                return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_TITLE_LENGTH}'}), 400
+            if len(title) > MAX_SUBTASK_TITLE_LENGTH:
+                return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}'}), 400
             subtask.title = title
 
         if 'description' in data:

@@ -19,6 +19,15 @@ TRACKING_PARAMS = {'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_
                    'fbclid', 'gclid', 'ref', 'source', 'campaign'}
 
 
+# The (user_id, url) unique index is a B-tree, whose entries must fit in about a third of a page
+# (~2.7 KB); a longer URL makes the INSERT fail. 2048 bytes covers every URL browsers accept.
+MAX_URL_BYTES = 2048
+
+
+def url_too_long(url: str) -> bool:
+    return len(url.encode('utf-8')) > MAX_URL_BYTES
+
+
 def normalize_url(url):
     """Canonical form used to compare URLs: same resource -> same string.
 
@@ -124,6 +133,8 @@ def quick_save_bookmark():
     
     if not url:
         return jsonify({'message': 'URL is required'}), 400
+    if url_too_long(url):
+        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -238,6 +249,8 @@ def save_bookmark():
     
     if not url:
         return jsonify({'message': 'URL is required'}), 400
+    if url_too_long(url):
+        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -399,6 +412,10 @@ def bulk_import_bookmarks():
         if not url:
             skipped_count += 1
             skip_reasons['empty_url'] = skip_reasons.get('empty_url', 0) + 1
+            continue
+        if url_too_long(url):
+            skipped_count += 1
+            skip_reasons['url_too_long'] = skip_reasons.get('url_too_long', 0) + 1
             continue
             
         invalid_schemes = ['javascript:', 'chrome://', 'chrome-extension://', 'file://', 'about:', 'data:', 'mailto:', 'tel:']
@@ -612,6 +629,8 @@ def check_duplicate():
     
     if not url:
         return jsonify({'message': 'URL is required'}), 400
+    if url_too_long(url):
+        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -1225,6 +1244,8 @@ def extract_url_content():
     
     if not url:
         return jsonify({'message': 'URL is required'}), 400
+    if url_too_long(url):
+        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
     
     try:
         scraped = scrape_url_summary(url)
