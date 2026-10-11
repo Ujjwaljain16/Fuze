@@ -145,7 +145,7 @@ See [Environment Variables Setup](#environment-variables-setup) section below.
 3. Test: `https://your-space.hf.space/api/health`
 4. Initialize database (one-time):
    - Use Space terminal or HF CLI
-   - Run: `python backend/init_db.py`
+   - Run: `python -m alembic -c alembic.ini upgrade head` (the container also runs this on start)
 
 ### Architecture for Hugging Face Spaces
 

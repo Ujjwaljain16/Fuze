@@ -281,8 +281,7 @@ def create_app(config_name: str = None) -> Flask:
                     command.upgrade(alembic_cfg, "head")
                     logger.info("alembic_auto_migration_completed_successfully")
                 else:
-                    db.create_all()
-                    logger.info("db_create_all_fallback_executed")
+                    logger.error("alembic_ini_not_found_schema_not_migrated")
             except Exception as mig_err:
                 logger.warning(f"auto_migration_warning: {mig_err}")
 
@@ -391,14 +390,6 @@ def create_app(config_name: str = None) -> Flask:
             logger.warning(f"Error registering user API key blueprint: {e}")
 
     with app.app_context():
-        try:
-            from models import ensure_pipeline_columns, ensure_token_families_table, ensure_lockout_columns
-            ensure_pipeline_columns()
-            ensure_token_families_table()
-            ensure_lockout_columns()
-        except Exception as e:
-            logger.warning(f"Error ensuring pipeline columns: {e}")
-
         if api_manager_available:
             try:
                 init_api_manager()
