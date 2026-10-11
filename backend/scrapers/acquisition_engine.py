@@ -13,6 +13,7 @@ from scrapers.rate_limiter import DomainRateLimiter
 from scrapers.fetch_policy import FetchPolicy
 from scrapers.fetchers.http_fetcher import HTTPFetcher
 from scrapers.fetchers.reader_fetcher import ReaderFetcher
+from scrapers.fetchers.archive_fetcher import ArchiveFetcher
 from scrapers.extractor_pipeline import ExtractorPipeline
 from scrapers.normalizer import MetadataNormalizer
 from scrapers.quality_evaluator import QualityEvaluator
@@ -66,6 +67,7 @@ class ContentAcquisitionEngine:
             "HTTP": HTTPFetcher()
         }
         self.reader = ReaderFetcher()
+        self.archive = ArchiveFetcher()
 
         self.extractor_pipeline = ExtractorPipeline()
         self.normalizer = MetadataNormalizer()
@@ -299,10 +301,47 @@ class ContentAcquisitionEngine:
         return _Attempt(strategy, norm_doc=norm_doc, quality=quality, http_status=result.http_status,
                         plugin_versions={"reader": "1.0.0"})
 
+    def _attempt_archive(self, url: str, bookmark_id: Optional[int]) -> _Attempt:
+        """Tier ARCHIVE: the most recent Wayback Machine snapshot of a gone or blocked page."""
+        strategy = "ARCHIVE"
+        if bookmark_id:
+            self.event_publisher.publish(FetchStarted(bookmark_id=bookmark_id, strategy=strategy, url=url))
+        result = self.archive.fetch(url)
+        if result is None:
+            # Opportunistic: a page that is gone stays gone, so archive trouble is not retried.
+            return _Attempt(strategy)
+        page = result.page
+        if bookmark_id:
+            self.event_publisher.publish(FetchCompleted(bookmark_id=bookmark_id, strategy=strategy,
+                                                        http_status=page.http_status,
+                                                        latency_ms=page.fetch_metadata.fetch_latency_ms))
+            self.event_publisher.publish(ParsingStarted(bookmark_id=bookmark_id,
+                                                        plugins_count=len(self.extractor_pipeline.plugins)))
+        norm_doc, quality, plugin_versions = self._extract(page, bookmark_id)
+
+        snapshot = result.snapshot
+        canonical = norm_doc.canonical_url
+        if not canonical or "web.archive.org" in canonical:
+            canonical = url
+        # The UI says the content came from the archive, and from when.
+        archive_info = {"source": "wayback", "snapshot_url": snapshot.snapshot_url,
+                        "timestamp": snapshot.timestamp, "archived_at": snapshot.archived_at}
+        norm_doc = replace(
+            norm_doc,
+            canonical_url=canonical,
+            metadata=replace(norm_doc.metadata, canonical_url=canonical,
+                             field_provenance={**norm_doc.metadata.field_provenance, "body": strategy}),
+            provider_raw_payload={**norm_doc.provider_raw_payload, "archive": archive_info},
+        )
+        return _Attempt(strategy, norm_doc=norm_doc, quality=quality, http_status=page.http_status,
+                        plugin_versions=plugin_versions)
+
     def _run_tier(self, strategy: str, url: str, bookmark_id: Optional[int],
                   circuit_breaker: RedisCircuitBreaker) -> _Attempt:
         if strategy == "READER":
             return self._attempt_reader(url, bookmark_id)
+        if strategy == "ARCHIVE":
+            return self._attempt_archive(url, bookmark_id)
         return self._attempt_http(url, bookmark_id, circuit_breaker)
 
     def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None, _depth: int = 0) -> ContentDocument:

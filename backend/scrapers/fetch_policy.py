@@ -31,11 +31,19 @@ def reader_enabled() -> bool:
     return env_flag("ENABLE_READER_FALLBACK", True)
 
 
+def archive_enabled() -> bool:
+    """Tier ARCHIVE: a Wayback Machine snapshot for pages that are gone or block us.
+    The Internet Archive receives the page's URL only."""
+    return env_flag("ENABLE_ARCHIVE_FALLBACK", True)
+
+
 def escalation_tiers() -> List[str]:
     """The tiers that follow our own fetch, in order, as enabled right now."""
     tiers = []
     if reader_enabled():
         tiers.append("READER")
+    if archive_enabled():
+        tiers.append("ARCHIVE")
     return tiers
 
 

@@ -1,11 +1,14 @@
-"""Escalation tiers after our own fetch: the remote reader. All network calls are mocked."""
+"""Escalation tiers after our own fetch: the remote reader and the Wayback Machine. All network
+calls are mocked."""
 from contextlib import ExitStack
 from unittest.mock import patch
 
 import pytest
 import requests
 
+from scrapers.fetchers import archive_fetcher as af
 from scrapers.fetchers import reader_fetcher as rf
+from scrapers.fetchers.archive_fetcher import ArchiveFetcher, ArchiveResult, Snapshot
 from scrapers.fetchers.reader_fetcher import ReaderFetcher, ReaderResult
 from scrapers.models import FetchMetadata, RawFetchResult
 from scrapers.safe_http import SafeResponse
@@ -249,3 +252,153 @@ def test_reader_is_on_by_default(monkeypatch):
     monkeypatch.delenv("ENABLE_READER_FALLBACK", raising=False)
     from scrapers.fetch_policy import FetchPolicy
     assert FetchPolicy().get_strategy_plan("https://example.com/")[:2] == ["HTTP", "READER"]
+
+
+# --- the archive tier -----------------------------------------------------------------------
+
+ARCHIVED_HTML = (f"<html><head><title>Old post</title></head><body><article><h1>Old post</h1>"
+                 f"<p>{ARTICLE}</p></article></body></html>").encode()
+AVAILABLE = {"url": "example.com/post", "archived_snapshots": {"closest": {
+    "status": "200", "available": True, "timestamp": "20250314092653",
+    "url": "http://web.archive.org/web/20250314092653/https://example.com/post"}}}
+
+
+@pytest.fixture
+def archive_on(monkeypatch):
+    monkeypatch.setenv("ENABLE_ARCHIVE_FALLBACK", "true")
+
+
+def _snapshot_page() -> ArchiveResult:
+    snap = Snapshot("20250314092653", "https://web.archive.org/web/20250314092653/https://example.com/post",
+                    "https://web.archive.org/web/20250314092653id_/https://example.com/post")
+    meta = FetchMetadata(strategy="ARCHIVE", attempts=1, http_status=200, redirected=False)
+    page = RawFetchResult(url="https://example.com/post", final_url=snap.raw_url, http_status=200, headers={},
+                          raw_content=ARCHIVED_HTML, fetch_metadata=meta)
+    return ArchiveResult(snapshot=snap, page=page)
+
+
+def test_archive_fetches_the_raw_snapshot(public_url):
+    raw_url = "https://web.archive.org/web/20250314092653id_/https://example.com/post"
+    responses = {
+        af.AVAILABILITY_API: _json_response(AVAILABLE),
+        raw_url: SafeResponse(url=raw_url, status_code=200, headers={"Content-Type": "text/html"},
+                              content=ARCHIVED_HTML),
+    }
+    with patch.object(af, "safe_get", side_effect=lambda u, **kw: responses[u]) as get:
+        result = ArchiveFetcher().fetch("https://example.com/post")
+    assert get.call_args_list[0].kwargs["params"] == {"url": "https://example.com/post"}
+    assert get.call_args_list[1].kwargs["max_bytes"] == af.MAX_SNAPSHOT_BYTES
+    assert result.snapshot.archived_at == "2025-03-14T09:26:53+00:00"
+    assert result.page.url == "https://example.com/post" and result.page.raw_content == ARCHIVED_HTML
+
+
+@pytest.mark.parametrize("payload", [
+    {"archived_snapshots": {}},
+    {"archived_snapshots": {"closest": {**AVAILABLE["archived_snapshots"]["closest"], "status": "404"}}},
+    {"archived_snapshots": {"closest": {**AVAILABLE["archived_snapshots"]["closest"],
+                                        "url": "http://evil.example/web/20250314092653/x"}}},
+])
+def test_archive_without_a_usable_snapshot(public_url, payload):
+    with patch.object(af, "safe_get", return_value=_json_response(payload)) as get:
+        assert ArchiveFetcher().fetch("https://example.com/post") is None
+    assert get.call_count == 1  # never fetched a snapshot
+
+
+def test_archive_errors_are_swallowed(public_url):
+    with patch.object(af, "safe_get", side_effect=requests.Timeout("slow")):
+        assert ArchiveFetcher().fetch("https://example.com/post") is None
+
+
+def test_archive_never_sees_secret_urls():
+    with patch.object(af, "safe_get") as get, patch("scrapers.url_safety.is_safe_url", return_value=True):
+        assert ArchiveFetcher().fetch("https://example.com/doc?token=abc") is None
+    get.assert_not_called()
+
+
+def _engine_with_archive(stack, http_page, archive_result, reader_result=None):
+    engine, reader = _engine(stack, http_page, reader_result)
+    archive = stack.enter_context(patch.object(engine.archive, "fetch", return_value=archive_result))
+    return engine, reader, archive
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_gone_pages_come_back_from_the_archive(archive_on, tiers_on, status):
+    with ExitStack() as stack:
+        engine, reader, archive = _engine_with_archive(stack, _page(b"Not found", status=status), _snapshot_page())
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    reader.assert_not_called()  # a gone page can't be rendered back
+    archive.assert_called_once_with("https://example.com/post")
+    assert doc.outcome == "ok" and doc.fetch_metadata.strategy == "ARCHIVE"
+    assert doc.provider_raw_payload["archive"] == {
+        "source": "wayback", "timestamp": "20250314092653", "archived_at": "2025-03-14T09:26:53+00:00",
+        "snapshot_url": "https://web.archive.org/web/20250314092653/https://example.com/post"}
+    assert doc.metadata.field_provenance["body"] == "ARCHIVE"
+    assert doc.canonical_url == "https://example.com/post" and "Vector indexes trade" in doc.markdown_content
+
+
+def test_blocked_page_tries_reader_then_archive(archive_on, tiers_on):
+    refused = ReaderResult(ok=False, http_status=403, error="target_http_403")
+    with ExitStack() as stack:
+        engine, reader, archive = _engine_with_archive(stack, _page(CHALLENGE), _snapshot_page(), refused)
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    reader.assert_called_once()
+    archive.assert_called_once()
+    assert doc.outcome == "ok" and doc.fetch_metadata.strategy == "ARCHIVE"
+
+
+def test_archive_only_without_the_reader(archive_on):
+    with ExitStack() as stack:
+        engine, reader, archive = _engine_with_archive(stack, _page(b"Forbidden", status=403), _snapshot_page())
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    reader.assert_not_called()
+    assert doc.outcome == "ok" and doc.fetch_metadata.strategy == "ARCHIVE"
+
+
+def test_no_snapshot_keeps_the_failure(archive_on, tiers_on):
+    with ExitStack() as stack:
+        engine, _, archive = _engine_with_archive(stack, _page(b"Not found", status=404), None)
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    archive.assert_called_once()
+    assert doc.outcome == "failed" and doc.retryable is False and doc.fetch_metadata.http_status == 404
+
+
+def test_reader_timeout_then_no_snapshot_stays_retryable(archive_on, tiers_on):
+    timeout = ReaderResult(ok=False, retryable=True, error="reader_timeout")
+    with ExitStack() as stack:
+        engine, _, archive = _engine_with_archive(stack, _page(CHALLENGE), None, timeout)
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    archive.assert_called_once()
+    assert doc.outcome == "blocked" and doc.retryable is True
+
+
+@pytest.mark.parametrize("status", [500, 503, 429])
+def test_server_errors_are_retried_not_archived(archive_on, tiers_on, status):
+    with ExitStack() as stack:
+        engine, _, archive = _engine_with_archive(stack, _page(b"oops", status=status), _snapshot_page())
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    archive.assert_not_called()
+    assert doc.outcome == "failed" and doc.retryable is True
+
+
+def test_thin_live_pages_are_not_archived(archive_on):
+    with ExitStack() as stack:
+        engine, _, archive = _engine_with_archive(stack, _page(JS_SHELL), _snapshot_page())
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    archive.assert_not_called()
+    assert doc.outcome == "ok" and doc.fetch_metadata.strategy == "HTTP"
+
+
+def test_robots_disallow_is_not_bypassed_by_the_archive(archive_on):
+    with ExitStack() as stack:
+        engine, _, archive = _engine_with_archive(stack, _page(b"Not found", status=404), _snapshot_page())
+        stack.enter_context(patch.object(engine.robots_manager, "can_fetch", return_value=False))
+        doc = engine.acquire_and_normalize("https://example.com/post")
+    archive.assert_not_called()
+    assert doc.outcome == "disallowed"
+
+
+def test_all_tiers_in_order_by_default(monkeypatch):
+    monkeypatch.delenv("ENABLE_READER_FALLBACK", raising=False)
+    monkeypatch.delenv("ENABLE_ARCHIVE_FALLBACK", raising=False)
+    from scrapers.fetch_policy import FetchPolicy
+    assert FetchPolicy().get_strategy_plan("https://example.com/") == ["HTTP", "READER", "ARCHIVE"]
