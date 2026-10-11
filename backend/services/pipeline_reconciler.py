@@ -10,12 +10,17 @@ never runs the work twice.
   scrape PENDING for a while          -> enqueue the fetch again
   scrape FAILED_FETCH (transient)     -> retry after 1h, 6h, 24h, then give up
   fetched but embedding not SUCCESS   -> enqueue the embedding (title/notes if the fetch failed)
+
+The same loop also prunes old bookmark_events rows once a day (prune_bookmark_events). Every
+pipeline event writes one, and the table is an audit trail, not a source of truth: the Redis
+streams that feed live updates are already capped.
 """
 
+import os
 from datetime import datetime, timedelta, timezone
-from typing import Dict
+from typing import Dict, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import delete, or_, select
 
 from core.logging_config import get_logger
 
@@ -27,6 +32,9 @@ FETCH_RETRY_BACKOFF = [timedelta(hours=1), timedelta(hours=6), timedelta(hours=2
 BATCH_LIMIT = 200
 _LOCK_KEY = "fuze:pipeline_reconciler:lock"
 _ATTEMPTS_KEY = "fuze:pipeline_reconciler:fetch_attempts:{}"
+DEFAULT_EVENT_RETENTION_DAYS = 30
+EVENT_RETENTION_BATCH = 5000
+_RETENTION_KEY = "fuze:bookmark_events_retention:{}"
 
 
 def _naive_utc(value: datetime) -> datetime:
@@ -111,6 +119,60 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
     return counts
 
 
+def event_retention_days() -> int:
+    """BOOKMARK_EVENTS_RETENTION_DAYS; 0 or less keeps events forever."""
+    try:
+        return int(os.environ.get('BOOKMARK_EVENTS_RETENTION_DAYS', DEFAULT_EVENT_RETENTION_DAYS))
+    except ValueError:
+        logger.warning("bookmark_events_retention_days_invalid")
+        return DEFAULT_EVENT_RETENTION_DAYS
+
+
+def prune_bookmark_events(now: datetime = None, batch_size: int = EVENT_RETENTION_BATCH) -> Optional[int]:
+    """
+    Delete bookmark_events older than the retention window, batch_size rows per statement so no
+    single transaction holds locks on a large slice of the table. Runs at most once per UTC day
+    across all processes (a Redis key per day). Returns rows deleted, or None when skipped.
+    """
+    from models import BookmarkEvent, db
+
+    days = event_retention_days()
+    if days <= 0:
+        return None
+    now = now or datetime.utcnow()
+    now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+    redis_conn = _redis()
+    if redis_conn is None:
+        return None
+    day_key = _RETENTION_KEY.format(now.date().isoformat())
+    if not redis_conn.set(day_key, "1", nx=True, ex=int(timedelta(days=2).total_seconds())):
+        return None
+
+    cutoff = now - timedelta(days=days)
+    deleted = 0
+    try:
+        while True:
+            oldest = select(BookmarkEvent.id).where(BookmarkEvent.created_at < cutoff).limit(batch_size)
+            result = db.session.execute(
+                delete(BookmarkEvent).where(BookmarkEvent.id.in_(oldest))
+                .execution_options(synchronize_session=False))
+            db.session.commit()
+            deleted += result.rowcount or 0
+            if (result.rowcount or 0) < batch_size:
+                break
+    except Exception:
+        db.session.rollback()
+        try:
+            redis_conn.delete(day_key)  # let the next pass retry instead of waiting a day
+        except Exception:
+            pass
+        raise
+    finally:
+        db.session.remove()
+    logger.info("bookmark_events_pruned", extra={"deleted": deleted, "retention_days": days})
+    return deleted
+
+
 def run_forever(app, interval: int = INTERVAL_SECONDS, stop_event=None) -> None:
     """Loop for a daemon thread in the worker process."""
     import threading
@@ -121,3 +183,8 @@ def run_forever(app, interval: int = INTERVAL_SECONDS, stop_event=None) -> None:
                 reconcile()
         except Exception:
             logger.exception("pipeline_reconciler_pass_failed")
+        try:
+            with app.app_context():
+                prune_bookmark_events()
+        except Exception:
+            logger.exception("bookmark_events_prune_failed")

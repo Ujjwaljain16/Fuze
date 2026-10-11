@@ -44,6 +44,8 @@ docker rm -f fuze-restore
 
 - Bookmarks move through `scrape_status` and `embedding_status`. Anything stuck is picked up by the
   reconciler in the default RQ worker every 5 minutes (see `services/pipeline_reconciler.py`).
+- Once a day the same loop deletes `bookmark_events` rows older than `BOOKMARK_EVENTS_RETENTION_DAYS`
+  (default 30, `0` keeps them forever), 5000 rows per statement.
 - `GET /api/health/queue` (with `X-Internal-Token: $INTERNAL_HEALTH_TOKEN`) shows queue depth,
   failed jobs and active workers.
 - Useful queries:

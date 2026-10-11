@@ -114,6 +114,9 @@ class _FakeRedis:
     def expire(self, key, seconds):
         return True
 
+    def delete(self, key):
+        return 1 if self.data.pop(key, None) is not None else 0
+
 
 def test_reconciler_requeues_stuck_and_failed_work(app, test_user):
     from models import db, SavedContent
@@ -172,6 +175,54 @@ def test_reconciler_gives_up_after_the_backoff_schedule(app, test_user):
             counts = pipeline_reconciler.reconcile(now)
     enqueue_fetch.assert_not_called()
     assert counts['fetch_gave_up'] >= 1
+
+
+def _event_ids(app):
+    from models import db, BookmarkEvent
+    with app.app_context():
+        return {row.event_id for row in db.session.query(BookmarkEvent.event_id)}
+
+
+def test_old_bookmark_events_are_pruned_once_a_day(app, test_user, saved_bookmark, monkeypatch):
+    from models import db, BookmarkEvent
+    from services import pipeline_reconciler
+    monkeypatch.setenv('BOOKMARK_EVENTS_RETENTION_DAYS', '30')
+    now = datetime(2026, 10, 12, 3, 0, 0)
+    ages = {'old-1': 400, 'old-2': 31, 'old-3': 30.01, 'new-1': 28.5, 'new-2': 1, 'new-3': 0}
+    with app.app_context():
+        # Explicit ids: a BigInteger primary key does not autoincrement on SQLite.
+        db.session.add_all(BookmarkEvent(id=i, event_id=name, bookmark_id=saved_bookmark, user_id=test_user['id'],
+                                         pipeline_run_id='run', type='bookmark.pipeline.test',
+                                         created_at=now - timedelta(days=days))
+                           for i, (name, days) in enumerate(ages.items(), 1))
+        db.session.commit()
+
+    fake = _FakeRedis()
+    with patch.object(pipeline_reconciler, '_redis', return_value=fake):
+        with app.app_context():
+            assert pipeline_reconciler.prune_bookmark_events(now, batch_size=2) == 3  # several batches
+        assert _event_ids(app) == {'new-1', 'new-2', 'new-3'}
+
+        # Later the same day nothing runs, even though another row has aged out by then.
+        with app.app_context():
+            db.session.add(BookmarkEvent(id=100, event_id='old-4', bookmark_id=saved_bookmark, user_id=test_user['id'],
+                                         pipeline_run_id='run', type='bookmark.pipeline.test',
+                                         created_at=now - timedelta(days=90)))
+            db.session.commit()
+            assert pipeline_reconciler.prune_bookmark_events(now + timedelta(hours=20)) is None
+        assert 'old-4' in _event_ids(app)
+
+        # The next day it runs again.
+        with app.app_context():
+            assert pipeline_reconciler.prune_bookmark_events(now + timedelta(days=1)) == 1
+        assert _event_ids(app) == {'new-1', 'new-2', 'new-3'}
+
+
+def test_event_retention_can_be_disabled(app, monkeypatch):
+    from services import pipeline_reconciler
+    monkeypatch.setenv('BOOKMARK_EVENTS_RETENTION_DAYS', '0')
+    with patch.object(pipeline_reconciler, '_redis', return_value=_FakeRedis()), app.app_context():
+        assert pipeline_reconciler.prune_bookmark_events() is None
 
 
 def test_backpressure_defers_instead_of_dropping():
