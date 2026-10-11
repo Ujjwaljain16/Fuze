@@ -1,7 +1,7 @@
 # ADR-004: Scoring Layer Isolation & Pure Function Boundaries
 
 ## Status
-Accepted
+Accepted, later superseded. The legacy recommendation stack this ADR governs was removed in commit 4446a9a and replaced by the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)). Kept as a record of the decision; the modules it names no longer exist.
 
 ## Context
 Recommendation scoring algorithms (vector cosine similarity, BM25, tech stack matching, recency decay) were previously interspersed with database queries and Redis cache checks, making unit testing slow and fragile.

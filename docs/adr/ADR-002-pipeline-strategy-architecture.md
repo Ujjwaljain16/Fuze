@@ -1,7 +1,7 @@
 # ADR-002: Pipeline + Strategy Hybrid Architecture
 
 ## Status
-Accepted
+Accepted, later superseded. The legacy recommendation stack this ADR governs was removed in commit 4446a9a and replaced by the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)). Kept as a record of the decision; the modules it names no longer exist.
 
 ## Context
 The recommendation system needs to support multiple scoring strategies (Context-Aware, Vector-Hybrid, Quality Ensemble) while enforcing consistent caching, metrics, and fallback behavior across requests.

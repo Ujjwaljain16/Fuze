@@ -1,7 +1,7 @@
 # ADR-001: Recommendation Domain Model & Bounded Contexts
 
 ## Status
-Accepted
+Accepted, later superseded. The legacy recommendation stack this ADR governs was removed in commit 4446a9a and replaced by the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)). Kept as a record of the decision; the modules it names no longer exist.
 
 ## Context
 The legacy [`unified_recommendation_orchestrator.py`](file:///d:/Projects/fuze/backend/ml/unified_recommendation_orchestrator.py) combined database models, scoring math, AI prompt templates, and HTTP serialization into a single 3,092-line god object. To avoid creating smaller god objects during decomposition, explicit Domain-Driven Design (DDD) boundaries must be frozen.

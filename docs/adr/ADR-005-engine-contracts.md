@@ -1,7 +1,7 @@
 # ADR-005: Engine Contract Specifications & Input/Output Constraints
 
 ## Status
-Accepted
+Accepted, later superseded. The legacy recommendation stack this ADR governs was removed in commit 4446a9a and replaced by the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)). Kept as a record of the decision; the modules it names no longer exist.
 
 ## Context
 Engines must be prevented from leaking infrastructure logic (raw SQL, Redis calls, Gemini SDK calls) into recommendation algorithms.

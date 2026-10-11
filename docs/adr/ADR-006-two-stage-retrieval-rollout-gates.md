@@ -1,6 +1,10 @@
 # ADR-006 — Two-Stage Retrieval Rollout Gates
 
-**Status:** Accepted  
+**Status:** Accepted, later superseded. The two-stage pipeline, `ShadowEvaluator`, the
+golden baseline and the `RECOMMENDATIONS_TWO_STAGE` / `two_stage_retrieval` flags were
+removed with the legacy recommendation stack (commit 4446a9a); recommendations now come
+from the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)).
+Kept as a record of the decision.
 **Deciders:** Engineering team  
 **Context:** ITEM 2 in the infrastructure roadmap changes the recommendation candidate retrieval
 architecture from a flat ORM fetch (`data_layer.py → get_user_bookmarks(limit=N)`) to a
@@ -33,9 +37,14 @@ shadow run and do not enable the flag at any percentage.
 SELECT COUNT(*) FROM saved_content WHERE embedding IS NULL = 0
 ```
 
-Measured by: running `scripts/backfill_embeddings.py --verify` after backfill completes.
+Measured by: the query above. (The original `scripts/backfill_embeddings.py --verify`
+has since been removed; missing embeddings are now backfilled continuously by the
+pipeline reconciler, `backend/services/pipeline_reconciler.py`, which re-enqueues
+every bookmark that was fetched but never embedded. See the pipeline health queries
+in [OPERATIONS.md](../OPERATIONS.md).)
 
-**Block condition:** Any NULL embedding rows remain → re-run backfill → re-verify.
+**Block condition:** Any NULL embedding rows remain → let the reconciler catch up (or
+investigate failed embedding jobs) → re-verify.
 
 ---
 

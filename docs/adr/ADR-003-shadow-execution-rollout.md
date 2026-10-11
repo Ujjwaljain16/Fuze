@@ -1,7 +1,7 @@
 # ADR-003: Shadow Execution & Dual-Runner Rollout Strategy
 
 ## Status
-Accepted
+Accepted, later superseded. The legacy recommendation stack this ADR governs was removed in commit 4446a9a and replaced by the intent x content engine ([design and benchmark](../INTENT_ENGINE_PLAN.md)). Kept as a record of the decision; the modules it names no longer exist.
 
 ## Context
 Refactoring the core recommendation orchestrator carries the risk of recommendation quality regressions or subtle rank flips impacting end-user experience.
