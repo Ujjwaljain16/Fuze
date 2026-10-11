@@ -1351,10 +1351,8 @@ graph TB
 
 **Current Deployment (Hugging Face Spaces):**
 - **Gunicorn**: 2 workers (gevent async, 1000+ connections per worker)
-- **Concurrent Users**: 50-100 (estimated based on typical usage)
-- **Requests/Second**: 20-50 (depending on operation complexity)
-- **Database Connections**: 5-15 (pool_size=5, max_overflow=10)
-- **Cache Hit Rate**: 70-80% (Redis caching)
+- **Concurrent Users / Requests per second**: not measured yet (a load test will set these)
+- **Database Connections**: up to pool_size + max_overflow per process (see docs/OPERATIONS.md)
 - **Background Jobs**: RQ workers process ~10-50 jobs/hour
 - **Memory Usage**: ~2-4GB of 16GB available (room for growth)
 
@@ -1373,10 +1371,8 @@ graph TB
 
 **Scalable Deployment (With Multiple Workers):**
 - **Gunicorn**: 4+ workers per server
-- **Concurrent Users**: 100-200 per server (with 4 workers)
-- **Requests/Second**: 50-100 per server (depending on operation)
-- **Database Connections**: 20-30 per server (with pooling)
-- **Cache Hit Rate**: 70-80% (with Redis)
+- **Capacity per server**: to be established by load testing, not estimated
+- **Database Connections**: sized against the Supabase pooler limit (docs/OPERATIONS.md)
 
 **Scalable Performance:**
 - **Cached Requests**: 50-200ms

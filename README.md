@@ -46,7 +46,7 @@
 - **Shared Caching**: Redis caching for fast responses, with fail-fast timeouts so a slow Redis can't hang requests
 - **Background Processing**: One RQ job per bookmark and stage, plus a reconciler that re-enqueues anything lost or deferred
 - **Connection Pooling**: Efficient database connection management
-- **Production-Ready**: Comprehensive error handling and logging
+- **Explicit Failure Handling**: transient failures retry, a reconciler re-enqueues lost work, failed fetches are recorded as such, and the container refuses to start on a failed migration
 
 ### 🔌 Integrations
 - **Chrome Extension**: One-click bookmarking from any webpage
@@ -260,9 +260,9 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **Measured, not assumed**: an end-to-end retrieval benchmark (`backend/scripts/eval_retrieval.py`) runs the production search code against BEIR SciFact (300 queries) in a real Postgres + pgvector database. On long documents, where the relevant text sits past the embedding model's input window, the previous one-vector-per-bookmark search scored **0.001 nDCG@10**; passage search scores **0.504**. Switching MiniLM → bge-small-en-v1.5 (same 384 dims) added **+10% nDCG@10** (0.652 → 0.718). A cross-encoder reranker was measured and left off: no quality gain for ~700 ms extra per query ([results](docs/INTENT_ENGINE_PLAN.md))
 
 #### **Model Caching & Performance Optimization**
-- **98% Faster Model Loading**: Reduced SentenceTransformer model loading from 6-7 seconds to 0.1 seconds using singleton pattern with thread-safe locking
-- **Request Deduplication**: The frontend shares one in-flight promise between identical concurrent requests, reducing duplicate load by 50%
-- **Redis Caching**: Shared per-user caches (keys built in one place, `core/cache_keys.py`) achieving 70-80% cache hit rate and sub-100ms API response times
+- **Model Loaded Once Per Process**: a thread-safe singleton in the web workers; RQ workers load it in the parent before forking, so jobs share it instead of reloading it
+- **Request Deduplication**: The frontend shares one in-flight promise between identical concurrent requests
+- **Redis Caching**: Shared per-user caches (keys built in one place, `core/cache_keys.py`)
 - **Responsive gevent Workers**: psycogreen makes Postgres queries yield (5 concurrent `pg_sleep(1)`: 5.05 s unpatched, 1.01 s patched) and CPU-bound encode/bcrypt run on gevent's thread pool
 - **Query Result Caching**: Intelligent TTL-based caching for expensive database queries
 
@@ -301,12 +301,11 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ### 📊 Performance Achievements
 
-- **98% Model Loading Speed Improvement**: From 6-7 seconds to 0.1 seconds
-- **70-80% Cache Hit Rate**: Redis caching strategy achieving high efficiency
-- **50% Reduction in Duplicate Requests**: Request deduplication system
-- **Sub-100ms API Response Times**: Through optimized queries and caching
+- **Measured**: 5 concurrent 1-second queries on one gevent worker take 1.01 s with psycogreen vs 5.05 s without; the ML stack upgrade left embeddings unchanged (cosine 1.0)
+- **Retrieval quality**: nDCG@10 on BEIR SciFact recorded in `backend/eval/results/`
+- **Not yet measured**: request latency under load and cache hit rate. Numbers will be published from a load test rather than estimated
 - **300+ Automated Tests**: Backend suite run in CI on every change, once on SQLite and once on Postgres + pgvector
-- **Production-Ready Architecture**: Horizontal scaling with stateless workers, connection pooling, and graceful degradation
+- **Stateless Processes**: web and worker processes keep no state of their own; everything shared lives in Postgres and Redis
 - **Gated Deployments**: the HF Space is deployed only after Backend CI passes on that exact commit, and the container refuses to serve if migrations fail
 
 ---

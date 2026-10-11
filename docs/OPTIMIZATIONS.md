@@ -19,12 +19,12 @@ Complete documentation of all optimizations and performance improvements in Fuze
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| **Model Loading** | 6-7 seconds | 0.1 seconds | **98% faster** |
-| **Database Queries** | No indexes, slow | Indexed, optimized | **10-100x faster** |
-| **API Response Time** | No caching | Multi-layer cache | **70-80% faster** |
-| **Duplicate Requests** | All executed | Deduplicated (frontend) | **50% reduction** |
 | **5 concurrent `pg_sleep(1)` on one gevent worker** | 5.05 s | 1.01 s | **psycogreen** (measured in the built image) |
-| **Cache Hit Rate** | 0% | 70-80% | **High efficiency** |
+| **bge-small embeddings after the ML stack upgrade** | torch 2.9 / transformers 4.56 | torch 2.13 / transformers 5.16 | cosine 1.0, max abs diff 1.5e-7 |
+
+Earlier versions of this table listed model-loading, response-time and cache-hit-rate gains
+(e.g. "98% faster", "70-80% hit rate"). No measurement backs them, so they were removed; figures
+will be added here from a load test.
 
 ---
 
@@ -510,36 +510,12 @@ thread before it ran.
 
 ## Performance Metrics
 
-### Cache Statistics
+### Measurements
 
-**Query Cache**:
-- **Hit Rate**: 70-80%
-- **Cache Size**: ~1000 entries
-- **Evictions**: Automatic on TTL expiry
-
-**Redis Cache**:
-- **Hit Rate**: 70-80%
-- **Average Response Time**: ~5ms
-- **Storage**: Optimized with compression
-
-### Response Times
-
-| Operation | Before | After | Improvement |
-|-----------|--------|-------|-------------|
-| **Model Loading** | 6000-7000ms | 100ms | 98% faster |
-| **Database Query** | 200-500ms | 20-50ms | 80-90% faster |
-| **Recommendations** | 2000-5000ms | 200-2000ms | 60-90% faster |
-| **Search** | 100-300ms | 10-50ms | 80-90% faster |
-| **Bookmark List** | 100-200ms | 10-30ms | 85-90% faster |
-
-### Throughput
-
-| Metric | Value |
-|--------|-------|
-| **Concurrent Users** | 100-200 per server |
-| **Requests/Second** | 50-100 (depending on operation) |
-| **Cache Hit Rate** | 70-80% |
-| **Database Connections** | 20-30 (with pooling) |
+Cache hit rates, per-operation response times and throughput have not been measured yet. Earlier
+versions of this section listed figures (cache hit rates, "98% faster", per-operation speedups,
+users per server) that nothing measured; they were removed. A load test with unique queries will
+supply real numbers, published here with the method used.
 
 ---
 
