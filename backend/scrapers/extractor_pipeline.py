@@ -12,6 +12,8 @@ import scrapers.extractors.readability_plugin
 import scrapers.extractors.markdown_plugin
 import scrapers.extractors.image_plugin
 import scrapers.extractors.table_code_plugin
+import scrapers.extractors.main_content_plugin
+from scrapers.text_cleanup import clean_body
 from scrapers.models import RawFetchResult, ParsedDocument, ExtractionResult
 from core.logging_config import get_logger
 
@@ -37,11 +39,17 @@ class ExtractorPipeline:
         parsed_title: Optional[str] = None
         clean_text: str = ""
         markdown_body: str = ""
+        main_body: str = ""
+        short_text: str = ""
 
         for plugin in self.plugins:
             try:
                 result = plugin.extract(html_str, fetch_result.url)
                 plugin_results.append(result)
+
+                if result.plugin_name == "readability" and not result.success:
+                    # Below the plugin's length threshold, but still the page's real text.
+                    short_text = result.extracted_data.get("clean_text", "") or ""
 
                 if result.plugin_name == "readability" and result.success:
                     parsed_title = result.extracted_data.get("title")
@@ -49,6 +57,9 @@ class ExtractorPipeline:
 
                 if result.plugin_name == "markdown" and result.success:
                     markdown_body = result.extracted_data.get("markdown_body", "")
+
+                if result.plugin_name == "main_content" and result.success:
+                    main_body = result.extracted_data.get("markdown_body", "")
 
             except Exception as e:
                 logger.warning(
@@ -59,8 +70,16 @@ class ExtractorPipeline:
                     ExtractionResult(plugin_name=plugin.plugin_name, success=False, confidence=0.0, extracted_data={}, plugin_version=plugin.plugin_version)
                 )
 
-        if not markdown_body and clean_text:
+        # Body priority: main content (no menus/footers) > readability text > whole-page markdown.
+        # The whole-page converter walks every heading/list/paragraph, navigation included, so it
+        # is only a last resort.
+        if main_body:
+            markdown_body = main_body
+        elif clean_text:
             markdown_body = clean_text
+        elif not markdown_body and short_text:
+            markdown_body = short_text
+        markdown_body = clean_body(markdown_body)
 
         logger.info(
             "extractor_pipeline_complete",

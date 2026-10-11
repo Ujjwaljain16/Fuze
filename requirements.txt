@@ -67,6 +67,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 PyYAML==6.0.2
 readability-lxml==0.8.4.1
+trafilatura==2.1.0
 realtime==2.6.0
 regex==2024.11.6
 redis==5.0.1
