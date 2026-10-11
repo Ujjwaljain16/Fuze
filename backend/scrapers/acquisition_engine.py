@@ -12,6 +12,7 @@ from scrapers.robots_manager import RobotsManager
 from scrapers.rate_limiter import DomainRateLimiter
 from scrapers.fetch_policy import FetchPolicy
 from scrapers.fetchers.http_fetcher import HTTPFetcher
+from scrapers.fetchers.reader_fetcher import ReaderFetcher
 from scrapers.extractor_pipeline import ExtractorPipeline
 from scrapers.normalizer import MetadataNormalizer
 from scrapers.quality_evaluator import QualityEvaluator
@@ -64,6 +65,7 @@ class ContentAcquisitionEngine:
         self.fetchers = {
             "HTTP": HTTPFetcher()
         }
+        self.reader = ReaderFetcher()
 
         self.extractor_pipeline = ExtractorPipeline()
         self.normalizer = MetadataNormalizer()
@@ -232,8 +234,75 @@ class ContentAcquisitionEngine:
             )
         return norm_doc, quality_metrics, plugin_versions
 
+    def _attempt_reader(self, url: str, bookmark_id: Optional[int]) -> _Attempt:
+        """Tier READER: a remote reader service renders the page and returns markdown."""
+        from scrapers.fetchers.reader_fetcher import reader_requests_per_minute
+        from scrapers.models import FetchMetadata, NormalizedMetadata
+        from scrapers.text_cleanup import clean_body
+        strategy = "READER"
+
+        # The service's own trouble (outage, quota) must not count against the target's domain.
+        breaker = RedisCircuitBreaker(name="reader_service", failure_threshold=5, recovery_timeout=300)
+        if not breaker.allow_request():
+            logger.warning("reader_circuit_open", extra={"url": url})
+            return _Attempt(strategy, retryable=True)
+        # One shared ceiling for all workers, under the service's per-minute limit.
+        allowed, _ = DomainRateLimiter(max_requests=reader_requests_per_minute(),
+                                       window_seconds=60).acquire("https://reader-quota.invalid/")
+        if not allowed:
+            logger.info("reader_rate_limited", extra={"url": url})
+            return _Attempt(strategy, retryable=True)
+
+        if bookmark_id:
+            self.event_publisher.publish(FetchStarted(bookmark_id=bookmark_id, strategy=strategy, url=url))
+        result = self.reader.fetch(url)
+        if result.retryable:
+            breaker.record_failure()
+        elif result.ok or result.http_status is not None:
+            breaker.record_success()
+        if bookmark_id:
+            self.event_publisher.publish(FetchCompleted(bookmark_id=bookmark_id, strategy=strategy,
+                                                        http_status=result.http_status or 0,
+                                                        latency_ms=result.latency_ms))
+        if not result.ok:
+            logger.info("reader_no_content", extra={"url": url, "error": result.error,
+                                                    "http_status": result.http_status})
+            return _Attempt(strategy, http_status=result.http_status, retryable=result.retryable)
+
+        body = clean_body(result.content)
+        words = len(body.split())
+        provenance = {name: strategy for name, value in (
+            ("title", result.title), ("description", result.description), ("author", result.author),
+            ("image_url", result.image_url), ("published_at", result.published_at)) if value}
+        provenance["body"] = strategy
+        metadata = NormalizedMetadata(
+            title=result.title,
+            description=result.description,
+            image_url=result.image_url,
+            author=result.author,
+            published_at=result.published_at,
+            canonical_url=result.final_url,
+            reading_time_minutes=max(1, round(words / 200)) if words else 0,
+            field_provenance=provenance,
+        )
+        norm_doc = NormalizedDocument(
+            url=url,
+            canonical_url=result.final_url or url,
+            markdown_content=body,
+            metadata=metadata,
+            provider_raw_payload={"reader": {"service": "jina", "final_url": result.final_url}},
+            fetch_metadata=FetchMetadata(strategy=strategy, attempts=1, http_status=result.http_status or 200,
+                                         redirected=bool(result.final_url and result.final_url != url),
+                                         fetch_latency_ms=result.latency_ms),
+        )
+        quality = self.quality_evaluator.evaluate(html="", clean_text=body, title=result.title)
+        return _Attempt(strategy, norm_doc=norm_doc, quality=quality, http_status=result.http_status,
+                        plugin_versions={"reader": "1.0.0"})
+
     def _run_tier(self, strategy: str, url: str, bookmark_id: Optional[int],
                   circuit_breaker: RedisCircuitBreaker) -> _Attempt:
+        if strategy == "READER":
+            return self._attempt_reader(url, bookmark_id)
         return self._attempt_http(url, bookmark_id, circuit_breaker)
 
     def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None, _depth: int = 0) -> ContentDocument:

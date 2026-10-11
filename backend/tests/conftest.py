@@ -51,6 +51,11 @@ os.environ.pop('REDIS_SSL', None)
 # A SENTRY_DSN from .env would make importing run_production report every deliberately
 # raised test error to the production Sentry project.
 os.environ.pop('SENTRY_DSN', None)
+# The acquisition tiers after our own fetch call outside services (a reader, the Wayback Machine).
+# Off for the suite so no test reaches the network; tests of those tiers turn them on and mock them.
+os.environ['ENABLE_READER_FALLBACK'] = 'false'
+os.environ['ENABLE_ARCHIVE_FALLBACK'] = 'false'
+os.environ.pop('READER_API_KEY', None)
 
 def pytest_sessionstart(session):
     session._start_time = time.perf_counter()

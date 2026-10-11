@@ -63,6 +63,41 @@ def test_challenge_page_is_marked_blocked(app, test_user, saved_bookmark):
     assert _bookmark(app, saved_bookmark).scrape_status == 'BLOCKED'
 
 
+def test_blocked_page_whose_reader_timed_out_is_retried(app, test_user, saved_bookmark):
+    # Our fetch got a challenge page and the reader tier timed out: a later attempt may get through.
+    from services.bookmark_processing_service import TransientFetchError, process_bookmark_content_task
+    with patch('services.bookmark_processing_service.extract_article_content',
+               return_value=_failed_doc(200, True, outcome='blocked')), \
+         patch('services.pipeline_orchestrator.PipelineOrchestrator.request_embedding'), app.app_context():
+        with pytest.raises(TransientFetchError):
+            process_bookmark_content_task(saved_bookmark, 'https://example.com/a', test_user['id'])
+    bm = _bookmark(app, saved_bookmark)
+    assert bm.scrape_status == 'BLOCKED' and bm.extracted_text == 'earlier text'
+
+
+def test_engine_escalates_a_challenge_page_to_the_reader(monkeypatch):
+    from scrapers.acquisition_engine import ContentAcquisitionEngine
+    from scrapers.fetchers.reader_fetcher import ReaderResult
+    monkeypatch.setenv('ENABLE_READER_FALLBACK', 'true')
+    challenge = b'<html><head><title>Just a moment...</title></head><body>Checking your browser before accessing</body></html>'
+    meta = FetchMetadata(strategy='HTTP', attempts=1, http_status=200, redirected=False)
+    page = RawFetchResult(url='https://example.com/x', final_url='https://example.com/x', http_status=200,
+                          headers={}, raw_content=challenge, fetch_metadata=meta)
+    article = 'Rendered by the reader service with the full article text. ' * 40
+    engine = ContentAcquisitionEngine()
+    with patch('scrapers.acquisition_engine.is_safe_url', return_value=True), \
+         patch('scrapers.rate_limiter.DomainRateLimiter.acquire', return_value=(True, 0.0)), \
+         patch('scrapers.robots_manager.RobotsManager.can_fetch', return_value=True), \
+         patch('core.circuit_breaker.RedisCircuitBreaker.allow_request', return_value=True), \
+         patch('scrapers.source_adapters.fetch_from_source', return_value=None), \
+         patch.object(engine.fetchers['HTTP'], 'fetch', return_value=page), \
+         patch.object(engine.reader, 'fetch', return_value=ReaderResult(ok=True, content=article, title='Article',
+                                                                        http_status=200)):
+        doc = engine.acquire_and_normalize('https://example.com/x')
+    assert doc.outcome == 'ok' and doc.retryable is False
+    assert doc.fetch_metadata.strategy == 'READER' and doc.markdown_content.startswith('Rendered by the reader')
+
+
 def test_article_mentioning_access_denied_is_not_a_challenge_page():
     from scrapers.quality_evaluator import QualityEvaluator
     article = ("When S3 returns Access Denied, check the bucket policy and the IAM role. " * 60)
