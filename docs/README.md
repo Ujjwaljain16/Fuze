@@ -63,6 +63,11 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
   - Pipeline health queries
   - Secret rotation effects
 
+- **[Content Acquisition](CONTENT_ACQUISITION.md)** - How pages are fetched without a browser
+  - Tier order: official adapters, HTTP, remote reader, Wayback Machine
+  - Privacy trade-offs, cost and limits of each service
+  - Live smoke results per site
+
 - **[Intent x Content Engine](INTENT_ENGINE_PLAN.md)** - Recommendation design and benchmark results
 
 - **[Architecture Decision Records](adr/)** - ADR-001 to ADR-006 cover the legacy recommendation stack and are kept as history (superseded)

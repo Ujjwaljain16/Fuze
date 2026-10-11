@@ -9,7 +9,8 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 > was paused by HF's abuse detection and is pending unpause. HF now requires a paid PRO subscription to *create* new Docker
 > Spaces on the free tier, so a free/low-cost fallback host is being
 > evaluated. The image contains no browser-automation tooling;
-> scraping is plain HTTP only. See the
+> our own fetch is plain HTTP, and pages that need a browser go to a remote reader
+> service or the Wayback Machine ([`CONTENT_ACQUISITION.md`](CONTENT_ACQUISITION.md)). See the
 > root [`README.md`](../README.md) and
 > [`gaps_closure_plan.md`](../gaps_closure_plan.md).
 
@@ -916,7 +917,8 @@ User Action → API Endpoint → Enqueue Job → Immediate Response
 2. **Bookmark Processing Tasks** (`backend/services/bookmark_processing_service.py`)
    - `process_bookmark_content_task()`: fetches and extracts the page through the
      acquisition engine (official APIs first, then robots.txt, the per-domain rate
-     limit and the SSRF-safe fetch). A failed or blocked fetch keeps the user's title
+     limit and the SSRF-safe fetch, then a remote reader for thin or blocked pages and the
+     Wayback Machine for gone ones; see `CONTENT_ACQUISITION.md`). A failed or blocked fetch keeps the user's title
      and notes and is stored as `FAILED_FETCH`, `BLOCKED` or `DISALLOWED`, never as
      content; transient failures (no response, 5xx, 429, over the domain's rate
      limit) raise so RQ retries them

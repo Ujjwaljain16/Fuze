@@ -19,6 +19,15 @@ Fly.io, etc.), re-enable these for better content extraction.** Never add them b
 | `DISABLE_BROWSER_FETCHERS` kill switch | Was added then removed along with the fetchers |
 | Honest `FuzeBot/1.0` user agent in `http_fetcher.py` | Replaced a Chrome UA string; many sites block unknown bots, so revisit |
 
+## What replaced them on HF
+
+[`docs/CONTENT_ACQUISITION.md`](docs/CONTENT_ACQUISITION.md) covers the browser-free tiers that
+recover most of these pages for now: more official adapters (YouTube, Reddit, Medium, X), a
+remote reader service (Jina Reader) for thin, JS-only and bot-blocked pages, and Wayback
+Machine snapshots for gone pages. Browser tiers come back only on a host that allows them. Put
+them between `HTTP` and `READER` in the strategy plan, so the third-party reader only gets
+what our own browser could not render.
+
 ## How to restore
 
 1. `git log --oneline -- backend/scrapers/scrapling_enhanced_scraper.py` and check out the files from the
