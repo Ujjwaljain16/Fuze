@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from utils.embedding_utils import get_embedding
 from uow.unit_of_work import UnitOfWork
 from services.search_service import SearchService, MAX_QUERY_LENGTH, MAX_SEARCH_LIMIT
 from core.logging_config import get_logger

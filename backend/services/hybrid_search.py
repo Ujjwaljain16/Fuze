@@ -105,13 +105,13 @@ def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES
 
 
 def semantic_search(session, user_id: int, query: str, limit: int = 10,
-                    rerank: Optional[bool] = None) -> List[Dict[str, Any]]:
+                    rerank: Optional[bool] = None, query_vector=None) -> List[Dict[str, Any]]:
     """Rank a user's bookmarks for a query by passage meaning; best passage returned as the snippet."""
     if rerank is None:
         rerank = rerank_enabled()
     started = time.perf_counter()
 
-    candidates = retrieve(session, user_id, [embed_query(query)])
+    candidates = retrieve(session, user_id, [query_vector if query_vector is not None else embed_query(query)])
     pool = candidates[:max(limit, RERANK_TOP_N)] if rerank else candidates[:limit]
 
     if rerank and pool:
