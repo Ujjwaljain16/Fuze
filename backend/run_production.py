@@ -178,6 +178,9 @@ def create_app(config_name: str = None) -> Flask:
 
     app = Flask(__name__)
     
+    # Bigger bodies are refused with 413 before any handler parses them.
+    app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_REQUEST_BYTES', 5 * 1024 * 1024))
+
     from core.app_env import app_env, require_secrets
     env = config_name or app_env()
     if env == 'production':
@@ -215,6 +218,11 @@ def create_app(config_name: str = None) -> Flask:
         try:
             init_rate_limiter(app)
         except Exception as e:
+            # Without rate limits a deployed app is open to brute force and cost abuse: refuse
+            # to start rather than log and carry on (init_rate_limiter's fail-fast was swallowed).
+            from core.app_env import is_production
+            if is_production():
+                raise
             logger.warning(f"Rate limiting initialization failed: {e}")
 
     # Initialize response compression

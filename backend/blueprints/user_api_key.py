@@ -158,7 +158,7 @@ def remove_api_key():
 
         if 'api_key' in metadata:
             try:
-                api_key = get_user_api_key(user_id)
+                api_key = get_user_api_key(user_id, for_use=False)
                 if api_key:
                     from services.api_key_revocation_manager import get_revocation_manager
                     revocation_manager = get_revocation_manager()
@@ -276,7 +276,7 @@ def test_api_key():
     try:
         _, _, _, get_user_api_key, api_manager = get_multi_user_api_manager()
 
-        api_key = get_user_api_key(user_id)
+        api_key = get_user_api_key(user_id, for_use=False)
 
         if not api_key or api_key == os.environ.get('GEMINI_API_KEY'):
             user = db.session.query(User).filter_by(id=user_id).first()

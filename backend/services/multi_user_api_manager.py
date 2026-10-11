@@ -37,6 +37,9 @@ from utils.timefmt import iso_utc
 
 
 
+SYSTEM_KEY_DAILY_LIMIT = int(os.environ.get('SYSTEM_GEMINI_DAILY_LIMIT_PER_USER', '30'))
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -198,8 +201,13 @@ class MultiUserAPIManager:
             logger.error("api_key_add_failed", extra={"user_id": user_id, "error": str(e)})
             return False
 
-    def get_user_api_key(self, user_id: int) -> Optional[str]:
-        """Get decrypted API key for user. Does NOT return system key if revoked."""
+    def get_user_api_key(self, user_id: int, for_use: bool = True) -> Optional[str]:
+        """Get decrypted API key for user. Does NOT return system key if revoked.
+
+        Users without their own key share the system key, up to SYSTEM_KEY_DAILY_LIMIT uses a day
+        each; past that this returns '' (no key) so one account can't spend the shared quota.
+        for_use=False only asks which key applies (status pages) and isn't counted.
+        """
         try:
             from services.api_key_revocation_manager import get_revocation_manager
             revocation_manager = get_revocation_manager()
@@ -261,12 +269,31 @@ class MultiUserAPIManager:
                             self.user_api_keys[user_id] = cached_key
                         return decrypted
 
-            # 3. Fallback to system default key
-            return os.environ.get('GEMINI_API_KEY')
+            # 3. Fallback to the shared system key, within the per-user daily allowance
+            return self._system_key_for(user_id, for_use)
 
         except Exception as e:
             logger.error("get_user_api_key_failed", extra={"user_id": user_id, "error": str(e)})
             return os.environ.get('GEMINI_API_KEY')
+
+    def _system_key_for(self, user_id: int, for_use: bool) -> Optional[str]:
+        system_key = os.environ.get('GEMINI_API_KEY')
+        if not system_key or not for_use:
+            return system_key
+        client = getattr(self.redis, 'redis_client', None)
+        if client is None or not getattr(self.redis, 'connected', False):
+            return system_key  # can't count without Redis; per-minute quotas still apply
+        key = f"fuze:system_key_uses:{user_id}:{_now():%Y%m%d}"
+        try:
+            uses = client.incr(key)
+            if uses == 1:
+                client.expire(key, 2 * 86400)
+        except Exception:
+            return system_key
+        if uses > SYSTEM_KEY_DAILY_LIMIT:
+            logger.info("system_gemini_key_daily_limit_reached", extra={"user_id": user_id})
+            return ''
+        return system_key
 
     def check_user_rate_limit(self, user_id: int) -> Dict:
         """Check rate limits using Redis atomic counters if available, with thread-safe memory fallback."""
@@ -452,8 +479,8 @@ def add_user_api_key(user_id: int, api_key: str, api_key_name: Optional[str] = N
     return api_manager.add_user_api_key(user_id, api_key, api_key_name)
 
 
-def get_user_api_key(user_id: int) -> Optional[str]:
-    return api_manager.get_user_api_key(user_id)
+def get_user_api_key(user_id: int, for_use: bool = True) -> Optional[str]:
+    return api_manager.get_user_api_key(user_id, for_use=for_use)
 
 
 def check_user_rate_limit(user_id: int) -> Dict:

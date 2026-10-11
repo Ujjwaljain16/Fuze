@@ -23,6 +23,8 @@ TRACKING_PARAMS = {'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_
 # The (user_id, url) unique index is a B-tree, whose entries must fit in about a third of a page
 # (~2.7 KB); a longer URL makes the INSERT fail. 2048 bytes covers every URL browsers accept.
 MAX_URL_BYTES = 2048
+MAX_IMPORT_ITEMS = 5000  # the extension imports 1000 at a time by default
+MAX_PER_PAGE = 100
 
 
 def url_too_long(url: str) -> bool:
@@ -347,6 +349,8 @@ def bulk_import_bookmarks():
 
     if not isinstance(data, list):
         return jsonify({'message': 'Expected array of bookmarks'}), 400
+    if len(data) > MAX_IMPORT_ITEMS:
+        return jsonify({'message': f'Import at most {MAX_IMPORT_ITEMS} bookmarks per request'}), 413
 
     total_count = len(data)
     added_count = 0
@@ -500,7 +504,7 @@ def bulk_import_bookmarks():
 def list_bookmarks():
     user_id = int(get_jwt_identity())
     page = request.args.get('page', default=1, type=int)
-    per_page = request.args.get('per_page', default=10, type=int)
+    per_page = max(1, min(request.args.get('per_page', default=10, type=int) or 10, MAX_PER_PAGE))
     search = request.args.get('search', '').strip()
     category = request.args.get('category', '').strip()
     

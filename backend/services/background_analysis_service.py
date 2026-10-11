@@ -256,6 +256,10 @@ class BackgroundAnalysisService:
                         return
 
                     api_key = get_user_api_key(target_user_id)
+                    if api_key == '':
+                        # Their daily share of the shared key is used up: leave it PENDING.
+                        logger.info("bg_analysis_deferred_no_key_allowance", extra={"user_id": target_user_id})
+                        return
                 except Exception as e:
                     logger.warning("bg_analysis_api_key_failed", extra={"user_id": target_user_id, "error": str(e)})
 

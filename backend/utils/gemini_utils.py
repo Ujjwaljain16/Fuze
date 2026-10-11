@@ -53,7 +53,9 @@ class GeminiAnalyzer:
         self.max_retries = 2
         self.retry_delay = 1.0
 
-        key = api_key or config.ai.gemini_api_key
+        # None means "the caller has no opinion": use the system key. An empty string means no key
+        # is allowed for this user (e.g. their daily share of the system key is used up).
+        key = config.ai.gemini_api_key if api_key is None else api_key
         if not key:
             logger.info("gemini_disabled_no_api_key_configured")
             return
