@@ -71,9 +71,14 @@ class RobotsManager:
         if not self._redis:
             return None
         try:
-            return self._redis.get(f"fuze:robots_txt:{domain}")
+            cached = self._redis.get(f"fuze:robots_txt:{domain}")
         except Exception:
             return None
+        # The shared client returns bytes. Parsing bytes lines raised inside can_fetch, which
+        # then allowed the fetch: every cached disallow was ignored.
+        if isinstance(cached, bytes):
+            return cached.decode("utf-8", errors="replace")
+        return cached
 
     def _cache_robots_txt(self, domain: str, content: str):
         if not self._redis:

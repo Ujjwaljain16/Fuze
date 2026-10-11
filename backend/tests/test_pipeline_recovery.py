@@ -447,6 +447,19 @@ def test_robots_and_rate_limits_are_enforced_not_just_logged(robots_ok, rate_ok,
             p.stop()
 
 
+def test_cached_robots_txt_disallow_is_still_enforced():
+    # The shared Redis client returns bytes; parsing them used to raise and fail open.
+    from scrapers.robots_manager import RobotsManager
+    manager = RobotsManager()
+    redis = MagicMock()
+    redis.get.return_value = b'User-agent: *\nDisallow: /private/\n'
+    manager._redis = redis
+    with patch.object(manager, '_fetch_robots_txt') as fetch:
+        assert manager.can_fetch('https://example.com/private/page') is False
+        assert manager.can_fetch('https://example.com/public/page') is True
+    fetch.assert_not_called()  # served from the cache
+
+
 def test_robots_disallowed_bookmark_is_marked_and_still_embedded(app, test_user, saved_bookmark):
     from services.bookmark_processing_service import process_bookmark_content_task
     with patch('services.bookmark_processing_service.extract_article_content',
