@@ -90,7 +90,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "### Uptime: $state" >> "$GITHUB_STEP_SUMMARY"
           echo "$detail" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$state" != up ]; then
+          # A paused Space waits for its owner, not for a fix: say so once in the issue and stay
+          # green, instead of failing (and emailing) every 30 minutes until someone restarts it.
+          if [ "$state" = paused ]; then
+            echo "::warning::$detail"
+          elif [ "$state" != up ]; then
             echo "::error::$detail"
             exit 1
           fi
@@ -118,8 +122,23 @@ jobs:
           This issue gets a comment on every failed check (every 30 minutes) and is closed automatically when the backend is healthy again."
           fi
 
+      - name: Note the paused Space once
+        if: steps.check.outputs.state == 'paused'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          number=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number,title --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -z "$number" ]; then
+            gh issue create --title "$ISSUE_TITLE" --body "$DETAIL $RUN_URL
+
+          Checks keep running every 30 minutes but stay quiet while the Space is paused. This issue is closed automatically when the backend is healthy again."
+          fi
+
       - name: Close the outage issue on recovery
-        if: success()
+        if: success() && steps.check.outputs.state == 'up'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
