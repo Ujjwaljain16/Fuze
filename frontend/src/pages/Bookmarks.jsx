@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'

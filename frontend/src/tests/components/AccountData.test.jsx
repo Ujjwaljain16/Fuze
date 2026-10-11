@@ -9,7 +9,7 @@ const toast = { success: vi.fn(), error: vi.fn() }
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ logout }) }))
 vi.mock('../../contexts/ToastContext', () => ({ useToast: () => toast }))
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }))
+vi.mock('react-router', () => ({ useNavigate: () => navigate }))
 
 const openConfirm = () => fireEvent.click(screen.getByRole('button', { name: /delete account/i }))
 

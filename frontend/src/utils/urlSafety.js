@@ -35,8 +35,18 @@ export function getSafeHref(url) {
  */
 export function getSafeInternalRedirect(target, fallback = '/dashboard') {
   if (!target || typeof target !== 'string') return fallback;
-  // Must start with a single '/' and not '//' or '/\' (both browser-normalize
-  // to a protocol-relative URL, i.e. an external host).
-  if (!/^\/(?!\/|\\)/.test(target)) return fallback;
+  // Backslashes and control characters are refused anywhere: browsers read '\' as '/', and the
+  // URL parser drops tabs and newlines, so '/\evil.tld' and '/\t/evil.tld' both become
+  // '//evil.tld', a protocol-relative URL to another host.
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\u0000-\u001f\u007f]/.test(target)) return fallback;
+  // Must start with a single '/', not '//' (protocol-relative).
+  if (!/^\/(?!\/)/.test(target)) return fallback;
+  // Belt and braces: whatever the browser makes of it must stay on this origin.
+  try {
+    if (new URL(target, window.location.origin).origin !== window.location.origin) return fallback;
+  } catch {
+    return fallback;
+  }
   return target;
 }

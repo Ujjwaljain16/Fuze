@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Download, Trash2, AlertTriangle, Lock } from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'

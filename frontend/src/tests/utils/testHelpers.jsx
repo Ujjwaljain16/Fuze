@@ -2,7 +2,7 @@
  * Test utilities and helpers for frontend tests
  */
 import { render } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { AuthProvider } from '../../contexts/AuthContext'
 import { ToastProvider } from '../../contexts/ToastContext'
 

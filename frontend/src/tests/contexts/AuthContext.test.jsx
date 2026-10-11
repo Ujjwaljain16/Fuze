@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { AuthProvider, useAuth } from '../../contexts/AuthContext'
 import { ToastProvider } from '../../contexts/ToastContext'
 import api from '../../services/api'

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router'
 import api from '../services/api'
 import { useErrorHandler } from '../hooks/useErrorHandler'
 import useResize from '../hooks/useResize'

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Mail, Lock, User, Eye, EyeOff, ArrowRight, Home, AlertTriangle } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { getSafeInternalRedirect } from '../utils/urlSafety';
 import Button from '../components/Button';

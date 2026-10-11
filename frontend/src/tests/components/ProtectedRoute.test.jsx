@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { BrowserRouter, MemoryRouter } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter } from 'react-router'
 import ProtectedRoute from '../../components/ProtectedRoute'
 import { AuthProvider } from '../../contexts/AuthContext'
 import { ToastProvider } from '../../contexts/ToastContext'

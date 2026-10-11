@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { completeOAuth, readOAuthRedirect } from '../services/oauth'
 
 const EXCHANGE_LOCK_KEY = 'oauth_exchange_in_progress'

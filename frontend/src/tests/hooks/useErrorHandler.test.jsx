@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import { useErrorHandler } from '../../hooks/useErrorHandler'
 import { ToastProvider } from '../../contexts/ToastContext'
 
