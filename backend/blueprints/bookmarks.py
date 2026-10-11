@@ -656,6 +656,33 @@ def delete_bookmark_by_url(url):
     
     return jsonify({'message': 'Bookmark deleted'}), 200
 
+@bookmarks_bp.route('/lookup', methods=['GET'])
+@jwt_required()
+def lookup_bookmark_by_url():
+    """Find the caller's bookmark saved under exactly this URL (no normalization).
+
+    The extension resolves a removed Chrome bookmark to its Fuze id here, then deletes by id.
+    The URL travels as a query parameter: inside the path, proxies may collapse the '//' of
+    the scheme and percent-escapes get decoded once more than intended.
+    """
+    user_id = int(get_jwt_identity())
+    url = request.args.get('url', '')
+    if not url:
+        return jsonify({'message': 'url is required'}), 400
+    if url_too_long(url):
+        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+
+    from uow.unit_of_work import UnitOfWork
+    from services.bookmark_service import BookmarkService
+
+    with UnitOfWork() as uow:
+        bm = BookmarkService(uow).get_bookmark_by_url(user_id, url)
+        if not bm:
+            return jsonify({'message': 'Bookmark not found'}), 404
+        result = {'id': bm.id, 'url': bm.url, 'title': bm.title}
+    return jsonify({'bookmark': result}), 200
+
+
 @bookmarks_bp.route('/check-duplicate', methods=['POST'])
 @jwt_required()
 def check_duplicate():
