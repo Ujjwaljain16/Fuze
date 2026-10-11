@@ -92,20 +92,6 @@ except ImportError as e:
     logger.warning(f"Rate limiting middleware not available: {e}")
     RATE_LIMITING_AVAILABLE = False
 
-# Import database connection manager for SSL handling
-try:
-    from utils.database_connection_manager import (
-        get_database_engine, 
-        test_database_connection, 
-        refresh_database_connections,
-        get_database_info
-    )
-    connection_manager_available = True
-    logger.info("Database connection manager imported successfully")
-except ImportError as e:
-    logger.warning(f"Database connection manager not available: {e}")
-    connection_manager_available = False
-
 # Import blueprints with error handling
 recommendations_available = False
 linkedin_available = False
@@ -165,7 +151,6 @@ except ImportError as e:
 # Import intent analysis components
 try:
     from ml.intent_engine.intent import resolve_intent  # noqa: F401  (availability check)
-    from utils.gemini_utils import GeminiAnalyzer
     intent_analysis_available = True
 except ImportError as e:
     logger.warning(f"Intent Analysis components not available: {e}")
@@ -466,12 +451,14 @@ def create_app(config_name: str = None) -> Flask:
         if not METRICS_ENABLED:
             return jsonify({'status': 'metrics_disabled'}), 404
 
+        # Closed unless a scrape token is configured: metrics expose route names, queue depth and errors.
         metrics_token = os.environ.get('METRICS_AUTH_TOKEN')
-        if metrics_token:
-            auth_header = request.headers.get('Authorization', '')
-            provided = auth_header.removeprefix('Bearer ').strip()
-            if not hmac.compare_digest(provided, metrics_token):
-                return jsonify({'message': 'Unauthorized'}), 401
+        if not metrics_token:
+            return jsonify({'message': 'Not found'}), 404
+        auth_header = request.headers.get('Authorization', '')
+        provided = auth_header.removeprefix('Bearer ').strip()
+        if not hmac.compare_digest(provided, metrics_token):
+            return jsonify({'message': 'Unauthorized'}), 401
 
         output, content_type = get_metrics_output()
         if output is None:
@@ -480,143 +467,81 @@ def create_app(config_name: str = None) -> Flask:
         from flask import Response
         return Response(output, mimetype=content_type)
 
-    # RQ Queue Metrics Endpoint
+    def _internal_caller() -> bool:
+        """Operational detail (queue depth, cache stats) only for callers holding INTERNAL_HEALTH_TOKEN."""
+        internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
+        return bool(internal_token) and hmac.compare_digest(request.headers.get('X-Internal-Token', ''), internal_token)
+
+    def _database_ok() -> bool:
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text('SELECT 1'))
+            return True
+        except Exception as e:
+            logger.warning("health_database_check_failed", extra={"error": str(e)})
+            return False
+
+    # Public health endpoints report up/down only: no hostnames, DSNs, versions or error text,
+    # and no side effects (the old database check could reset the connection pool on demand).
+    @app.route('/api/health')
+    def health_check():
+        db_ok = _database_ok()
+        redis_ok = bool(getattr(redis_cache, 'connected', False))
+        return jsonify({
+            'status': 'healthy' if db_ok and redis_ok else 'degraded',
+            'database': 'connected' if db_ok else 'unavailable',
+            'redis': {'connected': redis_ok},
+        }), 200
+
+    @app.route('/api/health/database')
+    def database_health_check():
+        healthy = _database_ok()
+        return jsonify({'status': 'healthy' if healthy else 'unhealthy', 'service': 'database'}), 200 if healthy else 503
+
+    @app.route('/api/health/redis')
+    def redis_health_check():
+        connected = bool(getattr(redis_cache, 'connected', False))
+        return jsonify({'connected': connected}), 200 if connected else 503
+
     @app.route('/health/queue')
     @app.route('/api/health/queue')
     def queue_health():
+        if not _internal_caller():
+            return jsonify({'message': 'Not found'}), 404
         try:
             from services.task_queue import get_queue_stats
             stats = get_queue_stats('default')
-            status_code = 200 if stats.get('status') == 'connected' else 503
-            return jsonify(stats), status_code
-        except Exception as e:
-            return jsonify({'status': 'error', 'error': str(e)}), 500
+            return jsonify(stats), 200 if stats.get('status') == 'connected' else 503
+        except Exception:
+            logger.exception("queue_health_failed")
+            return jsonify({'status': 'error'}), 500
 
-    # Detailed Health Endpoint
     @app.route('/api/health/detailed')
     def detailed_health_check():
-        internal_token = os.environ.get('INTERNAL_HEALTH_TOKEN')
-        request_token = request.headers.get('X-Internal-Token')
-        if not internal_token or not hmac.compare_digest(request_token or '', internal_token):
-            return jsonify({'status': 'unauthorized', 'message': 'Provide valid X-Internal-Token header.'}), 403
-
+        if not _internal_caller():
+            return jsonify({'message': 'Not found'}), 404
+        stats = redis_cache.get_cache_stats() if hasattr(redis_cache, 'get_cache_stats') else {}
         return jsonify({
             'status': 'healthy',
-            'redis_connected': getattr(redis_cache, 'connected', False)
-        }), 200
-
-    # General Health Check
-    @app.route('/api/health')
-    def health_check():
-        db_status = 'unavailable'
-        try:
-            if connection_manager_available:
-                try:
-                    if test_database_connection():
-                        db_status = 'connected'
-                    else:
-                        db_status = 'degraded'
-                except Exception as db_err:
-                    db_status = f'error: {str(db_err)}'
-            else:
-                with db.engine.connect() as conn:
-                    conn.execute(text('SELECT 1'))
-                    db_status = 'connected'
-        except Exception as e:
-            db_status = f'error: {str(e)}'
-
-        is_mock_redis = type(redis_cache).__name__ in ('MagicMock', 'Mock', 'NonCallableMagicMock')
-        if hasattr(redis_cache, 'get_cache_stats') and not is_mock_redis:
-            try:
-                stats_val = redis_cache.get_cache_stats()
-                is_mock_stats = type(stats_val).__name__ in ('MagicMock', 'Mock', 'NonCallableMagicMock')
-                if isinstance(stats_val, dict) and not is_mock_stats:
-                    redis_stats = stats_val
-                else:
-                    redis_stats = {'connected': bool(getattr(redis_cache, 'connected', False))}
-            except Exception:
-                redis_stats = {'connected': bool(getattr(redis_cache, 'connected', False))}
-        else:
-            redis_stats = {'connected': bool(getattr(redis_cache, 'connected', False))}
-
-        overall_status = 'healthy' if (db_status == 'connected' and bool(redis_stats.get('connected'))) else 'degraded'
-
-        return jsonify({
-            'status': str(overall_status),
-            'message': 'Fuze API is running',
-            'version': '1.0.0',
-            'environment': str(app.config.get('ENV', 'development')),
-            'database': str(db_status),
-            'redis': {
-                'connected': bool(redis_stats.get('connected')) if isinstance(redis_stats, dict) else False,
-                'keyspace_hits': int(redis_stats.get('keyspace_hits', 0)) if isinstance(redis_stats, dict) and isinstance(redis_stats.get('keyspace_hits'), (int, float)) else 0,
-                'keyspace_misses': int(redis_stats.get('keyspace_misses', 0)) if isinstance(redis_stats, dict) and isinstance(redis_stats.get('keyspace_misses'), (int, float)) else 0,
-            },
+            'database': _database_ok(),
+            'redis': stats,
             'recommendations_available': bool(recommendations_available),
             'intent_analysis_available': bool(intent_analysis_available),
-            'linkedin_available': bool(linkedin_available)
-        }), 200 if overall_status in ['healthy', 'degraded'] else 500
-
-    # Redis Health Check
-    @app.route('/api/health/redis')
-    def redis_health_check():
-        if hasattr(redis_cache, 'get_cache_stats'):
-            stats = redis_cache.get_cache_stats()
-        else:
-            stats = {'connected': getattr(redis_cache, 'connected', False)}
-        return jsonify(stats), 200 if stats.get('connected') else 503
-
-    # Database Health Check
-    @app.route('/api/health/database')
-    def database_health_check():
-        try:
-            if connection_manager_available:
-                if test_database_connection():
-                    return jsonify({'status': 'healthy', 'service': 'database', 'connection_info': get_database_info()}), 200
-                elif refresh_database_connections():
-                    return jsonify({'status': 'recovered', 'service': 'database'}), 200
-                else:
-                    return jsonify({'status': 'unhealthy', 'service': 'database'}), 500
-            else:
-                with db.engine.connect() as conn:
-                    conn.execute(text('SELECT 1'))
-                return jsonify({'status': 'healthy', 'service': 'database'}), 200
-        except Exception as e:
-            return jsonify({'status': 'unhealthy', 'service': 'database', 'error': str(e)}), 500
-
-    # Intent Analysis Health Check
-    @app.route('/api/health/intent-analysis')
-    def intent_analysis_health_check():
-        if not intent_analysis_available:
-            return jsonify({'status': 'unavailable', 'service': 'intent_analysis'}), 503
-        gemini_key = os.environ.get('GEMINI_API_KEY')
-        if not gemini_key:
-            return jsonify({'status': 'unhealthy', 'service': 'intent_analysis', 'error': 'GEMINI_API_KEY missing'}), 503
-        try:
-            GeminiAnalyzer(gemini_key)
-            return jsonify({'status': 'healthy', 'service': 'intent_analysis'}), 200
-        except Exception as e:
-            return jsonify({'status': 'unhealthy', 'service': 'intent_analysis', 'error': str(e)}), 503
-
-    # LinkedIn Health Check
-    @app.route('/api/health/linkedin')
-    def linkedin_health_check():
-        if not linkedin_available:
-            return jsonify({'status': 'unavailable', 'service': 'linkedin'}), 503
-        return jsonify({'status': 'healthy', 'service': 'linkedin'}), 200
+            'linkedin_available': bool(linkedin_available),
+        }), 200
 
     # Standard Error Handlers
     @app.errorhandler(400)
     def bad_request(error):
-        return jsonify({'message': 'Bad request', 'error': str(error)}), 400
+        return jsonify({'message': 'Bad request', 'error': 'bad_request'}), 400
 
     @app.errorhandler(401)
     def unauthorized(error):
-        return jsonify({'message': 'Unauthorized', 'error': str(error)}), 401
+        return jsonify({'message': 'Unauthorized', 'error': 'unauthorized'}), 401
 
     @app.errorhandler(404)
     def not_found(error):
-        return jsonify({'message': 'Not found', 'error': str(error)}), 404
+        return jsonify({'message': 'Not found', 'error': 'not_found'}), 404
 
     @app.errorhandler(405)
     def method_not_allowed(error):

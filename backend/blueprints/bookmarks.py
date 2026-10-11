@@ -57,6 +57,29 @@ def is_duplicate_url(service, url, user_id):
 
     return None, None
 
+def _sse_user_id():
+    """Authenticate an SSE request; returns the user id or None.
+
+    Accepts an access token in the Authorization header (fetch-based clients such as the
+    extension) or a single-use ticket from POST /api/realtime/stream-ticket (EventSource).
+    verify_jwt_in_request checks the token type, expiry and revocation list; the old manual
+    decode_token accepted revoked tokens and 30-day refresh tokens. Tokens are never read
+    from the query string, where access logs and browser history would keep them.
+    """
+    from flask_jwt_extended import verify_jwt_in_request
+    try:
+        verify_jwt_in_request(locations=['headers'])
+        return int(get_jwt_identity())
+    except Exception:
+        pass
+    ticket = request.args.get('ticket')
+    if ticket:
+        from utils.stream_tickets import consume_stream_ticket
+        user_id = consume_stream_ticket(ticket)
+        return int(user_id) if user_id else None
+    return None
+
+
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
     """
     Enqueue bookmark processing task using RQ.
@@ -639,23 +662,12 @@ def get_import_progress():
 def stream_import_progress():
     """Server-Sent Events stream for import progress"""
     from flask import Response, stream_with_context, request
-    from flask_jwt_extended import decode_token
     import json
     import time
     
-    # Get token strictly from Authorization header to prevent query parameter leaks
-    auth_header = request.headers.get('Authorization', '')
-    token = auth_header[7:] if auth_header.startswith('Bearer ') else None
-    
-    if not token:
-        return Response('Token required', status=401, mimetype='text/plain')
-    
-    try:
-        decoded = decode_token(token)
-        user_id = int(decoded['sub'])
-    except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
-        return Response('Invalid token', status=401, mimetype='text/plain')
+    user_id = _sse_user_id()
+    if not user_id:
+        return Response('Authentication required', status=401, mimetype='text/plain')
     
     import_key = f"import_progress:{user_id}"
     
@@ -849,23 +861,12 @@ def stream_combined_progress():
     - Compatible with serverless environments (max 30 min connection)
     """
     from flask import Response, stream_with_context, request
-    from flask_jwt_extended import decode_token
     import json
     import time
     
-    # Get token strictly from Authorization header to prevent query parameter leaks
-    auth_header = request.headers.get('Authorization', '')
-    token = auth_header[7:] if auth_header.startswith('Bearer ') else None
-    
-    if not token:
-        return Response('Token required', status=401, mimetype='text/plain')
-    
-    try:
-        decoded = decode_token(token)
-        user_id = int(decoded['sub'])
-    except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
-        return Response('Invalid token', status=401, mimetype='text/plain')
+    user_id = _sse_user_id()
+    if not user_id:
+        return Response('Authentication required', status=401, mimetype='text/plain')
     
     import_key = f"import_progress:{user_id}"
     analysis_key = f"analysis_progress:{user_id}"
@@ -969,26 +970,12 @@ def stream_combined_progress():
 def stream_analysis_progress():
     """Server-Sent Events stream for analysis progress"""
     from flask import Response, stream_with_context, request
-    from flask_jwt_extended import decode_token
     import json
     import time
     
-    # Get token from Authorization header (for fetch/extension) or query param (for EventSource)
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        token = auth_header[7:]  # Remove 'Bearer ' prefix
-    else:
-        token = request.args.get('token')
-    
-    if not token:
-        return Response('Token required', status=401, mimetype='text/plain')
-    
-    try:
-        decoded = decode_token(token)
-        user_id = int(decoded['sub'])
-    except Exception as e:
-        logger.error(f"Error decoding token for SSE: {e}")
-        return Response('Invalid token', status=401, mimetype='text/plain')
+    user_id = _sse_user_id()
+    if not user_id:
+        return Response('Authentication required', status=401, mimetype='text/plain')
     
     analysis_key = f"analysis_progress:{user_id}"
     

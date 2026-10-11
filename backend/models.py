@@ -42,6 +42,13 @@ class User(Base):
         db.Index('idx_users_created_at', created_at),  # For user analytics
     )
 
+    # What a user may see about their own account. Everything else (user_metadata holds the
+    # encrypted Gemini key and its hash; lockout counters; provider ids) stays server-side.
+    PUBLIC_FIELDS = ('id', 'username', 'email', 'technology_interests', 'provider_name', 'created_at')
+
+    def to_dict(self):
+        return {name: getattr(self, name) for name in self.PUBLIC_FIELDS}
+
     saved_content = relationship('SavedContent', backref='user', lazy=True, cascade='all, delete-orphan')
     projects = relationship('Project', backref='user', lazy=True, cascade='all, delete-orphan')
     token_families = relationship('TokenFamily', backref='user', lazy=True, cascade='all, delete-orphan')
