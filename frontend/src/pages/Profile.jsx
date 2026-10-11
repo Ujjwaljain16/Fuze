@@ -11,6 +11,7 @@ import ProfileForm from '../components/ProfileForm'
 import PasswordForm from '../components/PasswordForm'
 import ApiKeyManager from '../components/ApiKeyManager'
 import ConnectedAccounts from '../components/ConnectedAccounts'
+import AccountData from '../components/AccountData'
 
 const Profile = () => {
   const { isAuthenticated, user, logout } = useAuth()
@@ -327,6 +328,10 @@ const Profile = () => {
 
           <div className="mb-8">
             <ConnectedAccounts />
+          </div>
+
+          <div className="mb-8">
+            <AccountData hasPassword={user?.has_password !== false} />
           </div>
 
         </main>
