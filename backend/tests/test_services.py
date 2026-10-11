@@ -111,13 +111,14 @@ class TestBackgroundAnalysisService:
             
             with patch('services.background_analysis_service.GeminiAnalyzer') as mock_gemini:
                 mock_analyzer = MagicMock()
-                mock_analyzer.analyze_bookmark_content.return_value = {
+                mock_analyzer.generate_json.return_value = {
                     'summary': 'Python Flask content',
+                    'use_when': 'When building a Flask web app',
                     'key_concepts': ['Python', 'Flask'],
-                    'difficulty': 'intermediate',
+                    'audience_level': 'intermediate',
                     'content_type': 'article',
                     'technologies': ['Python', 'Flask'],
-                    'relevance_score': 0.8
+                    'teaches_or_solves': ['routing'],
                 }
                 mock_gemini.return_value = mock_analyzer
                 
@@ -139,17 +140,15 @@ class TestCacheInvalidationService:
     """Test cache invalidation service"""
     
     @patch('services.cache_invalidation_service.redis_cache')
-    @patch('ml.unified_recommendation_orchestrator.clear_gemini_analyzer_cache')
     @patch('models.db')
     @patch('run_production.app')
-    def test_invalidate_recommendation_cache(self, mock_app, mock_db, mock_clear_gemini, mock_redis_cache):
+    def test_invalidate_recommendation_cache(self, mock_app, mock_db, mock_redis_cache):
         """Test invalidating recommendation cache"""
         from services.cache_invalidation_service import CacheInvalidationService
         
         # Mock the redis_cache methods that are actually used
         mock_redis_cache.invalidate_recommendation_cache.return_value = True
         mock_redis_cache.delete_keys_pattern.return_value = 0
-        mock_clear_gemini.return_value = 0
         
         # Mock the database operations to avoid actual DB calls
         mock_app_context = MagicMock()

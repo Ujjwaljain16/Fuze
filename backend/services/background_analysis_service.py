@@ -260,12 +260,14 @@ class BackgroundAnalysisService:
 
             gemini_analyzer = GeminiAnalyzer(api_key=api_key)
 
-            # Single primary Gemini analysis call
-            analysis_result = gemini_analyzer.analyze_bookmark_content(
-                title=content.title or "Untitled",
-                description=content.notes or "",
-                content=text_to_analyze,
-                url=content.url
+            # Single Gemini call: structured content profile (no heuristic fallback)
+            from services.content_profile import generate_profile
+            analysis_result = generate_profile(
+                gemini_analyzer,
+                title=content.title or "",
+                url=content.url or "",
+                notes=content.notes or "",
+                text=text_to_analyze,
             )
             analysis_duration_ms = round((time.time() - start_time) * 1000)
 
@@ -291,40 +293,11 @@ class BackgroundAnalysisService:
                 )
                 return
 
-            # Single-pass summary (avoids second LLM call cost doubling)
-            basic_summary = analysis_result.get('summary') or analysis_result.get('brief_summary')
-            if not basic_summary:
-                techs = ', '.join(analysis_result.get('technologies', [])[:3]) or 'topics'
-                basic_summary = f"Content focused on {techs} from {content.title or 'source'}."
-
-            analysis_result['basic_summary'] = basic_summary
-
-            # Check existing analysis to avoid race conditions
-            existing_analysis = db.session.query(ContentAnalysis).filter_by(content_id=content.id).first()
-            if existing_analysis:
-                logger.debug("bg_analysis_duplicate_skipped", extra={"content_id": content.id})
-                return
-
-            key_concepts = analysis_result.get('key_concepts', [])
-            content_type = analysis_result.get('content_type', 'article')
-            difficulty_level = analysis_result.get('difficulty', 'intermediate')
-            technology_tags = analysis_result.get('technologies', [])
-            relevance_score = analysis_result.get('relevance_score', 50)
-
-            analysis = ContentAnalysis(
-                content_id=content.id,
-                analysis_data=analysis_result,
-                key_concepts=', '.join(key_concepts) if isinstance(key_concepts, list) else str(key_concepts),
-                content_type=content_type,
-                difficulty_level=difficulty_level,
-                technology_tags=', '.join(technology_tags) if isinstance(technology_tags, list) else str(technology_tags),
-                relevance_score=relevance_score
-            )
-
+            from services.content_profile import analysis_payload, index_profile_chunk, store_profile
+            store_profile(db.session, content, analysis_result, getattr(gemini_analyzer, 'active_model_name', None))
             content.analysis_status = 'SUCCESS'
             content.analyzed_at = datetime.utcnow()
             try:
-                db.session.add(analysis)
                 db.session.commit()
             except Exception as db_err:
                 db.session.rollback()
@@ -332,6 +305,15 @@ class BackgroundAnalysisService:
                     logger.debug("bg_analysis_unique_constraint_race_handled", extra={"content_id": content.id})
                     return
                 raise
+
+            try:
+                index_profile_chunk(db.session, content.id, content.user_id, content.title or "", analysis_result)
+                db.session.commit()
+            except Exception as chunk_err:
+                db.session.rollback()
+                logger.warning("bg_profile_chunk_index_failed", extra={"content_id": content.id, "error": str(chunk_err)})
+
+            analysis_result = analysis_payload(analysis_result, getattr(gemini_analyzer, 'active_model_name', None))
 
             # Cache in Redis
             cache_key = f"content_analysis:{content.id}"
@@ -344,7 +326,7 @@ class BackgroundAnalysisService:
             except Exception as inv_err:
                 logger.warning("bg_analysis_cache_invalidation_error", extra={"error": str(inv_err)})
 
-            logger.info("bg_analysis_completed_successfully", extra={"content_id": content.id})
+            logger.info("bg_analysis_completed_successfully", extra={"content_id": content.id, "duration_ms": analysis_duration_ms})
 
         except Exception as e:
             logger.error("bg_analysis_single_content_exception", extra={"content_id": content.id, "error": str(e)})

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-One-shot backfill: run AI content analysis for every saved_content row that has
-extracted text but no content_analysis row.
-
-Needed because analysis silently never ran for any bookmark until the
-`pipeline_run_id` TypeError in bookmark_processing_service was fixed.
+Backfill: build the current-version AI content profile for every saved_content row
+that has extracted text but no profile of the current version (no analysis at all,
+an older analysis format, or a heuristic guess stored before failures were recorded
+honestly).
 
 Runs synchronously (no RQ) and paces calls so it stays under the Gemini
 per-user limit (15/min). Safe to stop and re-run: it only selects rows that are
@@ -30,12 +29,17 @@ load_dotenv()
 
 from sqlalchemy import text
 
+from services.content_profile import PROFILE_VERSION
+
 MISSING_SQL = """
     SELECT sc.id, sc.user_id
     FROM saved_content sc
     WHERE sc.extracted_text IS NOT NULL
       AND sc.extracted_text <> ''
-      AND NOT EXISTS (SELECT 1 FROM content_analysis ca WHERE ca.content_id = sc.id)
+      AND NOT EXISTS (
+          SELECT 1 FROM content_analysis ca
+          WHERE ca.content_id = sc.id AND ca.analysis_data->>'profile_version' = :pv
+      )
     ORDER BY sc.id
     LIMIT :limit
 """
@@ -46,12 +50,13 @@ def counts(conn):
         "SELECT COUNT(*) FROM saved_content WHERE extracted_text IS NOT NULL AND extracted_text <> ''"
     )).scalar() or 0
     analyzed = conn.execute(text(
-        "SELECT COUNT(DISTINCT content_id) FROM content_analysis"
-    )).scalar() or 0
+        "SELECT COUNT(DISTINCT content_id) FROM content_analysis WHERE analysis_data->>'profile_version' = :pv"
+    ), {"pv": PROFILE_VERSION}).scalar() or 0
     missing = conn.execute(text(
         "SELECT COUNT(*) FROM saved_content sc WHERE sc.extracted_text IS NOT NULL AND sc.extracted_text <> '' "
-        "AND NOT EXISTS (SELECT 1 FROM content_analysis ca WHERE ca.content_id = sc.id)"
-    )).scalar() or 0
+        "AND NOT EXISTS (SELECT 1 FROM content_analysis ca WHERE ca.content_id = sc.id "
+        "AND ca.analysis_data->>'profile_version' = :pv)"
+    ), {"pv": PROFILE_VERSION}).scalar() or 0
     return with_text, analyzed, missing
 
 
@@ -73,12 +78,12 @@ def main():
     with app.app_context():
         with db.engine.connect() as conn:
             with_text, analyzed, missing = counts(conn)
-        print(f"[backfill] with extracted text: {with_text}  analyzed: {analyzed}  missing: {missing}")
+        print(f"[backfill] with extracted text: {with_text}  current profiles: {analyzed}  missing: {missing}")
         if args.verify or missing == 0:
             return
 
         with db.engine.connect() as conn:
-            rows = conn.execute(text(MISSING_SQL), {"limit": args.limit}).fetchall()
+            rows = conn.execute(text(MISSING_SQL), {"limit": args.limit, "pv": PROFILE_VERSION}).fetchall()
 
         if args.dry_run:
             for content_id, user_id in rows:
@@ -93,7 +98,8 @@ def main():
             analyze_content(content_id, user_id)
             with db.engine.connect() as conn:
                 ok = conn.execute(
-                    text("SELECT 1 FROM content_analysis WHERE content_id = :cid"), {"cid": content_id}
+                    text("SELECT 1 FROM content_analysis WHERE content_id = :cid "
+                         "AND analysis_data->>'profile_version' = :pv"), {"cid": content_id, "pv": PROFILE_VERSION}
                 ).first() is not None
             if ok:
                 done += 1

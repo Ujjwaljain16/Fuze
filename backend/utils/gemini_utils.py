@@ -84,7 +84,17 @@ class GeminiAnalyzer:
         self.max_retries = 3
         self.retry_delay = 1.0
 
-    def _make_gemini_request(self, prompt: str) -> Optional[str]:
+    def generate_json(self, prompt: str) -> Optional[Union[Dict, List]]:
+        """Request a JSON response (Gemini JSON mode) and parse it; None on any failure."""
+        raw = self._make_gemini_request(prompt, json_mode=True)
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return self._extract_json_from_response(raw)
+
+    def _make_gemini_request(self, prompt: str, json_mode: bool = False) -> Optional[str]:
         """Make an iterative request to Gemini with backoff and circuit breaker isolation."""
         from core.metrics import gemini_calls_total
 
@@ -101,10 +111,10 @@ class GeminiAnalyzer:
 
         for attempt in range(self.max_retries + 1):
             try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=self.generation_config
-                )
+                config = self.generation_config
+                if json_mode:
+                    config = {**config, 'response_mime_type': 'application/json'}
+                response = self.model.generate_content(prompt, generation_config=config)
 
                 if not response or not hasattr(response, 'text') or not response.text:
                     if attempt < self.max_retries:
@@ -190,8 +200,9 @@ class GeminiAnalyzer:
             filtered.append(rec)
         return filtered
 
-    def analyze_bookmark_content(self, title: str, description: str, content: str, url: str = "") -> Dict:
-        """Analyze bookmark content using Gemini AI with fallback handling."""
+    def analyze_bookmark_content(self, title: str, description: str, content: str, url: str = "") -> Optional[Dict]:
+        """Analyze bookmark content with Gemini. Returns None on failure so the caller records a
+        failed (retryable) analysis instead of storing a guess as if it came from the model."""
         try:
             content_preview = (content or "")[:3000]
             prompt = f"""
@@ -217,27 +228,11 @@ class GeminiAnalyzer:
                 result = self._extract_json_from_response(response_text)
                 if isinstance(result, dict):
                     return result
-
-            return self._get_fallback_analysis(title, description, content)
+            return None
         except Exception as e:
             logger.error("analyze_bookmark_content_failed", extra={"title": title, "error": str(e)})
-            return self._get_fallback_analysis(title, description, content)
+            return None
 
-    def _get_fallback_analysis(self, title: str, description: str, content: str) -> Dict:
-        """Deterministic fallback analysis when AI is unavailable."""
-        text = f"{title or ''} {description or ''} {content or ''}".lower()
-        common_techs = ['python', 'javascript', 'typescript', 'react', 'node', 'sql', 'docker', 'aws']
-        detected = [t.capitalize() for t in common_techs if t in text]
-
-        return {
-            "technologies": detected or ["General"],
-            "content_type": "article",
-            "difficulty": "intermediate",
-            "intent": "learning",
-            "key_concepts": [title[:30]] if title else ["Content Analysis"],
-            "relevance_score": 75,
-            "summary": description[:150] if description else (title[:150] if title else "Content summary")
-        }
 
     def generate_batch_recommendation_reasoning(self, batch_context: Dict) -> List[str]:
         """Generate recommendation reasoning for multiple items, supporting JSON arrays."""

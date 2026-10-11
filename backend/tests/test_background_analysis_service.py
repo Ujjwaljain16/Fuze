@@ -59,15 +59,17 @@ def test_bg_analysis_single_pass_summary_no_second_llm_call():
 
         mock_analyzer = MagicMock()
         mock_analyzer_cls.return_value = mock_analyzer
-        mock_analyzer.analyze_bookmark_content.return_value = {
-            'technologies': ['python'],
-            'summary': 'Instant primary summary'
+        mock_analyzer.generate_json.return_value = {
+            'summary': 'Instant primary summary', 'use_when': 'When learning Python',
+            'key_concepts': ['python'], 'technologies': ['python'],
+            'audience_level': 'beginner', 'content_type': 'tutorial', 'teaches_or_solves': [],
         }
         mock_db.session.query.return_value.filter_by.return_value.first.return_value = None
+        mock_db.session.get_bind.return_value.dialect.name = 'sqlite'
 
         service._analyze_single_content(mock_content)
 
-        # Ensure single analyze_bookmark_content call was made
-        mock_analyzer.analyze_bookmark_content.assert_called_once()
+        # Exactly one model call (the structured profile)
+        mock_analyzer.generate_json.assert_called_once()
         # Verify _make_gemini_request (second LLM call) was NEVER called!
         assert not hasattr(mock_analyzer, '_make_gemini_request') or mock_analyzer._make_gemini_request.call_count == 0
