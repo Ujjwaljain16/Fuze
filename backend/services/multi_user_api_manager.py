@@ -35,6 +35,16 @@ if backend_dir not in sys.path:
 from models import db, User
 
 
+
+def _quota_windows(user_id: int, now: Optional[datetime] = None):
+    """(key, ttl) for the minute, day and month windows that `now` falls in."""
+    now = now or datetime.now(timezone.utc)
+    return (
+        (f"fuze:rate:{user_id}:minute:{now:%Y%m%d%H%M}", 120),
+        (f"fuze:rate:{user_id}:day:{now:%Y%m%d}", 2 * 86400),
+        (f"fuze:rate:{user_id}:month:{now:%Y%m}", 32 * 86400),
+    )
+
 class APIKeyStatus(str, Enum):
     ACTIVE = "active"
     RATE_LIMITED = "rate_limited"
@@ -257,9 +267,7 @@ class MultiUserAPIManager:
         """Check rate limits using Redis atomic counters if available, with thread-safe memory fallback."""
         try:
             if self.redis and getattr(self.redis, 'connected', False):
-                min_key = f"fuze:rate:{user_id}:minute"
-                day_key = f"fuze:rate:{user_id}:day"
-                month_key = f"fuze:rate:{user_id}:month"
+                min_key, day_key, month_key = (key for key, _ in _quota_windows(user_id))
 
                 c_min = int(self.redis.get_cache(min_key) or 0)
                 c_day = int(self.redis.get_cache(day_key) or 0)
@@ -330,22 +338,18 @@ class MultiUserAPIManager:
             return {'can_make_request': False, 'wait_time_seconds': 60}
 
     def record_user_request(self, user_id: int):
-        """Record API request using Redis INCR with TTL expiration."""
+        """Count one request in the current minute, day and month windows.
+
+        Fixed windows: the counter key names its window, and its TTL is set once when the window
+        starts. The old code re-set a 60 s / 1 day / 30 day TTL on every call, so an active user's
+        counters never expired and they were eventually blocked for good.
+        """
         try:
-            if self.redis and getattr(self.redis, 'connected', False):
-                min_key = f"fuze:rate:{user_id}:minute"
-                day_key = f"fuze:rate:{user_id}:day"
-                month_key = f"fuze:rate:{user_id}:month"
-
-                # Increment counters
-                val_min = int(self.redis.get_cache(min_key) or 0) + 1
-                self.redis.set_cache(min_key, val_min, ttl=60)
-
-                val_day = int(self.redis.get_cache(day_key) or 0) + 1
-                self.redis.set_cache(day_key, val_day, ttl=86400)
-
-                val_mon = int(self.redis.get_cache(month_key) or 0) + 1
-                self.redis.set_cache(month_key, val_mon, ttl=2592000)
+            client = getattr(self.redis, 'redis_client', None)
+            if client is not None and getattr(self.redis, 'connected', False):
+                for key, ttl in _quota_windows(user_id):
+                    if client.incr(key) == 1:
+                        client.expire(key, ttl)
                 return
 
             # Thread-safe in-memory fallback
