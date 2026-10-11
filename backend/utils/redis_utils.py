@@ -4,6 +4,7 @@ import json
 import uuid
 import hashlib
 import threading
+import time
 from typing import Optional, Dict, Any, List
 import numpy as np
 import redis
@@ -13,6 +14,7 @@ logger = get_logger(__name__)
 
 _redis_connection_pool = None
 _pool_lock = threading.Lock()
+_RECONNECT_INTERVAL_SECONDS = 5
 
 LUA_RELEASE_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -37,6 +39,7 @@ class RedisCache:
     def __init__(self):
         self.redis_client = None
         self.connected = False
+        self._last_connect_attempt = time.monotonic()
         self._try_connect()
 
     @property
@@ -55,10 +58,12 @@ class RedisCache:
             try:
                 with _pool_lock:
                     if _redis_connection_pool is None:
+                        # Request-path pool: a slow or unreachable Redis must cost a request
+                        # milliseconds, not seconds. Callers treat Redis as optional.
                         pool_kwargs = {
                             'decode_responses': False,
-                            'socket_connect_timeout': 5,
-                            'socket_timeout': 10,
+                            'socket_connect_timeout': 2,
+                            'socket_timeout': 2,
                             # This pool is shared by every request-path Redis
                             # consumer: response caching, rate limiting, AND
                             # the JWT revocation blocklist check. 20 was
@@ -73,7 +78,7 @@ class RedisCache:
                             'max_connections': 50,
                             'socket_keepalive': True,
                             'health_check_interval': 15,
-                            'retry_on_timeout': True
+                            'retry_on_timeout': False
                         }
                         if redis_url.startswith('rediss://'):
                             allow_unverified = os.environ.get('REDIS_ALLOW_UNVERIFIED_SSL', 'false').lower() == 'true'
@@ -114,8 +119,8 @@ class RedisCache:
                 'db': redis_db,
                 'password': redis_password,
                 'decode_responses': False,
-                'socket_connect_timeout': 5,
-                'socket_timeout': 5
+                'socket_connect_timeout': 2,
+                'socket_timeout': 2
             }
             if use_ssl:
                 params['ssl'] = True
@@ -139,14 +144,15 @@ class RedisCache:
             return False
 
     def _ensure_connected(self) -> bool:
-        """Verify connection or attempt auto-recovery if Redis was disconnected."""
+        """True when Redis is usable. No PING per operation (the pool's health_check_interval
+        covers idle connections); while disconnected, reconnect at most every few seconds so a
+        Redis outage doesn't add a connect attempt to every request."""
         if self.connected and self.redis_client:
-            try:
-                self.redis_client.ping()
-                return True
-            except Exception:
-                self.connected = False
-
+            return True
+        now = time.monotonic()
+        if now - self._last_connect_attempt < _RECONNECT_INTERVAL_SECONDS:
+            return False
+        self._last_connect_attempt = now
         return self._try_connect()
 
     def acquire_lock(self, resource: str, ttl_ms: int = 300000) -> Optional[str]:

@@ -46,4 +46,9 @@ def test_redis_auto_reconnect_on_failure():
             mock_client.ping.return_value = True
             cache.redis_client = mock_client
 
+            # Within the reconnect interval no attempt is made (a Redis outage must not add a
+            # connect attempt to every request); once it has passed, the next call reconnects.
+            assert cache._ensure_connected() is False
+            mock_reconnect.assert_not_called()
+            cache._last_connect_attempt -= 60
             assert cache._ensure_connected() is True

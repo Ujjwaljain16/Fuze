@@ -21,8 +21,13 @@ _redis_conn: Optional[Redis] = None
 _connection_lock = threading.Lock()
 
 
-def _create_redis_connection() -> Optional[Redis]:
-    """Create and return a configured Redis connection instance for RQ."""
+def _create_redis_connection(socket_timeout: Optional[float] = 5) -> Optional[Redis]:
+    """Create a Redis connection for RQ.
+
+    socket_timeout bounds how long a web request can wait on an enqueue. Workers pass None:
+    they block in BLPOP for up to ~7 minutes between jobs, and a shorter socket timeout made
+    idle workers crash and restart every few minutes.
+    """
     redis_url = os.environ.get('REDIS_URL')
 
     if redis_url:
@@ -33,11 +38,11 @@ def _create_redis_connection() -> Optional[Redis]:
         try:
             conn_params = {
                 'decode_responses': False,
-                'socket_connect_timeout': 10,
-                'socket_timeout': 120,
+                'socket_connect_timeout': 5,
+                'socket_timeout': socket_timeout,
                 'socket_keepalive': True,
                 'health_check_interval': 15,
-                'retry_on_timeout': True,
+                'retry_on_timeout': False,
             }
 
             if redis_url.startswith('rediss://'):
@@ -79,8 +84,8 @@ def _create_redis_connection() -> Optional[Redis]:
         'db': redis_db,
         'password': redis_password,
         'decode_responses': False,
-        'socket_connect_timeout': 10,
-        'socket_timeout': 30,
+        'socket_connect_timeout': 5,
+        'socket_timeout': socket_timeout,
         'socket_keepalive': True,
         'health_check_interval': 30
     }
@@ -352,8 +357,9 @@ def enqueue_cache_warm_job(user_id: int, queue_name: str = 'high') -> Optional[J
 
 
 def get_queue_connection() -> Optional[object]:
-    """Alias for get_redis_connection — used by worker.py."""
-    return get_redis_connection()
+    """Connection for an RQ worker process: no socket timeout, because a worker blocks in BLPOP
+    between jobs far longer than any request-path timeout."""
+    return _create_redis_connection(socket_timeout=None)
 
 
 def is_rq_available() -> bool:
