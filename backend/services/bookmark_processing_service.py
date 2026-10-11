@@ -413,3 +413,13 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         raise
     except Exception as e:
         logger.error("bg_embedding_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
+
+
+def analyze_bookmark_task(bookmark_id: int, user_id: int):
+    """
+    RQ task: run the AI analysis for one bookmark. The pipeline reconciler enqueues it for
+    bookmarks whose analysis failed, was rate limited, or was deferred for lack of Gemini allowance.
+    """
+    from services.background_analysis_service import analyze_content
+    logger.info("bg_analysis_retry_task_started", extra={"bookmark_id": bookmark_id, "user_id": user_id})
+    analyze_content(bookmark_id, user_id)

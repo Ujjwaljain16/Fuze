@@ -44,6 +44,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _system_key_uses_key(user_id: int) -> str:
+    """Redis counter of today's uses of the shared system key by one user."""
+    return f"fuze:system_key_uses:{user_id}:{_now():%Y%m%d}"
+
+
 def _quota_windows(user_id: int, now: Optional[datetime] = None):
     """(key, ttl) for the minute, day and month windows that `now` falls in."""
     now = now or _now()
@@ -283,7 +288,7 @@ class MultiUserAPIManager:
         client = getattr(self.redis, 'redis_client', None)
         if client is None or not getattr(self.redis, 'connected', False):
             return system_key  # can't count without Redis; per-minute quotas still apply
-        key = f"fuze:system_key_uses:{user_id}:{_now():%Y%m%d}"
+        key = _system_key_uses_key(user_id)
         try:
             uses = client.incr(key)
             if uses == 1:
@@ -294,6 +299,27 @@ class MultiUserAPIManager:
             logger.info("system_gemini_key_daily_limit_reached", extra={"user_id": user_id})
             return ''
         return system_key
+
+    def has_gemini_allowance(self, user_id: int) -> bool:
+        """Whether a Gemini call for this user would be allowed right now, without spending any of it.
+
+        Lets background retries skip users who are rate limited or have used up their daily
+        share of the system key, instead of enqueueing work that would only be deferred again.
+        """
+        if not self.check_user_rate_limit(user_id).get('can_make_request', True):
+            return False
+        key = self.get_user_api_key(user_id, for_use=False)
+        if not key:
+            return False
+        if key != os.environ.get('GEMINI_API_KEY'):
+            return True  # their own key: only the rate limits above apply
+        client = getattr(self.redis, 'redis_client', None)
+        if client is None or not getattr(self.redis, 'connected', False):
+            return True
+        try:
+            return int(client.get(_system_key_uses_key(user_id)) or 0) < SYSTEM_KEY_DAILY_LIMIT
+        except Exception:
+            return True
 
     def check_user_rate_limit(self, user_id: int) -> Dict:
         """Check rate limits using Redis atomic counters if available, with thread-safe memory fallback."""
@@ -485,6 +511,10 @@ def get_user_api_key(user_id: int, for_use: bool = True) -> Optional[str]:
 
 def check_user_rate_limit(user_id: int) -> Dict:
     return api_manager.check_user_rate_limit(user_id)
+
+
+def has_gemini_allowance(user_id: int) -> bool:
+    return api_manager.has_gemini_allowance(user_id)
 
 
 def record_user_request(user_id: int):

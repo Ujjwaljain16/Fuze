@@ -177,6 +177,147 @@ def test_reconciler_gives_up_after_the_backoff_schedule(app, test_user):
     assert counts['fetch_gave_up'] >= 1
 
 
+def _analysis_row(test_user, url, now, **fields):
+    from models import SavedContent
+    values = dict(user_id=test_user['id'], url=url, title='t', scrape_status='SUCCESS',
+                  embedding_status='SUCCESS', extracted_text='article text', analysis_status='PENDING',
+                  saved_at=now - timedelta(days=1), scraped_at=now - timedelta(days=1),
+                  embedded_at=now - timedelta(hours=1))
+    values.update(fields)
+    return SavedContent(**values)
+
+
+def _run_analysis_pass(fake, now, allowance=True):
+    """One reconcile pass with every queue mocked; returns (counts, analysed bookmark ids)."""
+    from services import pipeline_reconciler
+    from services.pipeline_reconciler import _LOCK_KEY
+    fake.data.pop(_LOCK_KEY, None)  # each call is a new interval
+    queue = MagicMock()
+    queue.__len__.return_value = 0
+    with patch.object(pipeline_reconciler, '_redis', return_value=fake), \
+         patch('services.task_queue.enqueue_bookmark_processing', return_value=MagicMock()), \
+         patch('services.pipeline_orchestrator.PipelineOrchestrator.request_embedding', return_value=True), \
+         patch('services.task_queue.get_queue', return_value=queue), \
+         patch('services.multi_user_api_manager.has_gemini_allowance', return_value=allowance), \
+         patch('services.task_queue.enqueue_unique', return_value=MagicMock()) as enqueue:
+        counts = pipeline_reconciler.reconcile(now)
+    analysed = set()
+    for call in enqueue.call_args_list:
+        assert call.args[1] == pipeline_reconciler.ANALYSIS_TASK
+        assert call.args[2] == f"analyze_bookmark_{call.kwargs['kwargs']['bookmark_id']}"
+        analysed.add(call.kwargs['kwargs']['bookmark_id'])
+    return counts, analysed
+
+
+def test_reconciler_retries_failed_and_deferred_analyses(app, test_user):
+    from models import db
+    now = datetime.utcnow()
+    with app.app_context():
+        rows = {
+            'pending': _analysis_row(test_user, 'https://e.com/a1', now),  # deferred: daily allowance ran out
+            'failed': _analysis_row(test_user, 'https://e.com/a2', now, analysis_status='FAILED'),
+            'fresh': _analysis_row(test_user, 'https://e.com/a3', now, embedded_at=now - timedelta(minutes=2)),
+            'no_text': _analysis_row(test_user, 'https://e.com/a4', now, extracted_text=None),
+            'not_embedded': _analysis_row(test_user, 'https://e.com/a5', now, embedding_status='PENDING'),
+            'done': _analysis_row(test_user, 'https://e.com/a6', now, analysis_status='SUCCESS'),
+        }
+        db.session.add_all(rows.values())
+        db.session.commit()
+        ids = {name: row.id for name, row in rows.items()}
+
+        counts, analysed = _run_analysis_pass(_FakeRedis(), now)
+
+    assert {ids['pending'], ids['failed']} <= analysed
+    assert not analysed & {ids['fresh'], ids['no_text'], ids['not_embedded'], ids['done']}
+    assert counts['analysis_requeued'] >= 2
+
+
+def test_analysis_retries_back_off_then_give_up(app, test_user):
+    from models import db
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        row = _analysis_row(test_user, 'https://e.com/flaky', now, analysis_status='FAILED',
+                            saved_at=now + timedelta(days=1))  # newest, so it is always in the window
+        db.session.add(row)
+        db.session.commit()
+        row_id = row.id
+        fake = _FakeRedis()
+
+        schedule = [now]
+        for wait in pipeline_reconciler.ANALYSIS_RETRY_BACKOFF:
+            schedule.append(schedule[-1] + wait)
+        for attempt_at in schedule:
+            # just before the backoff has passed: not yet
+            if attempt_at != now:
+                assert row_id not in _run_analysis_pass(fake, attempt_at - timedelta(minutes=1))[1]
+            assert row_id in _run_analysis_pass(fake, attempt_at)[1]
+
+        counts, analysed = _run_analysis_pass(fake, schedule[-1] + timedelta(days=7))
+    assert row_id not in analysed
+    assert counts['analysis_gave_up'] >= 1
+
+
+def test_analysis_retry_waits_for_the_users_gemini_allowance(app, test_user):
+    from models import db
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        row = _analysis_row(test_user, 'https://e.com/over-quota', now)
+        db.session.add(row)
+        db.session.commit()
+        row_id = row.id
+        fake = _FakeRedis()
+
+        counts, analysed = _run_analysis_pass(fake, now, allowance=False)
+        assert row_id not in analysed and counts['deferred'] >= 1
+        # a skipped pass doesn't use up an attempt
+        assert fake.get(pipeline_reconciler._ANALYSIS_ATTEMPTS_KEY.format(row_id)) is None
+
+        assert row_id in _run_analysis_pass(fake, now + timedelta(minutes=5))[1]
+
+
+def test_analysis_retries_are_capped_per_pass(app, test_user, monkeypatch):
+    from models import db
+    from services import pipeline_reconciler
+    monkeypatch.setattr(pipeline_reconciler, 'ANALYSIS_BATCH_LIMIT', 2)
+    now = datetime.utcnow()
+    with app.app_context():
+        db.session.add_all(_analysis_row(test_user, f'https://e.com/many-{i}', now) for i in range(5))
+        db.session.commit()
+        counts, analysed = _run_analysis_pass(_FakeRedis(), now)
+    assert len(analysed) == 2 and counts['analysis_requeued'] == 2
+
+
+def test_analyze_bookmark_task_runs_the_analysis():
+    from services.bookmark_processing_service import analyze_bookmark_task
+    with patch('services.background_analysis_service.analyze_content') as analyze:
+        analyze_bookmark_task(bookmark_id=12, user_id=3)
+    analyze.assert_called_once_with(12, 3)
+
+
+def test_gemini_allowance_check_spends_nothing(monkeypatch):
+    from services import multi_user_api_manager as m
+    monkeypatch.setenv('GEMINI_API_KEY', 'system-key')
+    manager = m.MultiUserAPIManager.__new__(m.MultiUserAPIManager)
+    uses = {}
+    client = MagicMock()
+    client.get.side_effect = lambda key: uses.get(key)
+    manager.redis = MagicMock(redis_client=client, connected=True)
+    monkeypatch.setattr(manager, 'check_user_rate_limit', lambda user_id: {'can_make_request': True})
+    monkeypatch.setattr(manager, 'get_user_api_key', lambda user_id, for_use=True: 'system-key')
+
+    assert manager.has_gemini_allowance(5) is True
+    client.incr.assert_not_called()
+    uses[m._system_key_uses_key(5)] = str(m.SYSTEM_KEY_DAILY_LIMIT)
+    assert manager.has_gemini_allowance(5) is False
+
+    monkeypatch.setattr(manager, 'get_user_api_key', lambda user_id, for_use=True: 'own-key')
+    assert manager.has_gemini_allowance(5) is True  # their own key isn't limited by the shared allowance
+    monkeypatch.setattr(manager, 'check_user_rate_limit', lambda user_id: {'can_make_request': False})
+    assert manager.has_gemini_allowance(5) is False
+
+
 def _event_ids(app):
     from models import db, BookmarkEvent
     with app.app_context():
