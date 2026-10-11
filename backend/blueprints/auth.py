@@ -576,6 +576,8 @@ def link_oauth():
             user = AuthService(uow).link_supabase_identity(int(get_jwt_identity()), supa_user)
             user_data = {'id': user.id, 'username': user.username, 'email': user.email,
                          'provider_name': user.provider_name}
+        from utils.redis_utils import redis_cache
+        redis_cache.delete_cache(f"profile:{user_data['id']}")
         return jsonify({'message': 'Google account connected', 'user': user_data}), 200
     except (AuthenticationFailed, RegistrationFailed) as e:
         return jsonify({'message': str(e), 'error': 'link_rejected'}), 403

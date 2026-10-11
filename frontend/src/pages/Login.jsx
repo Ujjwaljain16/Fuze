@@ -6,6 +6,7 @@ import { getSafeInternalRedirect } from '../utils/urlSafety';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import AuthToggle from '../components/AuthToggle';
+import { startGoogleOAuth } from '../services/oauth';
 
 export default function FuzeAuth() {
   const [searchParams] = useSearchParams();
@@ -769,14 +770,11 @@ export default function FuzeAuth() {
               <button
                 type="button"
                 onClick={() => {
-                  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || window.__env?.VITE_SUPABASE_URL
-                  if (!supabaseUrl) {
-                    setError('Supabase is not configured for OAuth')
-                    return
+                  try {
+                    startGoogleOAuth()
+                  } catch (err) {
+                    setError(err.message)
                   }
-                  const redirectTo = encodeURIComponent(window.location.origin + '/oauth/callback')
-                  // Redirect to Supabase OAuth authorize endpoint
-                  window.location.href = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}`
                 }}
                 className="group w-full mt-1 py-3 rounded-xl border border-gray-600 bg-transparent text-white font-medium flex items-center justify-center gap-3 hover:bg-white/5 transition-colors"
                 disabled={loading || isSubmitting}

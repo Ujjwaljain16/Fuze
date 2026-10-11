@@ -10,6 +10,7 @@ import ProfileStats from '../components/ProfileStats'
 import ProfileForm from '../components/ProfileForm'
 import PasswordForm from '../components/PasswordForm'
 import ApiKeyManager from '../components/ApiKeyManager'
+import ConnectedAccounts from '../components/ConnectedAccounts'
 
 const Profile = () => {
   const { isAuthenticated, user, logout } = useAuth()
@@ -44,6 +45,15 @@ const Profile = () => {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('google') === 'connected') {
+      success('Google account connected')
+      window.history.replaceState({}, document.title, '/profile')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -311,6 +321,10 @@ const Profile = () => {
           {/* API Key Management */}
           <div className="mb-8">
             <ApiKeyManager />
+          </div>
+
+          <div className="mb-8">
+            <ConnectedAccounts />
           </div>
 
         </main>

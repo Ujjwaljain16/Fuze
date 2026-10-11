@@ -98,7 +98,9 @@ def get_profile():
     profile_data = {
         'id': user.id,
         'username': user.username,
+        'email': user.email,
         'technology_interests': user.technology_interests,
+        'google_connected': bool(user.provider_user_id),
         'created_at': user.created_at.isoformat() if user.created_at else None
     }
 
