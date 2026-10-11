@@ -132,3 +132,18 @@ def test_clean_body_drops_badges_html_and_layout_pipes():
     from scrapers.text_cleanup import clean_body
     raw = "| | |\n# Requests\n[![Version](https://img.shields.io/x.svg)](https://pypi.org)\n<p align=\"center\">Fast</p>\n\n\n\nBody"
     assert clean_body(raw) == "# Requests\n\nFast\n\nBody"
+
+
+@pytest.mark.parametrize("code", [
+    "Use List<String> here", "if a<b and c>d then", "Map<K, V> m", "Vec<u8>", "<T extends Comparable<T>>",
+    "std::vector<int> v;",
+])
+def test_clean_body_keeps_code_that_looks_like_tags(code):
+    from scrapers.text_cleanup import clean_body
+    assert clean_body(code) == code
+
+
+def test_clean_body_separates_block_tags():
+    from scrapers.text_cleanup import clean_body
+    assert clean_body("<details open><summary>More</summary>Body</details>") == "More\nBody"
+    assert clean_body('Read <a href="https://x">the docs</a> first') == "Read the docs first"
