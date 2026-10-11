@@ -16,6 +16,7 @@ from scrapers.models import ContentDocument, compute_content_hash
 from core.events import ScrapingStarted, ScrapingCompleted, ScrapingSkipped, ScrapingFailed
 from core.job_timeout import JobTimeoutException
 from services.pipeline_orchestrator import PipelineOrchestrator
+from services.captured_content import fetch_beats_capture, has_captured_content
 from utils.redis_utils import redis_cache
 from utils.embedding_utils import active_embedding_model_name, get_embedding
 from core.logging_config import get_logger
@@ -30,18 +31,25 @@ class TransientFetchError(RuntimeError):
     """The page couldn't be fetched for a reason that may pass (timeout, 5xx, 429): let RQ retry."""
 
 
-def _record_failed_fetch(bookmark_id: int, user_id: int, doc: ContentDocument, pipeline_run_id: str) -> None:
+def _record_failed_fetch(bookmark_id: int, user_id: int, doc: ContentDocument, pipeline_run_id: str) -> bool:
     """Keep what the user saved, mark the fetch as failed and still make the bookmark searchable.
 
     Failure documents used to be stored as SUCCESS: empty text, its hash (which then blocked any
     later re-fetch from storing real content) and titles like "Failed to Acquire Content".
+
+    Returns False when nothing was recorded (bookmark gone, or it holds content the extension
+    captured), in which case there is nothing to retry either.
     """
     from utils.event_bus import publish_pipeline_event
     status = {'blocked': 'BLOCKED', 'disallowed': 'DISALLOWED'}.get(doc.outcome, 'FAILED_FETCH')
     with UnitOfWork() as uow:
         bookmark = BookmarkService(uow).get_bookmark(bookmark_id)
         if not bookmark:
-            return
+            return False
+        if has_captured_content(bookmark):
+            # The extension stored what the user saw; the server failing to read it changes nothing.
+            logger.info("bg_acquisition_kept_captured_content", extra={"bookmark_id": bookmark_id, "outcome": doc.outcome})
+            return False
         bookmark.scrape_status = status
         bookmark.strategy_used = doc.fetch_metadata.strategy
         bookmark.scraped_at = datetime.utcnow()
@@ -61,6 +69,7 @@ def _record_failed_fetch(bookmark_id: int, user_id: int, doc: ContentDocument, p
     # Title, notes and URL still describe the bookmark; embed them so search can find it.
     if needs_embedding:
         PipelineOrchestrator().request_embedding(bookmark_id, user_id)
+    return True
 
 
 def truncate_title(title: str, max_len: int = 200) -> str:
@@ -185,8 +194,8 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         scraped = extract_article_content(url)
 
         if isinstance(scraped, ContentDocument) and scraped.outcome != "ok":
-            _record_failed_fetch(bookmark_id, user_id, scraped, pipeline_run_id)
-            if scraped.retryable:
+            recorded = _record_failed_fetch(bookmark_id, user_id, scraped, pipeline_run_id)
+            if recorded and scraped.retryable:
                 raise TransientFetchError(f"fetch failed with HTTP {scraped.fetch_metadata.http_status}")
             return
 
@@ -250,6 +259,13 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 logger.info("bg_acquisition_idempotency_skip", extra={"bookmark_id": bookmark_id, "hash": content_hash})
                 bookmark.scrape_status = 'SUCCESS'
                 bookmark.scraped_at = datetime.utcnow()
+                is_skipped = True
+            elif has_captured_content(bookmark) and not (
+                    isinstance(scraped, ContentDocument) and fetch_beats_capture(bookmark.extracted_text, scraped)):
+                # What the extension captured is what the user saw (signed in, rendered); a server
+                # fetch only replaces it when clearly better, never with a thinner or challenge page.
+                logger.info("bg_acquisition_kept_captured_content", extra={"bookmark_id": bookmark_id})
+                content_hash = bookmark.content_hash
                 is_skipped = True
             else:
                 if not bookmark.title or bookmark.title == 'Untitled Bookmark':
@@ -323,7 +339,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             bookmark = service.get_bookmark(bookmark_id)
-            if bookmark:
+            if bookmark and not has_captured_content(bookmark):
                 bookmark.scrape_status = 'FAILED'
         raise
 
