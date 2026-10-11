@@ -8,7 +8,6 @@ import time
 from dataclasses import replace
 from urllib.parse import urlparse
 from typing import Dict, Optional, Tuple
-from scrapers.cache_manager import CacheManager
 from scrapers.robots_manager import RobotsManager
 from scrapers.rate_limiter import DomainRateLimiter
 from scrapers.fetch_policy import FetchPolicy
@@ -35,7 +34,6 @@ class ContentAcquisitionEngine:
     Production-grade 5-Stage Content Acquisition Engine.
     """
     def __init__(self):
-        self.cache_manager = CacheManager()
         self.robots_manager = RobotsManager()
         self.rate_limiter = DomainRateLimiter()
         self.fetch_policy = FetchPolicy()
@@ -107,17 +105,24 @@ class ContentAcquisitionEngine:
             plugin_versions={"source_adapter": "1.0.0"},
         )
 
+    def _unfetched(self, url: str, outcome: str, retryable: bool, note: str) -> ContentDocument:
+        """A document for a page that was deliberately not fetched."""
+        from scrapers.models import FetchMetadata, NormalizedMetadata, QualityMetrics
+        return ContentDocument(
+            url=url, canonical_url=url, content_hash=compute_content_hash(""), markdown_content="",
+            metadata=NormalizedMetadata(title=""), provider_raw_payload={},
+            quality_metrics=QualityMetrics(score=0, has_title=False, has_article_body=False, word_count=0,
+                                           hydration_detected=False, challenge_detected=False,
+                                           evaluation_notes=[note]),
+            fetch_metadata=FetchMetadata(strategy="HTTP", attempts=0, http_status=0, redirected=False),
+            outcome=outcome, retryable=retryable,
+        )
+
     def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None, _depth: int = 0) -> ContentDocument:
         """
         Execute 5-stage acquisition & normalization pipeline on target URL.
         """
-        # --- STAGE 1: Acquisition Manager (Cache, Robots, Rate Limit, Circuit Breaker, Policy) ---
-        cached_html = self.cache_manager.get_raw_html_cache(url)
-
-        allowed, wait_time = self.rate_limiter.acquire(url)
-        if not allowed:
-            logger.warning("acquisition_rate_limited", extra={"url": url, "wait_time": wait_time})
-
+        # --- STAGE 1: Acquisition Manager (Robots, Rate Limit, Circuit Breaker, Policy) ---
         domain = urlparse(url).netloc.lower()
         circuit_breaker = RedisCircuitBreaker(name=f"domain_{domain}", failure_threshold=5, recovery_timeout=300)
 
@@ -126,12 +131,19 @@ class ContentAcquisitionEngine:
         # strategy_plan empty routes straight to the existing "fetch failed"
         # fallback below (STAGE 2 loop just won't execute).
         if is_safe_url(url):
-            # robots.txt is itself a request to the user's host, so it comes after the address check.
-            if not self.robots_manager.can_fetch(url):
-                logger.warning("acquisition_blocked_by_robots", extra={"url": url})
+            # Official APIs first: they are meant to be called and don't fall under robots.txt.
             source_doc = self._acquire_from_source_api(url, bookmark_id, _depth)
             if source_doc is not None:
                 return source_doc
+            # Both checks used to be logged and then ignored.
+            # robots.txt is itself a request to the user's host, so it comes after the address check.
+            if not self.robots_manager.can_fetch(url):
+                logger.info("acquisition_disallowed_by_robots", extra={"url": url})
+                return self._unfetched(url, "disallowed", retryable=False, note="Disallowed by robots.txt")
+            allowed, wait_time = self.rate_limiter.acquire(url)
+            if not allowed:
+                logger.info("acquisition_rate_limited", extra={"url": url, "wait_time": wait_time})
+                return self._unfetched(url, "failed", retryable=True, note="Per-domain rate limit")
             strategy_plan = self.fetch_policy.get_strategy_plan(url)
         else:
             logger.error("acquisition_blocked_unsafe_url", extra={"url": url})
@@ -260,9 +272,6 @@ class ContentAcquisitionEngine:
 
         # --- STAGE 5: Commit DTO & Cache Raw HTML & Normalized Document ---
         final_hash = compute_content_hash(final_norm_doc.markdown_content)
-
-        if raw_result and raw_result.raw_content:
-            self.cache_manager.set_raw_html_cache(url, raw_result.raw_content)
 
         return ContentDocument(
             url=url,

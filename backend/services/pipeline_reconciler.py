@@ -93,7 +93,7 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
 
     # 2. Fetched (or definitively failed) but never embedded: invisible to search until it is.
     missing_embeddings = (db.session.query(SavedContent.id, SavedContent.user_id)
-                          .filter(SavedContent.scrape_status.in_(('SUCCESS', 'FAILED_FETCH', 'BLOCKED')),
+                          .filter(SavedContent.scrape_status.in_(('SUCCESS', 'FAILED_FETCH', 'BLOCKED', 'DISALLOWED')),
                                   SavedContent.embedding_status != 'SUCCESS',
                                   or_(SavedContent.scraped_at.is_(None), SavedContent.scraped_at < stale))
                           .order_by(SavedContent.saved_at)

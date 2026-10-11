@@ -183,3 +183,45 @@ def test_backpressure_defers_instead_of_dropping():
          patch('services.pipeline_orchestrator.publish_pipeline_event'):
         assert PipelineOrchestrator().request_embedding(1, 1) is False
     enqueue.assert_not_called()  # embedding_status stays PENDING for the reconciler
+
+
+def _engine_with(robots_ok=True, rate_ok=True):
+    from scrapers.acquisition_engine import ContentAcquisitionEngine
+    engine = ContentAcquisitionEngine()
+    patches = [
+        patch('scrapers.acquisition_engine.is_safe_url', return_value=True),
+        patch('scrapers.source_adapters.fetch_from_source', return_value=None),
+        patch.object(engine.robots_manager, 'can_fetch', return_value=robots_ok),
+        patch.object(engine.rate_limiter, 'acquire', return_value=(rate_ok, 0.0 if rate_ok else 30.0)),
+        patch.object(engine.fetchers['HTTP'], 'fetch'),
+    ]
+    return engine, patches
+
+
+@pytest.mark.parametrize('robots_ok,rate_ok,outcome,retryable', [
+    (False, True, 'disallowed', False),
+    (True, False, 'failed', True),
+])
+def test_robots_and_rate_limits_are_enforced_not_just_logged(robots_ok, rate_ok, outcome, retryable):
+    engine, patches = _engine_with(robots_ok, rate_ok)
+    for p in patches:
+        p.start()
+    try:
+        doc = engine.acquire_and_normalize('https://example.com/page')
+        fetch = engine.fetchers['HTTP'].fetch
+        assert doc.outcome == outcome and doc.retryable is retryable
+        fetch.assert_not_called()
+    finally:
+        for p in patches:
+            p.stop()
+
+
+def test_robots_disallowed_bookmark_is_marked_and_still_embedded(app, test_user, saved_bookmark):
+    from services.bookmark_processing_service import process_bookmark_content_task
+    with patch('services.bookmark_processing_service.extract_article_content',
+               return_value=_failed_doc(0, False, outcome='disallowed')), \
+         patch('services.pipeline_orchestrator.PipelineOrchestrator.request_embedding') as request_embedding, \
+         app.app_context():
+        process_bookmark_content_task(saved_bookmark, 'https://example.com/a', test_user['id'])
+    assert _bookmark(app, saved_bookmark).scrape_status == 'DISALLOWED'
+    request_embedding.assert_called_once()

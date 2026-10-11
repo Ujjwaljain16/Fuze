@@ -37,7 +37,7 @@ def _record_failed_fetch(bookmark_id: int, user_id: int, doc: ContentDocument, p
     later re-fetch from storing real content) and titles like "Failed to Acquire Content".
     """
     from utils.event_bus import publish_pipeline_event
-    status = 'BLOCKED' if doc.outcome == 'blocked' else 'FAILED_FETCH'
+    status = {'blocked': 'BLOCKED', 'disallowed': 'DISALLOWED'}.get(doc.outcome, 'FAILED_FETCH')
     with UnitOfWork() as uow:
         bookmark = BookmarkService(uow).get_bookmark(bookmark_id)
         if not bookmark:
