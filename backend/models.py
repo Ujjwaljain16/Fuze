@@ -154,6 +154,12 @@ class SavedContent(Base):
     )
 
 
+
+def processed_bookmark_clause():
+    """A bookmark is processed once its content is fetched and it is embedded: searchable.
+    The dashboard and the stats endpoint both count successes with this, so they agree."""
+    return (SavedContent.scrape_status == 'SUCCESS') & (SavedContent.embedding_status == 'SUCCESS')
+
 class ContentChunk(Base):
     """A passage of a bookmark (kind='passage') or its embedded content profile (kind='profile')."""
     __tablename__ = 'content_chunks'

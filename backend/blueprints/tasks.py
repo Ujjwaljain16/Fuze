@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload
 from models import db, Task, Project, SavedContent, Subtask
 from utils.gemini_utils import get_gemini_response
 from core.logging_config import get_logger
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -113,14 +114,14 @@ def get_tasks_for_project(project_id):
         'id': t.id,
         'title': t.title,
         'description': t.description,
-        'created_at': t.created_at.isoformat() if t.created_at else None,
+        'created_at': iso_utc(t.created_at),
         'subtasks': [{
             'id': st.id,
             'title': st.title,
             'description': st.description,
             'completed': bool(st.completed),
-            'created_at': st.created_at.isoformat() if st.created_at else None,
-            'updated_at': st.updated_at.isoformat() if st.updated_at else None
+            'created_at': iso_utc(st.created_at),
+            'updated_at': iso_utc(st.updated_at)
         } for st in t.subtasks]
     } for t in tasks]}), 200
 
@@ -400,8 +401,8 @@ def create_subtask(task_id):
                 'title': new_subtask.title,
                 'description': new_subtask.description,
                 'completed': bool(new_subtask.completed),
-                'created_at': new_subtask.created_at.isoformat() if new_subtask.created_at else None,
-                'updated_at': new_subtask.updated_at.isoformat() if new_subtask.updated_at else None
+                'created_at': iso_utc(new_subtask.created_at),
+                'updated_at': iso_utc(new_subtask.updated_at)
             }
         }), 201
 
@@ -430,8 +431,8 @@ def get_subtasks(task_id):
                 'title': st.title,
                 'description': st.description,
                 'completed': bool(st.completed),
-                'created_at': st.created_at.isoformat() if st.created_at else None,
-                'updated_at': st.updated_at.isoformat() if st.updated_at else None
+                'created_at': iso_utc(st.created_at),
+                'updated_at': iso_utc(st.updated_at)
             } for st in subtasks]
         }), 200
 
@@ -480,8 +481,8 @@ def update_subtask(subtask_id):
                 'title': subtask.title,
                 'description': subtask.description,
                 'completed': bool(subtask.completed),
-                'created_at': subtask.created_at.isoformat() if subtask.created_at else None,
-                'updated_at': subtask.updated_at.isoformat() if subtask.updated_at else None
+                'created_at': iso_utc(subtask.created_at),
+                'updated_at': iso_utc(subtask.updated_at)
             }
         }), 200
 

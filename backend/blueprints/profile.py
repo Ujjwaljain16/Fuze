@@ -12,6 +12,7 @@ from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 from middleware.rate_limiting import limiter
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -105,7 +106,7 @@ def get_profile():
         # Google-created accounts start with a random password nobody knows.
         'has_password': not (user.user_metadata or {}).get('supabase_user_id')
                         or bool((user.user_metadata or {}).get('password_set')),
-        'created_at': user.created_at.isoformat() if user.created_at else None
+        'created_at': iso_utc(user.created_at)
     }
 
     if redis_cache and redis_cache.connected:

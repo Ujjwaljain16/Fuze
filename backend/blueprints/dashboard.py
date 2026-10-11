@@ -9,10 +9,11 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, case
-from models import db, User, SavedContent, Project, Task
+from models import db, User, SavedContent, Project, Task, processed_bookmark_clause
 from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -68,7 +69,7 @@ def get_dashboard_summary():
                 'id': user.id,
                 'username': user.username,
                 'email': user.email,
-                'created_at': user.created_at.isoformat() if user.created_at else None
+                'created_at': iso_utc(user.created_at)
             }
         else:
             response_data['profile'] = None
@@ -99,16 +100,20 @@ def get_dashboard_summary():
                 )
             ).label('bookmarks_last_week'),
             func.sum(
-                case((SavedContent.extracted_text.isnot(None), 1), else_=0)
+                case((processed_bookmark_clause(), 1), else_=0)
             ).label('successful_bookmarks'),
+            # Work still to do, by stage. Stages only ever record PENDING/SUCCESS/FAILED*; the
+            # old RUNNING counters were always 0.
             func.sum(
-                case((SavedContent.scrape_status == 'RUNNING', 1), else_=0)
+                case((SavedContent.scrape_status == 'PENDING', 1), else_=0)
             ).label('scraping_count'),
             func.sum(
-                case((SavedContent.embedding_status == 'RUNNING', 1), else_=0)
+                case(((SavedContent.scrape_status != 'PENDING') & (SavedContent.embedding_status == 'PENDING'), 1),
+                     else_=0)
             ).label('embedding_count'),
             func.sum(
-                case((SavedContent.analysis_status == 'RUNNING', 1), else_=0)
+                case(((SavedContent.embedding_status == 'SUCCESS') & (SavedContent.analysis_status == 'PENDING')
+                      & SavedContent.extracted_text.isnot(None), 1), else_=0)
             ).label('analyzing_count'),
             func.sum(
                 case((SavedContent.analysis_status == 'SUCCESS', 1), else_=0)
@@ -180,7 +185,7 @@ def get_dashboard_summary():
                 'url': b.url,
                 'title': b.title,
                 'notes': b.notes,
-                'saved_at': b.saved_at.isoformat() if b.saved_at else None,
+                'saved_at': iso_utc(b.saved_at),
                 'category': b.category,
                 'has_content': bool(b.has_content)
             }
@@ -204,7 +209,7 @@ def get_dashboard_summary():
                 'id': p.id,
                 'title': p.title,
                 'description': p.description,
-                'created_at': p.created_at.isoformat() if p.created_at else None,
+                'created_at': iso_utc(p.created_at),
                 'task_count': int(p.task_count or 0)
             }
             for p in recent_projects

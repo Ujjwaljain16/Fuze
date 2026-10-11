@@ -11,6 +11,7 @@ from core import cache_keys
 from models import Project
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -62,7 +63,7 @@ def get_projects():
                     "title": project.title,
                     "description": project.description,
                     "technologies": project.technologies,
-                    "created_at": project.created_at.isoformat() if project.created_at else None
+                    "created_at": iso_utc(project.created_at)
                 }
 
                 if include_tasks:
@@ -70,14 +71,14 @@ def get_projects():
                         "id": t.id,
                         "title": t.title,
                         "description": t.description,
-                        "created_at": t.created_at.isoformat() if t.created_at else None,
+                        "created_at": iso_utc(t.created_at),
                         "subtasks": [{
                             "id": st.id,
                             "title": st.title,
                             "description": st.description,
                             "completed": bool(st.completed),
-                            "created_at": st.created_at.isoformat() if st.created_at else None,
-                            "updated_at": st.updated_at.isoformat() if st.updated_at else None
+                            "created_at": iso_utc(st.created_at),
+                            "updated_at": iso_utc(st.updated_at)
                         } for st in getattr(t, 'subtasks', [])]
                     } for t in getattr(project, 'tasks', [])]
 
@@ -154,7 +155,7 @@ def create_project():
             p_title = new_project.title
             p_desc = new_project.description
             p_tech = new_project.technologies
-            p_created_at = new_project.created_at.isoformat() if new_project.created_at else None
+            p_created_at = iso_utc(new_project.created_at)
 
         return jsonify({
             "message": "Project created successfully",
@@ -189,7 +190,7 @@ def get_project(project_id: int):
                 "title": project.title,
                 "description": project.description,
                 "technologies": project.technologies,
-                "created_at": project.created_at.isoformat() if project.created_at else None
+                "created_at": iso_utc(project.created_at)
             }
 
         return jsonify(project_data), 200
@@ -215,14 +216,14 @@ def get_project_tasks(project_id: int):
                 'id': t.id,
                 'title': t.title,
                 'description': t.description,
-                'created_at': t.created_at.isoformat() if t.created_at else None,
+                'created_at': iso_utc(t.created_at),
                 'subtasks': [{
                     'id': st.id,
                     'title': st.title,
                     'description': st.description,
                     'completed': bool(st.completed),
-                    'created_at': st.created_at.isoformat() if st.created_at else None,
-                    'updated_at': st.updated_at.isoformat() if st.updated_at else None
+                    'created_at': iso_utc(st.created_at),
+                    'updated_at': iso_utc(st.updated_at)
                 } for st in getattr(t, 'subtasks', [])]
             } for t in tasks]
 
@@ -252,7 +253,7 @@ def update_project(project_id: int):
             p_title = project.title
             p_desc = project.description
             p_tech = project.technologies
-            p_created_at = project.created_at.isoformat() if project.created_at else None
+            p_created_at = iso_utc(project.created_at)
 
         return jsonify({
             "message": "Project updated successfully",
@@ -312,7 +313,7 @@ def get_user_projects(user_id: int):
                 "title": project.title,
                 "description": project.description,
                 "technologies": project.technologies,
-                "created_at": project.created_at.isoformat() if project.created_at else None
+                "created_at": iso_utc(project.created_at)
             } for project in pagination.items]
 
             response_data = {

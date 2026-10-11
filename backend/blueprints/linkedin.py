@@ -16,6 +16,7 @@ from utils.gemini_utils import GeminiAnalyzer
 from middleware.rate_limiting import limiter
 from core.logging_config import get_logger
 from concurrent.futures import ThreadPoolExecutor
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -111,7 +112,7 @@ def extract_linkedin_content():
                 'quality_score': extracted_data.get('quality_score', 0),
                 'method_used': extracted_data.get('method_used', ''),
                 'technologies': extracted_data.get('technologies', []),
-                'extracted_at': datetime.utcnow().isoformat()
+                'extracted_at': iso_utc(datetime.utcnow())
             }
         }), 200
 
@@ -165,7 +166,7 @@ def analyze_linkedin_content():
             'success': True,
             'message': 'LinkedIn content analyzed successfully',
             'data': {**analysis_payload(profile, gemini_analyzer.active_model_name),
-                     'analyzed_at': datetime.utcnow().isoformat()},
+                     'analyzed_at': iso_utc(datetime.utcnow())},
         }), 200
 
     except Exception:
@@ -274,8 +275,8 @@ def get_linkedin_history():
                     'content_preview': (record.extracted_text[:200] + '...') if record.extracted_text and len(record.extracted_text) > 200 else (record.extracted_text or ''),
                     'technology_tags': (analysis.technology_tags.split(',') if analysis and analysis.technology_tags else []),
                     'quality_score': record.quality_score or 0,
-                    'extracted_at': record.saved_at.isoformat() if record.saved_at else None,
-                    'analyzed_at': analysis.updated_at.isoformat() if (analysis and analysis.updated_at) else None,
+                    'extracted_at': iso_utc(record.saved_at),
+                    'analyzed_at': iso_utc(analysis.updated_at),
                     'extraction_method': 'linkedin_scraper',
                     'analysis_summary': analysis_data.get('summary', ''),
                     'content_type': 'linkedin_post'
@@ -376,7 +377,7 @@ def get_linkedin_status():
                 'linkedin_scraper': {
                     'status': 'operational',
                     'allowed_domains': list(ALLOWED_LINKEDIN_DOMAINS),
-                    'last_checked': datetime.utcnow().isoformat()
+                    'last_checked': iso_utc(datetime.utcnow())
                 },
                 'ai_analyzer': {
                     'status': 'operational',

@@ -159,6 +159,8 @@ def validate_input(data: Any, field_rules: Optional[Dict[str, Any]] = None) -> T
 
 def sanitize_string(value: str) -> str:
     """Sanitize string input by stripping null bytes and leading/trailing whitespace."""
+    if value is None:
+        return ''  # JSON null used to become the literal title/notes "None"
     if not isinstance(value, str):
         return str(value)
     return value.replace('\x00', '').strip()

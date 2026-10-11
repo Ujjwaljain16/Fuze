@@ -11,6 +11,7 @@ from services.hybrid_search import _vec_literal
 from utils.embedding_utils import active_embedding_model_name, calculate_cosine_similarity, embed_query
 from utils.query_sanitizer import sanitize_like_query
 from core.logging_config import get_logger
+from utils.timefmt import iso_utc
 
 logger = get_logger(__name__)
 
@@ -62,7 +63,7 @@ class SearchService:
                 'title': content.title,
                 'url': content.url,
                 'description': content.notes,
-                'saved_at': content.saved_at.isoformat() if content.saved_at else None,
+                'saved_at': iso_utc(content.saved_at),
                 'has_content': bool(content.extracted_text)
             }
             for content in results
@@ -122,7 +123,7 @@ class SearchService:
                 'title': h['title'],
                 'url': h['url'],
                 'description': h['notes'],
-                'saved_at': h['saved_at'].isoformat() if h['saved_at'] else None,
+                'saved_at': iso_utc(h['saved_at']),
                 'has_content': bool(h['has_content']),
                 'similarity': h['similarity'],
             }

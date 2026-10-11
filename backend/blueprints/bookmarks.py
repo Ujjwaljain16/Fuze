@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, SavedContent, User, Project, ContentAnalysis
+from models import db, SavedContent, User, Project, ContentAnalysis, processed_bookmark_clause
 from sqlalchemy.exc import IntegrityError
 from services.bookmark_processing_service import scrape_url_summary
 from urllib.parse import urlparse, urlunparse
@@ -10,6 +10,7 @@ from middleware.security_middleware import validate_request_data, sanitize_strin
 import logging
 import traceback
 from datetime import datetime, timedelta
+from utils.timefmt import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -529,7 +530,7 @@ def list_bookmarks():
             'url': b.url,
             'title': b.title,
             'description': b.notes,  # Map 'notes' to 'description' for API consistency
-            'saved_at': b.saved_at.isoformat(),
+            'saved_at': iso_utc(b.saved_at),
             'category': b.category,
             'has_content': bool(b.extracted_text)
         } for b in pagination.items]
@@ -639,7 +640,7 @@ def check_duplicate():
                 'title': existing_bookmark.title,
                 'url': existing_bookmark.url,
                 'notes': existing_bookmark.notes,
-                'saved_at': existing_bookmark.saved_at.isoformat() if existing_bookmark.saved_at else None
+                'saved_at': iso_utc(existing_bookmark.saved_at)
             }
         else:
             bookmark_data = None
@@ -1159,13 +1160,9 @@ def get_dashboard_stats():
         weekly_saves = stats_data['weekly']
         weekly_change = stats_data['trend']
         
-        # Success Rate - based on quality scores and analysis completion
-        # Success = bookmarks with quality_score >= 5 and have analysis
-        successful_bookmarks = db.session.query(SavedContent).join(
-            ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
-        ).filter(
-            SavedContent.user_id == user_id,
-            SavedContent.quality_score >= 5
+        # Success rate: share of bookmarks that are fully processed (same rule as the dashboard)
+        successful_bookmarks = db.session.query(SavedContent).filter(
+            SavedContent.user_id == user_id, processed_bookmark_clause()
         ).count()
         
         success_rate = 0
@@ -1173,11 +1170,8 @@ def get_dashboard_stats():
             success_rate = (successful_bookmarks / total_bookmarks) * 100
         
         # Get previous success rate (30 days ago)
-        successful_bookmarks_month_ago = db.session.query(SavedContent).join(
-            ContentAnalysis, SavedContent.id == ContentAnalysis.content_id
-        ).filter(
-            SavedContent.user_id == user_id,
-            SavedContent.quality_score >= 5,
+        successful_bookmarks_month_ago = db.session.query(SavedContent).filter(
+            SavedContent.user_id == user_id, processed_bookmark_clause(),
             SavedContent.saved_at <= month_ago
         ).count()
         

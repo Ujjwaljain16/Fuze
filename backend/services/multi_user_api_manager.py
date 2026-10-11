@@ -33,6 +33,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from models import db, User
+from utils.timefmt import iso_utc
 
 
 
@@ -391,7 +392,7 @@ class MultiUserAPIManager:
                 'name': user_api_key.api_key_name,
                 'status': user_api_key.status.value,
                 'created_at': user_api_key.created_at.isoformat() if user_api_key.created_at else datetime.now(timezone.utc).isoformat(),
-                'last_used': user_api_key.last_used.isoformat() if user_api_key.last_used else None
+                'last_used': iso_utc(user_api_key.last_used)
             }
 
             user.user_metadata = metadata
