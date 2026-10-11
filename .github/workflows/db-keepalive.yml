@@ -37,13 +37,34 @@ jobs:
         run: |
           python scripts/ping_db.py
 
+      # Supabase decides "inactive" from its own view of project traffic, and a SQL session through
+      # the pooler alone has not always counted. A request through the API gateway does, whatever
+      # it answers: since 0013 the anon key may get 401/403/404 here, which is fine.
+      - name: Ping Supabase REST API
+        id: rest
+        if: ${{ !cancelled() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::notice::SUPABASE_URL or SUPABASE_ANON_KEY is not set; skipping the REST ping (the SQL ping still runs)."
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: $SUPABASE_ANON_KEY" "${SUPABASE_URL%/}/rest/v1/") || code=000
+          case "$code" in
+            2??|401|403|404) echo "Supabase REST answered HTTP $code" ;;
+            *) echo "::error::Supabase REST answered HTTP $code (000 = no answer); the project may be paused."; exit 1 ;;
+          esac
+
       - name: Report status
         if: always()
         run: |
-          if [ "${{ steps.ping.outcome }}" = "success" ]; then
+          if [ "${{ steps.ping.outcome }}" = "success" ] && [ "${{ steps.rest.outcome }}" != "failure" ]; then
             echo "✅ Database ping successful at $(date)"
           else
-            echo "❌ Database ping failed at $(date)"
+            echo "❌ Database ping failed at $(date) (SQL: ${{ steps.ping.outcome }}, REST: ${{ steps.rest.outcome }})"
             exit 1
           fi
 
@@ -65,5 +86,5 @@ jobs:
           else
             gh issue create --title "$TITLE" --body "The scheduled database keep-alive failed at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL
 
-          A free-tier Postgres project is paused after a period without activity. Check the run log and the DATABASE_URL secret, and close this issue once the ping passes again. Later failures are added here as comments."
+          A free-tier Postgres project is paused after a period without activity. Check the run log and the DATABASE_URL, SUPABASE_URL and SUPABASE_ANON_KEY secrets, and close this issue once the ping passes again. Later failures are added here as comments."
           fi

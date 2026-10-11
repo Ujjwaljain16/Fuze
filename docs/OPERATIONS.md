@@ -93,6 +93,31 @@ runs with `HF_HUB_OFFLINE=1`, so containers never download a model. If you chang
 the `Dockerfile` (or run with `HF_HUB_OFFLINE=0`). Otherwise it fails to load: embeddings fall back
 to hash vectors (logged as `all_embedding_models_failed_using_fallback`) and the reranker stays off.
 
+## Keeping the free tiers alive
+
+Every production service is on a free tier that is paused, archived or put to sleep when idle.
+Each failing keep-alive opens (or comments on) a GitHub issue, since nobody watches scheduled runs.
+
+| Service | Inactivity limit | What keeps it alive |
+|---|---|---|
+| Supabase Postgres | Paused after about 7 days of low activity. Restore it from the dashboard; a warning email arrives a week before. | `db-keepalive.yml` every 6 hours: a SQL `SELECT 1` through `DATABASE_URL`, plus a request to `$SUPABASE_URL/rest/v1/` with the anon key, so the API gateway sees traffic too (any 2xx/401/403/404 counts; skipped if the two secrets are unset). The nightly backup also reads the whole database. |
+| Upstash Redis | Archived after 14 days without commands (older Upstash docs said 30). Upstash keeps a backup, but you get a new database and must update `REDIS_URL`. | `redis-keepalive.yml` daily `PING`. While the Space runs, the RQ workers also poll Redis constantly. |
+| Hugging Face Space (cpu-basic) | Sleeps after 48 hours without HTTP traffic (the runtime API's `gcTimeout`), and the next request wakes it after a cold start. A *paused* Space (paused by you, or by HF) never wakes on requests. | `uptime-monitor.yml` requests `/health/readiness` every 30 minutes. It reports a paused Space separately, with HF's reason. |
+| GitHub scheduled workflows | In a public repository, every `schedule:` trigger is disabled silently after 60 days with no repository activity. That would stop all of the above. | `keep-workflows-enabled.yml` on the 1st and 15th of each month re-enables every scheduled workflow (itself included) with `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`. |
+
+Why the API call is enough for GitHub's 60-day rule: re-enabling a workflow resets its
+inactivity timer. [liskin/gh-workflow-keepalive](https://github.com/liskin/gh-workflow-keepalive)
+is built on exactly that call, so no third-party action and no dummy commits are needed.
+`gautamkrishnar/keepalive-workflow`, the older dummy-commit action, has been disabled by GitHub
+staff and can't be used. The job runs twice a month, so even after one failed run the next
+attempt comes about 30 days before the deadline. Workflows disabled *manually* (state `disabled_manually`) are left alone.
+The timer reset can't be tested in less than 60 days, so the job opens an issue if an enable
+call fails. If a workflow does get disabled anyway, re-enable it from the Actions tab (or
+`gh workflow enable <file>`) and run `keep-workflows-enabled.yml` by hand.
+
+The repository is public, so Actions minutes are free. If it ever goes private, the 30-minute
+uptime check alone uses about 1,500 of the 2,000 free minutes a month: slow it down.
+
 ## Secrets
 
 Production refuses to start unless `SECRET_KEY` and `JWT_SECRET_KEY` are set, at least 16
