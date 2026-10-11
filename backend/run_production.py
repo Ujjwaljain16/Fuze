@@ -164,7 +164,7 @@ except ImportError as e:
 
 # Import intent analysis components
 try:
-    from ml.intent_analysis_engine import IntentAnalysisEngine
+    from ml.intent_engine.intent import resolve_intent  # noqa: F401  (availability check)
     from utils.gemini_utils import GeminiAnalyzer
     intent_analysis_available = True
 except ImportError as e:

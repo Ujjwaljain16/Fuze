@@ -97,34 +97,12 @@ class TestAPIIntegration:
             db.session.commit()
         
         # Get recommendations
-        with patch('ml.unified_recommendation_orchestrator.get_unified_orchestrator') as mock_orch:
-            from ml.unified_recommendation_orchestrator import UnifiedRecommendationResult
-            
-            mock_engine = MagicMock()
-            # Create proper UnifiedRecommendationResult object
-            mock_rec = UnifiedRecommendationResult(
-                id=1,
-                title='Rec 1',
-                url='https://example.com/1',
-                score=0.9,
-                reason='Test reason',
-                content_type='article',
-                difficulty='intermediate',
-                technologies=['Python'],
-                key_concepts=['concept1'],
-                quality_score=8.0,
-                engine_used='test',
-                confidence=0.9,
-                metadata={},
-                basic_summary='Summary',
-                context_summary='Context',
-                cached=False
-            )
-            mock_engine.get_recommendations.return_value = [mock_rec]
-            mock_engine.generate_context_summaries.return_value = [mock_rec]
-            mock_engine.get_performance_metrics.return_value = {}
-            mock_orch.return_value = mock_engine
-            
+        fake = {"results": [{"id": 1, "title": "Rec 1", "url": "https://example.com/1", "score": 90.0,
+                             "confidence": 90.0, "reason": "r", "basic_summary": "s", "content_type": "tutorial",
+                             "difficulty": "beginner", "technologies": ["Python"], "key_concepts": [],
+                             "quality_score": 8, "engine_used": "intent_engine", "metadata": {}}],
+                "intent": {}, "cached": False}
+        with patch('ml.intent_engine.engine.recommend', return_value=fake):
             response = client.post('/api/recommendations/unified-orchestrator',
                                  json={
                                      'title': 'Learn Python',

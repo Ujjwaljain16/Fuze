@@ -105,38 +105,22 @@ def _warm_recommendations(user_id: int) -> str:
         if redis_cache.redis_client and redis_cache.redis_client.exists(cache_key):
             return "already_warm"
 
-        # Trigger recommendation pipeline to populate the real cache
+        # Warm the live engine for the user's most recent project: intent statement first (so the
+        # first request already gets the Gemini-refined intent), then the result cache.
         from uow.unit_of_work import UnitOfWork
-        from ml.recommendation.pipeline import RecommendationPipeline
-        from ml.recommendation.domain import RecommendationRequest
+        from ml.intent_engine.engine import recommend
+        from ml.intent_engine.intent import compute_intent_job, load_context, resolve_intent
 
         with UnitOfWork() as uow:
-            # Fetch user's most recent project for context
             pagination = uow.projects.list_by_user(user_id=user_id, page=1, per_page=1)
             projects = pagination.items if hasattr(pagination, "items") else pagination
-            if projects:
-                proj = projects[0]
-                req = RecommendationRequest(
-                    user_id=user_id,
-                    title=getattr(proj, "title", "") or "",
-                    description=getattr(proj, "description", "") or "",
-                    technologies=getattr(proj, "technologies", "") or "",
-                    max_recommendations=10,
-                )
-            else:
-                req = RecommendationRequest(
-                    user_id=user_id,
-                    title="",
-                    max_recommendations=10,
-                )
-
-            pipeline = RecommendationPipeline(
-                data_layer=None,  # pipeline will construct its own with uow
-                redis_cache=redis_cache,
-            )
-            from ml.recommendation.data_layer import RecommendationDataLayer
-            pipeline.data_layer = RecommendationDataLayer(uow=uow)
-            pipeline.run(req)
+            if not projects:
+                return "no_project"
+            project_id = projects[0].id
+            intent = resolve_intent(load_context(uow.session, user_id, project_id=project_id), schedule=False)
+            if intent.text and not intent.statement:
+                compute_intent_job(intent.hash, intent.text, user_id)
+            recommend(uow.session, user_id, project_id=project_id)
 
         # Mark as warm so subsequent calls skip re-computation
         if redis_cache.redis_client:

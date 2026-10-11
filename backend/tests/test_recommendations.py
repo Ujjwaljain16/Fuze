@@ -26,54 +26,13 @@ class TestRecommendations:
                 db.session.add(bookmark)
             db.session.commit()
         
-        with patch('ml.unified_recommendation_orchestrator.get_unified_orchestrator') as mock_orch:
-            from ml.unified_recommendation_orchestrator import UnifiedRecommendationResult
-            
-            mock_engine = MagicMock()
-            # Create proper UnifiedRecommendationResult objects
-            mock_rec1 = UnifiedRecommendationResult(
-                id=1,
-                title='Rec 1',
-                url='https://example.com/1',
-                score=0.9,
-                reason='Test reason',
-                content_type='article',
-                difficulty='intermediate',
-                technologies=['Python'],
-                key_concepts=['concept1'],
-                quality_score=8.0,
-                engine_used='test',
-                confidence=0.9,
-                metadata={},
-                basic_summary='Summary 1',
-                context_summary='Context 1',
-                cached=False
-            )
-            mock_rec2 = UnifiedRecommendationResult(
-                id=2,
-                title='Rec 2',
-                url='https://example.com/2',
-                score=0.8,
-                reason='Test reason 2',
-                content_type='article',
-                difficulty='beginner',
-                technologies=['Flask'],
-                key_concepts=['concept2'],
-                quality_score=7.0,
-                engine_used='test',
-                confidence=0.8,
-                metadata={},
-                basic_summary='Summary 2',
-                context_summary='Context 2',
-                cached=False
-            )
-            mock_engine.get_recommendations.return_value = [mock_rec1, mock_rec2]
-            # Mock generate_context_summaries to return the same list
-            mock_engine.generate_context_summaries.return_value = [mock_rec1, mock_rec2]
-            # Mock get_performance_metrics
-            mock_engine.get_performance_metrics.return_value = {}
-            mock_orch.return_value = mock_engine
-            
+        fake = {"results": [
+            {"id": 1, "title": "Rec 1", "url": "https://example.com/1", "score": 90.0, "confidence": 90.0,
+             "reason": "Matches what you're working on", "basic_summary": "Summary 1", "content_type": "tutorial",
+             "difficulty": "intermediate", "technologies": ["Python"], "key_concepts": ["concept1"],
+             "quality_score": 8, "engine_used": "intent_engine", "metadata": {}},
+        ], "intent": {"intent_source": "context"}, "cached": False}
+        with patch('ml.intent_engine.engine.recommend', return_value=fake) as rec:
             response = client.post('/api/recommendations/unified-orchestrator',
                                  json={
                                      'title': 'Test Project',
@@ -81,11 +40,14 @@ class TestRecommendations:
                                      'description': 'Test description'
                                  },
                                  headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json
-            assert 'recommendations' in data
-    
+            assert data['recommendations'][0]['id'] == 1
+            assert data['engine_used'] == 'intent_engine'
+            # without a project/task, the request text is the query
+            assert rec.call_args.kwargs['query'] == 'Test Project. Test description. Python, Flask'
+
     def test_get_recommendations_no_content(self, client, auth_headers):
         """Test getting recommendations with no saved content"""
         response = client.post('/api/recommendations/unified-orchestrator',
@@ -106,3 +68,21 @@ class TestRecommendations:
         assert 'unified_orchestrator_available' in data
         assert 'total_engines_available' in data
 
+
+
+def test_task_and_subtask_context_reach_the_engine(client, auth_headers):
+    fake = {"results": [], "intent": {}, "cached": False}
+    with patch('ml.intent_engine.engine.recommend', return_value=fake) as rec:
+        resp = client.post('/api/recommendations/unified-orchestrator', json={
+            'title': 'Auth', 'description': 'add login', 'project_id': '7', 'task_id': 12, 'subtask_id': 'bad'
+        }, headers=auth_headers)
+    assert resp.status_code == 200
+    kw = rec.call_args.kwargs
+    assert (kw['project_id'], kw['task_id'], kw['subtask_id']) == (7, 12, None)
+    # with a project/task, the stored context is the intent, not the echoed request text
+    assert kw['query'] == ''
+
+
+def test_task_route_404_for_other_users_task(client, auth_headers):
+    resp = client.post('/api/recommendations/task/999999', json={}, headers=auth_headers)
+    assert resp.status_code == 404

@@ -17,6 +17,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from middleware.rate_limiting import limiter
 from dataclasses import asdict
 from core.logging_config import get_logger
+from uow.unit_of_work import UnitOfWork
 
 logger = get_logger(__name__)
 
@@ -54,13 +55,13 @@ def init_engines():
     """Initialize recommendation engines with lazy loading"""
     global UNIFIED_ORCHESTRATOR_AVAILABLE
     
-    # Import unified orchestrator (PRODUCTION-OPTIMIZED ENGINE)
+    # Flag name kept: the frontend reads `unified_orchestrator_available` from /status.
     try:
-        from ml.unified_recommendation_orchestrator import get_unified_orchestrator
+        from ml.intent_engine.engine import recommend  # noqa: F401
         UNIFIED_ORCHESTRATOR_AVAILABLE = True
-        logger.info("Unified Recommendation Orchestrator initialized (PRODUCTION-OPTIMIZED)")
+        logger.info("intent_engine_available")
     except ImportError as e:
-        logger.error(f"Unified orchestrator not available: {e}")
+        logger.error(f"Intent engine not available: {e}")
         UNIFIED_ORCHESTRATOR_AVAILABLE = False
 
 
@@ -106,62 +107,46 @@ def get_unified_orchestrator_recommendations():
         if technologies and len(technologies) > 1000:
             return jsonify({'error': 'Technologies exceeds maximum length of 1000 characters'}), 400
         
-        if not UNIFIED_ORCHESTRATOR_AVAILABLE:
-            return jsonify({'error': 'Recommendation engine not available'}), 500
-        
-        # Use production-optimized unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
-        from dataclasses import asdict
-        import json
-        
-        # NOTE: Project-level recommendations do NOT include subtasks
-        # Only use the provided description - subtasks are only included in task/subtask-specific endpoints
-        description = data.get('description', '')
-        project_id = data.get('project_id')
-        
-        # Create request
-        unified_request = UnifiedRecommendationRequest(
-            user_id=user_id,
-            title=data.get('title', ''),
-            description=description,
-            technologies=data.get('technologies', ''),
-            user_interests=data.get('user_interests', ''),
-            project_id=project_id,
-            max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'context'),
-            quality_threshold=data.get('quality_threshold', 3),
-            include_global_content=data.get('include_global_content', True)
-        )
-        
-        # Get orchestrator and recommendations (ML enhancement is AUTOMATIC!)
-        orchestrator = get_unified_orchestrator()
-        recommendations = orchestrator.get_recommendations(unified_request)
+        def _optional_int(key):
+            value = data.get(key)
+            try:
+                return int(value) if value not in (None, '') else None
+            except (TypeError, ValueError):
+                return None
 
-        # NOTE: Context summaries are generated on-demand via /generate-context endpoint
-        # This allows recommendations to be shown instantly without waiting for Gemini analysis
-        # Users can click "Generate Personalized Context" to get AI-powered explanations later
+        project_id = _optional_int('project_id')
+        task_id = _optional_int('task_id')
+        subtask_id = _optional_int('subtask_id')
+        try:
+            limit = int(data.get('max_recommendations', 10))
+        except (TypeError, ValueError):
+            limit = 10
 
-        # Convert to dictionary format
-        result = [asdict(rec) for rec in recommendations]
-        
-        # Get performance metrics
-        performance_metrics = orchestrator.get_performance_metrics()
-        
-        response = {
-            'recommendations': result,
-            'total_recommendations': len(result),
-            'engine_used': 'UnifiedOrchestrator_v2_Optimized',
-            'performance_metrics': performance_metrics,
-            'optimizations': ['batch_embeddings', 'auto_ml_enhancement', 'intent_aware', 'smart_caching'],
-            'request_processed': {
-                'title': unified_request.title,
-                'technologies': unified_request.technologies,
-                'engine_preference': unified_request.engine_preference
-            }
-        }
-        
-        return jsonify(response)
-        
+        # With a project/task, the stored context is the intent; the request's echo of it is not
+        # repeated. Without one, the request text itself is what the user is looking for.
+        if project_id or task_id:
+            query = data.get('user_interests', '') or ''
+        else:
+            query = ". ".join(str(p).strip() for p in (title, description, technologies, data.get('user_interests', ''))
+                              if p and str(p).strip())
+
+        import time as _time
+        from ml.intent_engine.engine import recommend
+        started = _time.perf_counter()
+        with UnitOfWork() as uow:
+            outcome = recommend(uow.session, int(user_id), query=query, project_id=project_id,
+                                task_id=task_id, subtask_id=subtask_id, limit=limit)
+
+        return jsonify({
+            'recommendations': outcome['results'],
+            'total_recommendations': len(outcome['results']),
+            'engine_used': 'intent_engine',
+            'intent': outcome['intent'],
+            'cached': outcome['cached'],
+            'performance_metrics': {'response_time_ms': round((_time.perf_counter() - started) * 1000, 1)},
+            'request_processed': {'project_id': project_id, 'task_id': task_id, 'subtask_id': subtask_id},
+        })
+
     except Exception:
         logger.exception("unified_orchestrator_recommendations_failed")
         return jsonify({'error': 'Internal server error'}), 500
@@ -170,373 +155,123 @@ def get_unified_orchestrator_recommendations():
 @jwt_required()
 @limiter.limit("10 per minute")
 def generate_personalized_context():
-    """Generate personalized context summary for a specific recommendation"""
+    """Gemini explanation of how one of the user's items helps with their current context."""
     try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        recommendation_id = data.get('recommendation_id')
-        recommendation_data = data.get('recommendation')
-        context_data = data.get('context')
-        
-        if not recommendation_data or not context_data:
-            return jsonify({'error': 'Missing recommendation or context data'}), 400
-        
-        # Import required classes
-        from ml.unified_recommendation_orchestrator import (
-            UnifiedRecommendationRequest, 
-            UnifiedRecommendationResult,
-            get_unified_orchestrator
-        )
-        
-        # Get orchestrator
-        orchestrator = get_unified_orchestrator()
-        
-        if not orchestrator:
-            return jsonify({'error': 'Recommendation engine not available'}), 500
-        
-        # Get user's API key for Gemini
+        user_id = int(get_jwt_identity())
+        data = request.get_json(silent=True) or {}
+        recommendation = data.get('recommendation') or {}
+        context = data.get('context') or {}
+        content_id = data.get('recommendation_id') or recommendation.get('id')
+        try:
+            content_id = int(content_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Missing recommendation id'}), 400
+
+        def _opt_int(value):
+            try:
+                return int(value) if value not in (None, '') else None
+            except (TypeError, ValueError):
+                return None
+
+        project_id, task_id, subtask_id = (_opt_int(context.get(k)) for k in ('project_id', 'task_id', 'subtask_id'))
+        query = '' if (project_id or task_id) else ". ".join(
+            str(context.get(k)).strip() for k in ('title', 'description', 'technologies', 'user_interests')
+            if context.get(k) and str(context.get(k)).strip())
+
         from services.multi_user_api_manager import get_user_api_key
         user_api_key = get_user_api_key(user_id)
-        
         if not user_api_key:
             return jsonify({'error': 'User API key not found. Please add your Gemini API key in settings.'}), 400
-        
-        # Initialize Gemini analyzer with user's API key
-        from utils.gemini_utils import GeminiAnalyzer
-        gemini_analyzer = GeminiAnalyzer(api_key=user_api_key)
-        
-        # Create UnifiedRecommendationRequest from context data
-        unified_request = UnifiedRecommendationRequest(
-            user_id=user_id,
-            title=context_data.get('title', ''),
-            description=context_data.get('description', ''),
-            technologies=context_data.get('technologies', ''),
-            user_interests=context_data.get('user_interests', ''),
-            project_id=context_data.get('project_id'),
-            max_recommendations=10
-        )
-        
-        # Create UnifiedRecommendationResult from recommendation data
-        # Note: UnifiedRecommendationResult doesn't have 'description' or 'match_score' fields
-        # Use 'basic_summary' for description-like content and 'score' for match_score
-        recommendation_result = UnifiedRecommendationResult(
-            id=recommendation_data.get('id'),
-            title=recommendation_data.get('title', ''),
-            url=recommendation_data.get('url', ''),
-            score=recommendation_data.get('match_score', recommendation_data.get('score', 0)),
-            reason=recommendation_data.get('reason', ''),
-            technologies=recommendation_data.get('technologies', []),
-            content_type=recommendation_data.get('content_type', 'article'),
-            difficulty=recommendation_data.get('difficulty', 'intermediate'),
-            key_concepts=recommendation_data.get('key_concepts', []),
-            quality_score=recommendation_data.get('quality_score', 6),
-            engine_used=recommendation_data.get('engine_used', 'unified'),
-            confidence=recommendation_data.get('confidence', 0.5),
-            metadata=recommendation_data.get('metadata', {}),
-            basic_summary=recommendation_data.get('basic_summary', ''),
-            context_summary=''
-        )
-        
-        # Generate context summary
-        context_summary = orchestrator._generate_context_summary(
-            gemini_analyzer=gemini_analyzer,
-            recommendation=recommendation_result,
-            request=unified_request,
-            rank=1  # Assume it's a top recommendation
-        )
-        
-        return jsonify({
-            'success': True,
-            'context_summary': context_summary
-        })
-        
+
+        from ml.intent_engine.explain import explain_item
+        with UnitOfWork() as uow:
+            summary = explain_item(uow.session, user_id, content_id, query=query, project_id=project_id,
+                                   task_id=task_id, subtask_id=subtask_id, api_key=user_api_key)
+        if summary is None:
+            return jsonify({'success': False, 'error': 'Could not generate an explanation for this item'}), 404
+
+        return jsonify({'success': True, 'context_summary': summary})
+
     except Exception:
         logger.exception("generate_personalized_context_failed")
         return jsonify({'error': 'Internal server error'}), 500
 
+def _context_recommendations(user_id: int, task_id: int, subtask_id=None, limit=10):
+    from ml.intent_engine.engine import recommend
+    from models import Project, Subtask, Task
+    with UnitOfWork() as uow:
+        task = (uow.session.query(Task).join(Project, Task.project_id == Project.id)
+                .filter(Task.id == task_id, Project.user_id == user_id).first())
+        if not task:
+            return None, None, None
+        subtask = None
+        if subtask_id is not None:
+            subtask = uow.session.query(Subtask).filter_by(id=subtask_id, task_id=task.id).first()
+            if not subtask:
+                return task, None, None
+        outcome = recommend(uow.session, user_id, project_id=task.project_id, task_id=task.id,
+                            subtask_id=subtask.id if subtask else None, limit=limit)
+        return {"id": task.id, "title": task.title}, ({"id": subtask.id, "title": subtask.title} if subtask else None), outcome
+
+
+def _limit_from_request():
+    try:
+        return int((request.get_json(silent=True) or {}).get('max_recommendations', 10))
+    except (TypeError, ValueError):
+        return 10
+
+
 @recommendations_bp.route('/task/<int:task_id>', methods=['POST'])
 @jwt_required()
 def get_task_recommendations(task_id):
-    """Get task-specific recommendations using UnifiedRecommendationOrchestrator"""
+    """Recommendations for a task the user owns (task + its project as the intent)."""
     try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Import models
-        from models import Task, Subtask, Project, SavedContent
-        
-        # Get task and verify ownership
-        task = Task.query.get(task_id)
-        if not task:
+        user_id = int(get_jwt_identity())
+        task, _, outcome = _context_recommendations(user_id, task_id, limit=_limit_from_request())
+        if task is None:
             return jsonify({'error': 'Task not found'}), 404
-        
-        project = Project.query.get(task.project_id)
-        if not project or project.user_id != user_id:
-            return jsonify({'error': 'Unauthorized'}), 403
-        
-        # Get subtasks for this task
-        subtasks = Subtask.query.filter_by(task_id=task_id).all()
-        incomplete_subtasks = [st for st in subtasks if not st.completed]
-        
-        # Build enhanced description with task and subtask information
-        task_description = task.description or ''
-        try:
-            task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
-            if isinstance(task_details, dict):
-                task_description = task_details.get('description', '')
-        except Exception:
-            pass  # task.description may be plain text, not JSON
-
-        enhanced_description = f"Task: {task.title}"
-        if task_description:
-            enhanced_description += f" - {task_description}"
-        
-        # Add incomplete subtasks to context
-        if incomplete_subtasks:
-            subtask_titles = [st.title for st in incomplete_subtasks]
-            enhanced_description += f" Subtasks to complete: {', '.join(subtask_titles)}"
-        
-        # Use unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
-        from dataclasses import asdict
-        import numpy as np
-        from utils.embedding_utils import calculate_cosine_similarity
-        
-        # Get project technologies for context
-        technologies = project.technologies or ''
-        
-        # Create request
-        unified_request = UnifiedRecommendationRequest(
-            user_id=user_id,
-            title=task.title,
-            description=enhanced_description,
-            technologies=technologies,
-            user_interests='',
-            project_id=project.id,
-            max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'context'),
-            quality_threshold=data.get('quality_threshold', 6),
-            include_global_content=data.get('include_global_content', True)
-        )
-        
-        # Get orchestrator and recommendations
-        orchestrator = get_unified_orchestrator()
-        recommendations = orchestrator.get_recommendations(unified_request)
-        
-        # Enhance recommendations with subtask embeddings if available
-        if incomplete_subtasks and len(recommendations) > 0:
-            try:
-                from models import SavedContent
-                # Get subtask embeddings for re-ranking boost
-                subtask_embeddings = [st.embedding for st in incomplete_subtasks if st.embedding is not None]
-
-                if subtask_embeddings:
-                    # Batch-load all recommendation content IDs to avoid N+1 DB round-trips
-                    rec_content_ids = [
-                        (rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None))
-                        for rec in recommendations
-                    ]
-                    rec_content_ids = [cid for cid in rec_content_ids if cid is not None]
-                    content_map = {}
-                    if rec_content_ids:
-                        content_rows = SavedContent.query.filter(
-                            SavedContent.id.in_(rec_content_ids),
-                            SavedContent.embedding.isnot(None)
-                        ).with_entities(SavedContent.id, SavedContent.embedding).all()
-                        content_map = {row.id: row.embedding for row in content_rows}
-
-                    enhanced_recommendations = []
-                    for rec in recommendations:
-                        content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
-                        embedding = content_map.get(content_id)
-                        if content_id and embedding is not None:
-                            max_similarity = max(
-                                calculate_cosine_similarity(np.array(subtask_emb), np.array(embedding))
-                                for subtask_emb in subtask_embeddings
-                            )
-                            if isinstance(rec, dict):
-                                original_score = rec.get('match_score', rec.get('score', 0))
-                                rec['match_score'] = min(100, original_score + (max_similarity * 0.15 * 100))
-                                rec['subtask_embedding_similarity'] = float(max_similarity)
-                            else:
-                                original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
-                                rec.match_score = min(100, original_score + (max_similarity * 0.15 * 100))
-                                rec.subtask_embedding_similarity = float(max_similarity)
-                        enhanced_recommendations.append(rec)
-
-                    if enhanced_recommendations:
-                        enhanced_recommendations.sort(
-                            key=lambda x: x.get('match_score', 0) if isinstance(x, dict) else getattr(x, 'match_score', 0),
-                            reverse=True
-                        )
-                        recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                        logger.info("task_embedding_enhanced", extra={"count": len(recommendations), "subtask_count": len(subtask_embeddings)})
-            except Exception as e:
-                logger.warning("task_embedding_enhancement_failed", extra={"error": str(e)})
-                # Continue with original recommendations
-        
-        # Convert to dictionary format
-        result = []
-        for rec in recommendations:
-            if isinstance(rec, dict):
-                result.append(rec)
-            else:
-                result.append(asdict(rec))
-        
         return jsonify({
-            'recommendations': result,
-            'total_recommendations': len(result),
-            'task_id': task_id,
-            'task_title': task.title,
-            'subtasks_count': len(incomplete_subtasks),
-            'engine_used': 'UnifiedOrchestrator_TaskSpecific'
+            'recommendations': outcome['results'],
+            'total_recommendations': len(outcome['results']),
+            'task_id': task['id'],
+            'task_title': task['title'],
+            'intent': outcome['intent'],
+            'engine_used': 'intent_engine',
         })
-        
-    except Exception as e:
-        logger.error(f"Error in task recommendations: {e}")
+    except Exception:
+        logger.exception("task_recommendations_failed")
         return jsonify({'error': 'Internal server error'}), 500
+
 
 @recommendations_bp.route('/subtask/<int:subtask_id>', methods=['POST'])
 @jwt_required()
 def get_subtask_recommendations(subtask_id):
-    """Get subtask-specific recommendations using UnifiedRecommendationOrchestrator"""
+    """Recommendations for a subtask the user owns (subtask + task + project as the intent)."""
     try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        
-        # Import models
-        from models import Subtask, Task, Project, SavedContent
-        
-        # Get subtask and verify ownership
-        subtask = Subtask.query.get(subtask_id)
-        if not subtask:
+        user_id = int(get_jwt_identity())
+        from models import Project, Subtask, Task
+        with UnitOfWork() as uow:
+            row = (uow.session.query(Subtask.task_id).join(Task, Subtask.task_id == Task.id)
+                   .join(Project, Task.project_id == Project.id)
+                   .filter(Subtask.id == subtask_id, Project.user_id == user_id).first())
+        if not row:
             return jsonify({'error': 'Subtask not found'}), 404
-        
-        task = Task.query.get(subtask.task_id)
-        if not task:
-            return jsonify({'error': 'Task not found'}), 404
-        
-        project = Project.query.get(task.project_id)
-        if not project or project.user_id != user_id:
-            return jsonify({'error': 'Unauthorized'}), 403
-        
-        # Build enhanced description with subtask and parent task information
-        task_description = task.description or ''
-        try:
-            task_details = json.loads(task_description) if isinstance(task_description, str) else task_description
-            if isinstance(task_details, dict):
-                task_description = task_details.get('description', '')
-        except Exception:
-            pass  # task.description may be plain text, not JSON
-        
-        enhanced_description = f"Subtask: {subtask.title}"
-        if subtask.description:
-            enhanced_description += f" - {subtask.description}"
-        enhanced_description += f" (Part of task: {task.title})"
-        if task_description:
-            enhanced_description += f" Task context: {task_description}"
-        
-        # Use unified orchestrator
-        from ml.unified_recommendation_orchestrator import UnifiedRecommendationRequest, get_unified_orchestrator
-        from dataclasses import asdict
-        import numpy as np
-        from utils.embedding_utils import calculate_cosine_similarity
-        
-        # Get project technologies for context
-        technologies = project.technologies or ''
-        
-        # Create request
-        unified_request = UnifiedRecommendationRequest(
-            user_id=user_id,
-            title=subtask.title,
-            description=enhanced_description,
-            technologies=technologies,
-            user_interests='',
-            project_id=project.id,
-            max_recommendations=data.get('max_recommendations', 10),
-            engine_preference=data.get('engine_preference', 'context'),
-            quality_threshold=data.get('quality_threshold', 6),
-            include_global_content=data.get('include_global_content', True)
-        )
-        
-        # Get orchestrator and recommendations
-        orchestrator = get_unified_orchestrator()
-        recommendations = orchestrator.get_recommendations(unified_request)
-        
-        # Enhance recommendations with subtask embedding similarity if available
-        if subtask.embedding is not None and len(recommendations) > 0:
-            try:
-                from models import SavedContent
-                # Batch-load all recommendation content IDs to avoid N+1 DB round-trips
-                rec_content_ids = [
-                    (rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None))
-                    for rec in recommendations
-                ]
-                rec_content_ids = [cid for cid in rec_content_ids if cid is not None]
-                content_map = {}
-                if rec_content_ids:
-                    content_rows = SavedContent.query.filter(
-                        SavedContent.id.in_(rec_content_ids),
-                        SavedContent.embedding.isnot(None)
-                    ).with_entities(SavedContent.id, SavedContent.embedding).all()
-                    content_map = {row.id: row.embedding for row in content_rows}
-
-                enhanced_recommendations = []
-                for rec in recommendations:
-                    content_id = rec.get('id') if isinstance(rec, dict) else getattr(rec, 'id', None)
-                    embedding = content_map.get(content_id)
-                    if content_id and embedding is not None:
-                        similarity = calculate_cosine_similarity(
-                            np.array(subtask.embedding),
-                            np.array(embedding)
-                        )
-                        if isinstance(rec, dict):
-                            original_score = rec.get('match_score', rec.get('score', 0))
-                            rec['match_score'] = min(100, original_score + (similarity * 0.2 * 100))
-                            rec['subtask_embedding_similarity'] = float(similarity)
-                        else:
-                            original_score = getattr(rec, 'match_score', getattr(rec, 'score', 0))
-                            rec.match_score = min(100, original_score + (similarity * 0.2 * 100))
-                            rec.subtask_embedding_similarity = float(similarity)
-                    enhanced_recommendations.append(rec)
-
-                if enhanced_recommendations:
-                    enhanced_recommendations.sort(
-                        key=lambda x: x.get('match_score', 0) if isinstance(x, dict) else getattr(x, 'match_score', 0),
-                        reverse=True
-                    )
-                    recommendations = enhanced_recommendations[:data.get('max_recommendations', 10)]
-                    logger.info("subtask_embedding_enhanced", extra={"count": len(recommendations)})
-            except Exception as e:
-                logger.warning("subtask_embedding_enhancement_failed", extra={"error": str(e)})
-                # Continue with original recommendations
-        
-        # Convert to dictionary format
-        result = []
-        for rec in recommendations:
-            if isinstance(rec, dict):
-                result.append(rec)
-            else:
-                result.append(asdict(rec))
-        
+        task, subtask, outcome = _context_recommendations(user_id, row[0], subtask_id, limit=_limit_from_request())
+        if subtask is None:
+            return jsonify({'error': 'Subtask not found'}), 404
         return jsonify({
-            'recommendations': result,
-            'total_recommendations': len(result),
-            'subtask_id': subtask_id,
-            'subtask_title': subtask.title,
-            'task_id': task.id,
-            'task_title': task.title,
-            'engine_used': 'UnifiedOrchestrator_SubtaskSpecific'
+            'recommendations': outcome['results'],
+            'total_recommendations': len(outcome['results']),
+            'subtask_id': subtask['id'],
+            'subtask_title': subtask['title'],
+            'task_id': task['id'],
+            'task_title': task['title'],
+            'intent': outcome['intent'],
+            'engine_used': 'intent_engine',
         })
-        
-    except Exception as e:
-        logger.error(f"Error in subtask recommendations: {e}")
+    except Exception:
+        logger.exception("subtask_recommendations_failed")
         return jsonify({'error': 'Internal server error'}), 500
-
 
 
 # ============================================================================
@@ -573,18 +308,6 @@ def get_performance_metrics():
     """Get detailed performance metrics for all engines"""
     try:
         metrics = {}
-        
-        # Get unified orchestrator metrics
-        if UNIFIED_ORCHESTRATOR_AVAILABLE:
-            try:
-                from ml.unified_recommendation_orchestrator import get_unified_orchestrator
-                orchestrator = get_unified_orchestrator()
-                metrics['unified_orchestrator'] = orchestrator.get_performance_metrics()
-            except Exception as e:
-                logger.error(f"Error getting orchestrator metrics: {e}")
-                metrics['unified_orchestrator'] = {'error': 'Internal server error'}
-        
-
         
         # Get Redis cache stats
         try:

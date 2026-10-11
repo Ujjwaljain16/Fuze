@@ -118,6 +118,8 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
         """Invalidate user-specific bookmarks and recommendations cache without global wildcard scans."""
         try:
             logger.info("cache_invalidate_user_start", extra={"user_id": user_id})
+            from utils.content_version import bump_content_version
+            bump_content_version(user_id)
             client = self.client
             if hasattr(client, 'invalidate_user_bookmarks'):
                 client.invalidate_user_bookmarks(user_id)

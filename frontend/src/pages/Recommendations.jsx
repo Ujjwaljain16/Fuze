@@ -679,7 +679,10 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
         description: selectedContext.description || '',
         technologies: selectedContext.technologies || '',
         user_interests: '',
-        project_id: selectedContext.project_id || null
+        project_id: selectedContext.project_id || null,
+        task_id: selectedContext.type === 'task' ? selectedContext.id
+          : (selectedContext.type === 'subtask' ? selectedContext.task_id : null),
+        subtask_id: selectedContext.type === 'subtask' ? selectedContext.id : null
       }
 
       // Prepare recommendation data
