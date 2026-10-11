@@ -180,7 +180,9 @@ def test_reconciler_gives_up_after_the_backoff_schedule(app, test_user):
 def _event_ids(app):
     from models import db, BookmarkEvent
     with app.app_context():
-        return {row.event_id for row in db.session.query(BookmarkEvent.event_id)}
+        # Only this test's rows: real pipeline events from other tests are persisted too.
+        return {row.event_id for row in db.session.query(BookmarkEvent.event_id)
+                .filter(BookmarkEvent.type == 'bookmark.pipeline.test')}
 
 
 def test_old_bookmark_events_are_pruned_once_a_day(app, test_user, saved_bookmark, monkeypatch):
@@ -190,11 +192,10 @@ def test_old_bookmark_events_are_pruned_once_a_day(app, test_user, saved_bookmar
     now = datetime(2026, 10, 12, 3, 0, 0)
     ages = {'old-1': 400, 'old-2': 31, 'old-3': 30.01, 'new-1': 28.5, 'new-2': 1, 'new-3': 0}
     with app.app_context():
-        # Explicit ids: a BigInteger primary key does not autoincrement on SQLite.
-        db.session.add_all(BookmarkEvent(id=i, event_id=name, bookmark_id=saved_bookmark, user_id=test_user['id'],
+        db.session.add_all(BookmarkEvent(event_id=name, bookmark_id=saved_bookmark, user_id=test_user['id'],
                                          pipeline_run_id='run', type='bookmark.pipeline.test',
                                          created_at=now - timedelta(days=days))
-                           for i, (name, days) in enumerate(ages.items(), 1))
+                           for name, days in ages.items())
         db.session.commit()
 
     fake = _FakeRedis()
@@ -205,7 +206,7 @@ def test_old_bookmark_events_are_pruned_once_a_day(app, test_user, saved_bookmar
 
         # Later the same day nothing runs, even though another row has aged out by then.
         with app.app_context():
-            db.session.add(BookmarkEvent(id=100, event_id='old-4', bookmark_id=saved_bookmark, user_id=test_user['id'],
+            db.session.add(BookmarkEvent(event_id='old-4', bookmark_id=saved_bookmark, user_id=test_user['id'],
                                          pipeline_run_id='run', type='bookmark.pipeline.test',
                                          created_at=now - timedelta(days=90)))
             db.session.commit()
