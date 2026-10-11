@@ -365,31 +365,23 @@ class User(Base):
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)  # Indexed for performance
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     title = Column(String(100), nullable=False)
     description = Column(TEXT)
     technologies = Column(TEXT)
-    created_at = Column(DateTime, default=func.now(), index=True)  # Indexed for sorting
-    
-    # Production indexes
+    created_at = Column(DateTime, default=func.now())
+
+    # (user_id, created_at) serves both "this user's projects" and "newest first"
     __table_args__ = (
         db.Index('idx_projects_user_created', 'user_id', 'created_at'),
     )
-
-    # Intent analysis caching fields
-    intent_analysis = Column(JSON)  # Store intent analysis results
-    intent_analysis_updated = Column(DateTime)  # When analysis was last updated
-
-    # Embedding field for semantic matching
-    embedding = Column(Vector(384))  # Combined embedding for semantic matching
-    embedding_metadata = Column(JSON, nullable=True)
 
     tasks = relationship('Task', backref='project', lazy=True, cascade='all, delete-orphan')
 
 class SavedContent(Base):
     __tablename__ = 'saved_content'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)  # Indexed for performance
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)  # covered by _user_url_uc
     url = Column(TEXT, nullable=False)
     title = Column(String(200), nullable=False)
     source = Column(String(50))
@@ -399,7 +391,7 @@ class SavedContent(Base):
     tags = Column(TEXT)
     category = Column(String(100))
     notes = Column(TEXT)
-    quality_score = Column(Integer, default=10, index=True)  # Indexed for filtering
+    quality_score = Column(Integer, default=10)  # filtered per user via idx_saved_content_user_quality
     embedding_metadata = Column(JSON, nullable=True)
     
     # Stage status & timestamp fields for event-driven pipeline
@@ -442,6 +434,34 @@ class SavedContent(Base):
             postgresql_where=db.text("extracted_text IS NOT NULL AND extracted_text != ''")
         ),
         db.Index('idx_saved_content_content_hash', 'content_hash'),
+        db.Index(
+            'idx_saved_content_embedding_hnsw', 'embedding', postgresql_using='hnsw',
+            postgresql_with={'m': 16, 'ef_construction': 64}, postgresql_ops={'embedding': 'vector_cosine_ops'},
+        ),
+    )
+
+
+class ContentChunk(Base):
+    """A passage of a bookmark (kind='passage') or its embedded content profile (kind='profile')."""
+    __tablename__ = 'content_chunks'
+    id = Column(BigInteger, primary_key=True)
+    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    kind = Column(String(16), nullable=False, default='passage', server_default='passage')
+    chunk_index = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    embedding = Column(Vector(384))
+    # Vectors from different models live in different spaces and must never be compared.
+    embedding_model = Column(String(120), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=func.now(), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('content_id', 'kind', 'chunk_index', name='uq_content_chunks_content_kind_idx'),
+        db.Index('idx_content_chunks_user_model', 'user_id', 'embedding_model'),
+        db.Index(
+            'idx_content_chunks_embedding_hnsw', 'embedding', postgresql_using='hnsw',
+            postgresql_with={'m': 16, 'ef_construction': 64}, postgresql_ops={'embedding': 'vector_cosine_ops'},
+        ),
     )
 
 
@@ -466,7 +486,6 @@ class ContentAnalysis(Base):
     content_type = Column(String(100))  # e.g., 'tutorial', 'documentation', 'article'
     difficulty_level = Column(String(50))  # e.g., 'beginner', 'intermediate', 'advanced'
     technology_tags = Column(TEXT)  # Comma-separated technology tags
-    relevance_score = Column(Integer, default=0)  # 0-100 relevance score
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
@@ -517,9 +536,11 @@ class Task(Base):
     title = Column(String(100), nullable=False)
     description = Column(Text)
     created_at = Column(DateTime, default=func.now())
-    embedding = Column(Vector(384))
-    embedding_metadata = Column(JSON, nullable=True)
-    
+
+    __table_args__ = (
+        db.Index('idx_tasks_project_created', 'project_id', 'created_at'),
+    )
+
     subtasks = relationship('Subtask', backref='task', lazy=True, cascade='all, delete-orphan', order_by='Subtask.created_at')
 
 class Subtask(Base):
@@ -531,8 +552,10 @@ class Subtask(Base):
     completed = Column(Integer, default=0)  # 0 = not completed, 1 = completed
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    embedding = Column(Vector(384))  # Embedding for semantic matching in recommendations
-    embedding_metadata = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        db.Index('idx_subtasks_task_created', 'task_id', 'created_at'),
+    )
 
 
 class TokenFamily(Base):

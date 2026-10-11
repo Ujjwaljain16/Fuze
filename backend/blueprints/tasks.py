@@ -81,13 +81,6 @@ def create_task():
     )
 
     try:
-        # Generate embedding for task BEFORE committing
-        try:
-            from utils.embedding_utils import get_task_embedding
-            new_task.embedding = get_task_embedding(new_task)
-        except Exception as e:
-            logger.warning("task_embedding_generation_failed", extra={"error": str(e)})
-
         db.session.add(new_task)
         db.session.commit()
         return jsonify({'message': 'Task created', 'task_id': new_task.id}), 201
@@ -305,7 +298,6 @@ def update_task(task_id):
         return jsonify({'success': False, 'error': 'Task not found'}), 404
 
     try:
-        title_changed = False
         if 'title' in data:
             title = str(data['title']).strip()
             if not title:
@@ -313,20 +305,12 @@ def update_task(task_id):
             if len(title) > MAX_TITLE_LENGTH:
                 return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_TITLE_LENGTH}'}), 400
             task.title = title
-            title_changed = True
 
         if 'description' in data:
             desc = str(data['description']).strip() if data['description'] is not None else ''
             if len(desc) > MAX_DESCRIPTION_LENGTH:
                 return jsonify({'success': False, 'error': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}'}), 400
             task.description = desc
-
-        if title_changed:
-            try:
-                from utils.embedding_utils import get_task_embedding
-                task.embedding = get_task_embedding(task)
-            except Exception as e:
-                logger.warning("task_embedding_update_failed", extra={"error": str(e)})
 
         db.session.commit()
 
@@ -404,12 +388,6 @@ def create_subtask(task_id):
     )
 
     try:
-        try:
-            from utils.embedding_utils import get_subtask_embedding
-            new_subtask.embedding = get_subtask_embedding(new_subtask)
-        except Exception as e:
-            logger.warning("subtask_embedding_generation_failed", extra={"error": str(e)})
-
         db.session.add(new_subtask)
         db.session.commit()
 
@@ -473,8 +451,6 @@ def update_subtask(subtask_id):
         return jsonify({'success': False, 'error': 'Subtask not found'}), 404
 
     try:
-        title_changed = False
-        description_changed = False
 
         if 'title' in data:
             title = str(data['title']).strip()
@@ -483,24 +459,15 @@ def update_subtask(subtask_id):
             if len(title) > MAX_TITLE_LENGTH:
                 return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_TITLE_LENGTH}'}), 400
             subtask.title = title
-            title_changed = True
 
         if 'description' in data:
             desc = str(data['description']).strip() if data['description'] is not None else ''
             if len(desc) > MAX_DESCRIPTION_LENGTH:
                 return jsonify({'success': False, 'error': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}'}), 400
             subtask.description = desc
-            description_changed = True
 
         if 'completed' in data:
             subtask.completed = 1 if data['completed'] else 0
-
-        if title_changed or description_changed:
-            try:
-                from utils.embedding_utils import get_subtask_embedding
-                subtask.embedding = get_subtask_embedding(subtask)
-            except Exception as e:
-                logger.warning("subtask_embedding_update_failed", extra={"error": str(e)})
 
         db.session.commit()
 

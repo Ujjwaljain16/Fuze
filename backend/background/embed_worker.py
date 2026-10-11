@@ -5,7 +5,6 @@ RQ job functions for asynchronous embedding generation.
 
 Jobs:
   embed_bookmark_job(bookmark_id)   — generate and store embedding for one bookmark
-  embed_project_job(project_id)     — generate and store embedding for one project
 
 Design principles:
   - Idempotent: checks embedding IS NULL before generating (safe to retry)
@@ -18,8 +17,6 @@ Retry policy (configured in task_queue.enqueue_embedding_job):
 """
 
 import time
-import logging
-from typing import Optional
 
 from core.logging_config import get_logger
 
@@ -105,6 +102,8 @@ def embed_bookmark_job(bookmark_id: int) -> dict:
                 return {"status": "deleted_during_generation", "bookmark_id": bookmark_id}
 
             bookmark.embedding = embedding
+            from utils.embedding_utils import active_embedding_model_name
+            bookmark.embedding_metadata = {"model": active_embedding_model_name()}
 
         # Invalidate caches that may have stale representation
         try:
@@ -129,50 +128,3 @@ def embed_bookmark_job(bookmark_id: int) -> dict:
         logger.exception("embed_bookmark_job_failed", extra={"bookmark_id": bookmark_id})
         raise  # Let RQ retry
 
-
-def embed_project_job(project_id: int) -> dict:
-    """
-    RQ job: generate embedding for a single project and persist it.
-    Idempotent — skips if embedding already exists.
-    """
-    from uow.unit_of_work import UnitOfWork
-    from utils.embedding_utils import get_embedding
-
-    logger.info("embed_project_job_started", extra={"project_id": project_id})
-    start = time.time()
-
-    try:
-        with UnitOfWork() as uow:
-            project = uow.projects.get_by_id(project_id)
-            if not project:
-                logger.warning("embed_project_job_not_found", extra={"project_id": project_id})
-                return {"status": "not_found", "project_id": project_id}
-
-            if getattr(project, "embedding", None) is not None:
-                return {"status": "already_embedded", "project_id": project_id}
-
-            title = getattr(project, "title", "") or ""
-            description = getattr(project, "description", "") or ""
-            technologies = getattr(project, "technologies", "") or ""
-
-        text_to_embed = f"{title} | {description} | {technologies}".strip()
-        embedding = get_embedding(text_to_embed)
-
-        if embedding is None or len(embedding) != EXPECTED_EMBEDDING_DIM:
-            raise ValueError(f"Invalid embedding for project {project_id}")
-
-        with UnitOfWork() as uow:
-            project = uow.projects.get_by_id(project_id)
-            if project:
-                project.embedding = embedding
-
-        elapsed_ms = (time.time() - start) * 1000
-        logger.info(
-            "embed_project_job_completed",
-            extra={"project_id": project_id, "elapsed_ms": round(elapsed_ms, 1)},
-        )
-        return {"status": "ok", "project_id": project_id, "elapsed_ms": round(elapsed_ms, 1)}
-
-    except Exception:
-        logger.exception("embed_project_job_failed", extra={"project_id": project_id})
-        raise

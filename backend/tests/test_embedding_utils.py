@@ -4,7 +4,6 @@ from utils.embedding_utils import (
     FallbackEmbeddingModel,
     calculate_cosine_similarity,
     get_embedding,
-    get_project_embedding,
     EMBEDDING_DIMENSION
 )
 
