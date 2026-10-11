@@ -34,3 +34,10 @@ Fly.io, etc.), re-enable these for better content extraction.** Never add them b
 Keep the web app on whatever host, and run browser rendering as a separate RQ worker on infrastructure
 that allows it (the same image with a different entrypoint, sharing `REDIS_URL` / `DATABASE_URL`). Also
 consider Chrome-extension page capture and site APIs / `trafilatura` first.
+
+## When the API host itself changes
+
+The frontend's Content-Security-Policy (`frontend/vercel.json`) only lets the app call
+`https://*.hf.space` (plus Supabase and Sentry). On a new API host, add its origin to `connect-src`
+there, or every API call from the browser will be blocked. The backend's CORS allowlist
+(`backend/utils/cors_utils.py`) needs no change: it lists the app's origins, not the API's.
