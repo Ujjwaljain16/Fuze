@@ -35,43 +35,48 @@ const api = axios.create({
   timeout: 30000, // 30 second timeout - should be fast with optimizations
 })
 
-// CSRF token management - optimized for performance
-let csrfToken = null
+// Session tokens live in localStorage['user'] ({ token/access_token, refresh_token, ...profile }).
+// The API is on a different site than the app, so its cookies are never sent with our requests:
+// the access token goes in the Authorization header and the refresh token is sent explicitly.
+const readStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null')
+  } catch {
+    return null
+  }
+}
 
-// Request interceptor to add CSRF token and correlation ID
+const storeTokens = (accessToken, refreshToken) => {
+  const user = readStoredUser()
+  if (!user) return
+  if (accessToken) {
+    user.token = accessToken
+    user.access_token = accessToken
+  }
+  if (refreshToken) user.refresh_token = refreshToken
+  localStorage.setItem('user', JSON.stringify(user))
+}
+
+const tokenExpiresWithin = (token, seconds) => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return !payload.exp || payload.exp * 1000 - Date.now() < seconds * 1000
+  } catch {
+    return true
+  }
+}
+
+// Request interceptor: correlation ID + bearer token
 api.interceptors.request.use(
   async (config) => {
     // Inject Correlation ID for end-to-end traceability
     const requestId = uuidv4()
     config.headers['X-Request-ID'] = requestId
     
-    // Authorization header: Attach Bearer token if stored in localStorage (supports both header and cookie auth flows)
-    const storedUser = localStorage.getItem('user')
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser)
-        const token = parsed?.token || parsed?.access_token
-        if (token) {
-          config.headers['Authorization'] = `Bearer ${token}`
-        }
-      } catch {
-        // Ignore parse error
-      }
+    const token = readStoredUser()?.token || readStoredUser()?.access_token
+    if (token && !config.headers['Authorization']) {
+      config.headers['Authorization'] = `Bearer ${token}`
     }
-    
-    // CSRF Protection: For mutating requests, extract the CSRF token from the cookie
-    // Flask-JWT-Extended sets 'csrf_access_token' in a non-HttpOnly cookie
-    if (['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase())) {
-      const csrfCookie = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('csrf_access_token='))
-      
-      if (csrfCookie) {
-        const csrfToken = csrfCookie.split('=')[1]
-        config.headers['X-CSRF-TOKEN'] = csrfToken
-      }
-    }
-    
     return config
   },
   (error) => {
@@ -82,14 +87,6 @@ api.interceptors.request.use(
 // Single-flight refresh guard & helper
 let inFlightRefreshPromise = null
 
-const getCSRFHeader = (type = 'access') => {
-  const cookieName = type === 'refresh' ? 'csrf_refresh_token=' : 'csrf_access_token='
-  const csrfCookie = document.cookie
-    .split('; ')
-    .find(row => row.startsWith(cookieName))
-  return csrfCookie ? csrfCookie.split('=')[1] : null
-}
-
 const executeTokenRefresh = async () => {
   if (inFlightRefreshPromise) {
     return inFlightRefreshPromise
@@ -97,30 +94,14 @@ const executeTokenRefresh = async () => {
 
   inFlightRefreshPromise = (async () => {
     try {
-      const headers = {}
-      const refreshCsrf = getCSRFHeader('refresh')
-      if (refreshCsrf) {
-        headers['X-CSRF-TOKEN'] = refreshCsrf
-      }
-
-      try {
-        const storedUser = localStorage.getItem('user')
-        if (storedUser) {
-          const parsed = JSON.parse(storedUser)
-          const token = parsed?.token || parsed?.access_token
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`
-          }
-        }
-      } catch {
-        // Ignore parse error
-      }
-
-      return await axios.post(
-        `${baseURL}/api/auth/refresh`,
-        {},
-        { withCredentials: true, headers }
-      )
+      const refreshToken = readStoredUser()?.refresh_token
+      // Without a stored refresh token (sessions from before this change) fall back to the cookie,
+      // which works when the app and API share a site (local dev, same-domain deploys).
+      const headers = refreshToken ? { Authorization: `Bearer ${refreshToken}` } : {}
+      const response = await axios.post(`${baseURL}/api/auth/refresh`, {}, { withCredentials: true, headers })
+      // Refresh tokens rotate: the old one is now spent, so the new pair must be saved together.
+      storeTokens(response.data?.access_token, response.data?.refresh_token)
+      return response
     } finally {
       inFlightRefreshPromise = null
     }
@@ -135,26 +116,8 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
     
-    // Handle CSRF token errors
-    if (error.response?.status === 400 && error.response?.data?.error === 'csrf_error') {
-      try {
-        // Get new CSRF token
-        const csrfResponse = await axios.get(`${baseURL}/api/auth/csrf-token`)
-        csrfToken = csrfResponse.data.csrf_token
-        
-        // Retry the original request with new CSRF token
-        if (originalRequest.method !== 'get') {
-          originalRequest.headers['X-CSRF-TOKEN'] = csrfToken
-        }
-        return api(originalRequest)
-      } catch (csrfError) {
-        console.error('Failed to get CSRF token:', csrfError)
-        return Promise.reject(error)
-      }
-    }
-    
-    // Handle token expiration (ignore auth endpoints: login, logout, refresh, csrf-token, supabase-oauth)
-    const AUTH_BYPASS_URLS = ['/api/auth/login', '/api/auth/logout', '/api/auth/refresh', '/api/auth/csrf-token', '/api/auth/supabase-oauth']
+    // Handle token expiration (ignore auth endpoints: login, logout, refresh, supabase-oauth)
+    const AUTH_BYPASS_URLS = ['/api/auth/login', '/api/auth/logout', '/api/auth/refresh', '/api/auth/supabase-oauth']
     const isAuthUrl = AUTH_BYPASS_URLS.some((path) => originalRequest.url?.includes(path))
 
     if (error.response?.status === 401 && !originalRequest._retry && !isAuthUrl) {
@@ -162,22 +125,10 @@ api.interceptors.response.use(
       try {
         const refreshResponse = await executeTokenRefresh()
         const newAccessToken = refreshResponse.data?.access_token
-        
         if (newAccessToken) {
-          try {
-            const storedUser = localStorage.getItem('user')
-            if (storedUser) {
-              const userObj = JSON.parse(storedUser)
-              userObj.token = newAccessToken
-              userObj.access_token = newAccessToken
-              localStorage.setItem('user', JSON.stringify(userObj))
-            }
-          } catch (e) {
-            console.warn('Failed to sync new access token to localStorage:', e)
-          }
           originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`
         }
-        
+
         // Refresh succeeded - retry the original request with new access token
         return api(originalRequest)
       } catch {
@@ -192,6 +143,8 @@ api.interceptors.response.use(
 
 // Proactive token refresh - simplified using executeTokenRefresh
 export const refreshTokenIfNeeded = async () => {
+  const token = readStoredUser()?.token || readStoredUser()?.access_token
+  if (token && !tokenExpiresWithin(token, 120)) return
   try {
     await executeTokenRefresh()
   } catch (error) {
@@ -199,7 +152,7 @@ export const refreshTokenIfNeeded = async () => {
   }
 }
 
-// CSRF token initialization is no longer needed as tokens are read directly from cookies in the interceptor
+// Kept for AuthContext's existing call; API requests authenticate with the bearer header.
 export const initializeCSRF = async () => {
   // No-op for backward compatibility in AuthContext
   return Promise.resolve()

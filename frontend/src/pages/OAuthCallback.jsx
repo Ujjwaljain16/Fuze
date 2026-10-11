@@ -41,11 +41,12 @@ export default function OAuthCallback() {
         // Send the Supabase access token to our backend to exchange for local session
         const res = await api.post('/api/auth/supabase-oauth', { access_token })
         
-        const { user, access_token: backendToken } = res.data || {}
+        const { user, access_token: backendToken, refresh_token: backendRefresh } = res.data || {}
 
         const fullUser = {
           ...(user || {}),
-          ...(backendToken ? { token: backendToken, access_token: backendToken } : {})
+          ...(backendToken ? { token: backendToken, access_token: backendToken } : {}),
+          ...(backendRefresh ? { refresh_token: backendRefresh } : {})
         }
 
         // Set user profile in localStorage (with access token attached for Authorization header)

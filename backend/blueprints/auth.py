@@ -6,9 +6,11 @@ import re
 import logging
 import requests
 from datetime import datetime, timedelta
+from flask_jwt_extended.exceptions import JWTExtendedException
+from jwt.exceptions import PyJWTError
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required, get_jwt_identity,
-    get_jwt, decode_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies
+    get_jwt, decode_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, verify_jwt_in_request
 )
 from flask_cors import cross_origin
 from sqlalchemy.exc import IntegrityError
@@ -290,6 +292,7 @@ def login():
 
         response = jsonify({
             'access_token': access_token,
+            'refresh_token': refresh_token,
             'user': user_data
         })
         set_access_cookies(response, access_token)
@@ -399,10 +402,27 @@ def update_username():
         return jsonify({'message': 'Failed to update username'}), 500
 
 
+def _verify_refresh_token() -> bool:
+    """Accept the refresh token from the Authorization header, else from the refresh cookie.
+
+    The SPA is served from a different site than the API, so the SameSite=Lax refresh cookie is
+    not sent on its requests; it sends the refresh token in the header instead. Older clients
+    sent the *access* token in that header, which must not shadow a valid refresh cookie.
+    """
+    for locations in (['headers'], ['cookies']):
+        try:
+            verify_jwt_in_request(refresh=True, locations=locations)
+            return True
+        except (JWTExtendedException, PyJWTError):
+            continue
+    return False
+
+
 @auth_bp.route('/refresh', methods=['POST'])
-@jwt_required(refresh=True)
 def refresh():
     """Refresh access token with rotation and reuse detection."""
+    if not _verify_refresh_token():
+        return jsonify({'message': 'Refresh token missing or invalid', 'error': 'invalid_refresh_token'}), 401
     jwt_data  = get_jwt()
     identity  = get_jwt_identity()
     old_jti   = jwt_data['jti']
@@ -435,7 +455,7 @@ def refresh():
 
         uow.token_families.update_current_jti(family_id, new_jti)
 
-    response = jsonify({'access_token': new_access})
+    response = jsonify({'access_token': new_access, 'refresh_token': new_refresh})
     set_access_cookies(response, new_access)
     set_refresh_cookies(response, new_refresh)
     return response, 200
@@ -535,6 +555,7 @@ def supabase_oauth():
 
         response = jsonify({
             'access_token': access,
+            'refresh_token': refresh,
             'user': user_data
         })
         set_access_cookies(response, access)

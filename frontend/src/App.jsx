@@ -60,12 +60,13 @@ function AppContent() {
         }
 
         const res = await api.post('/api/auth/supabase-oauth', { access_token: token });
-        const { user: oauthUser, access_token: backendToken } = res.data || {};
+        const { user: oauthUser, access_token: backendToken, refresh_token: backendRefresh } = res.data || {};
 
         if (oauthUser) {
           const fullUser = {
             ...oauthUser,
-            ...(backendToken ? { token: backendToken, access_token: backendToken } : {})
+            ...(backendToken ? { token: backendToken, access_token: backendToken } : {}),
+            ...(backendRefresh ? { refresh_token: backendRefresh } : {})
           };
           localStorage.setItem('user', JSON.stringify(fullUser));
           window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: fullUser } }));

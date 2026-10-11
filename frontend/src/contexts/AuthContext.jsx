@@ -14,6 +14,19 @@ export const useAuth = () => {
   return context
 }
 
+const SESSION_KEYS = ['token', 'access_token', 'refresh_token']
+
+const sessionTokensOf = (user) =>
+  Object.fromEntries(SESSION_KEYS.filter((k) => user?.[k]).map((k) => [k, user[k]]))
+
+const storedSessionTokens = () => {
+  try {
+    return sessionTokensOf(JSON.parse(localStorage.getItem('user') || '{}'))
+  } catch {
+    return {}
+  }
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
     try {
@@ -60,16 +73,7 @@ export const AuthProvider = ({ children }) => {
     const handleUserLoggedIn = (event) => {
       // OAuth callback can provide user directly to avoid redirect races on mobile/PWA.
       if (event?.detail?.user) {
-        const existingToken = userRef.current?.token || userRef.current?.access_token || (() => {
-          try {
-            const u = JSON.parse(localStorage.getItem('user') || '{}')
-            return u.token || u.access_token
-          } catch { return null }
-        })()
-        const mergedUser = {
-          ...event.detail.user,
-          ...(existingToken ? { token: existingToken, access_token: existingToken } : {})
-        }
+        const mergedUser = { ...event.detail.user, ...storedSessionTokens(), ...sessionTokensOf(event.detail.user) }
         setUser(mergedUser)
         userRef.current = mergedUser
         localStorage.setItem('user', JSON.stringify(mergedUser))
@@ -96,17 +100,8 @@ export const AuthProvider = ({ children }) => {
     try {
       // Profile endpoint is now cached and optimized - should be fast
       const response = await api.get('/api/profile')
-      const existingToken = userRef.current?.token || userRef.current?.access_token || (() => {
-        try {
-          const u = JSON.parse(localStorage.getItem('user') || '{}')
-          return u.token || u.access_token
-        } catch { return null }
-      })()
-
-      const updatedUser = {
-        ...response.data,
-        ...(existingToken ? { token: existingToken, access_token: existingToken } : {})
-      }
+      // localStorage holds the latest tokens (refresh rotates them), so take them from there.
+      const updatedUser = { ...response.data, ...storedSessionTokens() }
       setUser(updatedUser)
       userRef.current = updatedUser
       localStorage.setItem('user', JSON.stringify(updatedUser))
@@ -133,11 +128,12 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await api.post('/api/auth/login', { email, password })
-      const { user: userData, access_token } = response.data
+      const { user: userData, access_token, refresh_token } = response.data
       
       const fullUser = {
         ...(userData || {}),
-        ...(access_token ? { token: access_token, access_token } : {})
+        ...(access_token ? { token: access_token, access_token } : {}),
+        ...(refresh_token ? { refresh_token } : {})
       }
 
       // Set state atomically to avoid race conditions
