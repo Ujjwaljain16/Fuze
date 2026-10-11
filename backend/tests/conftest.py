@@ -20,6 +20,12 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
+# .env holds PRODUCTION connection strings. Overwrite them before any test module is imported:
+# config.py captures DATABASE_URL at first import, and test_run_production imports run_production
+# (which builds an app) during collection. With the real URL in place, create_all()/drop_all()
+# ran against production and dropped its tables (Oct 2026).
+os.environ['DATABASE_URL'] = os.getenv('TEST_DATABASE_URL') or 'sqlite:///:memory:'
+
 # .env points at production Upstash; without this the suite writes cache keys and rate-limit
 # counters there and enqueues RQ jobs that a production worker would later run against the real DB.
 os.environ['REDIS_URL'] = os.getenv('TEST_REDIS_URL', 'redis://127.0.0.1:6379/15')
@@ -117,6 +123,12 @@ def app():
             flask_app.config['SQLALCHEMY_DATABASE_URI'] = test_db_url
             db.init_app(flask_app)
         
+        # Last line of defence: refuse to run against anything but the intended test database.
+        bound_url = db.engine.url
+        expected = os.getenv('TEST_DATABASE_URL')
+        if bound_url.get_backend_name() != 'sqlite' and not (expected and str(bound_url) == expected):
+            pytest.exit(f"Refusing to run tests: database engine is bound to {bound_url.host}", returncode=3)
+
         db.create_all()
         yield flask_app
         t_app_0 = time.perf_counter()
