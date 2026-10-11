@@ -1,32 +1,29 @@
 name: Sync Backend to Hugging Face Space
 
+# Deploy only what Backend CI has tested: this runs after a successful Backend CI run
+# on a push to main, and deploys exactly the commit that run tested.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'backend/**'
-      - 'requirements.txt'
-      - 'Dockerfile'
-      - 'app.py'
-      - 'wsgi.py'
-      - 'start.sh'
-      - 'supervisord.conf'
-      - 'alembic.ini'
+  workflow_run:
+    workflows: ["Backend CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hf-space-deploy
+  cancel-in-progress: false
 
 jobs:
   sync:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main repo
-        uses: actions/checkout@v3
+      - name: Checkout the tested commit
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
-      - name: Setup Git
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Clone HF Space
         env:
@@ -37,33 +34,25 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
-      - name: Sync Backend Files
+      - name: Sync backend files
         run: |
-          # Copy backend files
-          cp -r backend hf-space/
-          cp requirements.txt hf-space/
-          cp Dockerfile hf-space/
-          cp app.py hf-space/
-          cp wsgi.py hf-space/
-          cp start.sh hf-space/
-          cp supervisord.conf hf-space/
-          # alembic.ini was missing here too (same bug as the Dockerfile's own
-          # missing COPY, fixed separately) -- without it, start.sh's
-          # migration step has been failing on every container boot in the
-          # actual deployed Space, silently swallowed by its `|| echo
-          # "Warning: ..."` fallback.
-          cp alembic.ini hf-space/
+          # --delete: modules removed from the repo must disappear from the Space too
+          # (cp -r only ever added files, so deleted code kept running there).
+          rsync -a --delete --delete-excluded --exclude '__pycache__/' --exclude '*.pyc' \
+            --exclude 'tests/' --exclude 'scratch/' --exclude 'brain/' --exclude 'eval/' \
+            --exclude '*.log' --exclude '.env*' \
+            backend/ hf-space/backend/
+          for f in requirements.txt Dockerfile .dockerignore app.py wsgi.py start.sh supervisord.conf alembic.ini; do
+            cp "$f" hf-space/
+          done
 
-      - name: Commit and Push to HF Space
+      - name: Commit and push to HF Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           cd hf-space
-          git add .
-          git diff --staged --quiet || git commit -m "chore: auto-sync from main repo [skip ci]"
-          # Get current branch name (HF Spaces might use 'main' or 'master')
+          git add -A
+          git diff --staged --quiet || git commit -m "chore: sync from main @ ${SHA::7} [skip ci]"
           BRANCH=$(git branch --show-current || echo "main")
-          # Configure git to use the token
-          git remote set-url origin https://huggingface:$HF_TOKEN@huggingface.co/spaces/Ujjwaljain16/fuze-backend
-          # Push changes
           git push origin HEAD:$BRANCH
