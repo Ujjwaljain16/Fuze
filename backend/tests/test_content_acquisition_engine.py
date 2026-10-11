@@ -65,28 +65,26 @@ def test_quality_evaluator_cloudflare_challenge():
     assert metrics.challenge_detected is True
 
 
-def test_decision_engine_escalation():
+def test_decision_engine_http_only():
     engine = DecisionEngine(quality_threshold=70)
 
     metrics_challenge = QualityMetrics(score=10, has_title=False, has_article_body=False, word_count=10, hydration_detected=False, challenge_detected=True)
-    decision1 = engine.evaluate(metrics_challenge, current_strategy="HTTP")
-    assert decision1.action == "ESCALATE"
-    assert decision1.next_strategy == "STEALTH"
+    assert engine.evaluate(metrics_challenge, current_strategy="HTTP").action == "FAIL"
 
-    decision2 = engine.evaluate(metrics_challenge, current_strategy="STEALTH")
-    assert decision2.action == "ESCALATE"
-    assert decision2.next_strategy == "DYNAMIC"
+    metrics_thin = QualityMetrics(score=40, has_title=True, has_article_body=False, word_count=20, hydration_detected=False, challenge_detected=False)
+    assert engine.evaluate(metrics_thin, current_strategy="HTTP").action == "FAIL"
+
+    metrics_ok = QualityMetrics(score=50, has_title=True, has_article_body=True, word_count=200, hydration_detected=False, challenge_detected=False)
+    assert engine.evaluate(metrics_ok, current_strategy="HTTP").action == "ACCEPT"
 
     metrics_high = QualityMetrics(score=95, has_title=True, has_article_body=True, word_count=500, hydration_detected=False, challenge_detected=False)
-    decision3 = engine.evaluate(metrics_high, current_strategy="HTTP")
-    assert decision3.action == "ACCEPT"
+    assert engine.evaluate(metrics_high, current_strategy="HTTP").action == "ACCEPT"
 
 
 def test_fetch_policy_matching():
     policy = FetchPolicy()
-    assert policy.get_strategy_plan("https://medium.com/@user/story") == ["STEALTH", "DYNAMIC"]
-    assert policy.get_strategy_plan("https://devdocs.io/javascript") == ["DYNAMIC"]
-    assert policy.get_strategy_plan("https://example.com/blog/post") == ["HTTP", "STEALTH", "DYNAMIC"]
+    assert policy.get_strategy_plan("https://medium.com/@user/story") == ["HTTP"]
+    assert policy.get_strategy_plan("https://example.com/blog/post") == ["HTTP"]
 
 
 def test_extractor_registry():
@@ -192,6 +190,6 @@ def test_acquisition_engine_integration(mocker):
     assert isinstance(doc, ContentDocument)
     assert doc.url == "https://fuze-test.org/test-article"
     assert len(doc.content_hash) == 64
-    assert doc.fetch_metadata.strategy in ("HTTP", "STEALTH", "DYNAMIC")
+    assert doc.fetch_metadata.strategy == "HTTP"
     assert "opengraph" in doc.plugin_versions
     assert "title" in doc.metadata.field_provenance

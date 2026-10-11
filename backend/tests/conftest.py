@@ -232,7 +232,7 @@ def mock_external_network_services(monkeypatch):
     try:
         monkeypatch.setattr('blueprints.bookmarks.scrape_url_enhanced', mock_scrape)
         monkeypatch.setattr('blueprints.bookmarks.get_embedding', mock_embed)
-        monkeypatch.setattr('scrapers.scrapling_enhanced_scraper.scrape_url_enhanced', mock_scrape)
+        monkeypatch.setattr('scrapers.enhanced_web_scraper.scrape_url_enhanced', mock_scrape)
         monkeypatch.setattr('utils.embedding_utils.get_embedding', mock_embed)
     except Exception:
         pass

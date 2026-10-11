@@ -4,6 +4,7 @@ Easy LinkedIn Post Scraper - User-friendly tool for scraping LinkedIn posts
 """
 
 import requests
+from scrapers.fetchers.http_fetcher import HTTPFetcher
 from bs4 import BeautifulSoup
 import re
 import json
@@ -24,99 +25,28 @@ class EasyLinkedInScraper:
         self.results = []
     
     def setup_session(self):
-        """Setup session with LinkedIn-friendly headers"""
+        """Identify honestly; no header spoofing"""
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Cache-Control": "max-age=0"
+            "User-Agent": "FuzeBot/1.0 (+https://itsfuze.vercel.app; bookmark content extraction on user request)",
+            "Accept": "text/html,application/xhtml+xml",
         })
-    
+
     def scrape_post(self, url: str) -> Dict:
-        """Main method to scrape a LinkedIn post"""
-        print(f"🔍 Scraping LinkedIn post: {url}")
-        
-        # Strategy 1: Try direct scraping
-        result = self.try_direct_scraping(url)
-        if result.get('success') and len(result.get('content', '')) > 200:
-            return result
-        
-        # Strategy 2: Try with different headers
-        result = self.try_alternative_headers(url)
-        if result.get('success') and len(result.get('content', '')) > 200:
-            return result
-        
-        # Strategy 3: Try mobile user agent
-        result = self.try_mobile_user_agent(url)
-        if result.get('success') and len(result.get('content', '')) > 200:
-            return result
-        
-        # Strategy 4: Fallback - return what we have
-        return result
-    
+        """Fetch one page the user chose to save, over plain HTTP, and extract its public content."""
+        return self.try_direct_scraping(url)
+
     def try_direct_scraping(self, url: str) -> Dict:
-        """Try direct scraping with standard headers"""
+        """Single plain-HTTP fetch (redirect hops are SSRF-checked)"""
         try:
-            response = self.session.get(url, timeout=15)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, "html.parser")
-            return self.extract_content(soup, url, "Direct scraping")
-            
+            result = HTTPFetcher(timeout=15).fetch(url)
+            if result.http_status >= 400 or not result.raw_content:
+                return self.get_fallback_result(url, f"HTTP {result.http_status}")
+            soup = BeautifulSoup(result.raw_content.decode("utf-8", errors="replace"), "html.parser")
+            return self.extract_content(soup, url, "Direct fetch")
         except Exception as e:
-            logger.warning(f"Direct scraping failed: {e}")
-            return self.get_fallback_result(url, f"Direct scraping failed: {e}")
-    
-    def try_alternative_headers(self, url: str) -> Dict:
-        """Try with alternative headers"""
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1"
-            }
-            
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, "html.parser")
-            return self.extract_content(soup, url, "Alternative headers")
-            
-        except Exception as e:
-            logger.warning(f"Alternative headers failed: {e}")
-            return self.get_fallback_result(url, f"Alternative headers failed: {e}")
-    
-    def try_mobile_user_agent(self, url: str) -> Dict:
-        """Try with mobile user agent"""
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Connection": "keep-alive"
-            }
-            
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, "html.parser")
-            return self.extract_content(soup, url, "Mobile user agent")
-            
-        except Exception as e:
-            logger.warning(f"Mobile user agent failed: {e}")
-            return self.get_fallback_result(url, f"Mobile user agent failed: {e}")
-    
+            logger.warning(f"Direct fetch failed: {e}")
+            return self.get_fallback_result(url, f"Direct fetch failed: {e}")
+
     def extract_content(self, soup: BeautifulSoup, url: str, method: str) -> Dict:
         """Extract content from HTML using multiple strategies"""
         

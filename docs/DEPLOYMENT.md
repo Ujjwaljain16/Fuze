@@ -7,13 +7,14 @@ Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 > of date**. Hugging Face changed platform policy: creating a new Docker-SDK
 > Space on the free `cpu-basic` tier now requires an HF **PRO** subscription
 > (~$9/mo) — confirmed via a `402 Payment Required` when provisioning one. The
-> existing `fuze-backend` Space is live again (after a temporary moderation
-> flag was lifted), but it can't simply be recreated for free if lost, so
+> existing `fuze-backend` Space was paused twice by HF's abuse detection
+> (a browser-automation dependency) and must be unpaused by HF support; it
+> can't simply be recreated for free if lost, so
 > **"truly free" and "no payment required" no longer hold for new setups.**
 > We're evaluating a free/low-cost fallback host (a small VPS such as
 > Hetzner, or Fly.io) — see [`gaps_closure_plan.md`](../gaps_closure_plan.md)
-> item 12. The hosted image bundles no headless browser and sets
-> `DISABLE_BROWSER_FETCHERS=true`; secrets such as `REDIS_URL` must be set as
+> item 12. The image contains no browser-automation tooling and
+> fetches only the single page a user saves, over plain HTTP; secrets such as `REDIS_URL` must be set as
 > Space **Secrets**, not Variables (a name can't exist as both). This guide
 > remains the architecture/env-var reference.
 

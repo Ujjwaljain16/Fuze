@@ -11,24 +11,9 @@ from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_STRATEGY_PLAN = ["HTTP", "STEALTH", "DYNAMIC"]
+DEFAULT_STRATEGY_PLAN = ["HTTP"]
 
-DEFAULT_DOMAIN_POLICIES: Dict[str, List[str]] = {
-    "github.com": ["STEALTH", "DYNAMIC"],
-    "leetcode.com": ["STEALTH", "DYNAMIC"],
-    "medium.com": ["STEALTH", "DYNAMIC"],
-    "dev.to": ["STEALTH", "DYNAMIC"],
-    "stackoverflow.com": ["STEALTH", "DYNAMIC"],
-    "flaviocopes.com": ["STEALTH"],
-    "codeforces.com": ["STEALTH"],
-    "devdocs.io": ["DYNAMIC"],
-    "andreasbm.github.io": ["DYNAMIC"],
-    "dashboard.render.com": ["DYNAMIC"],
-    "neetcode.io": ["DYNAMIC"],
-    "masterjs.vercel.app": ["DYNAMIC"],
-    "openml.org": ["DYNAMIC"],
-    "www.openml.org": ["DYNAMIC"],
-}
+DEFAULT_DOMAIN_POLICIES: Dict[str, List[str]] = {}
 
 
 class FetchPolicy:
@@ -71,38 +56,10 @@ class FetchPolicy:
             logger.debug("record_policy_failure_failed", extra={"domain": domain, "error": str(e)})
 
     def get_strategy_plan(self, url: str) -> List[str]:
-        """
-        Return the candidate fetch strategy plan for a given URL.
-        Evaluates static overrides first, then dynamic runtime metrics, then default plan.
-        """
+        """Return the ordered fetch strategies for a URL (plain HTTP only)."""
         domain = self._get_domain(url)
-
-        # 1. Static Domain Policy Check
         for policy_domain, plan in self.domain_policies.items():
-            clean_policy_domain = policy_domain[4:] if policy_domain.startswith("www.") else policy_domain
-            if domain == clean_policy_domain or domain.endswith(f".{clean_policy_domain}"):
-                # Check runtime adaptation: If HTTP has succeeded 5+ times consecutively on a STEALTH domain, downgrade to HTTP fast-path
-                if self._redis and plan[0] != "HTTP":
-                    try:
-                        http_successes = int(self._redis.get(f"fuze:policy:{domain}:HTTP:success") or 0)
-                        http_failures = int(self._redis.get(f"fuze:policy:{domain}:HTTP:failure") or 0)
-                        if http_successes >= 5 and http_failures == 0:
-                            logger.info("dynamic_policy_downgrade_to_http", extra={"domain": domain})
-                            return ["HTTP"] + list(plan)
-                    except Exception:
-                        pass
-                logger.info("fetch_policy_matched_static", extra={"url": url, "domain": domain, "plan": plan})
+            clean = policy_domain[4:] if policy_domain.startswith("www.") else policy_domain
+            if domain == clean or domain.endswith(f".{clean}"):
                 return list(plan)
-
-        # 2. Dynamic Policy Check for standard domains (promote to STEALTH if HTTP repeatedly fails)
-        if self._redis:
-            try:
-                http_failures = int(self._redis.get(f"fuze:policy:{domain}:HTTP:failure") or 0)
-                if http_failures >= 3:
-                    logger.info("dynamic_policy_promote_to_stealth", extra={"domain": domain, "http_failures": http_failures})
-                    return ["STEALTH", "DYNAMIC", "HTTP"]
-            except Exception:
-                pass
-
-        logger.debug("fetch_policy_default", extra={"url": url, "plan": DEFAULT_STRATEGY_PLAN})
         return list(DEFAULT_STRATEGY_PLAN)

@@ -13,13 +13,9 @@ except ImportError:
 import re
 import time
 from typing import Dict
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    sync_playwright = None
-    PLAYWRIGHT_AVAILABLE = False
 from urllib.parse import urlparse
+from scrapers.fetchers.http_fetcher import HTTPFetcher
+from scrapers.url_safety import is_safe_url
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -42,13 +38,6 @@ class EnhancedWebScraper:
             'dev.to': 'devto_api'
         }
         
-        # User agents for rotation
-        self.user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0"
-        ]
     
     def setup_session(self):
         """Setup requests session with proper headers"""
@@ -81,6 +70,10 @@ class EnhancedWebScraper:
         """
         Enhanced URL scraping with multiple strategies
         """
+        if not is_safe_url(url):
+            logger.error(f"Blocked unsafe URL: {url}")
+            return self.get_fallback_content(url, "Blocked")
+
         strategy = self.get_domain_strategy(url)
         logger.info(f"Using strategy '{strategy}' for {url}")
         
@@ -118,10 +111,10 @@ class EnhancedWebScraper:
                 problem_slug = problem_match.group(1)
                 
                 # Try to get content via Playwright with specific LeetCode handling
-                return self.leetcode_playwright_scraping(url, problem_slug)
+                return self.enhanced_static_scraping(url)
             
             # For discussion URLs, try enhanced Playwright
-            return self.enhanced_playwright_scraping(url, site_specific=True)
+            return self.enhanced_static_scraping(url)
             
         except Exception as e:
             logger.error(f"LeetCode handling failed: {e}")
@@ -130,7 +123,7 @@ class EnhancedWebScraper:
     def handle_github_url(self, url: str) -> Dict:
         """Handle GitHub URLs"""
         try:
-            return self.github_playwright_scraping(url)
+            return self.enhanced_static_scraping(url)
         except Exception as e:
             logger.error(f"GitHub handling failed: {e}")
             return self.get_fallback_content(url, "GitHub")
@@ -138,7 +131,7 @@ class EnhancedWebScraper:
     def handle_stackoverflow_url(self, url: str) -> Dict:
         """Handle Stack Overflow URLs"""
         try:
-            return self.enhanced_playwright_scraping(url, site_specific=True)
+            return self.enhanced_static_scraping(url)
         except Exception as e:
             logger.error(f"Stack Overflow handling failed: {e}")
             return self.get_fallback_content(url, "Stack Overflow")
@@ -146,7 +139,7 @@ class EnhancedWebScraper:
     def handle_medium_url(self, url: str) -> Dict:
         """Handle Medium URLs"""
         try:
-            return self.enhanced_playwright_scraping(url, site_specific=True)
+            return self.enhanced_static_scraping(url)
         except Exception as e:
             logger.error(f"Medium handling failed: {e}")
             return self.get_fallback_content(url, "Medium")
@@ -154,205 +147,23 @@ class EnhancedWebScraper:
     def handle_devto_url(self, url: str) -> Dict:
         """Handle Dev.to URLs"""
         try:
-            return self.enhanced_playwright_scraping(url, site_specific=True)
+            return self.enhanced_static_scraping(url)
         except Exception as e:
             logger.error(f"Dev.to handling failed: {e}")
             return self.get_fallback_content(url, "Dev.to")
     
-    def enhanced_static_scraping(self, url: str, _tried_playwright=False) -> Dict:
-        """Enhanced static scraping with multiple strategies"""
+    def enhanced_static_scraping(self, url: str) -> Dict:
+        """Fetch a single page over plain HTTP (redirect hops are SSRF-checked) and parse it."""
         try:
-            # Rotate user agents
-            user_agent = self.user_agents[hash(url) % len(self.user_agents)]
-            headers = {
-                "User-Agent": user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1"
-            }
-            
-            response = self.session.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            html = response.text
-            
+            result = HTTPFetcher(timeout=15).fetch(url)
+            if result.http_status >= 400 or not result.raw_content:
+                return self.get_fallback_content(url, "Static")
+            html = result.raw_content.decode("utf-8", errors="replace")
             return self.parse_html_content(html, url)
-            
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.warning(f"Static scraping failed for {url}: {e}")
-            # Fallback to Playwright only if available and not already tried
-            if PLAYWRIGHT_AVAILABLE and not _tried_playwright:
-                return self.enhanced_playwright_scraping(url)
-            else:
-                return self.get_fallback_content(url, "Static")
-    
-    def enhanced_playwright_scraping(self, url: str, site_specific: bool = False, _tried_static=False) -> Dict:
-        """Enhanced Playwright scraping with site-specific optimizations"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available, using static scraping fallback")
-            return self.enhanced_static_scraping(url, _tried_playwright=True)
-        
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                
-                # Set viewport and user agent
-                page.set_viewport_size({"width": 1280, "height": 720})
-                user_agent = self.user_agents[hash(url) % len(self.user_agents)]
-                page.set_extra_http_headers({"User-Agent": user_agent})
-                
-                # Site-specific configurations
-                if site_specific:
-                    if 'leetcode.com' in url:
-                        # Wait longer for LeetCode content
-                        page.goto(url, timeout=30000)
-                        page.wait_for_load_state('networkidle', timeout=15000)
-                        time.sleep(3)
-                    elif 'stackoverflow.com' in url:
-                        # Handle Stack Overflow's dynamic content
-                        page.goto(url, timeout=30000)
-                        page.wait_for_load_state('networkidle', timeout=10000)
-                        time.sleep(2)
-                    else:
-                        # Default enhanced behavior
-                        page.goto(url, timeout=30000)
-                        page.wait_for_load_state('networkidle', timeout=10000)
-                        time.sleep(2)
-                else:
-                    # Standard behavior
-                    page.goto(url, timeout=30000)
-                    page.wait_for_load_state('networkidle', timeout=10000)
-                    time.sleep(2)
-                
-                # Try to wait for content to appear
-                try:
-                    page.wait_for_selector('article, main, .content, .post-content, .entry-content', timeout=5000)
-                except:
-                    pass
-                
-                html = page.content()
-                browser.close()
-                
-                return self.parse_html_content(html, url)
-                
-        except Exception as e:
-            error_str = str(e).lower()
-            # Check if it's a browser installation error
-            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for {url}, falling back to static scraping")
-                # Try static scraping as fallback (only if not already tried)
-                if not _tried_static:
-                    try:
-                        return self.enhanced_static_scraping(url, _tried_playwright=True)
-                    except:
-                        return self.get_fallback_content(url, "Static")
-                return self.get_fallback_content(url, "Static")
-            logger.error(f"Playwright scraping failed for {url}: {e}")
-            # Try static scraping as fallback (only if not already tried)
-            if not _tried_static:
-                try:
-                    return self.enhanced_static_scraping(url, _tried_playwright=True)
-                except:
-                    return self.get_fallback_content(url, "Playwright")
-            return self.get_fallback_content(url, "Playwright")
-    
-    def leetcode_playwright_scraping(self, url: str, problem_slug: str) -> Dict:
-        """Specialized LeetCode scraping"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available for LeetCode, using static scraping")
-            return self.enhanced_static_scraping(url)
-        
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                
-                # Set viewport and user agent
-                page.set_viewport_size({"width": 1280, "height": 720})
-                page.set_extra_http_headers({
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                })
-                
-                # Navigate to LeetCode
-                page.goto(url, timeout=30000)
-                
-                # Wait for content to load
-                page.wait_for_load_state('networkidle', timeout=15000)
-                time.sleep(3)
-                
-                # Try to extract problem content
-                try:
-                    # Wait for problem description
-                    page.wait_for_selector('[data-track-load="description_content"]', timeout=10000)
-                except:
-                    pass
-                
-                html = page.content()
-                browser.close()
-                
-                return self.parse_html_content(html, url)
-                
-        except Exception as e:
-            error_str = str(e).lower()
-            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for LeetCode, falling back to static scraping")
-                try:
-                    return self.enhanced_static_scraping(url, _tried_playwright=True)
-                except:
-                    return self.get_fallback_content(url, "Static")
-            logger.error(f"LeetCode Playwright scraping failed: {e}")
-            try:
-                return self.enhanced_static_scraping(url, _tried_playwright=True)
-            except:
-                return self.get_fallback_content(url, "LeetCode")
-    
-    def github_playwright_scraping(self, url: str) -> Dict:
-        """Specialized GitHub scraping"""
-        if not PLAYWRIGHT_AVAILABLE:
-            logger.debug("Playwright not available for GitHub, using static scraping")
-            return self.enhanced_static_scraping(url)
-        
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                
-                page.set_viewport_size({"width": 1280, "height": 720})
-                page.set_extra_http_headers({
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                })
-                
-                page.goto(url, timeout=30000)
-                page.wait_for_load_state('networkidle', timeout=10000)
-                time.sleep(2)
-                
-                # Try to wait for README or content
-                try:
-                    page.wait_for_selector('.markdown-body, .readme', timeout=5000)
-                except:
-                    pass
-                
-                html = page.content()
-                browser.close()
-                
-                return self.parse_html_content(html, url)
-                
-        except Exception as e:
-            error_str = str(e).lower()
-            if 'executable doesn\'t exist' in error_str or ('playwright' in error_str and 'install' in error_str):
-                logger.debug(f"Playwright browsers not installed for GitHub, falling back to static scraping")
-                try:
-                    return self.enhanced_static_scraping(url, _tried_playwright=True)
-                except:
-                    return self.get_fallback_content(url, "Static")
-            logger.error(f"GitHub Playwright scraping failed: {e}")
-            try:
-                return self.enhanced_static_scraping(url, _tried_playwright=True)
-            except:
-                return self.get_fallback_content(url, "GitHub")
-    
+            return self.get_fallback_content(url, "Static")
+
     def parse_html_content(self, html: str, url: str) -> Dict:
         """Parse HTML content with multiple extraction strategies"""
         soup = BeautifulSoup(html, "html.parser")

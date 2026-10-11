@@ -6,10 +6,10 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 
 > [!WARNING]
 > **Deployment status:** the hosted backend runs on a Hugging Face Space and
-> is live. HF now requires a paid PRO subscription to *create* new Docker
+> was paused by HF's abuse detection and is pending unpause. HF now requires a paid PRO subscription to *create* new Docker
 > Spaces on the free tier, so a free/low-cost fallback host is being
-> evaluated. The hosted image bundles no headless browser
-> (`DISABLE_BROWSER_FETCHERS=true`), so scraping there is plain HTTP. See the
+> evaluated. The image contains no browser-automation tooling;
+> scraping is plain HTTP only. See the
 > root [`README.md`](../README.md) and
 > [`gaps_closure_plan.md`](../gaps_closure_plan.md).
 

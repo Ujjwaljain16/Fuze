@@ -9,7 +9,7 @@ except ImportError:
 from bs4 import BeautifulSoup
 import numpy as np
 from sqlalchemy.exc import IntegrityError
-from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
+from scrapers.enhanced_web_scraper import scrape_url_enhanced
 from urllib.parse import urlparse, urljoin, urlunparse
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -11,8 +11,6 @@ from scrapers.robots_manager import RobotsManager
 from scrapers.rate_limiter import DomainRateLimiter
 from scrapers.fetch_policy import FetchPolicy
 from scrapers.fetchers.http_fetcher import HTTPFetcher
-from scrapers.fetchers.stealth_fetcher import StealthFetcher
-from scrapers.fetchers.dynamic_fetcher import DynamicFetcher
 from scrapers.extractor_pipeline import ExtractorPipeline
 from scrapers.normalizer import MetadataNormalizer
 from scrapers.quality_evaluator import QualityEvaluator
@@ -40,9 +38,7 @@ class ContentAcquisitionEngine:
         self.fetch_policy = FetchPolicy()
 
         self.fetchers = {
-            "HTTP": HTTPFetcher(),
-            "STEALTH": StealthFetcher(),
-            "DYNAMIC": DynamicFetcher()
+            "HTTP": HTTPFetcher()
         }
 
         self.extractor_pipeline = ExtractorPipeline()

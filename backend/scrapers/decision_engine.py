@@ -22,42 +22,17 @@ class DecisionEngine:
 
     def evaluate(self, metrics: QualityMetrics, current_strategy: str) -> Decision:
         """
-        Determine pipeline action:
-        - ACCEPT: Quality is sufficient, no further fetching needed.
-        - ESCALATE: Quality is insufficient or challenge/hydration detected; escalate to next tier.
-        - FAIL: Max strategy tier reached and quality remains unacceptable.
+        Determine pipeline action for a plain-HTTP fetch:
+        - ACCEPT: quality is sufficient, or there is enough content to use best-effort.
+        - FAIL: a bot-challenge page was returned, or there is too little content.
         """
-        # Case 1: Anti-bot challenge or Cloudflare block detected
         if metrics.challenge_detected:
-            if current_strategy == "HTTP":
-                return Decision(action="ESCALATE", reason="challenge_detected", next_strategy="STEALTH")
-            elif current_strategy == "STEALTH":
-                return Decision(action="ESCALATE", reason="stealth_blocked_challenge_persists", next_strategy="DYNAMIC")
-            else:
-                return Decision(action="FAIL", reason="challenge_failed_all_tiers", next_strategy=None)
+            return Decision(action="FAIL", reason="challenge_page_returned", next_strategy=None)
 
-        # Case 2: Client-side JS Hydration required (empty body)
-        if metrics.hydration_detected and metrics.word_count < 150:
-            if current_strategy == "HTTP":
-                return Decision(action="ESCALATE", reason="hydration_detected_http", next_strategy="STEALTH")
-            elif current_strategy == "STEALTH":
-                return Decision(action="ESCALATE", reason="hydration_requires_dynamic_js", next_strategy="DYNAMIC")
-
-        # Case 3: Quality score below threshold or missing title/content
-        if metrics.score < self.quality_threshold or not metrics.has_title or metrics.word_count < 100:
-            if current_strategy == "HTTP":
-                return Decision(action="ESCALATE", reason="quality_below_threshold_http", next_strategy="STEALTH")
-            elif current_strategy == "STEALTH":
-                return Decision(action="ESCALATE", reason="quality_below_threshold_stealth", next_strategy="DYNAMIC")
-
-        # Case 4: Quality metrics acceptable
         if metrics.score >= self.quality_threshold:
             return Decision(action="ACCEPT", reason="quality_metrics_passed", next_strategy=None)
 
-        # Case 5: Final fallback on Dynamic strategy completion
-        if current_strategy == "DYNAMIC":
-            if metrics.word_count > 50:
-                return Decision(action="ACCEPT", reason="dynamic_best_effort_accepted", next_strategy=None)
-            return Decision(action="FAIL", reason="dynamic_insufficient_content", next_strategy=None)
+        if metrics.word_count > 50:
+            return Decision(action="ACCEPT", reason="best_effort_accepted", next_strategy=None)
 
-        return Decision(action="ACCEPT", reason="default_accepted", next_strategy=None)
+        return Decision(action="FAIL", reason="insufficient_content", next_strategy=None)

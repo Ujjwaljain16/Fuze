@@ -15,7 +15,7 @@ if backend_dir not in sys.path:
 from flask import Flask
 from config import DevelopmentConfig
 from models import db, SavedContent, ContentAnalysis
-from scrapers.scrapling_enhanced_scraper import scrape_url_enhanced
+from scrapers.enhanced_web_scraper import scrape_url_enhanced
 from utils.embedding_utils import get_embedding
 import logging
 from datetime import datetime

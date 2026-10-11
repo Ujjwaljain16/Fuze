@@ -10,7 +10,7 @@
 > **This project is actively under development with ongoing iterations and improvements.** Features and interfaces may evolve as we continue to enhance the user experience and add new capabilities.
 
 > [!NOTE]
-> **Hosting status:** the backend runs on a Hugging Face Space (Docker SDK) and is back online after a temporary moderation flag. Two things to know: (1) HF now requires a paid **PRO** subscription to *create* new Docker Spaces on the free tier, so this existing Space can't simply be recreated if it's ever lost — we're evaluating a free/low-cost fallback host (see [`gaps_closure_plan.md`](gaps_closure_plan.md)); (2) the hosted build ships **no headless browser** (`DISABLE_BROWSER_FETCHERS=true`), so JavaScript-heavy pages are fetched over plain HTTP there. A browser-based rendering tier is planned on separate infrastructure. You can always run the full stack locally with the [Quick Start](#-quick-start) steps below.
+> **Hosting status:** the backend runs on a Hugging Face Space (Docker SDK). The Space was paused twice by Hugging Face's abuse detection because the dependencies included a browser-automation library; all browser-automation and header-spoofing code has since been removed, and the app fetches only the single page a user saves, over plain HTTP. HF also requires a paid **PRO** subscription to *create* new Docker Spaces, so a self-hosted fallback is provided in [`deploy/`](deploy/); features removed only for HF are listed in [`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md). You can always run the full stack locally with the [Quick Start](#-quick-start) steps below.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
@@ -209,7 +209,6 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[Optimizations](docs/OPTIMIZATIONS.md)** - Performance optimizations
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Complete deployment instructions
 - **[PWA Guide](docs/PWA.md)** - Progressive Web App features and setup
-- **[Scraping Integration](docs/SCRAPLING_INTEGRATION_GUIDE.md)** - Web scraping integration guide
 
 ---
 

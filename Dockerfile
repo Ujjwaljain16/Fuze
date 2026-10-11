@@ -28,10 +28,6 @@ COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
     pip wheel --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu --wheel-dir /wheels -r requirements.txt
 
-# Install packages into builder so we can run camoufox fetch
-RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
-    --root-user-action=ignore
-
 # ---------------------------------------------------------------------------
 # STAGE 2 — runtime
 # ---------------------------------------------------------------------------
@@ -39,18 +35,12 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Runtime-only system dependencies (no compilers + headless browser support)
+# Runtime-only system dependencies (no compilers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgomp1 \
     postgresql-client \
     supervisor \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libx11-6 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built wheels from builder and install without index (no network needed)
@@ -81,11 +71,6 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
-# No headless browser is bundled in this image and browser fetch tiers are
-# switched off: the hosting platform (Hugging Face) flagged browser-automation
-# setup, so scraping here is plain HTTP only. Self-hosters who want JS
-# rendering can rebuild with a browser installed and set this to false.
-ENV DISABLE_BROWSER_FETCHERS=true
 
 RUN chmod +x start.sh
 

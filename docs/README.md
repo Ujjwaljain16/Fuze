@@ -63,10 +63,6 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
   - Testing guide
   - Troubleshooting
 
-- **[Scraping Integration Guide](SCRAPLING_INTEGRATION_GUIDE.md)** - Web scraping integration
-  - Scrapling library integration
-  - Optional setup guide
-  - Domain-specific strategies
 
 ## 🚀 Quick Links
 
@@ -95,7 +91,6 @@ docs/
 ├── TESTING.md                   # Testing guide
 ├── DEPLOYMENT.md                # Deployment guide
 ├── PWA.md                       # PWA guide
-└── SCRAPLING_INTEGRATION_GUIDE.md  # Scraping integration
 ```
 
 ## 🔄 Documentation Status
