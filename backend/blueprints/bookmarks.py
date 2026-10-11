@@ -429,7 +429,7 @@ def bulk_import_bookmarks():
 
             with UnitOfWork() as uow:
                 service = BookmarkService(uow)
-                existing_bms = service.uow.bookmarks.get_all_by_user(user_id)
+                existing_bms = service.uow.bookmarks.get_url_index(user_id)
 
                 existing_urls = set(bm.url for bm in existing_bms)
                 normalized_urls = set(normalize_url(bm.url) for bm in existing_bms)
@@ -572,7 +572,7 @@ def list_bookmarks():
             'description': b.notes,  # Map 'notes' to 'description' for API consistency
             'saved_at': iso_utc(b.saved_at),
             'category': b.category,
-            'has_content': bool(b.extracted_text)
+            'has_content': bool(b.has_extracted_text)
         } for b in pagination.items]
         
         total = pagination.total

@@ -1,7 +1,12 @@
 from typing import Optional, List
 from sqlalchemy import func
+from sqlalchemy.orm import defer, undefer
 from models import SavedContent, db
 from utils.query_sanitizer import sanitize_like_query
+
+
+# Scraped text (up to hundreds of KB) and the 384-d embedding: never needed to show or match bookmarks.
+_HEAVY_COLUMNS = (defer(SavedContent.extracted_text), defer(SavedContent.embedding))
 
 
 class BookmarkRepository:
@@ -47,7 +52,7 @@ class BookmarkRepository:
         if not safe_domain_path:
             return []
         domain_path = safe_domain_path.rstrip('/')
-        return self._session.query(SavedContent).filter(
+        return self._session.query(SavedContent).options(*_HEAVY_COLUMNS).filter(
             SavedContent.user_id == user_id,
             db.or_(
                 SavedContent.url == domain_path,
@@ -70,8 +75,13 @@ class BookmarkRepository:
         ).order_by(SavedContent.saved_at.desc()).limit(limit).all()
 
     def list_bookmarks(self, user_id: int, search: str = None, category: str = None, page: int = 1, per_page: int = 10):
-        """List bookmarks with pagination and filtering without unnecessary joins."""
-        query = self._session.query(SavedContent).filter_by(user_id=user_id)
+        """List bookmarks with pagination and filtering without unnecessary joins.
+
+        Rows come without extracted_text/embedding; use has_extracted_text instead of the text.
+        """
+        query = self._session.query(SavedContent).options(
+            *_HEAVY_COLUMNS, undefer(SavedContent.has_extracted_text)
+        ).filter_by(user_id=user_id)
 
         if search:
             safe_search = sanitize_like_query(search)
@@ -98,9 +108,11 @@ class BookmarkRepository:
 
         return query.order_by(SavedContent.saved_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
 
-    def get_all_by_user(self, user_id: int) -> List[SavedContent]:
-        """Fetch all bookmarks for a user ordered by saved_at desc"""
-        return self._session.query(SavedContent).filter_by(user_id=user_id).order_by(SavedContent.saved_at.desc()).all()
+    def get_url_index(self, user_id: int):
+        """(id, url, title) rows for all of a user's bookmarks: enough for duplicate checks on import."""
+        return self._session.query(SavedContent.id, SavedContent.url, SavedContent.title).filter_by(
+            user_id=user_id
+        ).all()
 
     def get_user_bookmarks(self, user_id: int, limit: int = 10) -> List[SavedContent]:
         """Fetch user bookmarks ordered by saved_at desc with limit."""

@@ -78,7 +78,73 @@ class TestBookmarks:
         data = response.json
         assert 'bookmarks' in data
         assert len(data['bookmarks']) == 5
-    
+
+    def test_list_bookmarks_returns_same_fields_without_loading_text_or_embedding(
+            self, client, auth_headers, test_user, app):
+        """The list query defers extracted_text/embedding but the response is unchanged."""
+        from sqlalchemy import event
+        from models import db, SavedContent
+
+        with app.app_context():
+            db.session.add_all([
+                SavedContent(user_id=test_user['id'], url='https://example.com/with-text',
+                             title='With text', notes='n1', category='tech',
+                             extracted_text='Body ' * 1000, embedding=[0.1] * 384),
+                SavedContent(user_id=test_user['id'], url='https://example.com/empty-text',
+                             title='Empty text', extracted_text=''),
+                SavedContent(user_id=test_user['id'], url='https://example.com/no-text', title='No text'),
+            ])
+            db.session.commit()
+            engine = db.engine
+
+        statements = []
+        def capture(conn, cursor, statement, *args):
+            if 'saved_content' in statement:
+                statements.append(statement)
+
+        event.listen(engine, 'before_cursor_execute', capture)
+        try:
+            response = client.get('/api/bookmarks?per_page=10', headers=auth_headers)
+        finally:
+            event.remove(engine, 'before_cursor_execute', capture)
+
+        assert response.status_code == 200
+        by_url = {b['url']: b for b in response.json['bookmarks']}
+        assert set(by_url) == {'https://example.com/with-text', 'https://example.com/empty-text',
+                               'https://example.com/no-text'}
+        expected_keys = {'id', 'url', 'title', 'description', 'saved_at', 'category', 'has_content'}
+        assert all(set(b) == expected_keys for b in by_url.values())
+        first = by_url['https://example.com/with-text']
+        assert first['has_content'] is True
+        assert first['title'] == 'With text' and first['description'] == 'n1' and first['category'] == 'tech'
+        assert by_url['https://example.com/empty-text']['has_content'] is False
+        assert by_url['https://example.com/no-text']['has_content'] is False
+
+        # paginate()'s SELECT count(*) FROM (subquery) names every column, but the planner never
+        # reads columns the outer count doesn't use; only the row fetch matters here.
+        selects = [s for s in statements if s.lstrip().upper().startswith('SELECT')
+                   and not s.lstrip().upper().startswith('SELECT COUNT')]
+        assert selects, "list endpoint should have queried saved_content"
+        for s in selects:
+            assert 'saved_content.extracted_text AS' not in s
+            assert 'saved_content.embedding AS' not in s
+
+    def test_bulk_import_skips_existing_urls(self, client, auth_headers, test_user, app):
+        from models import db, SavedContent
+
+        with app.app_context():
+            db.session.add(SavedContent(user_id=test_user['id'], url='https://example.com/already',
+                                        title='Already', extracted_text='x' * 5000))
+            db.session.commit()
+
+        response = client.post('/api/bookmarks/import', json=[
+            {'url': 'https://example.com/already?utm_source=x', 'title': 'Again'},
+            {'url': 'https://example.com/new', 'title': 'New'},
+        ], headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json['added'] == 1
+        assert response.json['skip_reasons'].get('duplicate') == 1
+
     def test_list_bookmarks_pagination(self, client, auth_headers, test_user, app):
         """Test bookmark pagination"""
         from models import db, SavedContent

@@ -3,7 +3,7 @@ from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Fore
 from sqlalchemy.dialects.postgresql import TEXT, JSONB
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import event
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import column_property, relationship
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -125,6 +125,12 @@ class SavedContent(Base):
     strategy_used = Column(String(20), nullable=True)
     scrapling_version = Column(String(20), nullable=True)
     extractor_version = Column(String(20), nullable=True)
+
+    # bool(extracted_text) computed in SQL, so list views can report it without loading the text.
+    # Deferred: only queries that ask for it (undefer) pay for it.
+    has_extracted_text = column_property(
+        db.and_(extracted_text.isnot(None), extracted_text != ''), deferred=True
+    )
 
     # Relationship to rich JSON metadata
     rich_metadata = relationship('BookmarkMetadata', backref='bookmark', uselist=False, cascade='all, delete-orphan')
