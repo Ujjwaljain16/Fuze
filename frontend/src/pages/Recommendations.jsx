@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
-import api, { refreshTokenIfNeeded } from '../services/api'
+import api, { refreshTokenIfNeeded, getApiErrorMessage } from '../services/api'
 import logo1 from '../assets/logo1.svg'
 import { 
   Sparkles, Lightbulb, ExternalLink, Bookmark, ThumbsUp, ThumbsDown, 
@@ -714,7 +714,7 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
     } catch (err) {
       console.error('Error generating personalized context:', err)
       setContextStatus('not_started')
-      error(err.response?.data?.error || 'Failed to generate personalized context. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to generate personalized context. Please try again.'))
     } finally {
       setLoadingContext(false)
     }

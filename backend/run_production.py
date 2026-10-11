@@ -56,6 +56,7 @@ if SENTRY_DSN:
         logger.warning(f"⚠️ Could not initialize Sentry SDK: {sentry_err}")
 
 from flask import Flask, request, jsonify, g, make_response
+from core.http_errors import error_response, rate_limit_response, DEFAULT_CODES
 from flask_jwt_extended import JWTManager
 from models import db
 from sqlalchemy import text
@@ -280,15 +281,15 @@ def create_app(config_name: str = None) -> Flask:
 
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):
-        return jsonify({'message': 'Token has expired', 'error': 'token_expired'}), 401
+        return error_response('token_expired', 'Token has expired', 401)
 
     @jwt.invalid_token_loader
     def invalid_token_callback(error):
-        return jsonify({'message': 'Signature verification failed', 'error': 'invalid_token'}), 401
+        return error_response('invalid_token', 'Signature verification failed', 401)
 
     @jwt.unauthorized_loader
     def missing_token_callback(error):
-        return jsonify({'message': 'Access token required', 'error': 'authorization_required'}), 401
+        return error_response('authorization_required', 'Access token required', 401)
 
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
@@ -320,7 +321,7 @@ def create_app(config_name: str = None) -> Flask:
 
     @jwt.revoked_token_loader
     def revoked_token_callback(jwt_header, jwt_payload):
-        return jsonify({'message': 'Token has been revoked', 'error': 'token_revoked'}), 401
+        return error_response('token_revoked', 'Token has been revoked', 401)
 
     @app.before_request
     def set_correlation_id():
@@ -469,12 +470,15 @@ def create_app(config_name: str = None) -> Flask:
         redis_ready = getattr(redis_cache, 'connected', False)
         is_ready = db_ready and schema_ready and redis_ready
 
-        return jsonify({
+        body = {
             'status': 'ready' if is_ready else 'not_ready',
             'database': 'ready' if db_ready else 'unhealthy',
             'schema': 'current' if schema_ready else 'outdated',
             'redis': 'ready' if redis_ready else 'unhealthy'
-        }), 200 if is_ready else 503
+        }
+        if is_ready:
+            return jsonify(body), 200
+        return error_response('not_ready', 'Service is not ready', 503, **body)
 
     # Prometheus Metrics Endpoint
     # Secured with METRICS_AUTH_TOKEN bearer token.
@@ -483,20 +487,21 @@ def create_app(config_name: str = None) -> Flask:
     def prometheus_metrics():
         from core.metrics import get_metrics_output, METRICS_ENABLED
         if not METRICS_ENABLED:
-            return jsonify({'status': 'metrics_disabled'}), 404
+            return error_response('metrics_disabled', 'Metrics are disabled', 404, status='metrics_disabled')
 
         # Closed unless a scrape token is configured: metrics expose route names, queue depth and errors.
         metrics_token = os.environ.get('METRICS_AUTH_TOKEN')
         if not metrics_token:
-            return jsonify({'message': 'Not found'}), 404
+            return error_response('not_found', 'Not found', 404)
         auth_header = request.headers.get('Authorization', '')
         provided = auth_header.removeprefix('Bearer ').strip()
         if not hmac.compare_digest(provided, metrics_token):
-            return jsonify({'message': 'Unauthorized'}), 401
+            return error_response('unauthorized', 'Unauthorized', 401)
 
         output, content_type = get_metrics_output()
         if output is None:
-            return jsonify({'status': 'prometheus_client_unavailable'}), 503
+            return error_response('metrics_unavailable', 'Prometheus client is unavailable', 503,
+                                  status='prometheus_client_unavailable')
 
         from flask import Response
         return Response(output, mimetype=content_type)
@@ -530,30 +535,38 @@ def create_app(config_name: str = None) -> Flask:
     @app.route('/api/health/database')
     def database_health_check():
         healthy = _database_ok()
-        return jsonify({'status': 'healthy' if healthy else 'unhealthy', 'service': 'database'}), 200 if healthy else 503
+        if not healthy:
+            return error_response('database_unavailable', 'Database is unavailable', 503,
+                                  status='unhealthy', service='database')
+        return jsonify({'status': 'healthy', 'service': 'database'}), 200
 
     @app.route('/api/health/redis')
     def redis_health_check():
         connected = bool(getattr(redis_cache, 'connected', False))
-        return jsonify({'connected': connected}), 200 if connected else 503
+        if not connected:
+            return error_response('redis_unavailable', 'Redis is unavailable', 503, connected=False)
+        return jsonify({'connected': True}), 200
 
     @app.route('/health/queue')
     @app.route('/api/health/queue')
     def queue_health():
         if not _internal_caller():
-            return jsonify({'message': 'Not found'}), 404
+            return error_response('not_found', 'Not found', 404)
         try:
             from services.task_queue import get_queue_stats
             stats = get_queue_stats('default')
-            return jsonify(stats), 200 if stats.get('status') == 'connected' else 503
+            if stats.get('status') == 'connected':
+                return jsonify(stats), 200
+            extra = {k: v for k, v in stats.items() if k not in ('error', 'message')}
+            return error_response('queue_unavailable', 'Task queue is unavailable', 503, **extra)
         except Exception:
             logger.exception("queue_health_failed")
-            return jsonify({'status': 'error'}), 500
+            return error_response('internal_error', 'Queue health check failed', 500, status='error')
 
     @app.route('/api/health/detailed')
     def detailed_health_check():
         if not _internal_caller():
-            return jsonify({'message': 'Not found'}), 404
+            return error_response('not_found', 'Not found', 404)
         stats = redis_cache.get_cache_stats() if hasattr(redis_cache, 'get_cache_stats') else {}
         return jsonify({
             'status': 'healthy',
@@ -564,27 +577,38 @@ def create_app(config_name: str = None) -> Flask:
             'linkedin_available': bool(linkedin_available),
         }), 200
 
-    # Standard Error Handlers
+    # Standard Error Handlers: every error body is {"error": <code>, "message": <sentence>}.
     @app.errorhandler(400)
     def bad_request(error):
-        return jsonify({'message': 'Bad request', 'error': 'bad_request'}), 400
+        return error_response('bad_request', 'Bad request', 400)
 
     @app.errorhandler(401)
     def unauthorized(error):
-        return jsonify({'message': 'Unauthorized', 'error': 'unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     @app.errorhandler(404)
     def not_found(error):
-        return jsonify({'message': 'Not found', 'error': 'not_found'}), 404
+        return error_response('not_found', 'Not found', 404)
 
     @app.errorhandler(405)
     def method_not_allowed(error):
-        return jsonify({'message': 'Method not allowed', 'error': 'method_not_allowed'}), 405
+        return error_response('method_not_allowed', 'Method not allowed', 405)
+
+    @app.errorhandler(413)
+    def payload_too_large(error):
+        return error_response('payload_too_large', 'Request body is too large', 413)
+
+    # init_rate_limiter registers the same handler; registering it here as well covers apps whose
+    # limiter failed to start or was built after the first request.
+    app.register_error_handler(429, rate_limit_response)
 
     @app.errorhandler(Exception)
     def handle_exception(e):
         from werkzeug.exceptions import HTTPException
         if isinstance(e, HTTPException):
+            # Any other HTTP error (415, 501, ...) gets the envelope instead of Werkzeug's HTML page.
+            if e.code is not None and e.code >= 400:
+                return error_response(DEFAULT_CODES.get(e.code, 'http_error'), e.name, e.code)
             return e
 
         clean_headers = sanitize_headers(dict(request.headers))
@@ -598,10 +622,7 @@ def create_app(config_name: str = None) -> Flask:
             },
             exc_info=True
         )
-        return jsonify({
-            'error': 'Internal server error',
-            'message': 'An unexpected error occurred'
-        }), 500
+        return error_response('internal_error', 'An unexpected error occurred', 500)
 
     return app
 

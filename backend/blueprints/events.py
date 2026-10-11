@@ -7,6 +7,7 @@ import json
 import time
 from typing import Generator
 from flask import Blueprint, Response, request, jsonify, stream_with_context
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from core.logging_config import get_logger
 from utils.cors_utils import is_allowed_origin
@@ -33,7 +34,7 @@ def mint_realtime_stream_ticket():
     user_id = int(get_jwt_identity())
     ticket = mint_stream_ticket(user_id)
     if not ticket:
-        return jsonify({'message': 'Failed to create stream ticket'}), 503
+        return error_response('stream_ticket_unavailable', 'Failed to create stream ticket', 503)
     return jsonify({'ticket': ticket}), 200
 
 
@@ -54,12 +55,12 @@ def stream_realtime_events():
             user_id = consume_stream_ticket(ticket_param)
 
     if not user_id:
-        return jsonify({'message': 'Authentication required for SSE stream'}), 401
+        return error_response('authorization_required', 'Authentication required for SSE stream', 401)
 
     try:
         user_id_int = int(user_id)
     except (ValueError, TypeError):
-        return jsonify({'message': 'Invalid user identity'}), 400
+        return error_response('invalid_user_identity', 'Invalid user identity', 400)
 
     last_event_id = request.headers.get('Last-Event-ID') or request.args.get('last_event_id')
 

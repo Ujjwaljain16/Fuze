@@ -1,0 +1,49 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { handleApiError, getApiErrorCode, getApiErrorMessage, ERROR_TYPES } from '../../services/api'
+
+// Every API error body is {"error": "<snake_case_code>", "message": "<human sentence>"}.
+const apiError = (status, data) => ({ response: { status, data } })
+
+describe('API error envelope', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('reads the code from `error` and the sentence from `message`', () => {
+    const err = apiError(404, { error: 'project_not_found', message: 'Project not found' })
+    expect(getApiErrorCode(err)).toBe('project_not_found')
+    expect(getApiErrorMessage(err, 'fallback')).toBe('Project not found')
+
+    const info = handleApiError(err)
+    expect(info).toMatchObject({ code: 'project_not_found', message: 'Project not found', statusCode: 404 })
+  })
+
+  it('never shows the machine code as the message', () => {
+    const info = handleApiError(apiError(400, { error: 'missing_fields' }))
+    expect(info.message).toBe('Invalid request data')
+    expect(info.code).toBe('missing_fields')
+    expect(getApiErrorMessage(apiError(400, { error: 'missing_fields' }), 'Try again')).toBe('Try again')
+  })
+
+  it('treats invalid_credentials as a validation error, not an expired session', () => {
+    const info = handleApiError(apiError(401, { error: 'invalid_credentials', message: 'Invalid credentials' }))
+    expect(info.type).toBe(ERROR_TYPES.VALIDATION)
+    expect(info.message).toBe('Invalid credentials')
+
+    const expired = handleApiError(apiError(401, { error: 'token_expired', message: 'Token has expired' }))
+    expect(expired.type).toBe(ERROR_TYPES.AUTH)
+  })
+
+  it('falls back when there is no response body', () => {
+    expect(getApiErrorCode({ message: 'Network Error' })).toBeNull()
+    expect(getApiErrorMessage({ message: 'Network Error' }, 'Offline')).toBe('Offline')
+    expect(handleApiError({ request: {} }).type).toBe(ERROR_TYPES.NETWORK)
+  })
+
+  it('maps 429 to a rate-limit error with the server message', () => {
+    const info = handleApiError(apiError(429, {
+      error: 'rate_limit_exceeded', message: 'Too many requests.', retry_after: '30 per 1 minute',
+    }))
+    expect(info).toMatchObject({ type: ERROR_TYPES.RATE_LIMIT, code: 'rate_limit_exceeded', message: 'Too many requests.' })
+  })
+})

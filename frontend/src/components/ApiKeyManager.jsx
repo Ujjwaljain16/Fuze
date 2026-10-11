@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useErrorHandler } from '../hooks/useErrorHandler'
-import api from '../services/api'
+import api, { getApiErrorMessage } from '../services/api'
 import { Key, Eye, EyeOff, CheckCircle, XCircle, Trash2, TestTube, ExternalLink, TrendingUp, Shield, Zap } from 'lucide-react'
 
 const ApiKeyManager = () => {
@@ -106,11 +106,7 @@ const ApiKeyManager = () => {
       }
     } catch (err) {
       console.error('Error saving API key:', err)
-      if (err.response?.data?.error) {
-        error(err.response.data.error)
-      } else {
-        error('Failed to save API key. Please try again.')
-      }
+      error(getApiErrorMessage(err, 'Failed to save API key. Please try again.'))
     } finally {
       setLoading(false)
     }

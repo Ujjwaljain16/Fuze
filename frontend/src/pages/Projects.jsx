@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router-dom'
-import api from '../services/api'
+import api, { getApiErrorMessage } from '../services/api'
 import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, Plus, Edit, Trash2, Calendar, Zap, ExternalLink,
@@ -124,7 +124,7 @@ const Projects = () => {
       }
     } catch (err) {
       console.error('Error creating project:', err)
-      error(err.response?.data?.error || 'Failed to create project. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to create project. Please try again.'))
     } finally {
       setIsCreating(false)
     }
@@ -181,7 +181,7 @@ const Projects = () => {
       }
     } catch (err) {
       console.error('Error updating project:', err)
-      error(err.response?.data?.error || 'Failed to update project. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to update project. Please try again.'))
     } finally {
       setIsUpdating(false)
     }
@@ -210,7 +210,7 @@ const Projects = () => {
       success(`Project "${deletedTitle}" deleted successfully!`)
     } catch (err) {
       console.error('Error deleting project:', err)
-      error(err.response?.data?.error || 'Failed to delete project. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to delete project. Please try again.'))
     } finally {
       setIsDeleting(false)
     }

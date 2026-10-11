@@ -102,7 +102,7 @@ describe('AuthContext', () => {
     api.post.mockRejectedValueOnce({
       response: {
         status: 401,
-        data: { error: 'Invalid credentials' }
+        data: { error: 'invalid_credentials', message: 'Invalid credentials' }
       }
     })
 

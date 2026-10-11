@@ -7,6 +7,7 @@ import time
 import json
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, case
 from models import db, User, SavedContent, Project, Task, processed_bookmark_clause
@@ -235,4 +236,4 @@ def get_dashboard_summary():
 
     except Exception:
         logger.exception("dashboard_summary_failed", user_id=user_id)
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from flask import Blueprint, request, jsonify, current_app
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from middleware.rate_limiting import limiter
 from dataclasses import asdict
@@ -93,7 +94,7 @@ def get_unified_orchestrator_recommendations():
         user_id = get_jwt_identity()
         data = request.get_json()
         if not data:
-            return jsonify({'error': 'No data provided'}), 400
+            return error_response('missing_body', 'No data provided', 400)
         
         # Input validation
         title = data.get('title', '')
@@ -101,11 +102,11 @@ def get_unified_orchestrator_recommendations():
         technologies = data.get('technologies', '')
         
         if title and len(title) > 500:
-            return jsonify({'error': 'Title exceeds maximum length of 500 characters'}), 400
+            return error_response('title_too_long', 'Title exceeds maximum length of 500 characters', 400)
         if description and len(description) > 5000:
-            return jsonify({'error': 'Description exceeds maximum length of 5000 characters'}), 400
+            return error_response('description_too_long', 'Description exceeds maximum length of 5000 characters', 400)
         if technologies and len(technologies) > 1000:
-            return jsonify({'error': 'Technologies exceeds maximum length of 1000 characters'}), 400
+            return error_response('technologies_too_long', 'Technologies exceeds maximum length of 1000 characters', 400)
         
         def _optional_int(key):
             value = data.get(key)
@@ -149,7 +150,7 @@ def get_unified_orchestrator_recommendations():
 
     except Exception:
         logger.exception("unified_orchestrator_recommendations_failed")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/generate-context', methods=['POST'])
 @jwt_required()
@@ -165,7 +166,7 @@ def generate_personalized_context():
         try:
             content_id = int(content_id)
         except (TypeError, ValueError):
-            return jsonify({'error': 'Missing recommendation id'}), 400
+            return error_response('missing_fields', 'Missing recommendation id', 400)
 
         def _opt_int(value):
             try:
@@ -181,7 +182,7 @@ def generate_personalized_context():
         from services.multi_user_api_manager import get_user_api_key
         user_api_key = get_user_api_key(user_id)
         if not user_api_key:
-            return jsonify({'error': 'User API key not found. Please add your Gemini API key in settings.'}), 400
+            return error_response('api_key_required', 'User API key not found. Please add your Gemini API key in settings.', 400)
 
         from ml.intent_engine.explain import build_explain_prompt, generate_explanation
         with UnitOfWork() as uow:
@@ -191,13 +192,13 @@ def generate_personalized_context():
         # connection for seconds, and a few slow calls exhaust the pool for every other request.
         summary = generate_explanation(prompt, content_id, api_key=user_api_key) if prompt else None
         if summary is None:
-            return jsonify({'success': False, 'error': 'Could not generate an explanation for this item'}), 404
+            return error_response('explanation_unavailable', 'Could not generate an explanation for this item', 404)
 
         return jsonify({'success': True, 'context_summary': summary})
 
     except Exception:
         logger.exception("generate_personalized_context_failed")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 def _context_recommendations(user_id: int, task_id: int, subtask_id=None, limit=10):
     from ml.intent_engine.engine import recommend
@@ -232,7 +233,7 @@ def get_task_recommendations(task_id):
         user_id = int(get_jwt_identity())
         task, _, outcome = _context_recommendations(user_id, task_id, limit=_limit_from_request())
         if task is None:
-            return jsonify({'error': 'Task not found'}), 404
+            return error_response('task_not_found', 'Task not found', 404)
         return jsonify({
             'recommendations': outcome['results'],
             'total_recommendations': len(outcome['results']),
@@ -243,7 +244,7 @@ def get_task_recommendations(task_id):
         })
     except Exception:
         logger.exception("task_recommendations_failed")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @recommendations_bp.route('/subtask/<int:subtask_id>', methods=['POST'])
@@ -258,10 +259,10 @@ def get_subtask_recommendations(subtask_id):
                    .join(Project, Task.project_id == Project.id)
                    .filter(Subtask.id == subtask_id, Project.user_id == user_id).first())
         if not row:
-            return jsonify({'error': 'Subtask not found'}), 404
+            return error_response('subtask_not_found', 'Subtask not found', 404)
         task, subtask, outcome = _context_recommendations(user_id, row[0], subtask_id, limit=_limit_from_request())
         if subtask is None:
-            return jsonify({'error': 'Subtask not found'}), 404
+            return error_response('subtask_not_found', 'Subtask not found', 404)
         return jsonify({
             'recommendations': outcome['results'],
             'total_recommendations': len(outcome['results']),
@@ -274,7 +275,7 @@ def get_subtask_recommendations(subtask_id):
         })
     except Exception:
         logger.exception("subtask_recommendations_failed")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 # ============================================================================
@@ -303,7 +304,7 @@ def get_engine_status():
         
     except Exception as e:
         logger.error(f"Error getting engine status: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/performance-metrics', methods=['GET'])
 @jwt_required()
@@ -336,7 +337,7 @@ def get_performance_metrics():
         
     except Exception as e:
         logger.error(f"Error getting performance metrics: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/cache/clear', methods=['POST'])
 @jwt_required()
@@ -349,11 +350,11 @@ def clear_recommendation_cache():
         if success:
             return jsonify({'message': 'Cache cleared successfully'})
         else:
-            return jsonify({'error': 'Failed to clear cache'}), 500
+            return error_response('internal_error', 'Failed to clear cache', 500)
 
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/cache/clear-context', methods=['POST'])
 @jwt_required()
@@ -388,7 +389,7 @@ def clear_context_cache():
 
     except Exception as e:
         logger.error(f"Error clearing context cache: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/cache/clear-all-recommendations', methods=['POST'])
 @jwt_required()
@@ -444,10 +445,7 @@ def clear_all_recommendation_caches():
 
     except Exception as e:
         logger.error(f"Error clearing all recommendation caches: {e}")
-        return jsonify({
-            'error': 'Internal server error',
-            'note': 'Some caches may not have been cleared'
-        }), 500
+        return error_response('internal_error', 'Internal server error. Some caches may not have been cleared.', 500)
 
 @recommendations_bp.route('/analysis/stats', methods=['GET'])
 @jwt_required()
@@ -466,7 +464,7 @@ def get_analysis_stats():
 
     except Exception:
         logger.exception("get_analysis_stats_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 # ============================================================================
 # ANALYSIS ENDPOINTS
@@ -485,7 +483,7 @@ def analyze_content_immediately(content_id):
         # Check if content belongs to user
         content = SavedContent.query.filter_by(id=content_id, user_id=user_id).first()
         if not content:
-            return jsonify({'error': 'Content not found'}), 404
+            return error_response('content_not_found', 'Content not found', 404)
         
         # Import background analysis service
         try:
@@ -493,11 +491,11 @@ def analyze_content_immediately(content_id):
             result = analyze_content(content_id, user_id=int(user_id))
             return jsonify({'message': 'Content analysis started', 'result': result})
         except ImportError:
-            return jsonify({'error': 'Background analysis service not available'}), 500
+            return error_response('analysis_unavailable', 'Background analysis service not available', 500)
                         
     except Exception as e:
         logger.error(f"Error analyzing content: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 # ============================================================================
 # FEEDBACK AND LEARNING ENDPOINTS
@@ -510,14 +508,14 @@ def record_recommendation_feedback():
     user_id = int(get_jwt_identity())
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({'error': 'JSON body required'}), 400
+        return error_response('missing_body', 'JSON body required', 400)
 
     recommendation_id = data.get('recommendation_id')
     feedback_type = data.get('feedback_type')  # 'positive', 'negative', 'neutral'
     feedback_data = data.get('feedback_data', {})
 
     if not recommendation_id or not feedback_type:
-        return jsonify({'error': 'Missing recommendation_id or feedback_type'}), 400
+        return error_response('missing_fields', 'Missing recommendation_id or feedback_type', 400)
 
     # Map incoming types to canonical UserFeedback model types
     FEEDBACK_TYPE_MAP = {
@@ -561,7 +559,7 @@ def record_recommendation_feedback():
 
     except Exception:
         logger.exception("record_recommendation_feedback_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/user-preferences', methods=['GET'])
 @jwt_required()
@@ -580,7 +578,7 @@ def get_user_preferences():
 
     except Exception:
         logger.exception("get_user_preferences_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/learning-insights', methods=['GET'])
 @jwt_required()
@@ -599,7 +597,7 @@ def get_learning_insights():
 
     except Exception:
         logger.exception("get_learning_insights_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 # ============================================================================
 # GEMINI-ENHANCED ENDPOINTS
@@ -626,13 +624,7 @@ def get_gemini_status():
         
     except Exception as e:
         logger.error(f"Error checking Gemini status: {e}")
-        return jsonify({
-            'gemini_available': False,
-            'status': 'error',
-            'details': {
-                'error_message': 'Internal server error'
-            }
-        }), 500
+        return error_response('internal_error', 'Could not check Gemini status', 500, gemini_available=False)
 
 # ============================================================================
 # CONTEXT SELECTOR ENDPOINTS
@@ -652,7 +644,7 @@ def get_suggested_contexts():
         user_id = int(get_jwt_identity())
 
         if not MODELS_AVAILABLE:
-            return jsonify({'success': False, 'error': 'Models not available'}), 500
+            return error_response('models_unavailable', 'Models not available', 500)
 
         # Check Redis cache first (5 minute TTL for context data)
         cache_key = f"suggested_contexts:{user_id}"
@@ -738,7 +730,7 @@ def get_suggested_contexts():
     
     except Exception as e:
         logger.error(f"Error getting suggested contexts: {e}")
-        return jsonify({'success': False, 'error': 'Internal server error', 'contexts': []}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 @recommendations_bp.route('/recent-contexts', methods=['GET', 'OPTIONS'])
 def get_recent_contexts():
@@ -754,7 +746,7 @@ def get_recent_contexts():
         user_id = int(get_jwt_identity())
 
         if not MODELS_AVAILABLE:
-            return jsonify({'success': False, 'error': 'Models not available'}), 500
+            return error_response('models_unavailable', 'Models not available', 500)
 
         # Check Redis cache first (5 minute TTL for context data)
         cache_key = f"recent_contexts:{user_id}"
@@ -802,7 +794,7 @@ def get_recent_contexts():
     
     except Exception as e:
         logger.error(f"Error getting recent contexts: {e}")
-        return jsonify({'success': False, 'error': 'Internal server error', 'recent': []}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 def _get_time_ago(timestamp):
     """Convert timestamp to readable time ago"""

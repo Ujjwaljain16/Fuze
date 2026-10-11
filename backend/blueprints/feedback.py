@@ -4,6 +4,7 @@ Handles user feedback submissions for content items and recommendations.
 """
 
 from flask import Blueprint, request, jsonify
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.exc import SQLAlchemyError
 from models import db, Feedback, SavedContent
@@ -29,15 +30,15 @@ def submit_feedback():
         feedback_type = data.get('feedback_type')
 
         if not content_id:
-            return jsonify({'message': 'content_id is required'}), 400
+            return error_response('content_id_required', 'content_id is required', 400)
 
         try:
             content_id = int(content_id)
         except (ValueError, TypeError):
-            return jsonify({'message': 'content_id must be an integer'}), 400
+            return error_response('invalid_content_id', 'content_id must be an integer', 400)
 
         if feedback_type not in VALID_FEEDBACK_TYPES:
-            return jsonify({'message': f"Invalid feedback_type. Must be one of {sorted(list(VALID_FEEDBACK_TYPES))}"}), 400
+            return error_response('invalid_feedback_type', f"Invalid feedback_type. Must be one of {sorted(list(VALID_FEEDBACK_TYPES))}", 400)
 
         # Ownership & existence verification
         content = db.session.query(SavedContent).filter_by(
@@ -46,7 +47,7 @@ def submit_feedback():
         ).first()
 
         if not content:
-            return jsonify({'message': 'Content not found'}), 404
+            return error_response('content_not_found', 'Content not found', 404)
 
         # Derive project_id from content model (ignore unverified user input)
         project_id = getattr(content, 'project_id', None)
@@ -76,7 +77,7 @@ def submit_feedback():
     except SQLAlchemyError:
         db.session.rollback()
         logger.exception("feedback_save_db_failed", user_id=user_id if 'user_id' in locals() else None)
-        return jsonify({'message': 'Failed to save feedback'}), 500
+        return error_response('internal_error', 'Failed to save feedback', 500)
     except Exception:
         logger.exception("feedback_save_unexpected_failed")
-        return jsonify({'message': 'Failed to save feedback'}), 500
+        return error_response('internal_error', 'Failed to save feedback', 500)

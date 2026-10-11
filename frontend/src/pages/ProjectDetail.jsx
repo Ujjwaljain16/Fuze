@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
-import api from '../services/api'
+import api, { getApiErrorMessage } from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'
 import { 
@@ -131,7 +131,7 @@ const ProjectDetail = () => {
       }
     } catch (err) {
       console.error('Error generating AI tasks:', err)
-      error(err.response?.data?.error || 'Failed to generate AI tasks')
+      error(getApiErrorMessage(err, 'Failed to generate AI tasks'))
     } finally {
       setAiGenerating(false)
     }
@@ -169,7 +169,7 @@ const ProjectDetail = () => {
       await fetchTasks()
     } catch (err) {
       console.error('Error creating task:', err)
-      error(err.response?.data?.error || 'Failed to create task. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to create task. Please try again.'))
     } finally {
       setIsCreatingTask(false)
     }
@@ -197,7 +197,7 @@ const ProjectDetail = () => {
       await fetchTasks()
     } catch (err) {
       console.error('Error deleting task:', err)
-      error(err.response?.data?.error || 'Failed to delete task. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to delete task. Please try again.'))
     } finally {
       setIsDeletingTask(false)
     }
@@ -244,7 +244,7 @@ const ProjectDetail = () => {
       await fetchTasks()
     } catch (err) {
       console.error('Error creating subtask:', err)
-      error(err.response?.data?.error || 'Failed to create subtask. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to create subtask. Please try again.'))
     } finally {
       setIsCreatingSubtask(false)
     }
@@ -264,7 +264,7 @@ const ProjectDetail = () => {
       }
     } catch (err) {
       console.error('Error updating subtask:', err)
-      error(err.response?.data?.error || 'Failed to update subtask. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to update subtask. Please try again.'))
     } finally {
       setIsUpdatingSubtask(false)
     }
@@ -292,7 +292,7 @@ const ProjectDetail = () => {
       await fetchTasks()
     } catch (err) {
       console.error('Error deleting subtask:', err)
-      error(err.response?.data?.error || 'Failed to delete subtask. Please try again.')
+      error(getApiErrorMessage(err, 'Failed to delete subtask. Please try again.'))
     } finally {
       setIsDeletingSubtask(false)
     }

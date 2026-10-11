@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, SavedContent, User, Project, ContentAnalysis, processed_bookmark_clause
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -130,9 +131,9 @@ def quick_save_bookmark():
     description = sanitize_string(data.get('description', ''))
     
     if not url:
-        return jsonify({'message': 'URL is required'}), 400
+        return error_response('url_required', 'URL is required', 400)
     if url_too_long(url):
-        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+        return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -246,9 +247,9 @@ def save_bookmark():
         tags = [sanitize_string(tag) if isinstance(tag, str) else tag for tag in tags]
     
     if not url:
-        return jsonify({'message': 'URL is required'}), 400
+        return error_response('url_required', 'URL is required', 400)
     if url_too_long(url):
-        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+        return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -319,7 +320,7 @@ def save_bookmark():
             # The insert failed but no matching row exists either -- this is a
             # real failure, not a race, so don't lie to the client with a 200.
             logger.error(f"Bookmark insert failed with IntegrityError but no existing row found for user {user_id}, url {url.strip()}")
-            return jsonify({'message': 'Failed to save bookmark', 'error': 'insert_conflict_unresolved'}), 500
+            return error_response('insert_conflict_unresolved', 'Failed to save bookmark', 500)
         return jsonify({
             'message': 'Bookmark updated',
             'bookmark': {'id': existing_bm.id, 'url': existing_bm.url},
@@ -390,9 +391,9 @@ def bulk_import_bookmarks():
     data = request.get_json()
 
     if not isinstance(data, list):
-        return jsonify({'message': 'Expected array of bookmarks'}), 400
+        return error_response('invalid_import_payload', 'Expected array of bookmarks', 400)
     if len(data) > MAX_IMPORT_ITEMS:
-        return jsonify({'message': f'Import at most {MAX_IMPORT_ITEMS} bookmarks per request'}), 413
+        return error_response('import_too_large', f'Import at most {MAX_IMPORT_ITEMS} bookmarks per request', 413)
 
     total_count = len(data)
     added_count = 0
@@ -609,7 +610,7 @@ def delete_bookmark(bookmark_id):
         service = BookmarkService(uow)
         bm = service.get_bookmark(bookmark_id)
         if not bm or bm.user_id != user_id:
-            return jsonify({'message': 'Bookmark not found or unauthorized'}), 404
+            return error_response('bookmark_not_found', 'Bookmark not found or unauthorized', 404)
             
         # Store user_id and bookmark_id before deletion for cache invalidation
         user_id_for_cache = bm.user_id
@@ -638,7 +639,7 @@ def delete_bookmark_by_url(url):
         service = BookmarkService(uow)
         bm = service.get_bookmark_by_url(user_id, decoded_url)
         if not bm:
-            return jsonify({'message': 'Bookmark not found'}), 404
+            return error_response('bookmark_not_found', 'Bookmark not found', 404)
             
         # Store user_id and bookmark_id before deletion for cache invalidation
         user_id_for_cache = bm.user_id
@@ -664,9 +665,9 @@ def check_duplicate():
     url = data.get('url')
     
     if not url:
-        return jsonify({'message': 'URL is required'}), 400
+        return error_response('url_required', 'URL is required', 400)
     if url_too_long(url):
-        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+        return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -723,7 +724,7 @@ def stream_import_progress():
     
     user_id = _sse_user_id()
     if not user_id:
-        return Response('Authentication required', status=401, mimetype='text/plain')
+        return error_response('authorization_required', 'Authentication required', 401)
     
     import_key = f"import_progress:{user_id}"
     
@@ -845,10 +846,7 @@ def get_analysis_progress():
             }), 200
         except Exception as e:
             logger.error(f"Error checking analysis status: {e}")
-            return jsonify({
-                'status': 'error',
-                'message': 'Unable to check analysis status'
-            }), 500
+            return error_response('internal_error', 'Unable to check analysis status', 500, status='error')
 
     return jsonify(progress), 200
 
@@ -922,7 +920,7 @@ def stream_combined_progress():
     
     user_id = _sse_user_id()
     if not user_id:
-        return Response('Authentication required', status=401, mimetype='text/plain')
+        return error_response('authorization_required', 'Authentication required', 401)
     
     import_key = f"import_progress:{user_id}"
     analysis_key = f"analysis_progress:{user_id}"
@@ -1031,7 +1029,7 @@ def stream_analysis_progress():
     
     user_id = _sse_user_id()
     if not user_id:
-        return Response('Authentication required', status=401, mimetype='text/plain')
+        return error_response('authorization_required', 'Authentication required', 401)
     
     analysis_key = f"analysis_progress:{user_id}"
     
@@ -1262,7 +1260,7 @@ def get_dashboard_stats():
     except Exception as e:
         logger.error(f"Error getting dashboard stats: {e}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return error_response('internal_error', 'Failed to load dashboard stats', 500)
 
 @bookmarks_bp.route('/extract-url', methods=['POST'])
 @jwt_required()
@@ -1272,9 +1270,9 @@ def extract_url_content():
     url = data.get('url')
     
     if not url:
-        return jsonify({'message': 'URL is required'}), 400
+        return error_response('url_required', 'URL is required', 400)
     if url_too_long(url):
-        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+        return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
     
     try:
         scraped = scrape_url_summary(url)

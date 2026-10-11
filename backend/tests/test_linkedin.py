@@ -84,4 +84,4 @@ def test_analysis_failure_is_reported_not_fabricated(client, auth_headers):
             'content': 'A post', 'title': 'T', 'url': 'https://www.linkedin.com/posts/x-activity-1'},
             headers=auth_headers)
     assert response.status_code == 502
-    assert response.json['success'] is False
+    assert response.json['error'] == 'analysis_unavailable'

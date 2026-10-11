@@ -1,6 +1,7 @@
 import json
 from typing import Optional, Tuple
 from flask import Blueprint, request, jsonify, current_app
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.orm import joinedload
 
@@ -64,17 +65,17 @@ def create_task():
     raw_description = str(data.get('description', '')).strip() if data.get('description') is not None else ''
 
     if not project_id or not raw_title:
-        return jsonify({'message': 'project_id and title are required'}), 400
+        return error_response('missing_fields', 'project_id and title are required', 400)
 
     if len(raw_title) > MAX_TITLE_LENGTH:
-        return jsonify({'message': f'Title exceeds maximum length of {MAX_TITLE_LENGTH} characters'}), 400
+        return error_response('title_too_long', f'Title exceeds maximum length of {MAX_TITLE_LENGTH} characters', 400)
 
     if len(raw_description) > MAX_DESCRIPTION_LENGTH:
-        return jsonify({'message': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH} characters'}), 400
+        return error_response('description_too_long', f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH} characters', 400)
 
     project = get_user_project(project_id, user_id)
     if not project:
-        return jsonify({'message': 'Project not found or unauthorized'}), 404
+        return error_response('project_not_found', 'Project not found or unauthorized', 404)
 
     new_task = Task(
         project_id=project_id,
@@ -89,7 +90,7 @@ def create_task():
     except Exception:
         db.session.rollback()
         logger.exception("create_task_failed", extra={"user_id": user_id, "project_id": project_id})
-        return jsonify({'message': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/project/<int:project_id>', methods=['GET'])
@@ -98,7 +99,7 @@ def get_tasks_for_project(project_id):
     user_id = int(get_jwt_identity())
     project = get_user_project(project_id, user_id)
     if not project:
-        return jsonify({'message': 'Project not found or unauthorized'}), 404
+        return error_response('project_not_found', 'Project not found or unauthorized', 404)
 
     # Optimize subtask loading with joinedload to eliminate N+1 queries.
     # Capped defensively -- no pagination contract exists on this endpoint
@@ -141,11 +142,11 @@ def ai_task_breakdown():
     skill_level = str(data.get('skill_level', 'intermediate')).strip()[:50]
 
     if not project_id:
-        return jsonify({'success': False, 'error': 'project_id is required'}), 400
+        return error_response('project_id_required', 'project_id is required', 400)
 
     project = get_user_project(project_id, user_id)
     if not project:
-        return jsonify({'success': False, 'error': 'Project not found or unauthorized'}), 404
+        return error_response('project_not_found', 'Project not found or unauthorized', 404)
 
     try:
         # Get user's relevant bookmarks for context
@@ -196,11 +197,7 @@ Return ONLY the JSON array, no additional text.
         response = get_gemini_response(prompt, user_id=user_id)
 
         if not response:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to generate task breakdown',
-                'details': 'No response from AI'
-            }), 500
+            return error_response('ai_unavailable', 'Failed to generate task breakdown: no response from AI', 500)
 
         # Parse response safely
         try:
@@ -267,25 +264,16 @@ Return ONLY the JSON array, no additional text.
         except json.JSONDecodeError as e:
             safe_resp = str(response)[:200]
             logger.exception("gemini_json_parse_failed", extra={"response_snippet": safe_resp})
-            return jsonify({
-                'success': False,
-                'error': 'Failed to parse AI response'
-            }), 500
+            return error_response('ai_response_invalid', 'Failed to parse AI response', 500)
         except Exception:
             db.session.rollback()
             logger.exception("processing_ai_breakdown_failed", extra={"project_id": project_id})
-            return jsonify({
-                'success': False,
-                'error': 'Error processing task breakdown'
-            }), 500
+            return error_response('internal_error', 'Error processing task breakdown', 500)
 
     except Exception:
         db.session.rollback()
         logger.exception("ai_task_breakdown_route_failed", extra={"project_id": project_id})
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error'
-        }), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/<int:task_id>', methods=['PUT'])
@@ -297,21 +285,21 @@ def update_task(task_id):
 
     task, project = get_user_task(task_id, user_id)
     if not task:
-        return jsonify({'success': False, 'error': 'Task not found'}), 404
+        return error_response('task_not_found', 'Task not found', 404)
 
     try:
         if 'title' in data:
             title = str(data['title']).strip()
             if not title:
-                return jsonify({'success': False, 'error': 'Task title cannot be empty'}), 400
+                return error_response('title_required', 'Task title cannot be empty', 400)
             if len(title) > MAX_TITLE_LENGTH:
-                return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_TITLE_LENGTH}'}), 400
+                return error_response('title_too_long', f'Title exceeds maximum length of {MAX_TITLE_LENGTH}', 400)
             task.title = title
 
         if 'description' in data:
             desc = str(data['description']).strip() if data['description'] is not None else ''
             if len(desc) > MAX_DESCRIPTION_LENGTH:
-                return jsonify({'success': False, 'error': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}'}), 400
+                return error_response('description_too_long', f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}', 400)
             task.description = desc
 
         db.session.commit()
@@ -329,7 +317,7 @@ def update_task(task_id):
     except Exception:
         db.session.rollback()
         logger.exception("update_task_failed", extra={"task_id": task_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/<int:task_id>', methods=['DELETE'])
@@ -339,7 +327,7 @@ def delete_task(task_id):
     user_id = int(get_jwt_identity())
     task, project = get_user_task(task_id, user_id)
     if not task:
-        return jsonify({'success': False, 'error': 'Task not found'}), 404
+        return error_response('task_not_found', 'Task not found', 404)
 
     try:
         db.session.delete(task)
@@ -353,7 +341,7 @@ def delete_task(task_id):
     except Exception:
         db.session.rollback()
         logger.exception("delete_task_failed", extra={"task_id": task_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 # ============================================================================
@@ -369,18 +357,18 @@ def create_subtask(task_id):
 
     task, project = get_user_task(task_id, user_id)
     if not task:
-        return jsonify({'success': False, 'error': 'Task not found'}), 404
+        return error_response('task_not_found', 'Task not found', 404)
 
     title = str(data.get('title', '')).strip()
     if not title:
-        return jsonify({'success': False, 'error': 'Subtask title is required'}), 400
+        return error_response('title_required', 'Subtask title is required', 400)
 
     if len(title) > MAX_SUBTASK_TITLE_LENGTH:
-        return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}'}), 400
+        return error_response('title_too_long', f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}', 400)
 
     description = str(data.get('description', '')).strip() if data.get('description') is not None else ''
     if len(description) > MAX_DESCRIPTION_LENGTH:
-        return jsonify({'success': False, 'error': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}'}), 400
+        return error_response('description_too_long', f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}', 400)
 
     new_subtask = Subtask(
         task_id=task_id,
@@ -409,7 +397,7 @@ def create_subtask(task_id):
     except Exception:
         db.session.rollback()
         logger.exception("create_subtask_failed", extra={"task_id": task_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/<int:task_id>/subtasks', methods=['GET'])
@@ -419,7 +407,7 @@ def get_subtasks(task_id):
     user_id = int(get_jwt_identity())
     task, project = get_user_task(task_id, user_id)
     if not task:
-        return jsonify({'success': False, 'error': 'Task not found'}), 404
+        return error_response('task_not_found', 'Task not found', 404)
 
     try:
         subtasks = db.session.query(Subtask).filter_by(task_id=task_id).order_by(Subtask.created_at.asc()).limit(500).all()
@@ -438,7 +426,7 @@ def get_subtasks(task_id):
 
     except Exception:
         logger.exception("get_subtasks_failed", extra={"task_id": task_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/subtasks/<int:subtask_id>', methods=['PUT'])
@@ -450,22 +438,22 @@ def update_subtask(subtask_id):
 
     subtask, task, project = get_user_subtask(subtask_id, user_id)
     if not subtask:
-        return jsonify({'success': False, 'error': 'Subtask not found'}), 404
+        return error_response('subtask_not_found', 'Subtask not found', 404)
 
     try:
 
         if 'title' in data:
             title = str(data['title']).strip()
             if not title:
-                return jsonify({'success': False, 'error': 'Subtask title cannot be empty'}), 400
+                return error_response('title_required', 'Subtask title cannot be empty', 400)
             if len(title) > MAX_SUBTASK_TITLE_LENGTH:
-                return jsonify({'success': False, 'error': f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}'}), 400
+                return error_response('title_too_long', f'Title exceeds maximum length of {MAX_SUBTASK_TITLE_LENGTH}', 400)
             subtask.title = title
 
         if 'description' in data:
             desc = str(data['description']).strip() if data['description'] is not None else ''
             if len(desc) > MAX_DESCRIPTION_LENGTH:
-                return jsonify({'success': False, 'error': f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}'}), 400
+                return error_response('description_too_long', f'Description exceeds maximum length of {MAX_DESCRIPTION_LENGTH}', 400)
             subtask.description = desc
 
         if 'completed' in data:
@@ -489,7 +477,7 @@ def update_subtask(subtask_id):
     except Exception:
         db.session.rollback()
         logger.exception("update_subtask_failed", extra={"subtask_id": subtask_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @tasks_bp.route('/subtasks/<int:subtask_id>', methods=['DELETE'])
@@ -499,7 +487,7 @@ def delete_subtask(subtask_id):
     user_id = int(get_jwt_identity())
     subtask, task, project = get_user_subtask(subtask_id, user_id)
     if not subtask:
-        return jsonify({'success': False, 'error': 'Subtask not found'}), 404
+        return error_response('subtask_not_found', 'Subtask not found', 404)
 
     try:
         db.session.delete(subtask)
@@ -513,4 +501,4 @@ def delete_subtask(subtask_id):
     except Exception:
         db.session.rollback()
         logger.exception("delete_subtask_failed", extra={"subtask_id": subtask_id, "user_id": user_id})
-        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)

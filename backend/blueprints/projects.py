@@ -4,6 +4,7 @@ Handles project creation, reading, updating, deletion, and task aggregations.
 """
 
 from flask import Blueprint, request, jsonify
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from uow.unit_of_work import UnitOfWork
 from services.project_service import ProjectService
@@ -102,7 +103,7 @@ def get_projects():
 
     except Exception:
         logger.exception("get_projects_failed")
-        return jsonify({"message": "Failed to fetch projects"}), 500
+        return error_response('internal_error', "Failed to fetch projects", 500)
 
 
 @projects_bp.route('', methods=['POST'])
@@ -118,30 +119,30 @@ def create_project():
         technologies = data.get('technologies', '')
 
         if not isinstance(title, str) or not title.strip():
-            return jsonify({"message": "Project title is required and must be a non-empty string"}), 400
+            return error_response('title_required', "Project title is required and must be a non-empty string", 400)
         title = title.strip()
         if len(title) > MAX_TITLE_LENGTH:
-            return jsonify({"message": f"Project title cannot exceed {MAX_TITLE_LENGTH} characters"}), 400
+            return error_response('title_too_long', f"Project title cannot exceed {MAX_TITLE_LENGTH} characters", 400)
 
         if not isinstance(description, str) or not description.strip():
-            return jsonify({"message": "Project description is required and must be a non-empty string"}), 400
+            return error_response('description_required', "Project description is required and must be a non-empty string", 400)
         description = description.strip()
         if len(description) > MAX_DESC_LENGTH:
-            return jsonify({"message": f"Project description cannot exceed {MAX_DESC_LENGTH} characters"}), 400
+            return error_response('description_too_long', f"Project description cannot exceed {MAX_DESC_LENGTH} characters", 400)
 
         if technologies is not None:
             if not isinstance(technologies, str):
-                return jsonify({"message": "Technologies must be a string"}), 400
+                return error_response('invalid_technologies', "Technologies must be a string", 400)
             technologies = technologies.strip()
             if len(technologies) > MAX_TECH_LENGTH:
-                return jsonify({"message": f"Technologies cannot exceed {MAX_TECH_LENGTH} characters"}), 400
+                return error_response('technologies_too_long', f"Technologies cannot exceed {MAX_TECH_LENGTH} characters", 400)
         else:
             technologies = ''
 
         with UnitOfWork() as uow:
             user = uow.users.get_by_id(user_id)
             if not user:
-                return jsonify({"message": "User not found"}), 404
+                return error_response('user_not_found', "User not found", 404)
 
             service = ProjectService(uow)
             new_project = service.create_project(
@@ -171,7 +172,7 @@ def create_project():
 
     except Exception:
         logger.exception("create_project_failed")
-        return jsonify({"message": "Failed to create project"}), 500
+        return error_response('internal_error', "Failed to create project", 500)
 
 
 @projects_bp.route('/<int:project_id>', methods=['GET'])
@@ -183,7 +184,7 @@ def get_project(project_id: int):
         with UnitOfWork() as uow:
             project = uow.projects.get_by_id(project_id, user_id)
             if not project:
-                return jsonify({"message": "Project not found"}), 404
+                return error_response('project_not_found', "Project not found", 404)
 
             project_data = {
                 "id": project.id,
@@ -197,7 +198,7 @@ def get_project(project_id: int):
 
     except Exception:
         logger.exception("get_project_failed", project_id=project_id)
-        return jsonify({"message": "Failed to fetch project"}), 500
+        return error_response('internal_error', "Failed to fetch project", 500)
 
 
 @projects_bp.route('/<int:project_id>/tasks', methods=['GET'])
@@ -209,7 +210,7 @@ def get_project_tasks(project_id: int):
         with UnitOfWork() as uow:
             project = uow.projects.get_by_id(project_id, user_id)
             if not project:
-                return jsonify({"message": "Project not found"}), 404
+                return error_response('project_not_found', "Project not found", 404)
 
             tasks = uow.projects.get_tasks(project_id)
             tasks_data = [{
@@ -231,7 +232,7 @@ def get_project_tasks(project_id: int):
 
     except Exception:
         logger.exception("get_project_tasks_failed", project_id=project_id)
-        return jsonify({"message": "Failed to fetch project tasks"}), 500
+        return error_response('internal_error', "Failed to fetch project tasks", 500)
 
 
 @projects_bp.route('/<int:project_id>', methods=['PUT'])
@@ -247,7 +248,7 @@ def update_project(project_id: int):
             project = service.update_project(project_id, user_id, data)
 
             if not project:
-                return jsonify({"message": "Project not found"}), 404
+                return error_response('project_not_found', "Project not found", 404)
 
             p_id = project.id
             p_title = project.title
@@ -268,7 +269,7 @@ def update_project(project_id: int):
 
     except Exception:
         logger.exception("update_project_failed", project_id=project_id)
-        return jsonify({"message": "Failed to update project"}), 500
+        return error_response('internal_error', "Failed to update project", 500)
 
 
 @projects_bp.route('/<int:project_id>', methods=['DELETE'])
@@ -280,13 +281,13 @@ def delete_project(project_id: int):
         with UnitOfWork() as uow:
             service = ProjectService(uow)
             if not service.delete_project(project_id, user_id):
-                return jsonify({"message": "Project not found"}), 404
+                return error_response('project_not_found', "Project not found", 404)
 
         return jsonify({"message": "Project deleted successfully"}), 200
 
     except Exception:
         logger.exception("delete_project_failed", project_id=project_id)
-        return jsonify({"message": "Failed to delete project"}), 500
+        return error_response('internal_error', "Failed to delete project", 500)
 
 
 @projects_bp.route('/user/<int:user_id>', methods=['GET'])
@@ -297,7 +298,7 @@ def get_user_projects(user_id: int):
         current_user_id = int(get_jwt_identity())
         if current_user_id != user_id:
             logger.warning("unauthorized_user_projects_access", current_user_id=current_user_id, target_user_id=user_id)
-            return jsonify({"message": "Unauthorized"}), 403
+            return error_response('forbidden', "Unauthorized", 403)
 
         page = max(1, request.args.get('page', default=1, type=int))
         per_page = min(max(1, request.args.get('per_page', default=10, type=int)), 100)
@@ -305,7 +306,7 @@ def get_user_projects(user_id: int):
         with UnitOfWork() as uow:
             user = uow.users.get_by_id(user_id)
             if not user:
-                return jsonify({"message": "User not found"}), 404
+                return error_response('user_not_found', "User not found", 404)
 
             pagination = uow.projects.list_by_user(user_id, page, per_page)
             projects_data = [{
@@ -328,4 +329,4 @@ def get_user_projects(user_id: int):
 
     except Exception:
         logger.exception("get_user_projects_failed", user_id=user_id)
-        return jsonify({"message": "Failed to fetch user projects"}), 500
+        return error_response('internal_error', "Failed to fetch user projects", 500)

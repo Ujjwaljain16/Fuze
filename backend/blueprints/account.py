@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 
 from flask import Blueprint, Response, jsonify, request
+from core.http_errors import error_response
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required, unset_jwt_cookies
 
 from blueprints.auth import RECENT_SIGN_IN_SECONDS
@@ -47,7 +48,7 @@ def delete_account():
         with UnitOfWork() as uow:
             user = uow.users.get_by_id(user_id)
             if not user:
-                return jsonify({'message': 'User not found'}), 404
+                return error_response('user_not_found', 'User not found', 404)
 
             # As for set-password: an account created by Google sign-in has no password its owner
             # knows, so a recent sign-in stands in for it. Failures are 403, not 401: the session
@@ -55,18 +56,17 @@ def delete_account():
             if has_usable_password(user):
                 password = data.get('password')
                 if not password:
-                    return jsonify({'message': 'Password is required', 'error': 'password_required'}), 400
+                    return error_response('password_required', 'Password is required', 400)
                 if not AuthService(None).verify_password(user.password_hash, password):
                     logger.warning("account_delete_wrong_password", user_id=user_id)
-                    return jsonify({'message': 'Password is incorrect', 'error': 'invalid_password'}), 403
+                    return error_response('invalid_password', 'Password is incorrect', 403)
             elif time.time() - session_started_at(uow, jwt_data) > RECENT_SIGN_IN_SECONDS:
-                return jsonify({'message': 'Please sign in again to delete your account',
-                                'error': 'recent_sign_in_required'}), 403
+                return error_response('recent_sign_in_required', 'Please sign in again to delete your account', 403)
 
             AccountService(uow).delete_account(user_id)
     except Exception:
         logger.exception("account_delete_failed", user_id=user_id)
-        return jsonify({'message': 'Failed to delete account'}), 500
+        return error_response('internal_error', 'Failed to delete account', 500)
 
     _block_current_access_token(jwt_data)
     purge_user_redis(user_id)
@@ -87,9 +87,9 @@ def export_account():
             export = AccountService(uow).export_user_data(user_id)
     except Exception:
         logger.exception("account_export_failed", user_id=user_id)
-        return jsonify({'message': 'Failed to export data'}), 500
+        return error_response('internal_error', 'Failed to export data', 500)
     if export is None:
-        return jsonify({'message': 'User not found'}), 404
+        return error_response('user_not_found', 'User not found', 404)
 
     filename = f"fuze-export-{datetime.now(timezone.utc):%Y-%m-%d}.json"
     logger.info("account_exported", user_id=user_id, bookmarks=len(export['bookmarks']))

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from core.http_errors import error_response
 import os
 import time
 import uuid
@@ -77,13 +78,14 @@ def check_username():
         username = (data.get('username') or '').strip()
 
         if not username:
-            return jsonify({'available': False, 'error': 'Username is required'}), 400
+            return error_response('username_required', 'Username is required', 400, available=False)
 
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', username):
-            return jsonify({
-                'available': False,
-                'error': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'
-            }), 400
+            return error_response(
+                'invalid_username',
+                'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens',
+                400, available=False,
+            )
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
@@ -107,7 +109,7 @@ def check_username():
 
     except Exception as e:
         logger.error(f"Username check error: {e}")
-        return jsonify({'available': False, 'error': 'Service temporarily unavailable'}), 500
+        return error_response('internal_error', 'Service temporarily unavailable', 500, available=False)
 
 
 @auth_bp.route('/bulk-check-usernames', methods=['POST'])
@@ -118,7 +120,7 @@ def bulk_check_usernames_endpoint():
         data = request.get_json() or {}
         usernames = data.get('usernames', [])
         if not usernames or not isinstance(usernames, list):
-            return jsonify({'error': 'A list of usernames is required'}), 400
+            return error_response('usernames_required', 'A list of usernames is required', 400)
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
@@ -127,7 +129,7 @@ def bulk_check_usernames_endpoint():
         return jsonify({'results': results}), 200
     except Exception as e:
         logger.error(f"Bulk username check error: {e}")
-        return jsonify({'error': 'Failed to process bulk username check'}), 500
+        return error_response('internal_error', 'Failed to process bulk username check', 500)
 
 
 @auth_bp.route('/register', methods=['POST'])
@@ -138,62 +140,62 @@ def register():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'message': 'Request body is required'}), 400
+            return error_response('missing_body', 'Request body is required', 400)
 
         username = data.get('username')
         email    = data.get('email')
         password = data.get('password')
 
         if not username or not email or not password:
-            return jsonify({'message': 'Username, email, and password are required'}), 400
+            return error_response('missing_fields', 'Username, email, and password are required', 400)
 
         username = sanitize_input(username, max_length=50)
         email    = sanitize_input(email, max_length=255)
         email    = email.strip().lower() if email else None
 
         if not username or not email:
-            return jsonify({'message': 'Invalid input format'}), 400
+            return error_response('invalid_input', 'Invalid input format', 400)
 
         if not validate_email(email):
-            return jsonify({'message': 'Invalid email format'}), 400
+            return error_response('invalid_email', 'Invalid email format', 400)
 
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', username):
-            return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
+            return error_response('invalid_username', 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens', 400)
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
             is_valid, error_msg = auth_service.validate_password_strength(password)
             if not is_valid:
-                return jsonify({'message': error_msg}), 400
+                return error_response('weak_password', error_msg, 400)
 
             is_available, _, case_match = auth_service.check_username_availability(username)
             if not is_available:
                 suggestions = auth_service.generate_username_suggestions(username, 3)
-                resp = {'message': 'An account already exists with those credentials.'}
+                extra = {}
                 if suggestions:
-                    resp['suggestions'] = suggestions
+                    extra['suggestions'] = suggestions
                 if case_match and case_match != username:
-                    resp['case_insensitive_conflict'] = case_match
-                return jsonify(resp), 409
+                    extra['case_insensitive_conflict'] = case_match
+                return error_response('account_exists', 'An account already exists with those credentials.', 409, **extra)
 
             if uow.users.get_by_email(email):
                 logger.info(f"Register blocked — email exists: {email[:3]}***")
-                return jsonify({'message': 'An account already exists with those credentials.'}), 409
+                return error_response('account_exists', 'An account already exists with those credentials.', 409)
 
             try:
                 user = auth_service.register(username=username, email=email, password=password)
             except RegistrationFailed as rf_err:
-                return jsonify({'message': str(rf_err)}), 400
+                return error_response('registration_failed', str(rf_err), 400)
 
         logger.info(f"User registered successfully: {username}")
         return jsonify({'message': 'User registered successfully'}), 201
 
     except IntegrityError as e:
         logger.warning(f"IntegrityError during registration: {e}")
-        return jsonify({'message': 'An account already exists with those credentials.'}), 409
+        return error_response('account_exists', 'An account already exists with those credentials.', 409)
     except Exception as e:
         logger.error(f"Registration error: {str(e)}", exc_info=True)
-        return jsonify({'message': 'Registration failed. Please try again.'}), 500
+        return error_response('registration_failed', 'Registration failed. Please try again.', 500)
 
 
 @auth_bp.route('/verify', methods=['GET'])
@@ -205,12 +207,12 @@ def verify_token():
         with UnitOfWork() as uow:
             user = uow.users.get_by_id(current_user_id)
             if not user:
-                return jsonify({'message': 'User not found'}), 404
+                return error_response('user_not_found', 'User not found', 404)
             user_data = user.to_dict()
         return jsonify({'valid': True, 'user': user_data, 'message': 'Token is valid'}), 200
     except Exception as e:
         logger.error(f"Token verification error: {e}")
-        return jsonify({'message': 'Token verification failed'}), 401
+        return error_response('token_verification_failed', 'Token verification failed', 401)
 
 
 @auth_bp.route('/login', methods=['POST'])
@@ -222,17 +224,17 @@ def login():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'message': 'Request body is required'}), 400
+            return error_response('missing_body', 'Request body is required', 400)
 
         identifier = data.get('username') or data.get('email')
         password   = data.get('password')
 
         if not identifier or not password:
-            return jsonify({'message': 'Username/email and password required'}), 400
+            return error_response('missing_fields', 'Username/email and password required', 400)
 
         identifier = sanitize_input(identifier.strip().lower(), max_length=255)
         if not identifier:
-            return jsonify({'message': 'Invalid input format'}), 400
+            return error_response('invalid_input', 'Invalid input format', 400)
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
@@ -241,7 +243,7 @@ def login():
             # Timing-safe: always run bcrypt even when user not found
             if not user:
                 _constant_time_fail(password)
-                return jsonify({'message': 'Invalid credentials'}), 401
+                return error_response('invalid_credentials', 'Invalid credentials', 401)
 
             from core import login_throttle
             client = request.remote_addr or 'unknown'
@@ -252,7 +254,7 @@ def login():
             if locked or login_throttle.client_blocked(user.id, client):
                 logger.warning(f"Login blocked: user_id={user.id} account_locked={bool(locked)}")
                 _constant_time_fail(password)
-                return jsonify({'message': 'Invalid credentials'}), 401
+                return error_response('invalid_credentials', 'Invalid credentials', 401)
 
             # Password verification
             if not auth_service.verify_password(user.password_hash, password):
@@ -262,7 +264,7 @@ def login():
                     else login_throttle.ACCOUNT_LIMIT_WITHOUT_CLIENT_THROTTLE)
                 if lockout_data['is_locked']:
                     logger.warning(f"Account locked: user_id={user.id} after {lockout_data['failed_count']} attempts")
-                return jsonify({'message': 'Invalid credentials'}), 401
+                return error_response('invalid_credentials', 'Invalid credentials', 401)
 
             # Successful login — reset lockout state
             login_throttle.clear_client_failures(user.id, client)
@@ -321,8 +323,8 @@ def login():
         logger.error(f"Login error: {str(e)}", exc_info=True)
         error_str = str(e).lower()
         if any(kw in error_str for kw in ['connection', 'timeout', 'network', 'unreachable', 'operational']):
-            return jsonify({'message': 'Database connection failed. Please try again.'}), 503
-        return jsonify({'message': 'Login failed. Please try again.'}), 500
+            return error_response('database_unavailable', 'Database connection failed. Please try again.', 503)
+        return error_response('login_failed', 'Login failed. Please try again.', 500)
 
 
 RECENT_SIGN_IN_SECONDS = 15 * 60
@@ -340,13 +342,13 @@ def set_password():
         current_password = data.get('current_password')
 
         if not new_password:
-            return jsonify({'message': 'New password is required'}), 400
+            return error_response('password_required', 'New password is required', 400)
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
             user = uow.users.get_by_id(user_id)
             if not user:
-                return jsonify({'message': 'User not found'}), 404
+                return error_response('user_not_found', 'User not found', 404)
 
             meta = dict(user.user_metadata or {})
             # Accounts created by Google sign-in get a random password nobody knows, so asking for
@@ -358,17 +360,16 @@ def set_password():
                 # Measured from when the session began: a refreshed token's iat is always recent.
                 # 403, not 401: a 401 makes the client refresh and retry.
                 if time.time() - session_started_at(uow, get_jwt()) > RECENT_SIGN_IN_SECONDS:
-                    return jsonify({'message': 'Please sign in again to set a password',
-                                    'error': 'recent_sign_in_required'}), 403
+                    return error_response('recent_sign_in_required', 'Please sign in again to set a password', 403)
             else:
                 if not current_password:
-                    return jsonify({'message': 'Current password required'}), 400
+                    return error_response('password_required', 'Current password required', 400)
                 if not auth_service.verify_password(user.password_hash, current_password):
-                    return jsonify({'message': 'Current password is incorrect'}), 401
+                    return error_response('invalid_password', 'Current password is incorrect', 401)
 
             is_valid, error_msg = auth_service.validate_password_strength(new_password)
             if not is_valid:
-                return jsonify({'message': error_msg}), 400
+                return error_response('weak_password', error_msg, 400)
 
             new_hash = auth_service.hash_password(new_password)
             auth_service.update_password(user_id, new_hash)
@@ -385,7 +386,7 @@ def set_password():
 
     except Exception as e:
         logger.error(f"Set password error: {e}", exc_info=True)
-        return jsonify({'message': 'Failed to update password'}), 500
+        return error_response('internal_error', 'Failed to update password', 500)
 
 
 @auth_bp.route('/update-username', methods=['POST'])
@@ -399,36 +400,36 @@ def update_username():
         new_username = data.get('new_username', '').strip()
 
         if not new_username:
-            return jsonify({'message': 'New username is required'}), 400
+            return error_response('username_required', 'New username is required', 400)
 
         if not re.match(r'^[a-zA-Z0-9_-]{3,50}$', new_username):
-            return jsonify({'message': 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens'}), 400
+            return error_response('invalid_username', 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens', 400)
 
         with UnitOfWork() as uow:
             auth_service = AuthService(uow)
             user = uow.users.get_by_id(user_id)
             if not user:
-                return jsonify({'message': 'User not found'}), 404
+                return error_response('user_not_found', 'User not found', 404)
 
             is_available, exact_match, case_match = auth_service.check_username_availability(new_username)
             if not is_available:
                 suggestions = auth_service.generate_username_suggestions(new_username, 3)
-                resp = {'message': 'An account already exists with those credentials.', 'suggestions': suggestions}
+                extra = {'suggestions': suggestions}
                 if case_match and case_match != new_username:
-                    resp['case_insensitive_conflict'] = case_match
-                return jsonify(resp), 409
+                    extra['case_insensitive_conflict'] = case_match
+                return error_response('account_exists', 'An account already exists with those credentials.', 409, **extra)
 
             try:
                 auth_service.update_username(user, new_username)
             except IntegrityError:
                 suggestions = auth_service.generate_username_suggestions(new_username, 3)
-                return jsonify({'message': 'An account already exists with those credentials.', 'suggestions': suggestions}), 409
+                return error_response('account_exists', 'An account already exists with those credentials.', 409, suggestions=suggestions)
 
         return jsonify({'message': 'Username updated successfully', 'username': new_username}), 200
 
     except Exception as e:
         logger.error(f"Update username error: {e}", exc_info=True)
-        return jsonify({'message': 'Failed to update username'}), 500
+        return error_response('internal_error', 'Failed to update username', 500)
 
 
 def _verify_refresh_token() -> bool:
@@ -451,7 +452,7 @@ def _verify_refresh_token() -> bool:
 def refresh():
     """Refresh access token with rotation and reuse detection."""
     if not _verify_refresh_token():
-        return jsonify({'message': 'Refresh token missing or invalid', 'error': 'invalid_refresh_token'}), 401
+        return error_response('invalid_refresh_token', 'Refresh token missing or invalid', 401)
     jwt_data  = get_jwt()
     identity  = get_jwt_identity()
     old_jti   = jwt_data['jti']
@@ -459,20 +460,20 @@ def refresh():
 
     if not family_id:
         # Pre-rotation token: it belongs to no session that could ever be revoked.
-        return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
+        return error_response('invalid_refresh_token', 'Session expired. Please log in again.', 401)
 
     with UnitOfWork() as uow:
         family = uow.token_families.get_family(family_id, lock=True)
         if not family or family.revoked:
             logger.warning(f"Refresh on revoked/missing family: user={identity} family={family_id}")
-            return jsonify({'message': 'Session expired. Please log in again.'}), 401
+            return error_response('invalid_refresh_token', 'Session expired. Please log in again.', 401)
 
         if family.current_jti != old_jti:
             uow.token_families.revoke_family(family_id, 'reuse_detected')
             from core.sessions import mark_family_revoked
             mark_family_revoked(family_id)
             logger.warning(f"Refresh token reuse — family revoked: user={identity} family={family_id}")
-            return jsonify({'message': 'Session compromised. Please log in again.'}), 401
+            return error_response('session_compromised', 'Session compromised. Please log in again.', 401)
 
         new_access = create_access_token(identity=identity, additional_claims={'family_id': family_id})
         new_refresh = create_refresh_token(identity=identity, additional_claims={'family_id': family_id})
@@ -537,16 +538,13 @@ def verify_token_status():
     with UnitOfWork() as uow:
         user = uow.users.get_by_id(current_user_id)
         if not user:
-            return jsonify({'message': 'User not found'}), 404
+            return error_response('user_not_found', 'User not found', 404)
         user_data = {'id': user.id, 'username': user.username, 'email': user.email}
     return jsonify({'valid': True, 'user': user_data}), 200
 
 
 def _supabase_unavailable():
-    return jsonify({
-        'message': 'Sign-in service is unavailable, please try again',
-        'error': 'auth_provider_unavailable'
-    }), 503
+    return error_response('auth_provider_unavailable', 'Sign-in service is unavailable, please try again', 503)
 
 
 def _fetch_supabase_user(access_token):
@@ -556,10 +554,10 @@ def _fetch_supabase_user(access_token):
     error) is a 503, so the client retries instead of treating a valid sign-in as a bad token.
     """
     if not access_token:
-        return None, (jsonify({'message': 'access_token is required'}), 400)
+        return None, error_response('access_token_required', 'access_token is required', 400)
     supabase_url = os.environ.get('SUPABASE_URL')
     if not supabase_url:
-        return None, (jsonify({'message': 'Supabase not configured'}), 503)
+        return None, error_response('auth_provider_unavailable', 'Supabase not configured', 503)
     try:
         resp = requests.get(
             supabase_url.rstrip('/') + '/auth/v1/user',
@@ -574,11 +572,11 @@ def _fetch_supabase_user(access_token):
         return None, _supabase_unavailable()
     if resp.status_code != 200:
         logger.warning(f"Supabase token verification failed: {resp.status_code}")
-        return None, (jsonify({'message': 'Invalid Supabase token'}), 401)
+        return None, error_response('invalid_oauth_token', 'Invalid Supabase token', 401)
     supa_user = resp.json()
     raw_email = supa_user.get('email') or (supa_user.get('user') or {}).get('email', '')
     if not raw_email or not validate_email(raw_email.strip().lower()):
-        return None, (jsonify({'message': 'Unable to determine valid user email from Supabase'}), 400)
+        return None, error_response('oauth_email_missing', 'Unable to determine valid user email from Supabase', 400)
     return supa_user, None
 
 
@@ -607,12 +605,12 @@ def supabase_oauth():
         return response, 200
 
     except AccountLinkRequired as e:
-        return jsonify({'message': str(e), 'error': 'account_link_required'}), 409
+        return error_response('account_link_required', str(e), 409)
     except (AuthenticationFailed, RegistrationFailed) as e:
-        return jsonify({'message': str(e), 'error': 'oauth_rejected'}), 403
+        return error_response('oauth_rejected', str(e), 403)
     except Exception as e:
         logger.error(f"Supabase OAuth error: {e}", exc_info=True)
-        return jsonify({'message': 'OAuth sign-in failed'}), 500
+        return error_response('oauth_failed', 'OAuth sign-in failed', 500)
 
 
 @auth_bp.route('/link-oauth', methods=['POST'])
@@ -632,7 +630,7 @@ def link_oauth():
         redis_cache.delete_cache(cache_keys.profile(user_data['id']))
         return jsonify({'message': 'Google account connected', 'user': user_data}), 200
     except (AuthenticationFailed, RegistrationFailed) as e:
-        return jsonify({'message': str(e), 'error': 'link_rejected'}), 403
+        return error_response('link_rejected', str(e), 403)
     except Exception as e:
         logger.error(f"OAuth link error: {e}", exc_info=True)
-        return jsonify({'message': 'Could not connect Google account'}), 500
+        return error_response('link_failed', 'Could not connect Google account', 500)

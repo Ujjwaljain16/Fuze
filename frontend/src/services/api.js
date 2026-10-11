@@ -182,6 +182,18 @@ export const ERROR_MESSAGES = {
   [ERROR_TYPES.UNKNOWN]: 'An unexpected error occurred. Please try again.'
 };
 
+// Every API error body is {"error": "<snake_case_code>", "message": "<human sentence>"}:
+// branch on the code, show the message.
+export const getApiErrorCode = (error) => {
+  const code = error?.response?.data?.error
+  return typeof code === 'string' ? code : null
+}
+
+export const getApiErrorMessage = (error, fallback = ERROR_MESSAGES[ERROR_TYPES.UNKNOWN]) => {
+  const message = error?.response?.data?.message
+  return typeof message === 'string' && message.trim() ? message : fallback
+}
+
 // Error handler utility
 export const handleApiError = (error, context = '') => {
   console.error(`API Error${context ? ` (${context})` : ''}:`, error);
@@ -189,55 +201,57 @@ export const handleApiError = (error, context = '') => {
   let errorType = ERROR_TYPES.UNKNOWN;
   let message = ERROR_MESSAGES[ERROR_TYPES.UNKNOWN];
   let statusCode = 0;
+  let code = null;
 
   if (error.response) {
     // Server responded with error status
     statusCode = error.response.status;
-    const data = error.response.data;
+    code = getApiErrorCode(error);
+    const serverMessage = getApiErrorMessage(error, null);
 
     switch (statusCode) {
       case 400:
         errorType = ERROR_TYPES.VALIDATION;
-        message = data?.message || data?.error || 'Invalid request data';
+        message = serverMessage || 'Invalid request data';
         break;
       case 401:
         // Check if this is a login attempt with wrong credentials
-        if (data?.message === 'Invalid credentials') {
+        if (code === 'invalid_credentials') {
           errorType = ERROR_TYPES.VALIDATION;
           message = 'Invalid credentials';
         } else {
           errorType = ERROR_TYPES.AUTH;
-          message = data?.message || 'Authentication required';
+          message = serverMessage || 'Authentication required';
         }
         break;
       case 403:
         errorType = ERROR_TYPES.AUTH;
-        message = data?.message || 'Access denied';
+        message = serverMessage || 'Access denied';
         break;
       case 404:
-        message = data?.message || 'Resource not found';
+        message = serverMessage || 'Resource not found';
         break;
       case 409:
         errorType = ERROR_TYPES.VALIDATION;
-        message = data?.message || 'Conflict with existing data';
+        message = serverMessage || 'Conflict with existing data';
         break;
       case 422:
         errorType = ERROR_TYPES.VALIDATION;
-        message = data?.message || 'Validation failed';
+        message = serverMessage || 'Validation failed';
         break;
       case 429:
         errorType = ERROR_TYPES.RATE_LIMIT;
-        message = data?.message || 'Rate limit exceeded';
+        message = serverMessage || 'Rate limit exceeded';
         break;
       case 500:
       case 502:
       case 503:
       case 504:
         errorType = ERROR_TYPES.SERVER;
-        message = data?.message || 'Server temporarily unavailable';
+        message = serverMessage || 'Server temporarily unavailable';
         break;
       default:
-        message = data?.message || data?.error || `Server error (${statusCode})`;
+        message = serverMessage || `Server error (${statusCode})`;
     }
   } else if (error.request) {
     // Network error
@@ -250,6 +264,7 @@ export const handleApiError = (error, context = '') => {
 
   return {
     type: errorType,
+    code,
     message,
     statusCode,
     originalError: error,

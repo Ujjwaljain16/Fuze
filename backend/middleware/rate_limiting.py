@@ -1,6 +1,6 @@
 import os
 from typing import List
-from flask import jsonify
+from core.http_errors import rate_limit_response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from core.logging_config import get_logger
@@ -100,13 +100,7 @@ def init_rate_limiter(app) -> Limiter:
 
     # Only register if we haven't handled requests yet to support testing environments
     if not app._got_first_request:
-        @app.errorhandler(429)
-        def ratelimit_exceeded_handler(e):
-            return jsonify({
-                "error": "rate_limit_exceeded",
-                "message": "Too many requests. Please slow down and try again later.",
-                "retry_after": getattr(e, "description", None) or "60"
-            }), 429
+        app.register_error_handler(429, rate_limit_response)
 
     logger.info("rate_limiter_initialized_successfully", extra={"storage_uri": storage_uri.split('@')[-1] if '@' in storage_uri else storage_uri})
     return limiter

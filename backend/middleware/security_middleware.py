@@ -9,7 +9,8 @@ Implements user data isolation checks, input validation, and security headers:
 import re
 from functools import wraps
 from typing import Tuple, Dict, Any, Optional, List
-from flask import request, jsonify, g
+from flask import request, g
+from core.http_errors import error_response
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from flask_jwt_extended.exceptions import JWTExtendedException
 from core.logging_config import get_logger
@@ -58,7 +59,7 @@ def require_user_context(func):
             return func(*args, **kwargs)
         except Exception as e:
             logger.exception("security_context_failed")
-            return jsonify({'error': 'Authentication failed'}), 401
+            return error_response('authentication_failed', 'Authentication failed', 401)
 
     return wrapper
 
@@ -183,14 +184,12 @@ def validate_request_data(required_fields: Optional[List[str]] = None, optional_
                 if required_fields:
                     missing_fields = [field for field in required_fields if field not in data or data[field] is None]
                     if missing_fields:
-                        return jsonify({
-                            'error': 'Missing required fields',
-                            'missing_fields': missing_fields
-                        }), 400
+                        return error_response('missing_fields', 'Missing required fields', 400,
+                                              missing_fields=missing_fields)
 
                 is_valid, error = validate_input(data, field_rules=field_rules)
                 if not is_valid:
-                    return jsonify({'error': error}), 400
+                    return error_response('invalid_input', error, 400)
 
                 large_text_fields = {'extracted_text', 'content', 'description', 'notes', 'body', 'text'}
                 sanitized_data = {}

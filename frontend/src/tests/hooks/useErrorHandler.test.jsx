@@ -29,7 +29,7 @@ describe('useErrorHandler', () => {
     const error = {
       response: {
         status: 400,
-        data: { error: 'Bad request' }
+        data: { error: 'bad_request', message: 'Bad request' }
       }
     }
     

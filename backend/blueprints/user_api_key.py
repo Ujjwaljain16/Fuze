@@ -1,5 +1,6 @@
 from typing import Optional
 from flask import Blueprint, request, jsonify
+from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
 from models import db, User
@@ -59,27 +60,27 @@ def add_api_key():
     """Add or update user's Gemini API key"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     try:
         add_user_api_key, _, _, _, api_manager = get_multi_user_api_manager()
 
         data = request.get_json(silent=True)
         if not data or not isinstance(data, dict):
-            return jsonify({'error': 'JSON payload required'}), 400
+            return error_response('missing_body', 'JSON payload required', 400)
 
         api_key = data.get('api_key')
         api_key_name = str(data.get('api_key_name', 'Default Key')).strip()[:100]
 
         if not api_key or not isinstance(api_key, str):
-            return jsonify({'error': 'API key is required and must be a string'}), 400
+            return error_response('api_key_required', 'API key is required and must be a string', 400)
 
         api_key = api_key.strip()
 
         # Format validation
         if len(api_key) < 20 or not api_key.startswith('AIzaSy'):
             logger.warning("invalid_api_key_format", extra={"user_id": user_id})
-            return jsonify({'error': 'Invalid API key format. Must be a valid Gemini API key starting with AIzaSy.'}), 400
+            return error_response('invalid_api_key_format', 'Invalid API key format. Must be a valid Gemini API key starting with AIzaSy.', 400)
 
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)
@@ -96,12 +97,12 @@ def add_api_key():
                 'api_key_name': api_key_name
             }), 200
         else:
-            return jsonify({'error': 'Failed to add API key'}), 500
+            return error_response('internal_error', 'Failed to add API key', 500)
 
     except Exception:
         db.session.rollback()
         logger.exception("add_api_key_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @user_api_key_bp.route('/api-key', methods=['GET'])
@@ -110,12 +111,12 @@ def get_api_key_info():
     """Get user's API key information (without exposing the actual key)"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     try:
         user = db.session.query(User).filter_by(id=user_id).first()
         if not user:
-            return jsonify({'error': 'User not found'}), 404
+            return error_response('user_not_found', 'User not found', 404)
 
         metadata = getattr(user, 'user_metadata', {}) or {}
         api_key_info = metadata.get('api_key', {})
@@ -136,7 +137,7 @@ def get_api_key_info():
 
     except Exception:
         logger.exception("get_api_key_info_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @user_api_key_bp.route('/api-key', methods=['DELETE'])
@@ -145,14 +146,14 @@ def remove_api_key():
     """Remove user's API key"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     try:
         _, _, _, get_user_api_key, api_manager = get_multi_user_api_manager()
 
         user = db.session.query(User).filter_by(id=user_id).first()
         if not user:
-            return jsonify({'error': 'User not found'}), 404
+            return error_response('user_not_found', 'User not found', 404)
 
         metadata = dict(user.user_metadata) if user.user_metadata else {}
 
@@ -191,7 +192,7 @@ def remove_api_key():
     except Exception:
         db.session.rollback()
         logger.exception("remove_api_key_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @user_api_key_bp.route('/api-key/status', methods=['GET'])
@@ -200,7 +201,7 @@ def get_api_key_status():
     """Get user's API key status and usage statistics (CACHED)"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     try:
         _, get_user_api_stats, _, _, _ = get_multi_user_api_manager()
@@ -250,7 +251,7 @@ def get_api_key_status():
 
     except Exception:
         logger.exception("get_api_key_status_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @user_api_key_bp.route('/api-key/test', methods=['POST'])
@@ -259,7 +260,7 @@ def test_api_key():
     """Test if user's API key is valid"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     # Redis-backed rate limiting for test endpoint to prevent abuse
     if redis_cache and redis_cache.connected:
@@ -269,7 +270,7 @@ def test_api_key():
             if call_count == 1:
                 redis_cache.redis_client.expire(rate_key, TEST_RATE_LIMIT_TTL)
             if call_count > TEST_MAX_CALLS_PER_MINUTE:
-                return jsonify({'error': 'Too many test requests. Please wait a minute.'}), 429
+                return error_response('rate_limit_exceeded', 'Too many test requests. Please wait a minute.', 429)
         except Exception as rate_err:
             logger.warning("api_key_test_rate_limit_check_failed", extra={"user_id": user_id, "error": str(rate_err)})
 
@@ -319,7 +320,7 @@ def test_api_key():
 
     except Exception:
         logger.exception("test_api_key_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 @user_api_key_bp.route('/api-key/usage', methods=['GET'])
@@ -328,7 +329,7 @@ def get_api_usage():
     """Get detailed API usage statistics"""
     user_id = _get_authenticated_user_id()
     if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
+        return error_response('unauthorized', 'Unauthorized', 401)
 
     try:
         _, get_user_api_stats, check_user_rate_limit, _, _ = get_multi_user_api_manager()
@@ -351,7 +352,7 @@ def get_api_usage():
 
     except Exception:
         logger.exception("get_api_usage_failed", extra={"user_id": user_id})
-        return jsonify({'error': 'Internal server error'}), 500
+        return error_response('internal_error', 'Internal server error', 500)
 
 
 def init_app(app):
