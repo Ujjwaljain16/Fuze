@@ -2,33 +2,113 @@
 
 How to keep Fuze's data safe and its pipeline healthy in production.
 
+## Repository secrets and variables
+
+Add these under GitHub, Settings, Secrets and variables, Actions. A workflow whose required
+secret is missing fails with an error naming it.
+
+| Secret | Used by | Notes |
+|---|---|---|
+| `DATABASE_URL` | `db-keepalive.yml`, `backup-db.yml` | Supabase **session pooler** URI (`...pooler.supabase.com:5432`). GitHub runners have no IPv6, so the direct `db.<ref>.supabase.co` host is unreachable. The transaction pooler (port 6543) breaks `pg_dump`. |
+| `BACKUP_PASSPHRASE` | `backup-db.yml`, `restore-drill.yml` | At least 20 characters, random. Keep a copy in a password manager: without it every backup is useless. After a rotation, older artifacts still need the old passphrase. |
+| `BACKUP_DATABASE_URL` | `backup-db.yml` | Optional. Overrides `DATABASE_URL` for the dump only, e.g. when `DATABASE_URL` must stay on the transaction pooler. |
+| `SUPABASE_URL` | `db-keepalive.yml` | Optional. `https://<project-ref>.supabase.co`. |
+| `SUPABASE_ANON_KEY` | `db-keepalive.yml` | Optional. The anon (or publishable) key. It already ships in the frontend bundle. Without both Supabase secrets the REST ping is skipped. |
+| `REDIS_URL` | `redis-keepalive.yml` | Upstash `rediss://` URL. |
+| `HF_TOKEN` | `sync-to-hf-space.yml` (required, write access), `uptime-monitor.yml` (optional) | The runtime API answers without a token while the Space is public. |
+| `CODECOV_TOKEN` | `backend-ci.yml` | Optional. Coverage upload never fails the build. |
+| `GITHUB_TOKEN` | all issue-reporting steps, `restore-drill.yml`, `keep-workflows-enabled.yml` | Provided automatically. Each job asks for only the permissions it needs (`issues: write`, `actions: read`/`write`). |
+
+| Variable | Used by | Default |
+|---|---|---|
+| `HF_SPACE_URL` | `sync-to-hf-space.yml` smoke test, `uptime-monitor.yml` | `https://ujjwaljain16-fuze-backend.hf.space` |
+| `SUPABASE_PG_MAJOR` | `restore-drill.yml` service image | `15`. Set it to `17` when Supabase upgrades the project. |
+| `BACKUP_PG_DUMP_ARGS` | `backup-db.yml` | Empty. Extra `pg_dump` flags, e.g. `--schema=public` if Supabase-managed schemas ever fail to dump (`permission denied`). |
+
+These are **not** GitHub secrets. No workflow reads them; they belong to the hosts:
+
+- Hugging Face Space secrets: `SENTRY_DSN` (optional), plus the app's own `DATABASE_URL`,
+  `REDIS_URL`, `SECRET_KEY`, `JWT_SECRET_KEY` and the rest listed in `docs/DEPLOYMENT.md`.
+- Vercel environment variables (read at build time): `VITE_SENTRY_DSN`, `VITE_ENVIRONMENT`,
+  and optionally `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` for source map uploads.
+
 ## Backups
 
-Supabase takes daily backups on paid plans only. On the free plan, take your own:
+Supabase takes daily backups on paid plans only, so `backup-db.yml` takes our own every night
+at 02:30 UTC (and on demand from the Actions tab):
+
+- `pg_dump --format=custom --no-owner --no-privileges` of the whole database, using the
+  pg17 client (`pgvector/pgvector:pg17`). That client can dump Supabase on Postgres 15 or 17.
+- Piped straight into `gpg --symmetric --cipher-algo AES256` with `BACKUP_PASSPHRASE`.
+  **Anyone signed in to GitHub can download a public repository's artifacts**, so only the
+  encrypted file is kept. The dump holds users' saved content, password hashes and encrypted
+  Gemini keys.
+- Before upload, the job checks that the file decrypts and lists as a pg_dump archive with
+  `alembic_version` data. It is kept as the artifact `fuze-db-backup` (`fuze-db.dump.gpg` +
+  `SHA256SUMS`) for **30 days**. A failed night opens or updates an issue.
+- Before a migration that drops or rewrites data, run the workflow by hand first. For anything
+  older than 30 days, download an artifact and keep it somewhere else (it stays encrypted).
+
+## Restoring from a backup artifact
+
+You need `gh`, `gpg`, Docker and the backup passphrase.
 
 ```bash
-# Full logical backup (schema + data), compressed. Use the session pooler or direct URL.
-pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges --file "fuze-$(date +%F).dump"
+# 1. Pick a backup and download it (or use the Artifacts box on the run's page).
+gh run list --workflow backup-db.yml --status success --limit 10
+gh run download <run-id> --name fuze-db-backup --dir backup
+(cd backup && sha256sum --check SHA256SUMS)
+
+# 2. Decrypt (gpg asks for BACKUP_PASSPHRASE). Delete fuze.dump when you are done.
+gpg --output fuze.dump --decrypt backup/fuze-db.dump.gpg
+
+# 3. Look inside: server version, objects, row data present.
+docker run --rm -v "$PWD:/work" pgvector/pgvector:pg17 pg_restore --list /work/fuze.dump | less
+# Which schema the dump expects pgvector in ("public" or Supabase's "extensions"):
+docker run --rm -v "$PWD:/work" pgvector/pgvector:pg17 \
+  sh -c 'pg_restore --schema-only --file - /work/fuze.dump | grep -m1 -oE "[a-z_]+\.vector\("'
 ```
 
-- Run it at least weekly, and before every migration that drops or rewrites data.
-- Keep backups off the database host (another cloud bucket or an encrypted local drive).
-- The dump holds users' saved content, hashed passwords and encrypted Gemini keys: treat it as secret.
+To restore into a Supabase project (a fresh one, or the old one after a disaster):
+
+```bash
+# 4. In the target database, enable pgvector in the schema found above (SQL editor):
+#      create extension if not exists vector with schema extensions;   -- or: schema public
+# 5. Restore the application schema. Supabase's own schemas (auth, storage, ...) already
+#    exist in every project and are not restored. --clean replaces existing app tables.
+docker run --rm -e TARGET_URL -v "$PWD:/work" pgvector/pgvector:pg17 \
+  sh -c 'pg_restore --dbname "$TARGET_URL" --schema=public --no-owner --no-privileges --clean --if-exists /work/fuze.dump'
+# 6. A new project grants its API roles access to new tables by default. Take it back again
+#    (what migration 0013 did); RLS without policies already hides the rows:
+#      revoke all on all tables in schema public from anon, authenticated;
+#      revoke all on all sequences in schema public from anon, authenticated;
+# 7. Point DATABASE_URL at it (HF Space secret and the GitHub secret) and restart the Space.
+#    start.sh runs `alembic upgrade head`, and /health/readiness reports "schema": "current".
+```
+
+Set `TARGET_URL` to the target's session-pooler URI in your shell first, and use the pg17
+client: a pg_restore older than the pg_dump can't read the archive. When restoring into
+Postgres 15 with that client, one `unrecognized configuration parameter "transaction_timeout"`
+error is expected and harmless.
 
 ## Restore drill
 
-A backup you have never restored is a hope, not a backup. Once a month, restore the newest dump into
-a scratch database and check it:
+A backup you have never restored is a hope, not a backup. `restore-drill.yml` runs every
+Sunday at 05:00 UTC (and on demand). It:
 
-```bash
-docker run -d --name fuze-restore -e POSTGRES_PASSWORD=x -p 55433:5432 pgvector/pgvector:pg15
-createdb -h localhost -p 55433 -U postgres fuze_restore
-pg_restore -h localhost -p 55433 -U postgres -d fuze_restore --no-owner "fuze-YYYY-MM-DD.dump"
-DATABASE_URL=postgresql://postgres:x@localhost:55433/fuze_restore APP_ENV=development \
-  python -m alembic -c alembic.ini current      # should print the expected head
-psql -h localhost -p 55433 -U postgres -d fuze_restore -c "select count(*) from saved_content"
-docker rm -f fuze-restore
-```
+- downloads the newest successful `backup-db.yml` artifact and fails if it is more than 72
+  hours old;
+- verifies the checksum, decrypts it, and restores the `public` schema into a
+  `pgvector/pgvector:pg15` service container (`SUPABASE_PG_MAJOR`), creating pgvector where
+  the dump expects it;
+- fails on any `pg_restore` error other than the harmless `transaction_timeout` one;
+- requires `alembic current` to equal the repository's head;
+- requires `alembic_version`, `users`, `projects`, `saved_content`, `tasks` and
+  `bookmark_events` to exist (row counts go to the job summary), and `users` to be non-empty.
+
+A failure opens or updates the issue "Weekly restore drill is failing". If a migration shipped
+after the newest backup was taken, the head check fails until the next night's backup. Run
+`backup-db.yml` and then the drill by hand to clear it.
 
 ## Migrations
 
