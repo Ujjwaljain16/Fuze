@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models import TokenFamily
@@ -18,6 +18,9 @@ class TokenFamilyRepository:
         if lock:
             query = query.with_for_update()
         return query.first()
+
+    def list_active_for_user(self, user_id: int) -> List[TokenFamily]:
+        return self.session.query(TokenFamily).filter_by(user_id=user_id, revoked=False).all()
 
     def add(self, token_family: TokenFamily) -> TokenFamily:
         """Persist a new token family."""

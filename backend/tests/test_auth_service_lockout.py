@@ -20,12 +20,13 @@ def test_account_lockout_enforcement():
         service.authenticate('locked_user', 'password123')
     assert 'temporarily locked' in str(exc_info.value)
 
-    # 2. OAuth flow on locked account raises AuthenticationFailed
+    # 2. A password lockout does not block Google sign-in (otherwise anyone could lock the
+    #    owner out of every sign-in method with five wrong passwords)
     mock_uow.users.get_by_provider_id.return_value = user
-    with pytest.raises(AuthenticationFailed) as exc_info_oauth:
-        service.handle_supabase_oauth({'email': 'locked@example.com', 'id': 'supa_123',
-                                       'email_confirmed_at': '2026-01-01T00:00:00Z'})
-    assert 'temporarily locked' in str(exc_info_oauth.value)
+    with patch('flask_jwt_extended.create_access_token', return_value='access'),          patch('flask_jwt_extended.create_refresh_token', return_value='refresh'),          patch('flask_jwt_extended.decode_token', return_value={'jti': 'jti-1'}):
+        signed_in, _, _ = service.handle_supabase_oauth({'email': 'locked@example.com', 'id': 'supa_123',
+                                                         'email_confirmed_at': '2026-01-01T00:00:00Z'})
+    assert signed_in is user
 
 
 @pytest.mark.unit

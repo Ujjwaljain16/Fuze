@@ -290,7 +290,10 @@ def create_app(config_name: str = None) -> Flask:
         try:
             if not redis_cache or not getattr(redis_cache, 'connected', False):
                 return False
-            return redis_cache.redis_client.exists(f"revoked_jti:{jti}") == 1
+            from core.sessions import is_family_revoked
+            client = redis_cache.redis_client
+            return (client.exists(f"revoked_jti:{jti}") == 1
+                    or is_family_revoked(client, jwt_payload.get('family_id')))
         except Exception:
             return False
 

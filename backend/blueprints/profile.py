@@ -176,8 +176,14 @@ def change_password(user_id):
     user.password_hash = hash_password(new_password)
 
     try:
+        # Whoever else held a session (e.g. someone who knew the old password) loses it now.
+        from flask_jwt_extended import get_jwt
+        from core.sessions import revoke_user_sessions
+        from uow.unit_of_work import UnitOfWork
         db.session.commit()
-        logger.info("password_changed_successfully", user_id=user_id)
+        with UnitOfWork() as uow:
+            ended = revoke_user_sessions(uow, user_id, keep_family_id=get_jwt().get('family_id'))
+        logger.info("password_changed_successfully", user_id=user_id, other_sessions_ended=ended)
         return jsonify({'message': 'Password changed successfully'}), 200
     except SQLAlchemyError:
         db.session.rollback()

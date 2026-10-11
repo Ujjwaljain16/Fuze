@@ -267,14 +267,14 @@ class AuthService:
             })
         return results
 
-    def record_failed_login(self, user: User) -> Dict[str, Any]:
-        """Increment failed login count and manage lockout policy within UoW."""
+    def record_failed_login(self, user: User, lock_after: int = 5) -> Dict[str, Any]:
+        """Increment failed login count and lock the account after `lock_after` failures."""
         now = datetime.utcnow()
         user.failed_login_count = (user.failed_login_count or 0) + 1
         user.last_failed_login = now
 
         is_locked = False
-        if user.failed_login_count >= 5:
+        if user.failed_login_count >= lock_after:
             user.account_locked_until = now + timedelta(minutes=15)
             is_locked = True
 
@@ -324,12 +324,6 @@ class AuthService:
             self.uow.users.add(user)
             self.uow.flush()
             self.uow.emit(UserRegistered(user_id=user.id, email=user.email))
-        else:
-            # Enforce Account Lockout Policy on existing user OAuth logins
-            now = datetime.utcnow()
-            if isinstance(user.account_locked_until, datetime) and user.account_locked_until > now:
-                logger.warning("auth_failed_oauth_account_locked", extra={"user_id": getattr(user, 'id', None)})
-                raise AuthenticationFailed("Account is temporarily locked. Please try again later.")
 
         family_id = str(uuid.uuid4())
         access = create_access_token(identity=str(user.id), additional_claims={'family_id': family_id})

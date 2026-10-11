@@ -244,22 +244,29 @@ def login():
                 _constant_time_fail(password)
                 return jsonify({'message': 'Invalid credentials'}), 401
 
-            # Account lockout check
+            from core import login_throttle
+            client = request.remote_addr or 'unknown'
+
+            # Lockout checks: this client for this account, then the account as a whole
             now = datetime.utcnow()
-            if user.account_locked_until and user.account_locked_until > now:
-                remaining = int((user.account_locked_until - now).total_seconds() / 60)
-                logger.warning(f"Login blocked — account locked: user_id={user.id} remaining={remaining}m")
+            locked = user.account_locked_until and user.account_locked_until > now
+            if locked or login_throttle.client_blocked(user.id, client):
+                logger.warning(f"Login blocked: user_id={user.id} account_locked={bool(locked)}")
                 _constant_time_fail(password)
                 return jsonify({'message': 'Invalid credentials'}), 401
 
             # Password verification
             if not auth_service.verify_password(user.password_hash, password):
-                lockout_data = auth_service.record_failed_login(user)
+                throttled = login_throttle.record_client_failure(user.id, client)
+                lockout_data = auth_service.record_failed_login(
+                    user, lock_after=login_throttle.ACCOUNT_LIMIT_WITH_CLIENT_THROTTLE if throttled
+                    else login_throttle.ACCOUNT_LIMIT_WITHOUT_CLIENT_THROTTLE)
                 if lockout_data['is_locked']:
                     logger.warning(f"Account locked: user_id={user.id} after {lockout_data['failed_count']} attempts")
                 return jsonify({'message': 'Invalid credentials'}), 401
 
             # Successful login — reset lockout state
+            login_throttle.clear_client_failures(user.id, client)
             auth_service.record_successful_login(user)
 
             # Auto-migrate legacy password hashes to bcrypt
@@ -429,8 +436,8 @@ def refresh():
     family_id = jwt_data.get('family_id')
 
     if not family_id:
-        new_access = create_access_token(identity=identity)
-        return jsonify({'access_token': new_access}), 200
+        # Pre-rotation token: it belongs to no session that could ever be revoked.
+        return jsonify({'message': 'Session expired. Please log in again.', 'error': 'invalid_refresh_token'}), 401
 
     with UnitOfWork() as uow:
         family = uow.token_families.get_family(family_id, lock=True)
@@ -440,6 +447,8 @@ def refresh():
 
         if family.current_jti != old_jti:
             uow.token_families.revoke_family(family_id, 'reuse_detected')
+            from core.sessions import mark_family_revoked
+            mark_family_revoked(family_id)
             logger.warning(f"Refresh token reuse — family revoked: user={identity} family={family_id}")
             return jsonify({'message': 'Session compromised. Please log in again.'}), 401
 
@@ -468,9 +477,9 @@ def logout():
     try:
         jwt_data  = get_jwt()
         jti       = jwt_data['jti']
-        exp       = jwt_data['exp']
+        exp       = jwt_data.get('exp')  # absent when access tokens are configured not to expire
         family_id = jwt_data.get('family_id')
-        ttl       = max(int(exp - time.time()), 1)
+        ttl       = max(int(exp - time.time()), 1) if exp else 24 * 3600
 
         try:
             from utils.redis_utils import redis_cache
@@ -482,6 +491,8 @@ def logout():
             try:
                 with UnitOfWork() as uow:
                     uow.token_families.revoke_family(family_id, 'logout')
+                from core.sessions import mark_family_revoked
+                mark_family_revoked(family_id)
             except Exception as e:
                 logger.warning(f"Could not revoke token family on logout: {e}")
 
