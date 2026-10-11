@@ -4,6 +4,7 @@ from models import db, SavedContent, User, Project, ContentAnalysis
 from sqlalchemy.exc import IntegrityError
 from services.bookmark_processing_service import scrape_url_summary
 from urllib.parse import urlparse, urlunparse
+from core import cache_keys
 from utils.redis_utils import redis_cache
 from middleware.security_middleware import validate_request_data, sanitize_string
 import logging
@@ -202,7 +203,7 @@ def quick_save_bookmark():
         # Invalidate caches
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_save(new_bm_id, user_id)
-        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+        redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
         
         return jsonify({
             'message': 'Bookmark saved',
@@ -318,7 +319,7 @@ def save_bookmark():
     # Post-commit: Cache invalidation
     from services.cache_invalidation_service import cache_invalidator
     cache_invalidator.after_content_save(new_bm_id, user_id)
-    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+    redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
 
     return jsonify({
         'message': 'Bookmark saved',
@@ -454,7 +455,7 @@ def bulk_import_bookmarks():
             except Exception as enqueue_err:
                 logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
 
-        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+        redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
         from blueprints.recommendations import invalidate_user_recommendations
         invalidate_user_recommendations(user_id)
 
@@ -491,7 +492,7 @@ def list_bookmarks():
     category = request.args.get('category', '').strip()
     
     # PRODUCTION OPTIMIZATION: Check cache first
-    cache_key = f"bookmarks:{user_id}:{page}:{per_page}:{search}:{category}"
+    cache_key = cache_keys.bookmarks_page(user_id, page, per_page, search, category)
     cached_result = redis_cache.get_cache(cache_key)
     if cached_result:
         return jsonify(cached_result), 200
@@ -546,7 +547,7 @@ def delete_bookmark(bookmark_id):
     user_id = int(get_jwt_identity())
     
     # PRODUCTION OPTIMIZATION: Invalidate query cache before deletion
-    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+    redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
     
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -597,7 +598,7 @@ def delete_bookmark_by_url(url):
     cache_invalidator.after_content_delete(bookmark_id_for_cache, user_id_for_cache)
     
     # PRODUCTION OPTIMIZATION: Invalidate query cache for user's bookmarks
-    redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+    redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
     
     return jsonify({'message': 'Bookmark deleted'}), 200
 
@@ -1097,7 +1098,7 @@ def get_dashboard_stats():
         user_id = int(get_jwt_identity())
         
         # PRODUCTION OPTIMIZATION: Cache dashboard stats (changes infrequently)
-        cache_key = f"dashboard:stats:{user_id}"
+        cache_key = cache_keys.dashboard_stats(user_id)
         cached_stats = redis_cache.get(cache_key) if redis_cache else None
         
         if cached_stats:
@@ -1270,5 +1271,9 @@ def delete_all_bookmarks():
     with UnitOfWork() as uow:
         service = BookmarkService(uow)
         num_deleted = service.delete_all_for_user(user_id)
-        
+
+    # Synchronously: the import path dedupes against the cached bookmark list, so a re-import
+    # right after "delete all" skipped every URL until the cache expired an hour later.
+    from services.cache_invalidation_service import cache_invalidator
+    cache_invalidator.invalidate_user_cache(user_id)
     return jsonify({'message': f'Deleted {num_deleted} bookmarks'}), 200 

@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from uow.unit_of_work import UnitOfWork
 from services.project_service import ProjectService
+from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
@@ -36,7 +37,7 @@ def get_projects():
         per_page = min(max(1, request.args.get('per_page', default=10, type=int)), 100)
         include_tasks = parse_bool_arg(request.args.get('include_tasks'), default=True)
 
-        cache_key = f"projects:{user_id}:{page}:{per_page}:{include_tasks}"
+        cache_key = cache_keys.projects_page(user_id, page, per_page, include_tasks)
         if redis_cache and redis_cache.connected:
             try:
                 cached_projects = redis_cache.get(cache_key)

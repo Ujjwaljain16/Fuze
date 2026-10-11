@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import db, User
+from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 from middleware.rate_limiting import limiter
@@ -53,7 +54,7 @@ def _execute_profile_update(user: User, data: dict):
         # Invalidate profile cache
         try:
             if redis_cache and redis_cache.connected:
-                redis_cache.delete_cache(f"profile:{user.id}")
+                redis_cache.delete_cache(cache_keys.profile(user.id))
         except Exception as cache_err:
             logger.warning("profile_cache_invalidation_failed", user_id=user.id, error=str(cache_err))
 
@@ -80,7 +81,7 @@ def _execute_profile_update(user: User, data: dict):
 def get_profile():
     """Get logged-in user profile with Redis caching."""
     user_id = int(get_jwt_identity())
-    cache_key = f"profile:{user_id}"
+    cache_key = cache_keys.profile(user_id)
 
     # Try cache
     if redis_cache and redis_cache.connected:

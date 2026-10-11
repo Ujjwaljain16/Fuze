@@ -182,6 +182,6 @@ class TestCacheInvalidationService:
         result = cache_invalidator.invalidate_user_cache(1)
         
         # Should call various invalidation methods
-        assert mock_redis_cache.invalidate_user_bookmarks.called
+        mock_redis_cache.invalidate_query_cache.assert_any_call('bookmarks:1:*')
         assert result is True
 

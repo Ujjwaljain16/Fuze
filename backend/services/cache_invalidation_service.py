@@ -6,6 +6,7 @@ Supports instance dependency injection and legacy class-level calls via metaclas
 
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
+from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
@@ -28,6 +29,14 @@ logger = get_logger(__name__)
 _invalidation_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cache-invalidation")
 
 
+def _in_rq_job() -> bool:
+    try:
+        from rq import get_current_job
+        return get_current_job() is not None
+    except Exception:
+        return False
+
+
 def _dispatch_async(label: str, fn, *args, **kwargs) -> None:
     def _run():
         try:
@@ -35,7 +44,13 @@ def _dispatch_async(label: str, fn, *args, **kwargs) -> None:
         except Exception as e:
             logger.error("cache_invalidation_async_task_failed", extra={"label": label, "error": str(e)})
 
-    _invalidation_executor.submit(_run)
+    # An RQ work horse leaves via os._exit() as soon as the job returns, killing pool threads
+    # before they run: invalidations queued from jobs were silently lost. Jobs aren't waiting
+    # on an HTTP response, so they invalidate inline.
+    if _in_rq_job():
+        _run()
+    else:
+        _invalidation_executor.submit(_run)
 
 
 class _CacheInvalidationMeta(type):
@@ -107,7 +122,7 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
             elif hasattr(client, 'delete_cache'):
                 client.delete_cache(f"content_cache:{content_id}")
             if hasattr(client, 'delete_cache'):
-                client.delete_cache(f"content_analysis:{content_id}")
+                client.delete_cache(cache_keys.content_analysis(content_id))
             logger.info("cache_invalidate_content_success", extra={"content_id": content_id})
             return True
         except Exception as e:
@@ -121,17 +136,14 @@ class CacheInvalidationService(metaclass=_CacheInvalidationMeta):
             from utils.content_version import bump_content_version
             bump_content_version(user_id)
             client = self.client
-            if hasattr(client, 'invalidate_user_bookmarks'):
-                client.invalidate_user_bookmarks(user_id)
-            elif hasattr(client, 'invalidate_query_cache'):
-                client.invalidate_query_cache(f"bookmarks:{user_id}:*")
+            if hasattr(client, 'invalidate_query_cache'):
+                client.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
+                client.invalidate_query_cache(cache_keys.projects_pattern(user_id))
             if hasattr(client, 'invalidate_recommendation_cache'):
                 client.invalidate_recommendation_cache(user_id)
             if hasattr(client, 'delete_cache'):
-                client.delete_cache(f"user_context:{user_id}")
-                client.delete_cache(f"unified_recommendations:{user_id}")
-                client.delete_cache(f"user_profile:{user_id}")
-                client.delete_cache(f"dashboard_summary:{user_id}")
+                for key in cache_keys.user_summary_keys(user_id):
+                    client.delete_cache(key)
             logger.info("cache_invalidate_user_success", extra={"user_id": user_id})
             return True
         except Exception as e:

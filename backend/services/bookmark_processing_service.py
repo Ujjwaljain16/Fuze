@@ -391,7 +391,8 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
     try:
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_update(bookmark_id, user_id)
-        redis_cache.invalidate_query_cache(f"bookmarks:{user_id}:*")
+        from core import cache_keys
+        redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
     except Exception as cache_err:
         logger.warning("bg_embedding_cache_invalidation_warning", extra={"bookmark_id": bookmark_id, "error": str(cache_err)})
 

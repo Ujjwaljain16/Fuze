@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, case
 from models import db, User, SavedContent, Project, Task
+from core import cache_keys
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
 
@@ -45,7 +46,7 @@ def get_dashboard_summary():
 
     try:
         user_id = int(get_jwt_identity())
-        cache_key = f"dashboard:v1:summary:{user_id}"
+        cache_key = cache_keys.dashboard_summary(user_id)
 
         # 1. Try Cache First (Versioned)
         if redis_cache.connected:

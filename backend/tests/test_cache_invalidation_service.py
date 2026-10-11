@@ -11,7 +11,8 @@ def test_cache_invalidation_targeted_keys():
     # 1. User cache invalidation deletes targeted keys
     res = service.invalidate_user_cache(user_id=42)
     assert res is True
-    mock_redis.invalidate_user_bookmarks.assert_called_once_with(42)
+    mock_redis.invalidate_query_cache.assert_any_call('bookmarks:42:*')
+    mock_redis.invalidate_query_cache.assert_any_call('projects:42:*')
     mock_redis.invalidate_recommendation_cache.assert_called_once_with(42)
     assert mock_redis.delete_cache.call_count >= 4
 
