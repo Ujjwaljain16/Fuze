@@ -127,7 +127,7 @@ def _captured_document(data, url, title):
     try:
         page = parse_captured(data.get('captured'))
     except CaptureRejected as e:
-        return None, (jsonify({'message': str(e), 'error': 'invalid_capture'}), e.status)
+        return None, error_response('invalid_capture', str(e), e.status)
     if page is None:
         return None, None
     from utils.cooperative import run_cpu_bound
@@ -749,9 +749,9 @@ def lookup_bookmark_by_url():
     user_id = int(get_jwt_identity())
     url = request.args.get('url', '')
     if not url:
-        return jsonify({'message': 'url is required'}), 400
+        return error_response('url_required', 'url is required', 400)
     if url_too_long(url):
-        return jsonify({'message': f'URL is longer than {MAX_URL_BYTES} bytes'}), 400
+        return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
 
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
@@ -759,7 +759,7 @@ def lookup_bookmark_by_url():
     with UnitOfWork() as uow:
         bm = BookmarkService(uow).get_bookmark_by_url(user_id, url)
         if not bm:
-            return jsonify({'message': 'Bookmark not found'}), 404
+            return error_response('bookmark_not_found', 'Bookmark not found', 404)
         result = {'id': bm.id, 'url': bm.url, 'title': bm.title}
     return jsonify({'bookmark': result}), 200
 
