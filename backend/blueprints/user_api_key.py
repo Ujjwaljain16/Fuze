@@ -298,10 +298,7 @@ def test_api_key():
                     'message': 'API key not found'
                 }), 200
 
-            analyzer = GeminiAnalyzer(api_key=api_key)
-            test_response = analyzer.model.generate_content("Test")
-
-            if test_response and hasattr(test_response, 'text') and test_response.text:
+            if GeminiAnalyzer(api_key=api_key).validate_key():
                 return jsonify({
                     'valid': True,
                     'message': 'API key is valid and working',

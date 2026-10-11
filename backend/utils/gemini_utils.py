@@ -3,7 +3,9 @@ import json
 import re
 import time
 from typing import Dict, List, Optional, Any, Union
-import google.generativeai as genai
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 from core.logging_config import get_logger
 
 from core.circuit_breaker import gemini_circuit_breaker
@@ -34,14 +36,21 @@ def get_gemini_response(prompt: str, temperature: float = 0.3, user_id: Optional
 class GeminiAnalyzer:
     """
     Gemini AI-powered content analyzer for recommendation engine enrichment.
+
+    Every analyzer owns its own client bound to one API key. The old SDK kept the key in
+    process-global state (genai.configure), so under gevent a request could run on whichever
+    user's key was configured last: one user's saved content billed to another user's key.
     """
 
     def __init__(self, api_key: Optional[str] = None):
         from utils.unified_config import get_config
         config = get_config()
-        
-        self.model = None
+
+        self.client = None
+        self.model = None  # kept for callers that test truthiness; the model name when ready
         self.active_model_name = None
+        self.max_retries = 2
+        self.retry_delay = 1.0
 
         key = api_key or config.ai.gemini_api_key
         if not key:
@@ -49,40 +58,25 @@ class GeminiAnalyzer:
             return
 
         try:
-            genai.configure(api_key=key)
-        except Exception as config_err:
-            logger.warning("gemini_configure_failed", extra={"error": str(config_err)})
+            self.client = genai.Client(
+                api_key=key,
+                http_options=genai_types.HttpOptions(timeout=config.ai.gemini_timeout * 1000),
+            )
+        except Exception as client_err:
+            logger.warning("gemini_client_init_failed", extra={"error": str(client_err)})
             return
 
-        model_candidates = [
-            config.ai.gemini_model,
-            config.ai.gemini_fallback_model
-        ]
-
-        for model_name in model_candidates:
-            if not model_name:
-                continue
-            try:
-                self.model = genai.GenerativeModel(model_name)
-                self.active_model_name = model_name
-                logger.info("gemini_model_initialized", extra={"model_name": model_name})
-                break
-            except Exception:
-                continue
-
-        if not self.model:
-            logger.warning("gemini_init_failed_for_candidate_models", extra={"candidates": model_candidates})
+        self.model_candidates = [m for m in (config.ai.gemini_model, config.ai.gemini_fallback_model) if m]
+        if not self.model_candidates:
+            self.client = None
             return
-
+        self.model = self.active_model_name = self.model_candidates[0]
         self.generation_config = {
             'temperature': config.ai.gemini_temperature,
             'top_p': 0.8,
             'top_k': 40,
             'max_output_tokens': config.ai.gemini_max_tokens,
         }
-
-        self.max_retries = 3
-        self.retry_delay = 1.0
 
     def generate_json(self, prompt: str) -> Optional[Union[Dict, List]]:
         """Request a JSON response (Gemini JSON mode) and parse it; None on any failure."""
@@ -94,58 +88,73 @@ class GeminiAnalyzer:
         except (json.JSONDecodeError, TypeError):
             return self._extract_json_from_response(raw)
 
+    def validate_key(self) -> bool:
+        """One cheap call with no retries: does this key work at all?"""
+        if not self.client:
+            return False
+        try:
+            response = self.client.models.generate_content(
+                model=self.active_model_name, contents='Reply with OK.',
+                config=genai_types.GenerateContentConfig(max_output_tokens=5),
+            )
+            return bool(response and response.text)
+        except Exception as e:
+            logger.info("gemini_key_validation_failed", extra={"error": str(e)})
+            return False
+
+    def _generate(self, model_name: str, prompt: str, json_mode: bool) -> Optional[str]:
+        config = dict(self.generation_config)
+        if json_mode:
+            config['response_mime_type'] = 'application/json'
+        response = self.client.models.generate_content(
+            model=model_name, contents=prompt, config=genai_types.GenerateContentConfig(**config))
+        text = (response.text or '').strip() if response else ''
+        return text or None
+
     def _make_gemini_request(self, prompt: str, json_mode: bool = False) -> Optional[str]:
-        """Make an iterative request to Gemini with backoff and circuit breaker isolation."""
+        """Make a request with backoff and circuit breaker isolation; None on failure."""
         from core.metrics import gemini_calls_total
 
-        if not self.model or not prompt or not isinstance(prompt, str):
+        def count(status):
+            try:
+                gemini_calls_total.labels(model=self.active_model_name, status=status).inc()
+            except Exception:
+                pass
+
+        if not self.client or not prompt or not isinstance(prompt, str):
             return None
 
         if not gemini_circuit_breaker.allow_request():
             logger.warning("gemini_request_blocked_by_circuit_breaker")
-            try:
-                gemini_calls_total.labels(model=self.active_model_name, status="circuit_breaker_blocked").inc()
-            except Exception:
-                pass
+            count("circuit_breaker_blocked")
             return None
 
-        for attempt in range(self.max_retries + 1):
-            try:
-                config = self.generation_config
-                if json_mode:
-                    config = {**config, 'response_mime_type': 'application/json'}
-                response = self.model.generate_content(prompt, generation_config=config)
-
-                if not response or not hasattr(response, 'text') or not response.text:
-                    if attempt < self.max_retries:
-                        time.sleep(self.retry_delay * (attempt + 1))
-                        continue
-                    gemini_circuit_breaker.record_failure()
-                    try:
-                        gemini_calls_total.labels(model=self.active_model_name, status="empty_response").inc()
-                    except Exception:
-                        pass
+        for model_name in self.model_candidates:
+            for attempt in range(self.max_retries + 1):
+                try:
+                    text = self._generate(model_name, prompt, json_mode)
+                except genai_errors.ClientError as e:
+                    # 4xx (bad key, quota, unknown model) will not succeed on retry. An unknown
+                    # model moves on to the fallback model; anything else ends the request.
+                    logger.warning("gemini_client_error", extra={"model": model_name, "code": e.code, "error": str(e)})
+                    if e.code == 404:
+                        break
+                    count("client_error")
                     return None
-
-                cleaned = response.text.strip()
-                if cleaned:
+                except Exception as e:
+                    logger.warning("gemini_request_failed_attempt",
+                                   extra={"model": model_name, "attempt": attempt + 1, "error": str(e)})
+                    text = None
+                if text:
+                    self.active_model_name = model_name
                     gemini_circuit_breaker.record_success()
-                    try:
-                        gemini_calls_total.labels(model=self.active_model_name, status="success").inc()
-                    except Exception:
-                        pass
-                    return cleaned
-            except Exception as e:
-                logger.warning("gemini_request_failed_attempt", extra={"attempt": attempt + 1, "error": str(e)})
+                    count("success")
+                    return text
                 if attempt < self.max_retries:
                     time.sleep(self.retry_delay * (attempt + 1))
-                    continue
 
         gemini_circuit_breaker.record_failure()
-        try:
-            gemini_calls_total.labels(model=self.active_model_name, status="failed").inc()
-        except Exception:
-            pass
+        count("failed")
         return None
 
     def _extract_json_from_response(self, response_text: str) -> Optional[Union[Dict, List]]:
