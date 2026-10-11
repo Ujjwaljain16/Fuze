@@ -138,6 +138,7 @@ class ContentAcquisitionEngine:
             strategy_plan = []
         
         raw_result: Optional[RawFetchResult] = None
+        last_status: Optional[int] = None  # None: no response at all (network error, breaker open)
         decision: Optional[Decision] = None
         final_norm_doc: Optional[NormalizedDocument] = None
         plugin_versions: Dict[str, str] = {}
@@ -179,7 +180,10 @@ class ContentAcquisitionEngine:
                     )
                 )
 
-            if not raw_result or not raw_result.raw_content:
+            if raw_result:
+                last_status = raw_result.http_status
+            # An error status page (404, 403, 503 ...) is not the bookmarked content.
+            if not raw_result or not raw_result.raw_content or raw_result.http_status >= 400:
                 continue
 
             # Stage 3: Extraction
@@ -227,8 +231,15 @@ class ContentAcquisitionEngine:
                 logger.warning("acquisition_decision_failed", extra={"url": url, "reason": decision.reason})
                 break
 
+        outcome, retryable = "ok", False
+        if decision is not None and decision.action == "FAIL" and decision.reason == "challenge_page_returned":
+            outcome = "blocked"
+
         # Fallback if no fetch result produced
         if not final_norm_doc or not raw_result:
+            outcome = "failed"
+            # No response, a server error or rate limiting may pass later; 4xx (404, 410, 403) won't.
+            retryable = last_status is None or last_status >= 500 or last_status == 429
             from scrapers.models import FetchMetadata, NormalizedMetadata, QualityMetrics
             meta = FetchMetadata(strategy="HTTP", attempts=1, http_status=500, redirected=False)
             norm_meta = NormalizedMetadata(title="Failed to Acquire Content")
@@ -240,6 +251,8 @@ class ContentAcquisitionEngine:
                 provider_raw_payload={},
                 fetch_metadata=meta
             )
+            if last_status is not None:
+                final_norm_doc = replace(final_norm_doc, fetch_metadata=replace(meta, http_status=last_status))
             final_quality = QualityMetrics(
                 score=0, has_title=False, has_article_body=False, word_count=0,
                 hydration_detected=False, challenge_detected=True, evaluation_notes=["Fetch failed"]
@@ -260,5 +273,7 @@ class ContentAcquisitionEngine:
             provider_raw_payload=final_norm_doc.provider_raw_payload,
             quality_metrics=final_quality,
             fetch_metadata=final_norm_doc.fetch_metadata,
-            plugin_versions=plugin_versions
+            plugin_versions=plugin_versions,
+            outcome=outcome,
+            retryable=retryable,
         )

@@ -5,7 +5,6 @@ using the decoupled 5-stage ContentAcquisitionEngine and PipelineOrchestrator.
 """
 
 import time
-from core.job_timeout import JobTimeoutException
 from datetime import datetime
 
 import numpy as np
@@ -15,6 +14,7 @@ from services.bookmark_service import BookmarkService
 from scrapers.acquisition_engine import ContentAcquisitionEngine
 from scrapers.models import ContentDocument, compute_content_hash
 from core.events import ScrapingStarted, ScrapingCompleted, ScrapingSkipped, ScrapingFailed
+from core.job_timeout import JobTimeoutException
 from services.pipeline_orchestrator import PipelineOrchestrator
 from utils.redis_utils import redis_cache
 from utils.embedding_utils import active_embedding_model_name, get_embedding
@@ -24,6 +24,43 @@ logger = get_logger(__name__)
 
 EXPECTED_EMBEDDING_DIM = 384
 DEFAULT_QUALITY_SCORE = 10
+
+
+class TransientFetchError(RuntimeError):
+    """The page couldn't be fetched for a reason that may pass (timeout, 5xx, 429): let RQ retry."""
+
+
+def _record_failed_fetch(bookmark_id: int, user_id: int, doc: ContentDocument, pipeline_run_id: str) -> None:
+    """Keep what the user saved, mark the fetch as failed and still make the bookmark searchable.
+
+    Failure documents used to be stored as SUCCESS: empty text, its hash (which then blocked any
+    later re-fetch from storing real content) and titles like "Failed to Acquire Content".
+    """
+    from utils.event_bus import publish_pipeline_event
+    status = 'BLOCKED' if doc.outcome == 'blocked' else 'FAILED_FETCH'
+    with UnitOfWork() as uow:
+        bookmark = BookmarkService(uow).get_bookmark(bookmark_id)
+        if not bookmark:
+            return
+        bookmark.scrape_status = status
+        bookmark.strategy_used = doc.fetch_metadata.strategy
+        bookmark.scraped_at = datetime.utcnow()
+        needs_embedding = bookmark.embedding_status != 'SUCCESS'
+
+    logger.warning("bg_acquisition_fetch_failed", extra={
+        "bookmark_id": bookmark_id, "status": status, "http_status": doc.fetch_metadata.http_status,
+        "retryable": doc.retryable})
+    publish_pipeline_event(
+        event_type="bookmark.pipeline.scraping.failed",
+        bookmark_id=bookmark_id,
+        user_id=user_id,
+        pipeline_run_id=pipeline_run_id,
+        sequence=2,
+        error={"error_code": status, "http_status": doc.fetch_metadata.http_status, "retryable": doc.retryable},
+    )
+    # Title, notes and URL still describe the bookmark; embed them so search can find it.
+    if needs_embedding:
+        PipelineOrchestrator().request_embedding(bookmark_id, user_id)
 
 
 def truncate_title(title: str, max_len: int = 200) -> str:
@@ -147,6 +184,12 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         # Step 2: Execute extraction via extract_article_content
         scraped = extract_article_content(url)
 
+        if isinstance(scraped, ContentDocument) and scraped.outcome != "ok":
+            _record_failed_fetch(bookmark_id, user_id, scraped, pipeline_run_id)
+            if scraped.retryable:
+                raise TransientFetchError(f"fetch failed with HTTP {scraped.fetch_metadata.http_status}")
+            return
+
         if isinstance(scraped, ContentDocument):
             extracted_text_raw = scraped.markdown_content
             scraped_title = scraped.metadata.title
@@ -202,6 +245,7 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
                 return
 
             # Idempotency check: Content hash unchanged?
+            needs_embedding = bookmark.embedding_status != 'SUCCESS'
             if getattr(bookmark, 'content_hash', None) == content_hash and content_hash:
                 logger.info("bg_acquisition_idempotency_skip", extra={"bookmark_id": bookmark_id, "hash": content_hash})
                 bookmark.scrape_status = 'SUCCESS'
@@ -244,6 +288,9 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         if is_skipped:
             skipped_event = ScrapingSkipped(bookmark_id=bookmark_id, user_id=user_id, url=url, content_hash=content_hash)
             orchestrator.handle_event(skipped_event)
+            # Same content as last time, but an earlier embedding may have failed or been deferred.
+            if needs_embedding:
+                orchestrator.request_embedding(bookmark_id, user_id)
         else:
             completed_event = ScrapingCompleted(
                 bookmark_id=bookmark_id,
@@ -269,6 +316,8 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             }
         )
 
+    except TransientFetchError:
+        raise
     except Exception as e:
         logger.exception("bg_acquisition_task_failed", extra={"bookmark_id": bookmark_id, "user_id": user_id})
         with UnitOfWork() as uow:
@@ -299,6 +348,7 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         notes = bookmark.notes or ''
         text = bookmark.extracted_text or ''
         url = bookmark.url
+        has_content = bool(text.strip())
 
     start_embed = time.time()
     embedding = generate_comprehensive_embedding(
@@ -356,7 +406,8 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         # propagating -- so AI content analysis has silently never run for any
         # bookmark, with no failure visible in RQ's job status. Confirmed via
         # an end-to-end test against real production infra.
-        analyze_content(bookmark_id, user_id)
+        if has_content:
+            analyze_content(bookmark_id, user_id)
     except JobTimeoutException:
         raise
     except Exception as e:

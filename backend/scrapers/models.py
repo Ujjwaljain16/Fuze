@@ -121,6 +121,11 @@ class ContentDocument:
     fetch_metadata: FetchMetadata
     extractor_version: str = "2.0.0"
     plugin_versions: Dict[str, str] = field(default_factory=dict)  # e.g., {"opengraph": "1.0.0"}
+    # "ok": content acquired. "failed": no usable response (network error, HTTP error status).
+    # "blocked": the site answered with a bot-challenge page. Failed/blocked documents carry no
+    # content and must not overwrite what is already stored.
+    outcome: str = "ok"
+    retryable: bool = False  # failed for a reason that may pass on retry (timeout, 5xx, 429)
 
 
 def compute_content_hash(text: Optional[str]) -> str:

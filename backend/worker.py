@@ -73,6 +73,13 @@ def run_single_worker(args, worker_index: int = 1):
         logger.error("worker_flask_context_failed", error=str(e))
         sys.exit(1)
 
+    # The default-queue worker also runs the pipeline reconciler: a periodic pass that
+    # re-enqueues bookmarks whose fetch or embedding was lost or deferred.
+    if args.queue == 'default' and not args.burst:
+        import threading
+        from services.pipeline_reconciler import run_forever
+        threading.Thread(target=run_forever, args=(app,), name='pipeline-reconciler', daemon=True).start()
+
     try:
         with app.app_context():
             logger.info("worker_listening", worker_name=worker_name, queue=args.queue, burst=args.burst)

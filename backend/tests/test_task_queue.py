@@ -23,18 +23,24 @@ def test_task_queue_lazy_connection():
 
 
 @pytest.mark.unit
-def test_enqueue_bookmark_unique_job_id():
+def test_enqueue_bookmark_uses_one_job_per_bookmark():
+    """A fixed job id per bookmark: retries, the reconciler and a re-save can't double-run it."""
+    from rq.exceptions import NoSuchJobError
+    from rq.job import JobStatus
     mock_queue = MagicMock()
-    mock_job = MagicMock()
-    mock_job.id = "bookmark_process_10_abc123"
-    mock_queue.enqueue.return_value = mock_job
+    mock_queue.enqueue_call.return_value = MagicMock(id="bookmark_process_10")
 
-    with patch('services.task_queue.get_queue', return_value=mock_queue):
+    with patch('services.task_queue.get_queue', return_value=mock_queue),          patch('services.task_queue.Job.fetch', side_effect=NoSuchJobError):
         job = enqueue_bookmark_processing(bookmark_id=10, url="https://example.com", user_id=1)
-        assert job is not None
-        mock_queue.enqueue.assert_called_once()
-        job_id_arg = mock_queue.enqueue.call_args[1]['job_id']
-        assert job_id_arg.startswith("bookmark_process_10_")
+    assert job is not None
+    assert mock_queue.enqueue_call.call_args.kwargs['job_id'] == "bookmark_process_10"
+
+    waiting = MagicMock()
+    waiting.get_status.return_value = JobStatus.QUEUED
+    mock_queue.enqueue_call.reset_mock()
+    with patch('services.task_queue.get_queue', return_value=mock_queue),          patch('services.task_queue.Job.fetch', return_value=waiting):
+        assert enqueue_bookmark_processing(bookmark_id=10, url="https://example.com", user_id=1) is waiting
+    mock_queue.enqueue_call.assert_not_called()
 
 
 @pytest.mark.unit

@@ -24,6 +24,8 @@ CHALLENGE_PATTERNS = [
     r"pardon our interruption",
 ]
 
+CHALLENGE_MAX_WORDS = 300
+
 HYDRATION_PATTERNS = [
     r"__next_data__",
     r"__nuxt__",
@@ -47,11 +49,16 @@ class QualityEvaluator:
 
         html_lower = html.lower() if html else ""
         text_lower = clean_text.lower() if clean_text else ""
+        title_lower = title.strip().lower() if title else ""
 
-        # 1. Challenge & Anti-Bot Detection
+        # 1. Challenge & Anti-Bot Detection. Challenge pages are short; a phrase like "access
+        # denied" inside a real article (say, about S3 permissions) is content, not a block page.
         challenge_detected = False
+        challenge_sized = len(text_lower.split()) < CHALLENGE_MAX_WORDS
         for pattern in CHALLENGE_PATTERNS:
-            if re.search(pattern, html_lower) or re.search(pattern, text_lower):
+            # Challenge pages are titled by the phrase itself ("Just a moment...", "403 Forbidden").
+            if re.match(pattern, title_lower) or (
+                    challenge_sized and (re.search(pattern, html_lower) or re.search(pattern, text_lower))):
                 challenge_detected = True
                 notes.append(f"Anti-bot challenge pattern matched: {pattern}")
                 break

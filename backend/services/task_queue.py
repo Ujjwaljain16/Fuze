@@ -10,7 +10,8 @@ import uuid
 import threading
 from typing import Optional, Dict, Any
 from rq import Queue, Retry
-from rq.job import Job
+from rq.job import Job, JobStatus
+from rq.exceptions import NoSuchJobError
 from redis import Redis, RedisError
 from core.logging_config import get_logger
 
@@ -128,6 +129,38 @@ def get_queue(name: str = 'default') -> Optional[Queue]:
         return None
 
 
+_ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.STARTED, JobStatus.SCHEDULED, JobStatus.DEFERRED}
+
+
+def enqueue_unique(queue: Queue, func, job_id: str, *, args: tuple = (), kwargs: Optional[Dict] = None,
+                   job_timeout: Any = 600, retry: Optional[Retry] = None) -> Optional[Job]:
+    """Enqueue under a fixed job id unless that job is already waiting or running.
+
+    One job per bookmark and stage makes re-enqueueing safe: a request, the reconciler and a
+    retry can all ask for the same work without it running twice.
+    """
+    try:
+        existing = Job.fetch(job_id, connection=queue.connection)
+        if existing.get_status(refresh=True) in _ACTIVE_STATUSES:
+            return existing
+        existing.delete()  # finished/failed/stopped: clear it out of the registries first
+    except NoSuchJobError:
+        pass
+    except Exception as e:
+        logger.warning("rq_job_lookup_failed", extra={"job_id": job_id, "error": str(e)})
+
+    try:
+        return queue.enqueue_call(func, args=args, kwargs=kwargs or {}, timeout=job_timeout,
+                                  job_id=job_id, retry=retry)
+    except Exception as e:
+        logger.error("rq_job_enqueue_failed", extra={"job_id": job_id, "error": str(e)})
+        return None
+
+
+def bookmark_job_id(bookmark_id: int) -> str:
+    return f"bookmark_process_{bookmark_id}"
+
+
 def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_name: str = 'default') -> Optional[Job]:
     """
     Enqueue a bookmark processing task asynchronously using RQ.
@@ -146,19 +179,11 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
         except Exception:
             pass
 
-        unique_job_id = f"bookmark_process_{bookmark_id}_{uuid.uuid4().hex[:8]}"
-
-        job = queue.enqueue(
-            process_bookmark_content_task,
-            bookmark_id,
-            url,
-            user_id,
-            job_timeout='10m',
-            retry=Retry(max=2, interval=[60, 300]),
-            job_id=unique_job_id
-        )
-
-        logger.info("rq_job_enqueued", extra={"job_id": job.id, "bookmark_id": bookmark_id, "user_id": user_id})
+        job = enqueue_unique(queue, process_bookmark_content_task, bookmark_job_id(bookmark_id),
+                             args=(bookmark_id, url, user_id), job_timeout='10m',
+                             retry=Retry(max=2, interval=[60, 300]))
+        if job is not None:
+            logger.info("rq_job_enqueued", extra={"job_id": job.id, "bookmark_id": bookmark_id, "user_id": user_id})
         return job
     except Exception as e:
         logger.error("rq_job_enqueue_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
