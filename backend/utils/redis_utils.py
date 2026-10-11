@@ -32,6 +32,15 @@ else
 end
 """
 
+# GETDEL for servers older than Redis 6.2.
+LUA_GETDEL_SCRIPT = """
+local value = redis.call("get", KEYS[1])
+if value then
+    redis.call("del", KEYS[1])
+end
+return value
+"""
+
 
 class RedisCache:
     """Redis cache utility for Fuze application with auto-reconnection and distributed locking."""
@@ -362,6 +371,24 @@ class RedisCache:
         except Exception as e:
             logger.error("redis_delete_cache_error", extra={"key": key, "error": str(e)})
             return False
+
+    def pop_cache(self, key: str) -> Optional[Any]:
+        """Atomically read and delete a key, so only one caller ever gets its value."""
+        if not self._ensure_connected():
+            return None
+        try:
+            try:
+                data_bytes = self.redis_client.getdel(key)
+            except redis.exceptions.ResponseError:
+                data_bytes = self.redis_client.eval(LUA_GETDEL_SCRIPT, 1, key)
+            if data_bytes is None:
+                return None
+            if isinstance(data_bytes, bytes):
+                data_bytes = data_bytes.decode('utf-8')
+            return json.loads(data_bytes)
+        except Exception as e:
+            logger.error("redis_pop_cache_error", extra={"key": key, "error": str(e)})
+            return None
 
     def delete_keys_pattern(self, pattern: str) -> int:
         return self.safe_delete_pattern(pattern)

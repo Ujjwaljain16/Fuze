@@ -542,18 +542,36 @@ def verify_token_status():
     return jsonify({'valid': True, 'user': user_data}), 200
 
 
+def _supabase_unavailable():
+    return jsonify({
+        'message': 'Sign-in service is unavailable, please try again',
+        'error': 'auth_provider_unavailable'
+    }), 503
+
+
 def _fetch_supabase_user(access_token):
-    """Resolve a Supabase access token to its user, or return an error response."""
+    """Resolve a Supabase access token to its user, or return an error response.
+
+    Only a rejected token is a 401. A Supabase outage (5xx, rate limit, timeout, connection
+    error) is a 503, so the client retries instead of treating a valid sign-in as a bad token.
+    """
     if not access_token:
         return None, (jsonify({'message': 'access_token is required'}), 400)
     supabase_url = os.environ.get('SUPABASE_URL')
     if not supabase_url:
         return None, (jsonify({'message': 'Supabase not configured'}), 503)
-    resp = requests.get(
-        supabase_url.rstrip('/') + '/auth/v1/user',
-        headers={'Authorization': f'Bearer {access_token}', 'apikey': os.environ.get('SUPABASE_ANON_KEY', '')},
-        timeout=10,
-    )
+    try:
+        resp = requests.get(
+            supabase_url.rstrip('/') + '/auth/v1/user',
+            headers={'Authorization': f'Bearer {access_token}', 'apikey': os.environ.get('SUPABASE_ANON_KEY', '')},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        logger.warning(f"Supabase user lookup failed: {e.__class__.__name__}")
+        return None, _supabase_unavailable()
+    if resp.status_code >= 500 or resp.status_code == 429:
+        logger.warning(f"Supabase user lookup unavailable: {resp.status_code}")
+        return None, _supabase_unavailable()
     if resp.status_code != 200:
         logger.warning(f"Supabase token verification failed: {resp.status_code}")
         return None, (jsonify({'message': 'Invalid Supabase token'}), 401)

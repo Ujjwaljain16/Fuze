@@ -44,10 +44,11 @@ def consume_stream_ticket(ticket: str) -> Optional[int]:
     if not ticket:
         return None
     key = f"{_TICKET_KEY_PREFIX}{ticket}"
-    user_id = redis_cache.get(key)
+    # One atomic read-and-delete: with a GET then a DEL, two requests racing on the same
+    # ticket could both read it before either deleted it.
+    user_id = redis_cache.pop_cache(key)
     if user_id is None:
         return None
-    redis_cache.delete_cache(key)
     try:
         return int(user_id)
     except (TypeError, ValueError):

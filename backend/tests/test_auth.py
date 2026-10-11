@@ -110,3 +110,53 @@ class TestAuth:
         response = client.post('/api/auth/logout', headers=auth_headers)
         assert response.status_code == 200
 
+
+@pytest.mark.unit
+class TestSupabaseOAuthProviderErrors:
+    """A Supabase outage must not be reported to the user as a bad token."""
+
+    @pytest.fixture(autouse=True)
+    def supabase_env(self, monkeypatch):
+        monkeypatch.setenv('SUPABASE_URL', 'https://project.supabase.example')
+        monkeypatch.setenv('SUPABASE_ANON_KEY', 'anon')
+
+    @staticmethod
+    def _response(status_code):
+        from unittest.mock import MagicMock
+        resp = MagicMock()
+        resp.status_code = status_code
+        return resp
+
+    def test_supabase_5xx_is_503(self, client, monkeypatch):
+        monkeypatch.setattr('blueprints.auth.requests.get', lambda *a, **k: self._response(503))
+        response = client.post('/api/auth/supabase-oauth', json={'access_token': 'tok'})
+        assert response.status_code == 503
+        assert response.json['error'] == 'auth_provider_unavailable'
+
+    def test_supabase_timeout_is_503(self, client, monkeypatch):
+        import requests
+
+        def timeout(*a, **k):
+            raise requests.Timeout('read timed out')
+        monkeypatch.setattr('blueprints.auth.requests.get', timeout)
+        response = client.post('/api/auth/supabase-oauth', json={'access_token': 'tok'})
+        assert response.status_code == 503
+        assert response.json == {'message': 'Sign-in service is unavailable, please try again',
+                                 'error': 'auth_provider_unavailable'}
+
+    def test_supabase_connection_error_is_503(self, client, monkeypatch):
+        import requests
+
+        def refused(*a, **k):
+            raise requests.ConnectionError('connection refused')
+        monkeypatch.setattr('blueprints.auth.requests.get', refused)
+        response = client.post('/api/auth/supabase-oauth', json={'access_token': 'tok'})
+        assert response.status_code == 503
+
+    @pytest.mark.parametrize('status_code', [401, 403])
+    def test_rejected_token_is_still_401(self, client, monkeypatch, status_code):
+        monkeypatch.setattr('blueprints.auth.requests.get', lambda *a, **k: self._response(status_code))
+        response = client.post('/api/auth/supabase-oauth', json={'access_token': 'tok'})
+        assert response.status_code == 401
+        assert response.json['message'] == 'Invalid Supabase token'
+
