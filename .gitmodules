@@ -1,0 +1,4 @@
+[submodule "BookmarkExtension"]
+	path = BookmarkExtension
+	url = https://github.com/Ujjwaljain16/BookmarkExtension.git
+	branch = master
