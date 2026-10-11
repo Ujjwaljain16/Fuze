@@ -39,23 +39,31 @@ def validate_linkedin_url(url: str) -> bool:
     except Exception:
         return False
 
-def extract_json_from_response(text: str) -> dict:
-    """Safely extract JSON dictionary from LLM response strings including markdown code blocks."""
-    if not text:
-        return {}
-    cleaned = text.strip()
-    if cleaned.startswith('```'):
-        lines = cleaned.splitlines()
-        if lines[0].startswith('```'):
-            lines = lines[1:]
-        if lines and lines[-1].startswith('```'):
-            lines = lines[:-1]
-        cleaned = '\n'.join(lines).strip()
-    try:
-        res = json.loads(cleaned)
-        return res if isinstance(res, dict) else {}
-    except Exception:
-        return {}
+def _store_linkedin_post(user_id: int, url: str, title: str, text: str, quality_score: int = 0) -> int:
+    """Upsert a LinkedIn post as a bookmark whose content is already fetched, and request its
+    embedding. These rows used to skip the pipeline entirely, so they were never embedded and
+    never showed up in search or recommendations."""
+    from scrapers.models import compute_content_hash
+    from services.pipeline_orchestrator import PipelineOrchestrator
+
+    text = (text or '').replace('\x00', '')
+    content_rec = SavedContent.query.filter_by(user_id=user_id, url=url).first()
+    if not content_rec:
+        content_rec = SavedContent(user_id=user_id, url=url, title=title or 'LinkedIn Post',
+                                   source='linkedin', category='linkedin')
+        db.session.add(content_rec)
+    elif title:
+        content_rec.title = title
+    if text:
+        content_rec.extracted_text = text
+        content_rec.content_hash = compute_content_hash(text)
+    content_rec.quality_score = quality_score or content_rec.quality_score or 0
+    content_rec.scrape_status = 'SUCCESS'
+    content_rec.scraped_at = datetime.utcnow()
+    content_rec.strategy_used = 'LINKEDIN'
+    db.session.commit()
+    PipelineOrchestrator().request_embedding(content_rec.id, user_id)
+    return content_rec.id
 
 
 @linkedin_bp.route('/api/linkedin/extract', methods=['POST'])
@@ -85,32 +93,10 @@ def extract_linkedin_content():
                 'error': 'Failed to extract content from LinkedIn post'
             }), 400
 
-        # Store or update extraction record in SavedContent
         try:
-            content_rec = SavedContent.query.filter_by(
-                user_id=user_id,
-                url=linkedin_url
-            ).first()
-
-            if not content_rec:
-                content_rec = SavedContent(
-                    user_id=user_id,
-                    url=linkedin_url,
-                    title=extracted_data.get('title', 'LinkedIn Post'),
-                    source='linkedin',
-                    category='linkedin',
-                    extracted_text=extracted_data.get('content', ''),
-                    quality_score=extracted_data.get('quality_score', 0)
-                )
-                db.session.add(content_rec)
-            else:
-                content_rec.title = extracted_data.get('title') or content_rec.title
-                content_rec.extracted_text = extracted_data.get('content') or content_rec.extracted_text
-                content_rec.quality_score = extracted_data.get('quality_score', content_rec.quality_score)
-
-            db.session.commit()
-            logger.info("linkedin_extract_saved", user_id=user_id, content_id=content_rec.id)
-
+            content_id = _store_linkedin_post(user_id, linkedin_url, extracted_data.get('title'),
+                                              extracted_data.get('content', ''), extracted_data.get('quality_score', 0))
+            logger.info("linkedin_extract_saved", user_id=user_id, content_id=content_id)
         except SQLAlchemyError:
             db.session.rollback()
             logger.exception("linkedin_extract_db_failed", user_id=user_id)
@@ -156,81 +142,20 @@ def analyze_linkedin_content():
         if not api_key:
             return jsonify({'success': False, 'error': 'Gemini API key required for analysis'}), 400
 
+        # The same structured content profile every other bookmark gets. There used to be a call to
+        # a method that doesn't exist, caught, followed by a canned "analysis" stored as if Gemini
+        # had written it.
+        from services.content_profile import analysis_payload, generate_profile, store_profile
         gemini_analyzer = GeminiAnalyzer(api_key=api_key)
-
-        analysis_prompt = f"""
-        Analyze this LinkedIn post content and provide structured insights:
-        Title: {title}
-        Meta Description: {meta_description}
-        Content: {content}
-        URL: {url}
-
-        Return JSON format:
-        {{
-            "technologies": ["list"],
-            "content_type": "tutorial|article|news|case_study|opinion|other",
-            "difficulty_level": "beginner|intermediate|advanced",
-            "learning_goals": "summary",
-            "summary": "2-3 sentence summary",
-            "key_insights": ["insights"],
-            "target_audience": "audience",
-            "practical_applications": "applications"
-        }}
-        """
+        profile = generate_profile(gemini_analyzer, title=title, url=url, notes=meta_description, text=content)
+        if profile is None:
+            return jsonify({'success': False, 'error': 'Analysis is unavailable right now. Please try again.'}), 502
 
         try:
-            analysis_response = gemini_analyzer.analyze_text(analysis_prompt)
-            analysis_data = extract_json_from_response(analysis_response) if analysis_response else {}
-        except Exception:
-            logger.exception("linkedin_ai_analysis_failed", user_id=user_id)
-            analysis_data = {}
-
-        if not analysis_data:
-            analysis_data = {
-                'technologies': [],
-                'content_type': 'linkedin_post',
-                'difficulty_level': 'intermediate',
-                'learning_goals': 'Content from LinkedIn post',
-                'summary': f'LinkedIn post: {title[:100]}',
-                'key_insights': ['Content extracted successfully'],
-                'target_audience': 'General audience',
-                'practical_applications': 'Learning and reference'
-            }
-
-        try:
-            content_rec = SavedContent.query.filter_by(
-                user_id=user_id,
-                url=url
-            ).first()
-
-            if not content_rec:
-                content_rec = SavedContent(
-                    user_id=user_id,
-                    url=url,
-                    title=title or 'LinkedIn Post',
-                    source='linkedin',
-                    category='linkedin',
-                    extracted_text=content
-                )
-                db.session.add(content_rec)
-                db.session.flush()
-
-            analysis_rec = ContentAnalysis.query.filter_by(content_id=content_rec.id).first()
-            if not analysis_rec:
-                analysis_rec = ContentAnalysis(
-                    content_id=content_rec.id,
-                    analysis_data=analysis_data,
-                    content_type=analysis_data.get('content_type', 'linkedin_post'),
-                    difficulty_level=analysis_data.get('difficulty_level', 'intermediate'),
-                    technology_tags=','.join(analysis_data.get('technologies', []))
-                )
-                db.session.add(analysis_rec)
-            else:
-                analysis_rec.analysis_data = analysis_data
-                analysis_rec.content_type = analysis_data.get('content_type', 'linkedin_post')
-                analysis_rec.difficulty_level = analysis_data.get('difficulty_level', 'intermediate')
-                analysis_rec.technology_tags = ','.join(analysis_data.get('technologies', []))
-
+            content_id = _store_linkedin_post(user_id, url, title, content)
+            content_rec = db.session.get(SavedContent, content_id)
+            store_profile(db.session, content_rec, profile, gemini_analyzer.active_model_name)
+            content_rec.analysis_status = 'SUCCESS'
             db.session.commit()
         except SQLAlchemyError:
             db.session.rollback()
@@ -239,17 +164,8 @@ def analyze_linkedin_content():
         return jsonify({
             'success': True,
             'message': 'LinkedIn content analyzed successfully',
-            'data': {
-                'technologies': analysis_data.get('technologies', []),
-                'content_type': analysis_data.get('content_type', 'article'),
-                'difficulty_level': analysis_data.get('difficulty_level', 'intermediate'),
-                'learning_goals': analysis_data.get('learning_goals', ''),
-                'summary': analysis_data.get('summary', ''),
-                'key_insights': analysis_data.get('key_insights', []),
-                'target_audience': analysis_data.get('target_audience', ''),
-                'practical_applications': analysis_data.get('practical_applications', ''),
-                'analyzed_at': datetime.utcnow().isoformat()
-            }
+            'data': {**analysis_payload(profile, gemini_analyzer.active_model_name),
+                     'analyzed_at': datetime.utcnow().isoformat()},
         }), 200
 
     except Exception:

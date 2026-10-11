@@ -56,3 +56,32 @@ def test_batch_extract_runs_concurrently_and_reports_invalid(client, auth_header
     assert data['successful'] == 5 and data['failed'] == 1
     assert [r['url'] for r in data['results']] == urls
     assert elapsed < 1.5  # sequential would be >= 2.0s
+
+
+def test_extracted_post_enters_the_pipeline(client, auth_headers, app, test_user):
+    """LinkedIn saves skipped the pipeline: never embedded, invisible to search."""
+    from unittest.mock import patch
+    url = 'https://www.linkedin.com/posts/someone_postgres-activity-1234567890'
+    scraped = {'success': True, 'title': 'Postgres tips', 'content': 'Use HNSW indexes for vector search. ' * 20,
+               'quality_score': 7}
+    with patch('blueprints.linkedin.EasyLinkedInScraper') as scraper, \
+         patch('services.pipeline_orchestrator.PipelineOrchestrator.request_embedding') as request_embedding:
+        scraper.return_value.scrape_post.return_value = scraped
+        response = client.post('/api/linkedin/extract', json={'url': url}, headers=auth_headers)
+    assert response.status_code == 200
+    from models import SavedContent
+    with app.app_context():
+        row = SavedContent.query.filter_by(user_id=test_user['id'], url=url).one()
+        assert row.scrape_status == 'SUCCESS' and row.content_hash
+    request_embedding.assert_called_once_with(row.id, test_user['id'])
+
+
+def test_analysis_failure_is_reported_not_fabricated(client, auth_headers):
+    from unittest.mock import patch
+    with patch('services.multi_user_api_manager.get_user_api_key', return_value='key'), \
+         patch('services.content_profile.generate_profile', return_value=None):
+        response = client.post('/api/linkedin/analyze', json={
+            'content': 'A post', 'title': 'T', 'url': 'https://www.linkedin.com/posts/x-activity-1'},
+            headers=auth_headers)
+    assert response.status_code == 502
+    assert response.json['success'] is False
