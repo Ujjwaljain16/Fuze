@@ -28,9 +28,9 @@
 
 ### 🧠 AI-Powered Intelligence
 - **Semantic Search**: Find content by meaning, not just keywords
-- **Smart Recommendations**: Personalized suggestions based on your projects and interests
+- **Smart Recommendations**: Your own saved content, surfaced for the project, task or subtask you're working on
 - **Content Analysis**: Automatic extraction and analysis using Gemini AI
-- **Intent Understanding**: Context-aware recommendations that understand what you're building
+- **Intent Understanding**: Understands what you're trying to do from your own words, refined by Gemini in the background
 
 ### 🎯 Project Organization
 - **Project-Based Workflow**: Organize projects and tasks
@@ -148,14 +148,11 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your configuration
 
-# Initialize database
-cd backend
-python init_db.py
-
-# Run migrations (if any)
-python utils/database_indexes.py
+# Create the schema (PostgreSQL with the pgvector extension)
+python -m alembic -c alembic.ini upgrade head
 
 # Start the server
+cd backend
 python run_production.py
 ```
 
@@ -219,7 +216,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **Database**: PostgreSQL 15 with pgvector
 - **Caching**: Redis (Upstash)
 - **ML/AI**: 
-  - Sentence Transformers (MiniLM-L6-v2)
+  - Sentence Transformers (bge-small-en-v1.5, chosen by benchmark)
   - Google Gemini API
 - **Task Queue**: RQ (Redis Queue)
 - **Authentication**: JWT (Flask-JWT-Extended)
@@ -242,12 +239,12 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ### 🚀 Technical Innovations
 
-#### **Unified Recommendation Orchestrator**
-- **Multi-Engine Architecture**: An orchestrator routes between two production recommendation engines (fast semantic similarity, and a context-aware engine that layers in project/task relevance and intent) selected via an `engine_preference` parameter, with a third engine (`SmartEngine`) evaluated in shadow mode (see below) ahead of promotion to live traffic
-- **Intent Analysis Engine**: Gemini-backed intent detection that understands user goals (learning, building, researching) and adjusts recommendation scoring weights accordingly, with a rule-based keyword-matching fallback when the LLM call is unavailable or rate-limited
-- **Golden-Dataset Regression Testing**: A frozen recommendation baseline (`backend/tests/golden/`) is scored on every test run using real MRR/NDCG@10 metrics, failing the build if quality regresses beyond a threshold — not just a smoke test
-- **Shadow-Mode Evaluation**: Candidate engine output is computed against live production traffic and compared to the serving engine's results (overlap, MRR/NDCG, latency delta, reported via Prometheus) without ever being shown to users, before a new engine is promoted
-- **Per-User Caching**: Cached Gemini analyzers per user with encrypted API key management
+#### **Intent × Content Engine** ([design](docs/INTENT_ENGINE_PLAN.md))
+- **Content understanding**: every saved item is split into overlapping passages (the whole text, not just what fits in the embedding model's window) and given a validated Gemini *content profile* — summary, what it teaches or solves, key concepts, and when it's useful — which is embedded alongside the passages
+- **Intent understanding**: what you're doing right now is built from your own words (search text, or project → task → subtask); Gemini refines it in the background into an intent statement plus concrete information needs, cached per context so requests never wait on the LLM
+- **Ranking by meaning only**: multi-query nearest-passage search over pgvector (HNSW, per-user filtered), optional cross-encoder rerank, then MMR so the top results aren't near-duplicates — no keyword lists, hand-tuned boosts or rule-based fallbacks
+- **Grounded explanations**: each recommendation shows the passage that matched; on demand Gemini explains how the item helps with your current task
+- **Measured, not assumed**: an end-to-end retrieval benchmark (`backend/scripts/eval_retrieval.py`) runs the production search code against BEIR SciFact (300 queries) in a real Postgres + pgvector database. On long documents, where the relevant text sits past the embedding model's input window, the previous one-vector-per-bookmark search scored **0.001 nDCG@10**; passage search scores **0.504**. Switching MiniLM → bge-small-en-v1.5 (same 384 dims) added **+10% nDCG@10** (0.652 → 0.718). A cross-encoder reranker was measured and left off: no quality gain for ~700 ms extra per query ([results](docs/INTENT_ENGINE_PLAN.md))
 
 #### **Model Caching & Performance Optimization**
 - **98% Faster Model Loading**: Reduced SentenceTransformer model loading from 6-7 seconds to 0.1 seconds using singleton pattern with thread-safe locking
@@ -256,15 +253,14 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **Query Result Caching**: Intelligent TTL-based caching for expensive database queries
 
 #### **Per-User API Key Management System**
-- **Encrypted Storage**: Fernet encryption for user API keys, with the encryption key derived from `SECRET_KEY` (a plain SHA-256 hash, not a proper KDF — see `gaps.md` for the tracked hardening item)
+- **Encrypted Storage**: Fernet encryption for user API keys with an HKDF-derived, purpose-specific key; values encrypted under the previous key are migrated on read
 - **Individual Rate Limiting**: Per-user rate limits (15/min, 1500/day, 45000/month) with usage tracking
 - **Automatic Fallback**: Graceful fallback to default API key when user key unavailable
 - **API Key Validation**: Built-in testing and validation endpoints for user API keys
 
 #### **Semantic Search with pgvector**
-- **Vector Similarity Search**: Implemented pgvector extension for PostgreSQL enabling semantic search that understands meaning, not just keywords
-- **Automatic Embeddings**: Every bookmark automatically generates embeddings using MiniLM-L6-v2 for semantic search
-- **Hybrid Search**: Combines text search with vector similarity for best results
+- **Passage-level search**: queries are matched against passages and content profiles, and the best-matching passage is shown as the snippet
+- **Versioned embeddings**: every vector records the model that produced it, so a model change never mixes incompatible vectors
 
 ### 🎯 Unique Features
 
@@ -295,7 +291,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **70-80% Cache Hit Rate**: Multi-layer caching strategy achieving high efficiency
 - **50% Reduction in Duplicate Requests**: Request deduplication system
 - **Sub-100ms API Response Times**: Through optimized queries and caching
-- **56+ Comprehensive Tests**: Full test coverage across all major features
+- **200+ Automated Tests**: Backend suite run in CI on every change
 - **Production-Ready Architecture**: Horizontal scaling with stateless workers, connection pooling, and graceful degradation
 - **Zero-Downtime Deployments**: CI/CD pipeline with automated testing and GitHub Actions workflows
 

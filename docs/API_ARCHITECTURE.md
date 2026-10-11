@@ -194,16 +194,11 @@ sequenceDiagram
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/recommendations/unified-orchestrator` | ✅ | **Primary** - Get unified orchestrator recommendations |
-| `POST` | `/api/recommendations/generate-context` | ✅ | Generate recommendation context |
-| `POST` | `/api/recommendations/unified` | ✅ | Unified recommendations |
-| `POST` | `/api/recommendations/unified-project/<id>` | ✅ | Project-based unified recommendations |
-| `GET` | `/api/recommendations/project/<id>` | ✅ | Get project recommendations |
+| `POST` | `/api/recommendations/unified-orchestrator` | ✅ | **Primary** - Intent × content engine (query or `project_id`/`task_id`/`subtask_id`) |
+| `POST` | `/api/recommendations/generate-context` | ✅ | Gemini explanation of how one item helps with the current context |
 | `POST` | `/api/recommendations/task/<id>` | ✅ | Task-based recommendations |
 | `POST` | `/api/recommendations/subtask/<id>` | ✅ | Subtask-based recommendations |
-| `POST` | `/api/recommendations/enhanced` | ✅ | Enhanced recommendations |
 | `GET` | `/api/recommendations/status` | ✅ | Get engine status |
-| `GET` | `/api/recommendations/phase-status` | ✅ | Get phase status |
 | `POST` | `/api/recommendations/cache/clear` | ✅ | Clear recommendation cache |
 | `POST` | `/api/recommendations/cache/clear-context` | ✅ | Clear context cache |
 | `POST` | `/api/recommendations/cache/clear-all-recommendations` | ✅ | Clear all recommendation cache |

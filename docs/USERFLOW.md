@@ -319,44 +319,15 @@ flowchart TD
     POSTRequest --> ValidateAuth{Validate JWT}
     ValidateAuth -->|Invalid| Error1[Return 401 Unauthorized]
     
-    ValidateAuth -->|Valid| GetOrchestrator[Get Unified Orchestrator Instance]
-    GetOrchestrator --> AnalyzeIntent[Analyze User Intent]
-    
-    AnalyzeIntent --> IntentEngine{Intent Analysis Engine}
-    IntentEngine -->|Success| GetIntent[Get Intent:<br/>- Goal: learn/build/explore<br/>- Technologies<br/>- Difficulty]
-    IntentEngine -->|Failed| FallbackIntent[Use Fallback Intent]
-    
-    GetIntent --> EnhanceRequest[Enhance Request with Intent]
-    FallbackIntent --> EnhanceRequest
-    
-    EnhanceRequest --> GetCandidates[Get Candidate Content from DB]
-    GetCandidates --> FilterCandidates[Filter by:<br/>- Quality Score >= 7<br/>- Has embeddings<br/>- User's content + Global]
-    
-    FilterCandidates --> SelectEngine[Select Engine Strategy]
-    SelectEngine --> EngineChoice{Engine Selection}
-    
-    EngineChoice -->|Fast Path| FastSemantic[Fast Semantic Engine]
-    EngineChoice -->|Context Path| ContextAware[Context-Aware Engine]
-    EngineChoice -->|ML Path| MLEngine[ML-Enhanced Engine]
-    
-    FastSemantic --> CalculateScores[Calculate Similarity Scores]
-    ContextAware --> CalculateScores
-    MLEngine --> CalculateScores
-    
-    CalculateScores --> ApplyFilters[Apply Filters:<br/>- Quality threshold<br/>- Relevance threshold<br/>- Confidence threshold]
-    
-    ApplyFilters --> DiversityFilter{Diversity Enabled?}
-    DiversityFilter -->|Yes| ApplyDiversity[Apply Diversity Filtering]
-    DiversityFilter -->|No| SortResults
-    
-    ApplyDiversity --> SortResults[Sort by Combined Score]
-    SortResults --> LimitResults[Limit to max_recommendations]
-    
-    LimitResults --> GenerateSummaries[Generate Context Summaries]
-    GenerateSummaries --> GeminiSummaries[Use Gemini for summaries<br/>if available]
-    GeminiSummaries --> FormatResults[Format Results]
-    
-    FormatResults --> CacheResults[Cache Results in Redis]
+    ValidateAuth -->|Valid| BuildIntent[Build intent from the user's own words:<br/>query or project + task + subtask]
+    BuildIntent --> Stmt{Cached Gemini intent statement?}
+    Stmt -->|Yes| Vectors[Query vectors: context + statement + needs]
+    Stmt -->|No: schedule background job| Vectors
+    Vectors --> Retrieve[Nearest passages and content profiles<br/>user's own content, pgvector]
+    Retrieve --> Rerank[Cross-encoder rerank]
+    Rerank --> CalculateScores[MMR diversity]
+    CalculateScores --> FormatResults[Attach matched passage + content profile]
+    FormatResults --> CacheResults[Cache keyed by intent + content version]
     CacheResults --> ReturnResults[Return Recommendations]
     ReturnResults --> End2([Display Recommendations])
     
@@ -366,9 +337,9 @@ flowchart TD
     style End1 fill:#50c878
     style End2 fill:#50c878
     style End3 fill:#ff6b6b
-    style AnalyzeIntent fill:#cd853f
-    style SelectEngine fill:#cd853f
-    style GenerateSummaries fill:#cd853f
+    style BuildIntent fill:#cd853f
+    style Retrieve fill:#cd853f
+    style Rerank fill:#cd853f
 ```
 
 ---

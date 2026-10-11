@@ -987,43 +987,39 @@ graph TB
 - **Fallback Model**: Works even if primary model fails
 - **Redis Caching**: Embeddings cached to avoid regeneration
 
-### Recommendation Orchestrator Architecture
+### Intent × Content Engine
+
+Full design and measurements: [`INTENT_ENGINE_PLAN.md`](INTENT_ENGINE_PLAN.md).
 
 ```mermaid
 graph TB
-    Request[Recommendation Request] --> CheckCache{Redis Cache?}
-    
-    CheckCache -->|Hit| ReturnCached[Return Cached Results]
-    CheckCache -->|Miss| AnalyzeIntent[Analyze User Intent<br/>Gemini AI]
-    
-    AnalyzeIntent --> GetCandidates[Get Candidate Content<br/>From Database]
-    GetCandidates --> SelectEngine{Select Engine}
-    
-    SelectEngine -->|Fast| FastEngine[Fast Semantic Engine<br/>Vector Similarity]
-    SelectEngine -->|Context| ContextEngine[Context-Aware Engine<br/>+ Analysis Data]
-    SelectEngine -->|ML| MLEngine[ML-Enhanced Engine<br/>+ Personalization]
-    
-    FastEngine --> CalculateScores[Calculate Scores]
-    ContextEngine --> CalculateScores
-    MLEngine --> CalculateScores
-    
-    CalculateScores --> ApplyFilters[Apply Filters & Diversity]
-    ApplyFilters --> GenerateSummaries[Generate Context Summaries]
-    GenerateSummaries --> CacheResults[Cache Results<br/>30 minutes TTL]
-    CacheResults --> ReturnResults[Return Recommendations]
-    
-    style CheckCache fill:#ff6b6b
-    style AnalyzeIntent fill:#cd853f
-    style SelectEngine fill:#cd853f
-    style CacheResults fill:#ff6b6b
+    subgraph Write path
+        Save[Bookmark saved] --> Acquire[Fetch + extract text]
+        Acquire --> Chunk[Overlapping passages]
+        Chunk --> PEmb[Passage embeddings]
+        Acquire --> Profile[Gemini content profile<br/>summary · use_when · concepts]
+        Profile --> ProfEmb[Profile embedding]
+        PEmb --> Chunks[(content_chunks<br/>HNSW)]
+        ProfEmb --> Chunks
+    end
+    subgraph Read path
+        Req[Query or project/task/subtask] --> Ctx[Intent text<br/>user's own words]
+        Ctx --> Stmt{Cached Gemini<br/>intent statement?}
+        Stmt -->|yes| Multi[Query vectors:<br/>context + statement + needs]
+        Stmt -->|no: schedule job| Multi
+        Multi --> ANN[Nearest passages per user]
+        Chunks --> ANN
+        ANN --> Rerank[Cross-encoder rerank<br/>optional]
+        Rerank --> MMR[MMR diversity]
+        MMR --> Out[Results + matched passage]
+    end
 ```
 
-**Orchestrator Features:**
-- **Multi-Engine Strategy**: Fast, Context-Aware, ML-Enhanced
-- **Intent Analysis**: Understands user goals (learn/build/explore)
-- **Caching**: Results cached with intent-aware keys
-- **Fallback**: Works even if AI services unavailable
-- **Performance**: Sub-second responses for cached requests
+**Properties:**
+- **No keyword rules**: retrieval and ranking use embeddings and model judgements only
+- **Never blocks on Gemini**: intent statements are computed by a background job and cached per context
+- **Fresh results**: result cache keys include a per-user content version that bumps on every change
+- **Versioned vectors**: chunks record their embedding model; retrieval only compares vectors from the active model
 
 ---
 
