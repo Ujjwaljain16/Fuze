@@ -16,7 +16,7 @@ from scrapers.models import ContentDocument, compute_content_hash
 from core.events import ScrapingStarted, ScrapingCompleted, ScrapingSkipped, ScrapingFailed
 from services.pipeline_orchestrator import PipelineOrchestrator
 from utils.redis_utils import redis_cache
-from utils.embedding_utils import get_embedding
+from utils.embedding_utils import active_embedding_model_name, get_embedding
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -132,7 +132,6 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
             logger.error("bg_bookmark_not_found", extra={"bookmark_id": bookmark_id})
             return
         bookmark_title = bookmark.title
-        bookmark_notes = bookmark.notes or ''
 
     publish_pipeline_event(
         event_type="bookmark.pipeline.scraping.started",
@@ -318,11 +317,24 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
         if bookmark:
             if validate_embedding(embedding):
                 bookmark.embedding = embedding
+                bookmark.embedding_metadata = {"model": active_embedding_model_name()}
                 bookmark.embedding_status = 'SUCCESS'
                 bookmark.embedded_at = datetime.utcnow()
                 is_embedded = True
             else:
                 bookmark.embedding_status = 'FAILED'
+
+    # Passage chunks (full-text coverage beyond the model's input limit). Separate transaction so a
+    # chunking failure never loses the document embedding above.
+    if is_embedded:
+        try:
+            with UnitOfWork() as uow:
+                if uow.session.get_bind().dialect.name == 'postgresql':
+                    from services.hybrid_search import index_content_chunks
+                    n_chunks = index_content_chunks(uow.session, bookmark_id)
+                    logger.info("bg_chunks_indexed", extra={"bookmark_id": bookmark_id, "chunks": n_chunks})
+        except Exception as chunk_err:
+            logger.warning("bg_chunk_indexing_failed", extra={"bookmark_id": bookmark_id, "error": str(chunk_err)})
 
     # Selective cache invalidation
     try:

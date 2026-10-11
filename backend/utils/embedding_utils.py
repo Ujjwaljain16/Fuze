@@ -15,7 +15,25 @@ ZERO_EMBEDDING = np.zeros(EMBEDDING_DIMENSION, dtype=np.float32)
 
 _embedding_model: Optional[Any] = None
 _embedding_model_initialized: bool = False
+_embedding_model_name: str = "fallback-hash"
 _embedding_lock = threading.RLock()
+
+# Chosen by the SciFact bake-off (scripts/eval_retrieval.py): +10% nDCG@10 over MiniLM, same 384 dims.
+DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+def configured_model_name() -> str:
+    return os.environ.get("EMBEDDING_MODEL_NAME", "").strip() or DEFAULT_EMBEDDING_MODEL
+
+
+def _prefixes(model_name: str):
+    """(query_prefix, passage_prefix) the model was trained with for asymmetric retrieval."""
+    name = model_name.lower()
+    if "bge-" in name and "-en" in name:
+        return "Represent this sentence for searching relevant passages: ", ""
+    if "e5-" in name:
+        return "query: ", "passage: "
+    return "", ""
 
 
 class FallbackEmbeddingModel:
@@ -85,11 +103,11 @@ def _initialize_embedding_model_robust():
         logger.info("embeddings_disabled_by_env_using_fallback")
         return FallbackEmbeddingModel()
 
-    model_options = [
-        'all-MiniLM-L6-v2',
-        'paraphrase-MiniLM-L6-v2',
-        'paraphrase-MiniLM-L3-v2',
-    ]
+    global _embedding_model_name
+    model_options = [configured_model_name()]
+    for fallback in ('sentence-transformers/all-MiniLM-L6-v2', 'paraphrase-MiniLM-L6-v2'):
+        if fallback not in model_options:
+            model_options.append(fallback)
 
     for model_name in model_options:
         try:
@@ -97,46 +115,73 @@ def _initialize_embedding_model_robust():
             model = SentenceTransformer(model_name)
             test_embedding = model.encode(["test"])
             if test_embedding is not None and len(test_embedding) > 0:
+                if test_embedding.shape[-1] != EMBEDDING_DIMENSION:
+                    raise ValueError(f"model dimension {test_embedding.shape[-1]} != {EMBEDDING_DIMENSION}")
+                _embedding_model_name = model_name
                 logger.info("embedding_model_loaded_successfully", extra={"model_name": model_name})
                 return model
         except Exception as e:
             logger.warning("failed_to_load_embedding_model", extra={"model_name": model_name, "error": str(e)})
 
     logger.warning("all_embedding_models_failed_using_fallback")
+    _embedding_model_name = "fallback-hash"
     return FallbackEmbeddingModel()
 
 
-def get_embedding(text: str) -> np.ndarray:
-    """Get embedding for text with Redis caching and length safeguards."""
+def active_embedding_model_name() -> str:
+    """Name of the model actually producing vectors (loads it if needed)."""
+    get_embedding_model()
+    return _embedding_model_name
+
+
+def _embed_one(text: str, prefix: str) -> np.ndarray:
     if not text or not isinstance(text, str) or not text.strip():
         return ZERO_EMBEDDING.copy()
 
-    clean_text = text.strip()[:MAX_EMBED_TEXT_LENGTH]
+    clean_text = prefix + text.strip()[:MAX_EMBED_TEXT_LENGTH]
+    model = get_embedding_model()
+    # Cache key includes the model so switching models never serves another model's vectors.
+    cache_text = f"{_embedding_model_name}::{clean_text}"
 
     try:
-        cached_embedding = redis_cache.get_cached_embedding(clean_text)
+        cached_embedding = redis_cache.get_cached_embedding(cache_text)
         if cached_embedding is not None:
             return np.array(cached_embedding, dtype=np.float32)
     except Exception as cache_err:
         logger.warning("redis_cached_embedding_lookup_failed", extra={"error": str(cache_err)})
 
     try:
-        model = get_embedding_model()
-        embedding = model.encode([clean_text])[0]
-        if isinstance(embedding, np.ndarray):
-            embedding = embedding.astype(np.float32)
-        else:
-            embedding = np.array(embedding, dtype=np.float32)
-
+        embedding = np.asarray(model.encode([clean_text])[0], dtype=np.float32)
         try:
-            redis_cache.cache_embedding(clean_text, embedding)
+            redis_cache.cache_embedding(cache_text, embedding)
         except Exception:
             pass
-
         return embedding
     except Exception as e:
         logger.error("error_generating_embedding", extra={"error": str(e)})
         return ZERO_EMBEDDING.copy()
+
+
+def get_embedding(text: str) -> np.ndarray:
+    """Embed stored content (bookmarks, projects, passages)."""
+    get_embedding_model()
+    return _embed_one(text, _prefixes(_embedding_model_name)[1])
+
+
+def embed_query(text: str) -> np.ndarray:
+    """Embed a search query / intent, with the model's query instruction where it has one."""
+    get_embedding_model()
+    return _embed_one(text, _prefixes(_embedding_model_name)[0])
+
+
+def get_embeddings_batch(texts: list, batch_size: int = 32) -> np.ndarray:
+    """Encode many passages in one model call (no per-text Redis caching)."""
+    if not texts:
+        return np.zeros((0, EMBEDDING_DIMENSION), dtype=np.float32)
+    model = get_embedding_model()
+    prefix = _prefixes(_embedding_model_name)[1]
+    clean = [prefix + ((t or "").strip()[:MAX_EMBED_TEXT_LENGTH] or " ") for t in texts]
+    return np.asarray(model.encode(clean, batch_size=batch_size), dtype=np.float32)
 
 
 def calculate_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -175,6 +220,34 @@ def get_content_embedding(content) -> np.ndarray:
     except Exception as e:
         logger.error("error_getting_content_embedding", extra={"error": str(e)})
         return ZERO_EMBEDDING.copy()
+
+
+
+
+
+def is_embedding_available() -> bool:
+    """Check if proper embedding model is available (not fallback)."""
+    try:
+        model = get_embedding_model()
+        return model is not None and not getattr(model, 'is_fallback_model', False)
+    except Exception:
+        return False
+
+
+def get_embedding_model_info() -> str:
+    """Get description of active embedding model."""
+    try:
+        model = get_embedding_model()
+        if model is None:
+            return "No embedding model available"
+
+        if getattr(model, 'is_fallback_model', False):
+            return "Fallback embedding model (limited functionality)"
+
+        model_name = getattr(model, 'model_name', 'SentenceTransformer')
+        return f"Proper embedding model: {model_name}"
+    except Exception:
+        return "No embedding model available"
 
 
 def get_project_embedding(project) -> np.ndarray:
@@ -224,28 +297,3 @@ def get_subtask_embedding(subtask) -> np.ndarray:
     except Exception as e:
         logger.error("error_getting_subtask_embedding", extra={"error": str(e)})
         return ZERO_EMBEDDING.copy()
-
-
-def is_embedding_available() -> bool:
-    """Check if proper embedding model is available (not fallback)."""
-    try:
-        model = get_embedding_model()
-        return model is not None and not getattr(model, 'is_fallback_model', False)
-    except Exception:
-        return False
-
-
-def get_embedding_model_info() -> str:
-    """Get description of active embedding model."""
-    try:
-        model = get_embedding_model()
-        if model is None:
-            return "No embedding model available"
-
-        if getattr(model, 'is_fallback_model', False):
-            return "Fallback embedding model (limited functionality)"
-
-        model_name = getattr(model, 'model_name', 'SentenceTransformer')
-        return f"Proper embedding model: {model_name}"
-    except Exception:
-        return "No embedding model available"

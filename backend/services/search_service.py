@@ -1,7 +1,5 @@
-import os
-import json
 import heapq
-import numpy as np
+import math
 from typing import List, Dict, Any, Optional
 from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -16,30 +14,15 @@ logger = get_logger(__name__)
 MAX_SEARCH_LIMIT = 100
 MAX_QUERY_LENGTH = 1000
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-SUPABASE_TABLE = os.environ.get("SUPABASE_TABLE", "saved_content")
-
-supabase_client = None
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        from supabase import create_client
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("supabase_search_client_connected")
-    except Exception as e:
-        logger.warning("supabase_search_client_connection_failed", extra={"error": str(e)})
-        supabase_client = None
-
 
 class SearchService:
     """
-    Production Search Service providing text, PostgreSQL pgvector semantic search,
-    and Supabase vector search with robust fallback mechanics.
+    Search over a user's saved content: text search, document-level vector search, and
+    passage-level semantic search.
     """
 
-    def __init__(self, uow: UnitOfWork, client=None):
+    def __init__(self, uow: UnitOfWork):
         self.uow = uow
-        self.supabase_client = client or supabase_client
 
     def _validate_query(self, query: str) -> Optional[str]:
         """Validate and sanitize search query input length."""
@@ -145,109 +128,50 @@ class SearchService:
         return heapq.nlargest(limit, bookmarks, key=score_content)
 
     def supabase_semantic_search(self, user_id: int, query: str, limit: int = 10) -> Dict[str, Any]:
-        """Perform vector search via Supabase RPC if available, or top-K heap ranking fallback."""
+        """Meaning-based search over the user's passages (best passage shown as the snippet).
+
+        Name kept for the existing endpoint. Users whose content has no passage chunks yet are
+        served by document-level vector search.
+        """
         limit = max(1, min(limit, MAX_SEARCH_LIMIT))
         clean_query = self._validate_query(query)
         if not clean_query:
             return self._fallback_response(user_id, query or "", limit, "Empty search query")
 
-        client = self.supabase_client
-        if not client:
-            return self._fallback_response(user_id, clean_query, limit, "Supabase search client unavailable")
-
+        session = self.uow.session
         try:
-            query_embedding = get_embedding(clean_query)
-            if query_embedding is None:
-                raise RuntimeError("Failed to generate query embedding")
+            from services.hybrid_search import semantic_search as passage_search, user_has_chunks
+            if session.get_bind().dialect.name != 'postgresql' or not user_has_chunks(session, user_id):
+                return self._fallback_response(user_id, clean_query, limit, "Searching whole documents (passages not indexed yet)")
 
-            query_embedding_list = query_embedding.tolist() if hasattr(query_embedding, 'tolist') else list(query_embedding)
-
-            # 1. Try Supabase RPC match_documents if available
-            try:
-                rpc_res = client.rpc(
-                    'match_documents',
-                    {
-                        'query_embedding': query_embedding_list,
-                        'filter_user_id': user_id,
-                        'match_count': limit
-                    }
-                ).execute()
-                if rpc_res and isinstance(rpc_res.data, list) and rpc_res.data:
-                    return {
-                        'query': clean_query,
-                        'results': rpc_res.data,
-                        'total': len(rpc_res.data),
-                        'source': 'supabase_rpc',
-                        'message': 'AI vector search completed via Supabase RPC'
-                    }
-            except Exception:
-                pass
-
-            # 2. Fallback table query with heap top-K evaluation
-            response = client.table(SUPABASE_TABLE).select(
-                'id, user_id, url, title, notes, extracted_text, embedding'
-            ).eq('user_id', user_id).not_.is_("embedding", "null").limit(500).execute()
-
-            bookmarks = response.data or []
-            if not bookmarks:
-                return {
-                    'query': clean_query,
-                    'results': [],
-                    'total': 0,
-                    'source': 'supabase',
-                    'message': 'No bookmarks with embeddings found'
-                }
-
-            query_vec = np.array(query_embedding_list)
-            norm_q = np.linalg.norm(query_vec)
-
-            def get_bookmark_item(bookmark):
-                try:
-                    embedding_str = bookmark.get('embedding')
-                    if not embedding_str:
-                        return None
-
-                    bookmark_embedding = json.loads(embedding_str) if isinstance(embedding_str, str) else embedding_str
-                    if not bookmark_embedding or len(bookmark_embedding) != len(query_embedding_list):
-                        return None
-
-                    vec2 = np.array(bookmark_embedding)
-                    norm2 = np.linalg.norm(vec2)
-
-                    similarity = 0.0 if (norm_q == 0 or norm2 == 0) else float(np.dot(query_vec, vec2) / (norm_q * norm2))
-                    similarity_percentage = max(0.0, min(100.0, (similarity + 1.0) * 50.0))
-
-                    extracted_text = bookmark.get('extracted_text', '') or ''
-                    snippet = extracted_text[:200] + '...' if len(extracted_text) > 200 else extracted_text
-
-                    return {
-                        'id': bookmark['id'],
-                        'user_id': bookmark['user_id'],
-                        'url': bookmark['url'],
-                        'title': bookmark['title'],
-                        'content_snippet': snippet,
-                        'similarity': similarity,
-                        'similarity_percentage': similarity_percentage,
-                        'relevance_score': similarity_percentage,
-                        'search_type': 'AI Vector Similarity'
-                    }
-                except Exception:
-                    return None
-
-            items = [item for bookmark in bookmarks if (item := get_bookmark_item(bookmark)) is not None]
-            top_results = heapq.nlargest(limit, items, key=lambda x: x['similarity'])
-
+            hits = passage_search(session, user_id, clean_query, limit=limit)
+            results = []
+            for h in hits:
+                relevance = h.get("rerank_score")
+                pct = round(100 / (1 + math.exp(-relevance)), 1) if relevance is not None else round(100 * max(0.0, h["similarity"]), 1)
+                snippet = " ".join((h.get("passage") or "").split())
+                results.append({
+                    'id': h["content_id"],
+                    'user_id': user_id,
+                    'url': h.get("url"),
+                    'title': h.get("title"),
+                    'content_snippet': snippet[:300] + ('…' if len(snippet) > 300 else ''),
+                    'similarity': h["similarity"],
+                    'similarity_percentage': pct,
+                    'relevance_score': pct,
+                    'search_type': 'Semantic passage search',
+                })
             return {
                 'query': clean_query,
-                'results': top_results,
-                'total': len(top_results),
-                'source': 'supabase',
-                'message': 'AI-powered semantic search completed successfully'
+                'results': results,
+                'total': len(results),
+                'source': 'passages',
+                'message': 'Semantic search completed',
             }
-
         except Exception as e:
-            logger.exception("supabase_semantic_search_failed", extra={"user_id": user_id, "error": str(e)})
-            return self._fallback_response(user_id, clean_query, limit, "Using fallback search (Supabase failed)")
+            session.rollback()
+            logger.exception("passage_search_failed", extra={"user_id": user_id, "error": str(e)})
+            return self._fallback_response(user_id, clean_query, limit, "Using document-level search")
 
     def _fallback_response(self, user_id: int, query: str, limit: int, message: str) -> Dict[str, Any]:
         """Format fallback response matching frontend search expectations."""
