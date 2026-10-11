@@ -38,7 +38,14 @@ class SearchService:
         return clean_query
 
     def text_search(self, user_id: int, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Perform text-based search across bookmark titles, notes, and extracted text."""
+        """Keyword search over the user's bookmarks: words anywhere, substrings of titles.
+
+        Postgres: words are matched through the indexed search_vector (title > notes > body,
+        stemmed, websearch syntax: "exact phrase", -exclude, or) and ranked with ts_rank_cd;
+        titles also match on substrings through a trigram index. A title containing the whole
+        query ranks first. Other databases (SQLite in tests/dev): substring match on title,
+        notes and body, title matches first.
+        """
         limit = max(1, min(limit, MAX_SEARCH_LIMIT))
         clean_query = self._validate_query(query)
         if not clean_query:
@@ -49,25 +56,54 @@ class SearchService:
             return []
 
         session = self.uow.session
-        results = session.query(SavedContent).filter_by(user_id=user_id).filter(
-            or_(
-                SavedContent.title.ilike(f'%{sanitized}%', escape='\\'),
-                SavedContent.notes.ilike(f'%{sanitized}%', escape='\\'),
-                SavedContent.extracted_text.ilike(f'%{sanitized}%', escape='\\')
-            )
-        ).order_by(SavedContent.saved_at.desc()).limit(limit).all()
+        if session.get_bind().dialect.name == 'postgresql':
+            rows = self._indexed_text_search(session, user_id, clean_query, sanitized, limit)
+        else:
+            pattern = f'%{sanitized}%'
+            title_hit = SavedContent.title.ilike(pattern, escape='\\')
+            items = session.query(SavedContent).filter_by(user_id=user_id).filter(
+                or_(
+                    title_hit,
+                    SavedContent.notes.ilike(pattern, escape='\\'),
+                    SavedContent.extracted_text.ilike(pattern, escape='\\')
+                )
+            ).order_by(title_hit.desc(), SavedContent.saved_at.desc(), SavedContent.id.desc()).limit(limit).all()
+            rows = [{'id': c.id, 'title': c.title, 'url': c.url, 'notes': c.notes, 'saved_at': c.saved_at,
+                     'has_content': bool(c.extracted_text)} for c in items]
 
         return [
             {
-                'id': content.id,
-                'title': content.title,
-                'url': content.url,
-                'description': content.notes,
-                'saved_at': iso_utc(content.saved_at),
-                'has_content': bool(content.extracted_text)
+                'id': r['id'],
+                'title': r['title'],
+                'url': r['url'],
+                'description': r['notes'],
+                'saved_at': iso_utc(r['saved_at']),
+                'has_content': bool(r['has_content'])
             }
-            for content in results
+            for r in rows
         ]
+
+    # Title substring matching is only offered from this length: shorter patterns produce no
+    # trigrams, so the trigram index cannot serve them (word search still matches short words).
+    MIN_SUBSTRING_CHARS = 3
+
+    def _indexed_text_search(self, session, user_id: int, query: str, like_escaped: str,
+                             limit: int) -> List[Dict[str, Any]]:
+        use_title = len(query) >= self.MIN_SUBSTRING_CHARS
+        title_match = "s.title ILIKE :pattern ESCAPE '\\'" if use_title else "FALSE"
+        # ts_rank_cd normalisation 1|32: damp long documents, then map into [0, 1) so the
+        # whole-query-in-title bonus (+1) always wins over body matches.
+        rows = session.execute(text(f"""
+            SELECT s.id, s.title, s.url, s.notes, s.saved_at,
+                   COALESCE(octet_length(s.extracted_text), 0) > 0 AS has_content,
+                   ts_rank_cd(s.search_vector, q.tsq, 1 | 32)
+                     + CASE WHEN {title_match} THEN 1 ELSE 0 END AS rank
+            FROM saved_content s, websearch_to_tsquery('english', :q) AS q(tsq)
+            WHERE s.user_id = :uid
+              AND (s.search_vector @@ q.tsq OR {title_match})
+            ORDER BY rank DESC, s.saved_at DESC NULLS LAST, s.id DESC
+            LIMIT :k"""), {"q": query, "pattern": f"%{like_escaped}%", "uid": user_id, "k": limit}).mappings()
+        return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------ semantic search
     #
