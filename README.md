@@ -28,6 +28,7 @@
 
 ### 🧠 AI-Powered Intelligence
 - **Semantic Search**: Find content by meaning, not just keywords
+- **Ask Your Bookmarks**: Ask a question in plain language and get an answer written only from your saved pages, with numbered citations linking to the bookmarks it used (and an honest "not in your bookmarks" when they don't cover it)
 - **Smart Recommendations**: Your own saved content, surfaced for the project, task or subtask you're working on
 - **Content Analysis**: Automatic extraction and analysis using Gemini AI
 - **Intent Understanding**: Understands what you're trying to do from your own words, refined by Gemini in the background

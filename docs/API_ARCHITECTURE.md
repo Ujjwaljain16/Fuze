@@ -310,6 +310,50 @@ query can't be embedded the endpoint returns 503 rather than a meaningless ranki
 
 ---
 
+### Ask your bookmarks (`/api/ask`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/ask` | ✅ | Answer a question only from the user's saved content, with numbered citations |
+
+**Request**: `{"question": "...", "limit": 10}`. The question is 3-500 characters;
+`limit` is the number of passages given to the model (1-12, default 10).
+
+**Response**:
+```json
+{
+  "answer": "Raise ef_search for better recall [1]. IVFFlat is the alternative [2].",
+  "citations": [
+    {"n": 1, "bookmark_id": 42, "title": "HNSW tuning", "url": "https://...", "snippet": "..."}
+  ],
+  "used_passages": 8
+}
+```
+
+How it works (`services/ask_service.py`):
+- **Retrieval** uses the same meaning-only index as semantic search, with no keyword matching.
+  It takes the nearest saved-text passages from `content_chunks` (`hybrid_search.nearest_passages`;
+  Gemini's `profile` rows are excluded because they are not the user's own text), and adds
+  bookmarks with no chunks yet by their document embedding. Every query is filtered by
+  `user_id` and the active embedding model. It allows at most 2 passages per bookmark,
+  `limit` passages in total, and a context budget of about 3,500 tokens.
+- **No relevant passages**: the endpoint returns an honest "not in your bookmarks" answer
+  without calling Gemini or spending quota.
+- **Generation** uses the user's key (`get_user_api_key`), with no database session open
+  during the call. Passages are wrapped in per-request random delimiters, and the model is
+  told to treat them as untrusted data: answer only from them, cite them as `[n]`, and say so
+  when they don't contain the answer.
+- **Citations** are parsed from the answer. Numbers outside the passages that were sent are
+  removed from the text and never returned.
+
+**Errors** (`{"error", "message"}`): `400 invalid_question`; `402 gemini_key_required`
+(no usable key); `429 gemini_quota_exceeded` (per-user Gemini quota, or the day's share of
+the shared key is used up; includes `Retry-After`); `503 generation_failed` or
+`503 ask_unavailable`. The response isn't streamed: answers are short, and a single JSON
+response lets citations be validated before anything is shown.
+
+---
+
 ### Profile (`/api/profile`)
 
 | Method | Endpoint | Auth | Description |
@@ -548,6 +592,7 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
 | `/api/recommendations/unified-orchestrator` | 15 requests | 1 minute | Per User |
 | `/api/recommendations/generate-context` | 10 requests | 1 minute | Per User |
 | `/api/search/semantic` | 30 requests | 1 minute | Per User |
+| `/api/ask` | 10/min, 100/day | moving window | Per User |
 | `/api/linkedin/batch-extract` | 5 requests | 1 minute | Per User |
 | All other endpoints | 50/min, 200/hour, 1000/day | moving window | Per user, else per IP |
 
@@ -598,6 +643,7 @@ graph TB
         ProjBP[Projects Blueprint<br/>/api/projects]
         RecBP[Recommendations Blueprint<br/>/api/recommendations]
         SearchBP[Search Blueprint<br/>/api/search]
+        AskBP[Ask Blueprint<br/>/api/ask]
         ProfBP[Profile Blueprint<br/>/api/profile]
         UserBP[User API Key Blueprint<br/>/api/user]
         TaskBP[Tasks Blueprint<br/>/api/tasks]
@@ -643,6 +689,8 @@ graph TB
     ProjBP --> DB
     RecBP --> DB
     SearchBP --> DB
+    AskBP --> JWT
+    AskBP --> DB
     ProfBP --> DB
     UserBP --> DB
     TaskBP --> DB
@@ -655,6 +703,7 @@ graph TB
 
     RecBP --> Gemini
     BookBP --> Gemini
+    AskBP --> Gemini
     
     classDef clientStyle fill:#667eea,stroke:#5a67d8,stroke-width:3px,color:#fff,font-weight:bold
     classDef authStyle fill:#f093fb,stroke:#c471ed,stroke-width:2px,color:#fff,font-weight:bold
