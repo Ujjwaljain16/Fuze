@@ -14,72 +14,47 @@ logger = logging.getLogger(__name__)
 
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
+TRACKING_PARAMS = {'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+                   'fbclid', 'gclid', 'ref', 'source', 'campaign'}
+
+
 def normalize_url(url):
-    """Normalize URL to handle different formats of the same URL"""
+    """Canonical form used to compare URLs: same resource -> same string.
+
+    Lowercases scheme and host, drops the fragment, tracking params and a trailing
+    path slash, and sorts the remaining query params. Params that identify the
+    resource (YouTube ?v=, HN ?id=) are kept, so different resources stay different.
+    """
     if not url:
         return url
-    
-    # Remove trailing slash
-    url = url.rstrip('/')
-    
-    # Remove common tracking parameters
-    parsed = urlparse(url)
-    query_params = parsed.query.split('&') if parsed.query else []
-    
-    # Filter out common tracking parameters
-    filtered_params = []
-    tracking_params = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 
-                      'fbclid', 'gclid', 'ref', 'source', 'campaign']
-    
-    for param in query_params:
-        if param:
-            key = param.split('=')[0] if '=' in param else param
-            if key.lower() not in tracking_params:
-                filtered_params.append(param)
-    
-    # Reconstruct URL without tracking parameters, lowercasing only scheme and netloc
-    clean_query = '&'.join(filtered_params) if filtered_params else ''
-    normalized = urlunparse((
+    parsed = urlparse(url.strip())
+    params = [p for p in parsed.query.split('&') if p and p.split('=')[0].lower() not in TRACKING_PARAMS]
+    return urlunparse((
         parsed.scheme.lower(),
         parsed.netloc.lower(),
-        parsed.path,
+        parsed.path.rstrip('/'),
         parsed.params,
-        clean_query,
-        ''  # Remove fragment
+        '&'.join(sorted(params)),
+        '',
     ))
-    
-    return normalized
+
 
 def is_duplicate_url(service, url, user_id):
-    """Check if URL is a duplicate (exact match or normalized match)"""
-    normalized_url = normalize_url(url)
-    
-    # Check exact match first
+    """Return (existing_bookmark, 'exact' | 'normalized') if the user already saved this resource."""
     existing_exact = service.get_bookmark_by_url(user_id, url)
     if existing_exact:
         return existing_exact, 'exact'
-        
-    # Check normalized match
-    if normalized_url != url:
-        existing_normalized = service.get_bookmark_by_normalized_url(user_id, normalized_url)
-        if existing_normalized:
-            return existing_normalized, 'normalized'
-    
-    # Check for similar URLs (same domain and path, different query params)
-    parsed = urlparse(url)
-    domain_path = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-    
+
+    # Stored URLs are kept as the user saved them, so gather the bookmarks on the same
+    # host+path and compare canonical forms (this also catches a saved URL that carried tracking params).
+    normalized_url = normalize_url(url)
+    parsed = urlparse(normalized_url)
     from utils.query_sanitizer import sanitize_like_query
-    safe_domain_path = sanitize_like_query(domain_path)
-    similar_bookmarks = service.uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path)
-    
-    for bookmark in similar_bookmarks:
-        bookmark_parsed = urlparse(bookmark.url)
-        bookmark_domain_path = f"{bookmark_parsed.scheme}://{bookmark_parsed.netloc}{bookmark_parsed.path}"
-        
-        if bookmark_domain_path == domain_path:
-            return bookmark, 'similar'
-    
+    safe_domain_path = sanitize_like_query(f"{parsed.scheme}://{parsed.netloc}{parsed.path}")
+    for bookmark in service.uow.bookmarks.get_similar_by_domain_path(user_id, safe_domain_path):
+        if normalize_url(bookmark.url) == normalized_url:
+            return bookmark, 'normalized'
+
     return None, None
 
 def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
