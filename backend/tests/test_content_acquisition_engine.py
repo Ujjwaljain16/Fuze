@@ -81,6 +81,48 @@ def test_decision_engine_http_only():
     assert engine.evaluate(metrics_high, current_strategy="HTTP").action == "ACCEPT"
 
 
+def _metrics(score=40, words=20, challenge=False, hydration=False):
+    return QualityMetrics(score=score, has_title=True, has_article_body=False, word_count=words,
+                          hydration_detected=hydration, challenge_detected=challenge)
+
+
+@pytest.mark.parametrize("metrics,remaining,action,next_strategy,reason", [
+    # Thin, hydration-only and challenge pages go to the reader when it is in the plan.
+    (_metrics(words=20), ["READER"], "ESCALATE", "READER", "insufficient_content"),
+    (_metrics(score=25, words=80, hydration=True), ["READER", "ARCHIVE"], "ESCALATE", "READER", "hydration_only"),
+    (_metrics(score=10, challenge=True), ["READER", "ARCHIVE"], "ESCALATE", "READER", "challenge_page_returned"),
+    # Without the reader, a challenge page still has the archive; a thin page has nothing.
+    (_metrics(score=10, challenge=True), ["ARCHIVE"], "ESCALATE", "ARCHIVE", "challenge_page_returned"),
+    (_metrics(words=20), ["ARCHIVE"], "FAIL", None, "insufficient_content"),
+    # Without later tiers: the plain-HTTP behaviour.
+    (_metrics(score=25, words=80, hydration=True), [], "ACCEPT", None, "best_effort_accepted"),
+    (_metrics(score=10, challenge=True), [], "FAIL", None, "challenge_page_returned"),
+    # Good pages are never escalated.
+    (_metrics(score=90, words=600), ["READER", "ARCHIVE"], "ACCEPT", None, "quality_metrics_passed"),
+    (_metrics(score=50, words=200), ["READER"], "ACCEPT", None, "best_effort_accepted"),
+])
+def test_decision_engine_escalates_to_remaining_tiers(metrics, remaining, action, next_strategy, reason):
+    decision = DecisionEngine().evaluate(metrics, "HTTP", remaining)
+    assert (decision.action, decision.next_strategy, decision.reason) == (action, next_strategy, reason)
+
+
+@pytest.mark.parametrize("status,challenge,page_blocked,remaining,action,next_strategy", [
+    (403, False, False, ["READER", "ARCHIVE"], "ESCALATE", "READER"),   # bot-blocked
+    (503, True, False, ["READER", "ARCHIVE"], "ESCALATE", "READER"),    # challenge served as 503
+    (403, False, False, ["ARCHIVE"], "ESCALATE", "ARCHIVE"),
+    (404, False, False, ["READER", "ARCHIVE"], "ESCALATE", "ARCHIVE"),  # gone: the reader can't help
+    (410, False, False, ["READER"], "FAIL", None),
+    (None, False, True, ["ARCHIVE"], "ESCALATE", "ARCHIVE"),             # reader timed out on a blocked page
+    (None, False, False, ["ARCHIVE"], "FAIL", None),                     # timeout on a thin page: keep it
+    (503, False, False, ["READER", "ARCHIVE"], "FAIL", None),            # server error: retried later
+    (429, False, False, ["READER", "ARCHIVE"], "FAIL", None),
+    (403, False, False, [], "FAIL", None),
+])
+def test_decision_engine_on_failed_fetches(status, challenge, page_blocked, remaining, action, next_strategy):
+    decision = DecisionEngine().evaluate_failure(status, challenge, remaining, page_blocked)
+    assert (decision.action, decision.next_strategy) == (action, next_strategy)
+
+
 def test_fetch_policy_matching():
     policy = FetchPolicy()
     assert policy.get_strategy_plan("https://medium.com/@user/story") == ["HTTP"]

@@ -5,9 +5,9 @@ into an immutable ContentDocument DTO.
 """
 
 import time
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlparse
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from scrapers.robots_manager import RobotsManager
 from scrapers.rate_limiter import DomainRateLimiter
 from scrapers.fetch_policy import FetchPolicy
@@ -18,7 +18,8 @@ from scrapers.quality_evaluator import QualityEvaluator
 from scrapers.decision_engine import DecisionEngine
 from scrapers.event_publisher import ScrapingEventPublisher
 from scrapers.url_safety import is_safe_url
-from scrapers.models import ContentDocument, RawFetchResult, ParsedDocument, NormalizedDocument, Decision, compute_content_hash
+from scrapers.models import (ContentDocument, RawFetchResult, ParsedDocument, NormalizedDocument, Decision,
+                             QualityMetrics, compute_content_hash)
 from core.circuit_breaker import RedisCircuitBreaker
 from core.job_timeout import JobTimeoutException
 from core.events import (
@@ -27,6 +28,28 @@ from core.events import (
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Error statuses whose body is worth checking for a bot challenge (Cloudflare and friends answer
+# challenges with 403 or 503).
+CHALLENGE_STATUSES = (403, 503)
+CHALLENGE_SNIFF_BYTES = 200_000
+
+
+@dataclass
+class _Attempt:
+    """What one tier of the strategy plan produced."""
+    strategy: str
+    norm_doc: Optional[NormalizedDocument] = None  # set when the tier produced a page
+    quality: Optional[QualityMetrics] = None
+    http_status: Optional[int] = None  # the target page's status as the tier saw it; None: no answer
+    challenge: bool = False  # an error status whose body is a bot challenge
+    retryable: bool = False  # the tier failed for a reason that may pass (timeout, 5xx, 429)
+    plugin_versions: Dict[str, str] = field(default_factory=dict)
+
+
+def _ranking(attempt: _Attempt) -> Tuple[bool, int]:
+    """Best content so far: anything that is not a challenge page, then the most words."""
+    return (not attempt.quality.challenge_detected, attempt.quality.word_count)
 
 
 class ContentAcquisitionEngine:
@@ -118,6 +141,101 @@ class ContentAcquisitionEngine:
             outcome=outcome, retryable=retryable,
         )
 
+    def _looks_like_challenge(self, body: bytes) -> bool:
+        """An error page (403/503) that is a bot challenge rather than a plain refusal."""
+        if not body:
+            return False
+        from bs4 import BeautifulSoup
+        html = body[:CHALLENGE_SNIFF_BYTES].decode("utf-8", errors="replace")
+        soup = BeautifulSoup(html, "html.parser")
+        title = soup.title.get_text(strip=True) if soup.title else ""
+        return self.quality_evaluator.evaluate(html=html, clean_text=soup.get_text(" ", strip=True),
+                                               title=title).challenge_detected
+
+    def _attempt_http(self, url: str, bookmark_id: Optional[int],
+                      circuit_breaker: RedisCircuitBreaker) -> _Attempt:
+        """Tier HTTP: fetch the page ourselves, then extract, normalize and score it."""
+        strategy = "HTTP"
+        fetcher = self.fetchers["HTTP"]
+
+        if not circuit_breaker.allow_request():
+            logger.error("circuit_breaker_open_skipping_fetch", extra={"url": url, "strategy": strategy})
+            return _Attempt(strategy, http_status=None, retryable=True)
+
+        if bookmark_id:
+            self.event_publisher.publish(FetchStarted(bookmark_id=bookmark_id, strategy=strategy, url=url))
+
+        try:
+            raw_result = fetcher.fetch(url)
+            if raw_result and raw_result.http_status < 400:
+                circuit_breaker.record_success()
+                self.fetch_policy.record_success(url, strategy)
+            else:
+                circuit_breaker.record_failure()
+                self.fetch_policy.record_failure(url, strategy)
+        except JobTimeoutException:
+            raise
+        except Exception as fetch_err:
+            circuit_breaker.record_failure()
+            self.fetch_policy.record_failure(url, strategy)
+            logger.error("fetcher_exception", extra={"url": url, "strategy": strategy, "error": str(fetch_err)})
+            return _Attempt(strategy, http_status=None, retryable=True)
+
+        if not raw_result:
+            return _Attempt(strategy, http_status=None, retryable=True)
+
+        if bookmark_id:
+            self.event_publisher.publish(
+                FetchCompleted(
+                    bookmark_id=bookmark_id,
+                    strategy=strategy,
+                    http_status=raw_result.http_status,
+                    latency_ms=raw_result.fetch_metadata.fetch_latency_ms
+                )
+            )
+
+        status = raw_result.http_status
+        # An error status page (404, 403, 503 ...) is not the bookmarked content.
+        if status >= 400 or not raw_result.raw_content:
+            challenge = status in CHALLENGE_STATUSES and self._looks_like_challenge(raw_result.raw_content)
+            return _Attempt(strategy, http_status=status, challenge=challenge,
+                            retryable=status >= 500 or status == 429)
+
+        # Stage 3: Extraction
+        if bookmark_id:
+            self.event_publisher.publish(ParsingStarted(bookmark_id=bookmark_id, plugins_count=len(self.extractor_pipeline.plugins)))
+        norm_doc, quality_metrics, plugin_versions = self._extract(raw_result, bookmark_id)
+        return _Attempt(strategy, norm_doc=norm_doc, quality=quality_metrics, http_status=status,
+                        plugin_versions=plugin_versions)
+
+    def _extract(self, raw_result: RawFetchResult,
+                 bookmark_id: Optional[int]) -> Tuple[NormalizedDocument, QualityMetrics, Dict[str, str]]:
+        """Stages 3-4 for an HTML page: extractor plugins, normalization, quality score."""
+        parsed_doc = self.extractor_pipeline.process(raw_result)
+        plugin_versions = {res.plugin_name: res.plugin_version for res in parsed_doc.plugin_results}
+
+        if bookmark_id:
+            succeeded = sum(1 for r in parsed_doc.plugin_results if r.success)
+            self.event_publisher.publish(ParsingCompleted(bookmark_id=bookmark_id, plugins_succeeded=succeeded))
+
+        norm_doc = self.normalizer.normalize(parsed_doc)
+        quality_metrics = self.quality_evaluator.evaluate(
+            html=parsed_doc.raw_html,
+            clean_text=parsed_doc.clean_text,
+            title=norm_doc.metadata.title
+        )
+        if bookmark_id:
+            self.event_publisher.publish(
+                NormalizationCompleted(bookmark_id=bookmark_id,
+                                       content_hash=compute_content_hash(norm_doc.markdown_content),
+                                       quality_score=quality_metrics.score)
+            )
+        return norm_doc, quality_metrics, plugin_versions
+
+    def _run_tier(self, strategy: str, url: str, bookmark_id: Optional[int],
+                  circuit_breaker: RedisCircuitBreaker) -> _Attempt:
+        return self._attempt_http(url, bookmark_id, circuit_breaker)
+
     def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None, _depth: int = 0) -> ContentDocument:
         """
         Execute 5-stage acquisition & normalization pipeline on target URL.
@@ -127,15 +245,15 @@ class ContentAcquisitionEngine:
         circuit_breaker = RedisCircuitBreaker(name=f"domain_{domain}", failure_threshold=5, recovery_timeout=300)
 
         # SSRF guard: never let a user-supplied URL that resolves to an
-        # internal/loopback/link-local address reach any fetcher. Leaving
-        # strategy_plan empty routes straight to the existing "fetch failed"
-        # fallback below (STAGE 2 loop just won't execute).
+        # internal/loopback/link-local address reach any fetcher or third-party tier. Leaving
+        # strategy_plan empty routes straight to the "fetch failed" fallback below.
         if is_safe_url(url):
             # Official APIs first: they are meant to be called and don't fall under robots.txt.
             source_doc = self._acquire_from_source_api(url, bookmark_id, _depth)
             if source_doc is not None:
                 return source_doc
-            # Both checks used to be logged and then ignored.
+            # Both checks used to be logged and then ignored. A disallow also rules out every
+            # later tier: the reader and the archive must not be a way around it.
             # robots.txt is itself a request to the user's host, so it comes after the address check.
             if not self.robots_manager.can_fetch(url):
                 logger.info("acquisition_disallowed_by_robots", extra={"url": url})
@@ -148,135 +266,85 @@ class ContentAcquisitionEngine:
         else:
             logger.error("acquisition_blocked_unsafe_url", extra={"url": url})
             strategy_plan = []
-        
-        raw_result: Optional[RawFetchResult] = None
-        last_status: Optional[int] = None  # None: no response at all (network error, breaker open)
-        decision: Optional[Decision] = None
-        final_norm_doc: Optional[NormalizedDocument] = None
+
+        # --- STAGE 2-4: tiered fetch, extraction and quality evaluation ---
+        # Each tier either produces a page (scored and judged by the decision engine) or fails
+        # (judged by how it failed). ESCALATE moves on to the tier the engine names.
+        attempts: List[_Attempt] = []
+        accepted: Optional[_Attempt] = None
+        best: Optional[_Attempt] = None  # the best page seen, in case no tier is accepted
         plugin_versions: Dict[str, str] = {}
+        page_blocked = False
+        next_strategy = strategy_plan[0] if strategy_plan else None
 
-        # --- STAGE 2: Adaptive Fetch Loop & STAGE 3: Extraction & STAGE 4: Quality Evaluation ---
-        for strategy in strategy_plan:
-            fetcher = self.fetchers.get(strategy, self.fetchers["HTTP"])
-            
-            if not circuit_breaker.allow_request():
-                logger.error("circuit_breaker_open_skipping_fetch", extra={"url": url, "strategy": strategy})
-                continue
+        while next_strategy is not None:
+            strategy, next_strategy = next_strategy, None
+            remaining = strategy_plan[strategy_plan.index(strategy) + 1:]
+            attempt = self._run_tier(strategy, url, bookmark_id, circuit_breaker)
+            attempts.append(attempt)
+            plugin_versions.update(attempt.plugin_versions)
 
-            if bookmark_id:
-                self.event_publisher.publish(FetchStarted(bookmark_id=bookmark_id, strategy=strategy, url=url))
-
-            try:
-                raw_result = fetcher.fetch(url)
-                if raw_result and raw_result.http_status < 400:
-                    circuit_breaker.record_success()
-                    self.fetch_policy.record_success(url, strategy)
-                else:
-                    circuit_breaker.record_failure()
-                    self.fetch_policy.record_failure(url, strategy)
-            except JobTimeoutException:
-                raise
-            except Exception as fetch_err:
-                circuit_breaker.record_failure()
-                self.fetch_policy.record_failure(url, strategy)
-                logger.error("fetcher_exception", extra={"url": url, "strategy": strategy, "error": str(fetch_err)})
-                continue
-
-            if bookmark_id and raw_result:
-                self.event_publisher.publish(
-                    FetchCompleted(
-                        bookmark_id=bookmark_id,
-                        strategy=strategy,
-                        http_status=raw_result.http_status,
-                        latency_ms=raw_result.fetch_metadata.fetch_latency_ms
-                    )
-                )
-
-            if raw_result:
-                last_status = raw_result.http_status
-            # An error status page (404, 403, 503 ...) is not the bookmarked content.
-            if not raw_result or not raw_result.raw_content or raw_result.http_status >= 400:
-                continue
-
-            # Stage 3: Extraction
-            if bookmark_id:
-                self.event_publisher.publish(ParsingStarted(bookmark_id=bookmark_id, plugins_count=len(self.extractor_pipeline.plugins)))
-
-            parsed_doc = self.extractor_pipeline.process(raw_result)
-
-            # Record plugin versions
-            for res in parsed_doc.plugin_results:
-                plugin_versions[res.plugin_name] = res.plugin_version
-
-            if bookmark_id:
-                succeeded = sum(1 for r in parsed_doc.plugin_results if r.success)
-                self.event_publisher.publish(ParsingCompleted(bookmark_id=bookmark_id, plugins_succeeded=succeeded))
-
-            # Stage 4: Normalization
-            norm_doc = self.normalizer.normalize(parsed_doc)
-
-            # Stage 4: Quality Evaluation & Decision Engine
-            quality_metrics = self.quality_evaluator.evaluate(
-                html=parsed_doc.raw_html,
-                clean_text=parsed_doc.clean_text,
-                title=norm_doc.metadata.title
-            )
-
-            decision = self.decision_engine.evaluate(quality_metrics, strategy)
-
-            content_hash = compute_content_hash(norm_doc.markdown_content)
-            if bookmark_id:
-                self.event_publisher.publish(
-                    NormalizationCompleted(bookmark_id=bookmark_id, content_hash=content_hash, quality_score=quality_metrics.score)
-                )
-
-            final_norm_doc = norm_doc
-            final_quality = quality_metrics
+            if attempt.norm_doc is not None:
+                decision = self.decision_engine.evaluate(attempt.quality, strategy, remaining)
+                if best is None or _ranking(attempt) > _ranking(best):
+                    best = attempt
+                page_blocked = page_blocked or attempt.quality.challenge_detected
+            else:
+                decision = self.decision_engine.evaluate_failure(attempt.http_status, attempt.challenge,
+                                                                 remaining, page_blocked)
+                page_blocked = page_blocked or attempt.challenge or attempt.http_status in (401, 403)
 
             if decision.action == "ACCEPT":
-                logger.info("acquisition_decision_accepted", extra={"url": url, "strategy": strategy, "score": quality_metrics.score})
+                logger.info("acquisition_decision_accepted",
+                            extra={"url": url, "strategy": strategy, "score": attempt.quality.score})
+                accepted = attempt
                 break
-            elif decision.action == "ESCALATE":
-                logger.info("acquisition_decision_escalating", extra={"url": url, "reason": decision.reason, "next": decision.next_strategy})
+            if decision.action == "ESCALATE":
+                logger.info("acquisition_decision_escalating",
+                            extra={"url": url, "strategy": strategy, "reason": decision.reason,
+                                   "next": decision.next_strategy})
+                next_strategy = decision.next_strategy
                 continue
-            elif decision.action == "FAIL":
-                logger.warning("acquisition_decision_failed", extra={"url": url, "reason": decision.reason})
-                break
+            logger.warning("acquisition_decision_failed",
+                           extra={"url": url, "strategy": strategy, "reason": decision.reason})
 
+        # A later tier that timed out or was rate limited may work on a retry.
+        tier_retryable = any(a.retryable for a in attempts[1:])
         outcome, retryable = "ok", False
-        if decision is not None and decision.action == "FAIL" and decision.reason == "challenge_page_returned":
-            outcome = "blocked"
-
-        # Fallback if no fetch result produced
-        if not final_norm_doc or not raw_result:
+        final = accepted or best
+        if final is not None:
+            final_norm_doc, final_quality = final.norm_doc, final.quality
+            if accepted is None and final_quality.challenge_detected:
+                outcome, retryable = "blocked", tier_retryable
+        else:
             outcome = "failed"
-            # No response, a server error or rate limiting may pass later; 4xx (404, 410, 403) won't.
-            retryable = last_status is None or last_status >= 500 or last_status == 429
-            from scrapers.models import FetchMetadata, NormalizedMetadata, QualityMetrics
-            meta = FetchMetadata(strategy="HTTP", attempts=1, http_status=500, redirected=False)
-            norm_meta = NormalizedMetadata(title="Failed to Acquire Content")
+            # The page's own answer decides: no response, a server error or rate limiting may
+            # pass later; 4xx (404, 410, 403) won't.
+            direct_status = attempts[0].http_status if attempts else None
+            retryable = (direct_status is None or direct_status >= 500 or direct_status == 429
+                         or tier_retryable)
+            from scrapers.models import FetchMetadata, NormalizedMetadata
+            meta = FetchMetadata(strategy="HTTP", attempts=len(attempts) or 1,
+                                 http_status=direct_status if direct_status is not None else 500,
+                                 redirected=False)
             final_norm_doc = NormalizedDocument(
                 url=url,
                 canonical_url=url,
                 markdown_content="",
-                metadata=norm_meta,
+                metadata=NormalizedMetadata(title="Failed to Acquire Content"),
                 provider_raw_payload={},
                 fetch_metadata=meta
             )
-            if last_status is not None:
-                final_norm_doc = replace(final_norm_doc, fetch_metadata=replace(meta, http_status=last_status))
             final_quality = QualityMetrics(
                 score=0, has_title=False, has_article_body=False, word_count=0,
                 hydration_detected=False, challenge_detected=True, evaluation_notes=["Fetch failed"]
             )
 
-        # --- STAGE 5: Commit DTO & Cache Raw HTML & Normalized Document ---
-        final_hash = compute_content_hash(final_norm_doc.markdown_content)
-
+        # --- STAGE 5: Commit DTO ---
         return ContentDocument(
             url=url,
             canonical_url=final_norm_doc.canonical_url,
-            content_hash=final_hash,
+            content_hash=compute_content_hash(final_norm_doc.markdown_content),
             markdown_content=final_norm_doc.markdown_content,
             metadata=final_norm_doc.metadata,
             provider_raw_payload=final_norm_doc.provider_raw_payload,
