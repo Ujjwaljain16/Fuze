@@ -141,12 +141,12 @@ cd Fuze
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (requirements-dev.txt = requirements.txt + test tools)
+pip install -r requirements-dev.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your configuration; keep APP_ENV=development for local work
 
 # Create the schema (PostgreSQL with the pgvector extension)
 python -m alembic -c alembic.ini upgrade head
@@ -154,7 +154,15 @@ python -m alembic -c alembic.ini upgrade head
 # Start the server
 cd backend
 python run_production.py
+
+# Tests: SQLite by default; set TEST_DATABASE_URL to a local Postgres with pgvector
+# (e.g. postgresql://postgres:test@localhost:55432/fuze_test) for the full lane
+pytest
 ```
+
+Dependencies: `requirements.txt` holds the exact pins; the Docker image installs
+`requirements.lock` (every transitive package, hash-checked). After editing
+`requirements.txt`, run `scripts/lock-requirements.sh` and commit both files.
 
 ### Frontend Setup
 

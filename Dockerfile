@@ -23,10 +23,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and build all wheels into /wheels
-COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel --root-user-action=ignore && \
-    pip wheel --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu --wheel-dir /wheels -r requirements.txt
+# Build wheels for exactly the locked set: every download must match its hash in
+# requirements.lock (regenerate with scripts/lock-requirements.sh).
+COPY requirements.lock .
+RUN pip install --upgrade pip --root-user-action=ignore && \
+    pip wheel --no-cache-dir --require-hashes --no-deps --wheel-dir /wheels -r requirements.lock
 
 # ---------------------------------------------------------------------------
 # STAGE 2 — runtime
@@ -44,10 +45,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built wheels from builder and install without index (no network needed)
+# The lock is complete (all transitive deps), so install the built wheels as-is.
 COPY --from=builder /wheels /wheels
-COPY requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt \
-    --root-user-action=ignore && \
+RUN pip install --no-cache-dir --no-index --no-deps /wheels/*.whl --root-user-action=ignore && \
     rm -rf /wheels
 
 # Copy application code
