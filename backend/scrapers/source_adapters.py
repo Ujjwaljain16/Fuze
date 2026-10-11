@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 from core.logging_config import get_logger
+from scrapers.safe_http import SafeResponse, safe_get
 
 logger = get_logger(__name__)
 
@@ -40,11 +41,11 @@ class SourceContent:
     follow_url: Optional[str] = None
 
 
-def _get(url: str, params: Optional[Dict] = None, accept: Optional[str] = None) -> requests.Response:
+def _get(url: str, params: Optional[Dict] = None, accept: Optional[str] = None) -> SafeResponse:
     headers = {"User-Agent": USER_AGENT}
     if accept:
         headers["Accept"] = accept
-    resp = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
+    resp = safe_get(url, params=params, headers=headers, timeout=TIMEOUT, max_bytes=5 * 1024 * 1024)
     resp.raise_for_status()
     return resp
 

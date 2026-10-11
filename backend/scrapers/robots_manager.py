@@ -5,7 +5,6 @@ Fetches, caches, and evaluates target domain robots.txt rules to ensure complian
 
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
-import requests
 from typing import Optional
 from utils.redis_utils import get_redis_client
 from core.logging_config import get_logger
@@ -60,7 +59,8 @@ class RobotsManager:
 
     def _fetch_robots_txt(self, robots_url: str) -> Optional[str]:
         try:
-            resp = requests.get(robots_url, timeout=5, headers={"User-Agent": self.user_agent})
+            from scrapers.safe_http import safe_get
+            resp = safe_get(robots_url, timeout=5, headers={"User-Agent": self.user_agent}, max_bytes=512 * 1024)
             if resp.status_code == 200:
                 return resp.text
         except Exception as e:

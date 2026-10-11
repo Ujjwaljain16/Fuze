@@ -113,9 +113,6 @@ class ContentAcquisitionEngine:
         # --- STAGE 1: Acquisition Manager (Cache, Robots, Rate Limit, Circuit Breaker, Policy) ---
         cached_html = self.cache_manager.get_raw_html_cache(url)
 
-        if not self.robots_manager.can_fetch(url):
-            logger.warning("acquisition_blocked_by_robots", extra={"url": url})
-
         allowed, wait_time = self.rate_limiter.acquire(url)
         if not allowed:
             logger.warning("acquisition_rate_limited", extra={"url": url, "wait_time": wait_time})
@@ -128,6 +125,9 @@ class ContentAcquisitionEngine:
         # strategy_plan empty routes straight to the existing "fetch failed"
         # fallback below (STAGE 2 loop just won't execute).
         if is_safe_url(url):
+            # robots.txt is itself a request to the user's host, so it comes after the address check.
+            if not self.robots_manager.can_fetch(url):
+                logger.warning("acquisition_blocked_by_robots", extra={"url": url})
             source_doc = self._acquire_from_source_api(url, bookmark_id, _depth)
             if source_doc is not None:
                 return source_doc
