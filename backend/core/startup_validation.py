@@ -73,8 +73,6 @@ def _verify_feature_flags_registered():
         raise RuntimeError(f"Could not import feature_flags: {e}")
 
     required_flags = [
-        "two_stage_retrieval",
-        "search_rpc",
         "async_embeddings",
         "cache_warm_on_login",
     ]

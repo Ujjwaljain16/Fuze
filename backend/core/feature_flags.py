@@ -35,14 +35,11 @@ _ENV_DEFAULTS: Dict[str, bool] = {
     "query_caching":           os.getenv("ENABLE_QUERY_CACHING", "true").lower() == "true",
     "embedding_caching":       os.getenv("ENABLE_EMBEDDING_CACHING", "true").lower() == "true",
     "parallel_processing":     os.getenv("ENABLE_PARALLEL_PROCESSING", "true").lower() == "true",
-    "smart_engine":            os.getenv("USE_SMART_ENGINE", "true").lower() == "true",
     "prometheus_metrics":      os.getenv("METRICS_ENABLED", "true").lower() == "true",
     "embeddings":              os.getenv("DISABLE_EMBEDDINGS", "false").lower() != "true",
 
     # [ACTIVE] Dynamic runtime toggles evaluated via is_enabled()
     "async_embeddings":        os.getenv("ASYNC_EMBEDDINGS", "false").lower() == "true",
-    "two_stage_retrieval":     os.getenv("RECOMMENDATIONS_TWO_STAGE", "false").lower() == "true",
-    "search_rpc":              os.getenv("SEARCH_USE_RPC", "false").lower() == "true",
     "cache_warm_on_login":     os.getenv("CACHE_WARM_ON_LOGIN", "false").lower() == "true",
 }
 

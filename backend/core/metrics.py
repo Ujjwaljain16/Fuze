@@ -131,21 +131,6 @@ if PROMETHEUS_AVAILABLE and METRICS_ENABLED:
         buckets=(0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.5, 1.0, 2.0),
     )
 
-    # Shadow evaluator quality metrics — emitted by shadow_evaluator.py
-    shadow_overlap_at_k = Gauge(
-        "fuze_shadow_overlap_at_k",
-        "Shadow evaluation Overlap@K between legacy and new pipeline",
-        labelnames=["k"],
-    )
-    shadow_mrr = Gauge(
-        "fuze_shadow_mrr",
-        "Shadow evaluation Mean Reciprocal Rank delta (new - legacy)",
-    )
-    shadow_ndcg_at_10 = Gauge(
-        "fuze_shadow_ndcg_at_10",
-        "Shadow evaluation NDCG@10 delta (new - legacy)",
-    )
-
     # Feature flag evaluation — instrumented in feature_flags.py
     feature_flag_evaluation_total = Counter(
         "fuze_feature_flag_evaluation_total",
@@ -195,9 +180,6 @@ else:
     rq_queue_depth = _noop
     gemini_calls_total = _noop
     embedding_generation_duration = _noop
-    shadow_overlap_at_k = _noop
-    shadow_mrr = _noop
-    shadow_ndcg_at_10 = _noop
     feature_flag_evaluation_total = _noop
     embedding_null_rate = _noop
     recommendation_requests_total = _noop
