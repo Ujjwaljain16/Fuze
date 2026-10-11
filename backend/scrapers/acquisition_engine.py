@@ -4,6 +4,8 @@ Single-responsibility engine that reliably acquires, parses, quality-evaluates, 
 into an immutable ContentDocument DTO.
 """
 
+import time
+from dataclasses import replace
 from urllib.parse import urlparse
 from typing import Dict, Optional, Tuple
 from scrapers.cache_manager import CacheManager
@@ -47,7 +49,64 @@ class ContentAcquisitionEngine:
         self.decision_engine = DecisionEngine()
         self.event_publisher = ScrapingEventPublisher()
 
-    def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None) -> ContentDocument:
+    def _acquire_from_source_api(self, url: str, bookmark_id: Optional[int],
+                                 _depth: int = 0) -> Optional[ContentDocument]:
+        """Use the site's official API when there is one (GitHub, arXiv, Wikipedia, Stack Exchange, ...)."""
+        from scrapers.source_adapters import fetch_from_source
+        from scrapers.models import FetchMetadata, NormalizedMetadata
+
+        started = time.time()
+        content = fetch_from_source(url)
+        if content is None:
+            return None
+
+        # e.g. a Hacker News link post: the linked article is what was saved.
+        if content.follow_url and _depth == 0 and is_safe_url(content.follow_url):
+            linked = self.acquire_and_normalize(content.follow_url, bookmark_id=bookmark_id, _depth=1)
+            if linked.markdown_content.strip():
+                own_text = "" if content.text.startswith("Link:") else content.text
+                body = "\n\n".join(p for p in (own_text, linked.markdown_content) if p)
+                return replace(
+                    linked,
+                    url=url,
+                    markdown_content=body,
+                    content_hash=compute_content_hash(body),
+                    metadata=replace(linked.metadata, title=content.title or linked.metadata.title),
+                    provider_raw_payload={"source_api": content.source, **content.raw,
+                                          "linked": linked.provider_raw_payload},
+                )
+        strategy = f"API:{content.source}"[:20]
+        fetch_meta = FetchMetadata(strategy=strategy, attempts=1, http_status=200, redirected=False,
+                                   fetch_latency_ms=int((time.time() - started) * 1000))
+        if bookmark_id:
+            self.event_publisher.publish(FetchStarted(bookmark_id=bookmark_id, strategy=strategy, url=url))
+            self.event_publisher.publish(FetchCompleted(bookmark_id=bookmark_id, strategy=strategy, http_status=200,
+                                                        latency_ms=fetch_meta.fetch_latency_ms))
+        words = len(content.text.split())
+        metadata = NormalizedMetadata(
+            title=content.title or url,
+            description=content.description,
+            author=content.author,
+            published_at=content.published_at,
+            canonical_url=content.canonical_url,
+            reading_time_minutes=max(1, round(words / 200)) if words else 0,
+            keywords=list(content.keywords or []),
+            field_provenance={"title": strategy, "body": strategy},
+        )
+        quality = self.quality_evaluator.evaluate(html="", clean_text=content.text, title=content.title)
+        return ContentDocument(
+            url=url,
+            canonical_url=content.canonical_url or url,
+            content_hash=compute_content_hash(content.text),
+            markdown_content=content.text,
+            metadata=metadata,
+            provider_raw_payload={"source_api": content.source, **content.raw},
+            quality_metrics=quality,
+            fetch_metadata=fetch_meta,
+            plugin_versions={"source_adapter": "1.0.0"},
+        )
+
+    def acquire_and_normalize(self, url: str, bookmark_id: Optional[int] = None, _depth: int = 0) -> ContentDocument:
         """
         Execute 5-stage acquisition & normalization pipeline on target URL.
         """
@@ -69,6 +128,9 @@ class ContentAcquisitionEngine:
         # strategy_plan empty routes straight to the existing "fetch failed"
         # fallback below (STAGE 2 loop just won't execute).
         if is_safe_url(url):
+            source_doc = self._acquire_from_source_api(url, bookmark_id, _depth)
+            if source_doc is not None:
+                return source_doc
             strategy_plan = self.fetch_policy.get_strategy_plan(url)
         else:
             logger.error("acquisition_blocked_unsafe_url", extra={"url": url})
