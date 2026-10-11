@@ -8,7 +8,7 @@ any token carrying a revoked family_id. The marker only needs to outlive the lon
 token, after which expiry does the job.
 """
 
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Optional
 
 from core.logging_config import get_logger
@@ -52,3 +52,20 @@ def revoke_user_sessions(uow, user_id: int, keep_family_id: Optional[str] = None
         mark_family_revoked(family.family_id)
         revoked += 1
     return revoked
+
+
+def session_started_at(uow, jwt_data: dict) -> float:
+    """When this session began, as a Unix time.
+
+    A refreshed access token carries a fresh `iat`, and the SPA refreshes and retries on any
+    401, so `iat` alone would let a month-old session pass a "signed in recently" check. The
+    session's token family is created at sign-in and survives refreshes. Tokens without a
+    family can't be refreshed, so for them `iat` is the sign-in time.
+    """
+    family = uow.token_families.get_family(jwt_data.get('family_id'))
+    if family and family.created_at:
+        created = family.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)  # stored as naive UTC
+        return created.timestamp()
+    return jwt_data.get('iat', 0)

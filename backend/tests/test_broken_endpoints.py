@@ -57,5 +57,20 @@ def test_first_password_needs_a_recent_sign_in(client, app):
     with patch('blueprints.auth.time.time', return_value=time.time() + 3600):
         response = client.post('/api/auth/set-password', json={'new_password': 'NewPassw0rd!'},
                                headers={'Authorization': f'Bearer {token}'})
-    assert response.status_code == 401
+    assert response.status_code == 403
     assert response.json['error'] == 'recent_sign_in_required'
+
+
+def test_a_refreshed_token_does_not_count_as_a_recent_sign_in(client, app):
+    """A refresh mints a token with a fresh iat; the session itself began long ago."""
+    from datetime import datetime, timedelta
+    from models import db, TokenFamily
+    user_id = _oauth_user(app)
+    with app.app_context():
+        db.session.add(TokenFamily(user_id=user_id, family_id='fam-old', current_jti='j',
+                                   created_at=datetime.utcnow() - timedelta(days=30)))
+        db.session.commit()
+        token = create_access_token(identity=str(user_id), additional_claims={'family_id': 'fam-old'})
+    response = client.post('/api/auth/set-password', json={'new_password': 'NewPassw0rd!'},
+                           headers={'Authorization': f'Bearer {token}'})
+    assert response.status_code == 403

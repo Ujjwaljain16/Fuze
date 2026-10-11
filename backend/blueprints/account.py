@@ -11,6 +11,7 @@ from flask import Blueprint, Response, jsonify, request
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required, unset_jwt_cookies
 
 from blueprints.auth import RECENT_SIGN_IN_SECONDS
+from core.sessions import session_started_at
 from core.logging_config import get_logger
 from middleware.rate_limiting import limiter
 from services.account_service import AccountService, has_usable_password, purge_user_redis
@@ -20,23 +21,6 @@ from uow.unit_of_work import UnitOfWork
 logger = get_logger(__name__)
 
 account_bp = Blueprint('account', __name__, url_prefix='/api/account')
-
-
-def _signed_in_at(uow, jwt_data: dict) -> float:
-    """When this session began, as a Unix time.
-
-    A refreshed access token carries a fresh `iat`, and the SPA refreshes and retries on any
-    401, so `iat` alone would let a month-old session pass a "signed in recently" check. The
-    session's token family is created at sign-in and survives refreshes. Tokens without a
-    family can't be refreshed, so for them `iat` is the sign-in time.
-    """
-    family = uow.token_families.get_family(jwt_data.get('family_id'))
-    if family and family.created_at:
-        created = family.created_at
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)  # stored as naive UTC
-        return created.timestamp()
-    return jwt_data.get('iat', 0)
 
 
 def _block_current_access_token(jwt_data: dict) -> None:
@@ -75,7 +59,7 @@ def delete_account():
                 if not AuthService(None).verify_password(user.password_hash, password):
                     logger.warning("account_delete_wrong_password", user_id=user_id)
                     return jsonify({'message': 'Password is incorrect', 'error': 'invalid_password'}), 403
-            elif time.time() - _signed_in_at(uow, jwt_data) > RECENT_SIGN_IN_SECONDS:
+            elif time.time() - session_started_at(uow, jwt_data) > RECENT_SIGN_IN_SECONDS:
                 return jsonify({'message': 'Please sign in again to delete your account',
                                 'error': 'recent_sign_in_required'}), 403
 

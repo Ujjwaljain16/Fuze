@@ -354,9 +354,12 @@ def set_password():
             # a recent sign-in stands in for it.
             first_password_for_oauth_account = bool(meta.get('supabase_user_id')) and not meta.get('password_set')
             if first_password_for_oauth_account:
-                if time.time() - get_jwt().get('iat', 0) > RECENT_SIGN_IN_SECONDS:
+                from core.sessions import session_started_at
+                # Measured from when the session began: a refreshed token's iat is always recent.
+                # 403, not 401: a 401 makes the client refresh and retry.
+                if time.time() - session_started_at(uow, get_jwt()) > RECENT_SIGN_IN_SECONDS:
                     return jsonify({'message': 'Please sign in again to set a password',
-                                    'error': 'recent_sign_in_required'}), 401
+                                    'error': 'recent_sign_in_required'}), 403
             else:
                 if not current_password:
                     return jsonify({'message': 'Current password required'}), 400
