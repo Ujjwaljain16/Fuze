@@ -1,0 +1,133 @@
+name: Uptime Monitor
+
+# Checks the production backend every 30 minutes and keeps one issue in step with it: opened
+# (or commented on) while the backend is down, commented and closed once it recovers.
+# The request also keeps the free Space from going to sleep (HF sleeps it after 48h idle).
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-monitor
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SPACE_ID: Ujjwaljain16/fuze-backend
+  SPACE_URL: ${{ vars.HF_SPACE_URL || 'https://ujjwaljain16-fuze-backend.hf.space' }}
+  ISSUE_TITLE: Production backend is down
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Check readiness
+        id: check
+        env:
+          # Optional: the runtime API answers without a token for a public Space.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          auth=()
+          [ -n "$HF_TOKEN" ] && auth=(-H "Authorization: Bearer $HF_TOKEN")
+          runtime() {
+            curl -fsS --max-time 15 "${auth[@]}" "https://huggingface.co/api/spaces/${SPACE_ID}/runtime" 2>/dev/null || echo '{}'
+          }
+          # A sleeping Space wakes on the first request and a restarting one needs a few minutes,
+          # so retry for up to ~6 minutes before calling it down.
+          state=down
+          for attempt in 1 2 3 4 5 6 7 8; do
+            info=$(runtime)
+            stage=$(jq -r '.stage // "UNKNOWN"' <<<"$info" 2>/dev/null || echo UNKNOWN)
+            hf_error=$(jq -r '.errorMessage // empty' <<<"$info" 2>/dev/null || true)
+            response=$(curl -sS --max-time 20 -w '\n%{http_code}' "${SPACE_URL%/}/health/readiness" 2>/dev/null || printf '\n000')
+            code=$(printf '%s\n' "$response" | tail -n 1)
+            body=$(printf '%s\n' "$response" | sed '$d')
+            schema=$(jq -r '.schema // empty' <<<"$body" 2>/dev/null || true)
+            echo "attempt $attempt: stage=$stage readiness=$code schema=${schema:-?}"
+            if [ "$code" = "200" ] && [ "$schema" = "current" ]; then
+              state=up
+              break
+            fi
+            # Paused and error stages never recover without someone acting; don't wait for them.
+            case "$stage" in
+              PAUSED|STOPPED) state=paused; break ;;
+              BUILD_ERROR|RUNTIME_ERROR|CONFIG_ERROR|NO_APP_FILE) state=error; break ;;
+            esac
+            if [ "$attempt" -lt 8 ]; then sleep 45; fi
+          done
+
+          case "$state" in
+            up)
+              detail="Backend is ready on the current schema (stage $stage)." ;;
+            paused)
+              detail="The Hugging Face Space is $stage${hf_error:+ (\"$hf_error\")}. A paused Space does not wake on requests: restart it from the Space settings, or contact HF if it was paused by them." ;;
+            error)
+              detail="The Hugging Face Space is in stage $stage${hf_error:+: $hf_error}. Check the Space's build and container logs." ;;
+            *)
+              # The 503 body names what is unhealthy (database, schema, redis); HF's own error
+              # pages are HTML and are left out.
+              reply=$(jq -c . <<<"$body" 2>/dev/null || true)
+              detail="/health/readiness answered HTTP $code (Space stage $stage); expected 200 with \"schema\": \"current\". Response: ${reply:0:300}"
+              [ -n "$reply" ] || detail="/health/readiness answered HTTP $code with no JSON body (Space stage $stage); expected 200 with \"schema\": \"current\"." ;;
+          esac
+          {
+            echo "state=$state"
+            echo "detail<<DETAIL_EOF"
+            echo "$detail"
+            echo "DETAIL_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Uptime: $state" >> "$GITHUB_STEP_SUMMARY"
+          echo "$detail" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$state" != up ]; then
+            echo "::error::$detail"
+            exit 1
+          fi
+
+      - name: Open or update the outage issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          STATE: ${{ steps.check.outputs.state }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          now=$(date -u '+%Y-%m-%d %H:%M UTC')
+          note="Still failing at $now (${STATE:-unknown}): ${DETAIL:-the check did not finish; see the run log.} $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$note"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "The uptime check of ${SPACE_URL} failed at $now (${STATE:-unknown}): $RUN_URL
+
+          ${DETAIL:-The check did not finish; see the run log.}
+
+          This issue gets a comment on every failed check (every 30 minutes) and is closed automatically when the backend is healthy again."
+          fi
+
+      - name: Close the outage issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          number=$(gh issue list --state open --search "in:title \"$ISSUE_TITLE\"" --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Recovered at $(date -u '+%Y-%m-%d %H:%M UTC'): /health/readiness is 200 with the current schema. $RUN_URL"
+            gh issue close "$number"
+          fi
