@@ -15,6 +15,11 @@ def handle_bookmark_created(event: BookmarkCreated):
         url=event.url
     )
 
+    if event.content_captured:
+        # The save carried the page content and stored it already; fetching would only redo it
+        # (and for login-walled pages, worse).
+        return
+
     try:
         from blueprints.bookmarks import process_bookmark_content_async
         process_bookmark_content_async(event.bookmark_id, event.url, event.user_id)

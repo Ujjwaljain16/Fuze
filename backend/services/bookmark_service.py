@@ -100,10 +100,12 @@ class BookmarkService:
         notes: Optional[str] = None,
         tags: Optional[str] = None,
         category: Optional[str] = None,
-        extracted_text: Optional[str] = None
+        extracted_text: Optional[str] = None,
+        content_captured: bool = False
     ) -> SavedContent:
         """
         Create a new bookmark with input validation and duplicate URL protection.
+        content_captured: the caller stores the page content itself, so no fetch is queued.
         """
         if not user_id or user_id <= 0:
             raise ValueError("Valid user_id is required")
@@ -134,7 +136,8 @@ class BookmarkService:
         self.uow.emit(BookmarkCreated(
             bookmark_id=bookmark.id,
             user_id=user_id,
-            url=clean_url
+            url=clean_url,
+            content_captured=content_captured
         ))
 
         return bookmark

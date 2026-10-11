@@ -107,6 +107,45 @@ def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int) -> 
         return False
     return True
 
+
+# Rules for the fields of `captured` (page content sent by the extension). Page text and HTML
+# legitimately contain SQL keywords and script tags; they are only parsed, never executed or served.
+CAPTURE_FIELD_RULES = {
+    'text': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},
+    'html': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},
+    'canonical_url': {'check_sql_injection': False},
+}
+
+
+def _captured_document(data, url, title):
+    """Build a ContentDocument from the request's `captured` field.
+
+    Returns (document or None, error response or None). A malformed or oversized payload is
+    refused; a payload the extractor chokes on is dropped and the bookmark is fetched as before.
+    """
+    from services.captured_content import CaptureRejected, build_captured_document, parse_captured
+    try:
+        page = parse_captured(data.get('captured'))
+    except CaptureRejected as e:
+        return None, (jsonify({'message': str(e), 'error': 'invalid_capture'}), e.status)
+    if page is None:
+        return None, None
+    from utils.cooperative import run_cpu_bound
+    try:
+        return run_cpu_bound(build_captured_document, url, page, title), None
+    except Exception:
+        logger.exception("captured_content_extraction_failed")
+        return None, None
+
+
+def _request_embedding(bookmark_id: int, user_id: int) -> None:
+    """After storing captured content: embed it now, or leave it to the reconciler."""
+    try:
+        from services.pipeline_orchestrator import PipelineOrchestrator
+        PipelineOrchestrator().request_embedding(bookmark_id, user_id)
+    except Exception as e:
+        logger.warning(f"Embedding for bookmark {bookmark_id} not requested now: {e}")
+
 @bookmarks_bp.route('/quick-save', methods=['POST'])
 @jwt_required()
 @validate_request_data(
@@ -115,6 +154,7 @@ def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int) -> 
         'url': {'check_sql_injection': False},
         'title': {'check_sql_injection': False},
         'description': {'check_sql_injection': False},
+        **CAPTURE_FIELD_RULES,
     }
 )
 def quick_save_bookmark():
@@ -134,22 +174,31 @@ def quick_save_bookmark():
         return error_response('url_required', 'URL is required', 400)
     if url_too_long(url):
         return error_response('url_too_long', f'URL is longer than {MAX_URL_BYTES} bytes', 400)
-    
+
+    captured_doc, error = _captured_document(data, url.strip(), title)
+    if error:
+        return error
+    captured_stored = False
+
     from uow.unit_of_work import UnitOfWork
     from services.bookmark_service import BookmarkService
-    
+    from services.captured_content import capture_replaces, store_captured_document
+
     try:
         with UnitOfWork() as uow:
             service = BookmarkService(uow)
             existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
-            
+
             if existing_bookmark:
                 # Update existing bookmark with new title/description if provided
                 if title:
                     existing_bookmark.title = title.strip()
                 if description:
                     existing_bookmark.notes = description.strip()
-                
+                if captured_doc is not None and capture_replaces(existing_bookmark, captured_doc):
+                    store_captured_document(uow, existing_bookmark, captured_doc)
+                    captured_stored = True
+
                 existing_bookmark_id = existing_bookmark.id
                 existing_bookmark_url = existing_bookmark.url
                 uow.flush()
@@ -175,8 +224,12 @@ def quick_save_bookmark():
                     user_id=user_id,
                     url=url.strip(),
                     title=final_title,
-                    notes=description.strip() if isinstance(description, str) else ''
+                    notes=description.strip() if isinstance(description, str) else '',
+                    content_captured=captured_doc is not None
                 )
+                if captured_doc is not None:
+                    store_captured_document(uow, new_bm, captured_doc)
+                    captured_stored = True
                 new_bm_id = new_bm.id
     except IntegrityError:
         with UnitOfWork() as uow:
@@ -198,15 +251,20 @@ def quick_save_bookmark():
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_update(existing_bookmark_id, user_id)
         
-        # Still trigger background processing in case content needs updating
-        process_bookmark_content_async(existing_bookmark_id, existing_bookmark_url, user_id)
-        
+        if captured_stored:
+            _request_embedding(existing_bookmark_id, user_id)
+        elif captured_doc is None:
+            # Still trigger background processing in case content needs updating. With a capture
+            # in hand there is nothing to fetch: either it was stored or what is stored is better.
+            process_bookmark_content_async(existing_bookmark_id, existing_bookmark_url, user_id)
+
         return jsonify({
             'message': 'Bookmark updated',
             'bookmark': {'id': existing_bookmark_id, 'url': existing_bookmark_url},
             'wasDuplicate': True,
             'duplicateType': duplicate_type,
-            'processing': 'background'
+            'processing': 'background',
+            'contentCaptured': captured_stored
         }), 200
     
     else:
@@ -214,12 +272,15 @@ def quick_save_bookmark():
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_save(new_bm_id, user_id)
         redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
-        
+        if captured_stored:
+            _request_embedding(new_bm_id, user_id)
+
         return jsonify({
             'message': 'Bookmark saved',
             'bookmark': {'id': new_bm_id, 'url': url.strip()},
             'processing': 'background',
-            'wasDuplicate': False
+            'wasDuplicate': False,
+            'contentCaptured': captured_stored
         }), 201
 
 @bookmarks_bp.route('', methods=['POST'])
@@ -230,6 +291,7 @@ def quick_save_bookmark():
         'url': {'check_sql_injection': False},  # URLs can contain SQL keywords legitimately
         'extracted_text': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},  # No limits for extracted text
         'content': {'max_string_length': None, 'check_sql_injection': False, 'check_xss': False},  # No limits for content
+        **CAPTURE_FIELD_RULES,
     }
 )
 def save_bookmark():
@@ -256,16 +318,25 @@ def save_bookmark():
     
     tags_str = ','.join(tags) if isinstance(tags, list) else (tags if isinstance(tags, str) else '')
 
+    captured_doc, error = _captured_document(data, url.strip(), title)
+    if error:
+        return error
+    captured_stored = False
+    from services.captured_content import capture_replaces, store_captured_document
+
     with UnitOfWork() as uow:
         service = BookmarkService(uow)
         existing_bookmark, duplicate_type = is_duplicate_url(service, url, user_id)
-        
+
         if existing_bookmark:
             # Update existing bookmark
             existing_bookmark.title = title.strip() if title else existing_bookmark.title
             existing_bookmark.notes = description.strip() if description else existing_bookmark.notes
             if 'tags' in data:
                 existing_bookmark.tags = tags_str
+            if captured_doc is not None and capture_replaces(existing_bookmark, captured_doc):
+                store_captured_document(uow, existing_bookmark, captured_doc)
+                captured_stored = True
             # Will commit when UoW exits
             
             existing_bookmark_id = existing_bookmark.id
@@ -276,11 +347,14 @@ def save_bookmark():
     if existing_bookmark:
         from services.cache_invalidation_service import cache_invalidator
         cache_invalidator.after_content_update(existing_bookmark_id, user_id)
+        if captured_stored:
+            _request_embedding(existing_bookmark_id, user_id)
         return jsonify({
             'message': 'Bookmark updated',
             'bookmark': {'id': existing_bookmark_id, 'url': existing_bookmark_url},
             'wasDuplicate': True,
-            'duplicateType': duplicate_type
+            'duplicateType': duplicate_type,
+            'contentCaptured': captured_stored
         }), 200
     
     # Ensure title is not empty
@@ -305,8 +379,12 @@ def save_bookmark():
                 title=final_title,
                 notes=description.strip() if isinstance(description, str) else '',
                 tags=tags_str,
-                category=category
+                category=category,
+                content_captured=captured_doc is not None
             )
+            if captured_doc is not None:
+                store_captured_document(uow, new_bm, captured_doc)
+                captured_stored = True
             new_bm_id = new_bm.id
             new_bm_url = new_bm.url
     except IntegrityError:
@@ -332,12 +410,15 @@ def save_bookmark():
     from services.cache_invalidation_service import cache_invalidator
     cache_invalidator.after_content_save(new_bm_id, user_id)
     redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
+    if captured_stored:
+        _request_embedding(new_bm_id, user_id)
 
     return jsonify({
         'message': 'Bookmark saved',
         'bookmark': {'id': new_bm_id, 'url': new_bm_url},
         'processing': 'background',
-        'wasDuplicate': False
+        'wasDuplicate': False,
+        'contentCaptured': captured_stored
     }), 201
 
 IMPORT_INSERT_CHUNK = 200

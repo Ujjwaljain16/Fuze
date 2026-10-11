@@ -88,6 +88,8 @@ class BookmarkCreated(Event):
     bookmark_id: int
     user_id: int
     url: str
+    # The extension sent the page content with the save, so there is nothing to fetch.
+    content_captured: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
