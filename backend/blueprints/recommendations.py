@@ -499,61 +499,6 @@ def analyze_content_immediately(content_id):
         logger.error(f"Error analyzing content: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-@recommendations_bp.route('/analysis/start-background', methods=['POST'])
-@jwt_required()
-def start_background_analysis():
-    """Start background analysis for user's content"""
-    try:
-        user_id = get_jwt_identity()
-        
-        # Import background analysis service
-        try:
-            from services.background_analysis_service import start_background_analysis_for_user
-            result = start_background_analysis_for_user(user_id)
-            return jsonify({'message': 'Background analysis started', 'result': result})
-        except ImportError:
-            return jsonify({'error': 'Background analysis service not available'}), 500
-        
-    except Exception as e:
-        logger.error(f"Error starting background analysis: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-@recommendations_bp.route('/analysis/batch-analyze', methods=['POST'])
-@jwt_required()
-def batch_analyze_content():
-    """Batch analyze multiple content items"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json() or {}
-        content_ids = data.get('content_ids', [])
-        
-        if not content_ids:
-            return jsonify({'error': 'No content IDs provided'}), 400
-        
-        # Import models here to avoid circular imports
-        from models import SavedContent
-        
-        # Verify all content belongs to user
-        user_content = SavedContent.query.filter(
-            SavedContent.id.in_(content_ids),
-            SavedContent.user_id == user_id
-        ).all()
-        
-        if len(user_content) != len(content_ids):
-            return jsonify({'error': 'Some content not found or not owned by user'}), 400
-        
-        # Import background analysis service
-        try:
-            from services.background_analysis_service import batch_analyze_content as batch_analyze
-            result = batch_analyze(content_ids, user_id=int(user_id))
-            return jsonify({'message': 'Batch analysis started', 'result': result})
-        except ImportError:
-            return jsonify({'error': 'Background analysis service not available'}), 500
-        
-    except Exception as e:
-        logger.error(f"Error in batch analysis: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
 # ============================================================================
 # FEEDBACK AND LEARNING ENDPOINTS
 # ============================================================================

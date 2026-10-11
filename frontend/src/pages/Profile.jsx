@@ -109,7 +109,8 @@ const Profile = () => {
   const handlePasswordChange = async (e) => {
     e.preventDefault()
     
-    if (!formData.current_password || !formData.new_password || !formData.confirm_password) {
+    const hasPassword = user?.has_password !== false
+    if ((hasPassword && !formData.current_password) || !formData.new_password || !formData.confirm_password) {
       error('All password fields are required')
       return
     }
@@ -119,15 +120,15 @@ const Profile = () => {
       return
     }
 
-    if (formData.new_password.length < 6) {
-      error('New password must be at least 6 characters long')
+    if (formData.new_password.length < 8 || !/[A-Za-z]/.test(formData.new_password) || !/[0-9]/.test(formData.new_password)) {
+      error('New password must be at least 8 characters and include a letter and a number')
       return
     }
 
     setLoading(true)
     try {
       const passwordData = {
-        current_password: formData.current_password,
+        ...(hasPassword ? { current_password: formData.current_password } : {}),
         new_password: formData.new_password
       }
 
@@ -315,6 +316,7 @@ const Profile = () => {
               loading={loading}
               showPassword={showPassword}
               setShowPassword={setShowPassword}
+              hasPassword={user?.has_password !== false}
             />
           </div>
 

@@ -90,23 +90,18 @@ def _sse_user_id():
     return None
 
 
-def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int):
+def process_bookmark_content_async(bookmark_id: int, url: str, user_id: int) -> bool:
     """
-    Enqueue bookmark processing task using RQ.
-    Fails explicitly if background task queue is unavailable.
+    Enqueue bookmark processing. Called after the bookmark is committed, so it never raises:
+    the save already succeeded, and raising here turned a saved bookmark into a 500. When the
+    queue is unreachable the bookmark stays PENDING and the pipeline reconciler enqueues it.
     """
     from services.task_queue import enqueue_bookmark_processing, is_rq_available
-    
-    if not is_rq_available():
-        logger.error(f"Background task queue unavailable for bookmark {bookmark_id}")
-        raise RuntimeError("Background task queue unavailable")
-        
-    job = enqueue_bookmark_processing(bookmark_id, url, user_id)
-    if not job:
-        logger.error(f"Failed to enqueue bookmark {bookmark_id} with RQ")
-        raise RuntimeError("Failed to enqueue background processing job")
-        
-    logger.info(f"Bookmark {bookmark_id} processing enqueued as job {job.id}")
+
+    if not is_rq_available() or not enqueue_bookmark_processing(bookmark_id, url, user_id):
+        logger.warning(f"Bookmark {bookmark_id} not enqueued now; the reconciler will pick it up")
+        return False
+    return True
 
 @bookmarks_bp.route('/quick-save', methods=['POST'])
 @jwt_required()

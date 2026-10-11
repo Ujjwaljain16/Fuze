@@ -325,6 +325,9 @@ def login():
         return jsonify({'message': 'Login failed. Please try again.'}), 500
 
 
+RECENT_SIGN_IN_SECONDS = 15 * 60
+
+
 @auth_bp.route('/set-password', methods=['POST'])
 @jwt_required()
 @limiter.limit("5 per 15 minutes")
@@ -345,7 +348,16 @@ def set_password():
             if not user:
                 return jsonify({'message': 'User not found'}), 404
 
-            if user.password_hash:
+            meta = dict(user.user_metadata or {})
+            # Accounts created by Google sign-in get a random password nobody knows, so asking for
+            # the "current password" locked them out of ever setting one. For their first password,
+            # a recent sign-in stands in for it.
+            first_password_for_oauth_account = bool(meta.get('supabase_user_id')) and not meta.get('password_set')
+            if first_password_for_oauth_account:
+                if time.time() - get_jwt().get('iat', 0) > RECENT_SIGN_IN_SECONDS:
+                    return jsonify({'message': 'Please sign in again to set a password',
+                                    'error': 'recent_sign_in_required'}), 401
+            else:
                 if not current_password:
                     return jsonify({'message': 'Current password required'}), 400
                 if not auth_service.verify_password(user.password_hash, current_password):
@@ -357,6 +369,14 @@ def set_password():
 
             new_hash = auth_service.hash_password(new_password)
             auth_service.update_password(user_id, new_hash)
+            meta['password_set'] = True
+            user.user_metadata = meta  # reassign: JSON columns don't track in-place changes
+            from core import cache_keys
+            from utils.redis_utils import redis_cache
+            redis_cache.delete_cache(cache_keys.profile(user_id))
+
+            from core.sessions import revoke_user_sessions
+            revoke_user_sessions(uow, user_id, keep_family_id=get_jwt().get('family_id'))
 
         return jsonify({'message': 'Password updated successfully'}), 200
 

@@ -102,6 +102,9 @@ def get_profile():
         'email': user.email,
         'technology_interests': user.technology_interests,
         'google_connected': bool(user.provider_user_id),
+        # Google-created accounts start with a random password nobody knows.
+        'has_password': not (user.user_metadata or {}).get('supabase_user_id')
+                        or bool((user.user_metadata or {}).get('password_set')),
         'created_at': user.created_at.isoformat() if user.created_at else None
     }
 

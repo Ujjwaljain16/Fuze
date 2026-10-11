@@ -7,7 +7,8 @@ const PasswordForm = ({
   onSubmit, 
   loading, 
   showPassword, 
-  setShowPassword 
+  setShowPassword,
+  hasPassword = true
 }) => {
   const isMobile = window.innerWidth <= 768
   const isSmallMobile = window.innerWidth <= 480
@@ -18,10 +19,11 @@ const PasswordForm = ({
         <div className={`${isMobile ? 'p-2' : 'p-3'} bg-gradient-to-r from-cyan-600/20 to-teal-600/20 rounded-xl`}>
           <Shield className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-cyan-400`} />
         </div>
-        <h2 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold text-white`}>Change Password</h2>
+        <h2 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold text-white`}>{hasPassword ? 'Change Password' : 'Set a Password'}</h2>
       </div>
       
       <form onSubmit={onSubmit} className={`${isMobile ? 'space-y-4' : 'space-y-6'}`}>
+        {hasPassword && (
         <div className="group">
           <label className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-300 ${isMobile ? 'mb-1.5' : 'mb-2'}`}>
             Current Password
@@ -46,6 +48,7 @@ const PasswordForm = ({
             </button>
           </div>
         </div>
+        )}
 
         <div className="group">
           <label className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-300 ${isMobile ? 'mb-1.5' : 'mb-2'}`}>
@@ -61,7 +64,7 @@ const PasswordForm = ({
               className={`w-full pl-12 pr-4 ${isMobile ? 'py-3 text-sm' : 'py-4'} bg-gray-800/50 border border-gray-700 rounded-xl focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300 text-white placeholder-gray-400`}
               placeholder="Enter new password"
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
         </div>
@@ -80,7 +83,7 @@ const PasswordForm = ({
               className={`w-full pl-12 pr-4 ${isMobile ? 'py-3 text-sm' : 'py-4'} bg-gray-800/50 border border-gray-700 rounded-xl focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all duration-300 text-white placeholder-gray-400`}
               placeholder="Confirm new password"
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
         </div>
@@ -114,7 +117,7 @@ const PasswordForm = ({
             }}
           >
             <Shield className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
-            <span>{loading ? 'Changing...' : 'Change Password'}</span>
+            <span>{loading ? 'Saving...' : (hasPassword ? 'Change Password' : 'Set Password')}</span>
           </button>
         </div>
       </form>
