@@ -14,7 +14,10 @@ permissions:
 jobs:
   ping-redis:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+      issues: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
@@ -42,4 +45,25 @@ jobs:
           else
             echo "❌ Redis ping failed at $(date)"
             exit 1
+          fi
+
+      # Nobody watches scheduled runs; without this a failing ping goes unnoticed until the
+      # free-tier Redis database is archived for inactivity.
+      - name: Open or update an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Redis keep-alive ping is failing
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          note="Failed again at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number,title \
+            --jq "map(select(.title == \"$TITLE\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$note"
+          else
+            gh issue create --title "$TITLE" --body "The scheduled Redis keep-alive failed at $(date -u '+%Y-%m-%d %H:%M UTC'): $RUN_URL
+
+          A free-tier Redis database is archived after a period without activity, which takes the job queue and rate limits down with it. Check the run log and the REDIS_URL secret, and close this issue once the ping passes again. Later failures are added here as comments."
           fi
