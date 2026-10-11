@@ -24,7 +24,17 @@ load_dotenv()
 # config.py captures DATABASE_URL at first import, and test_run_production imports run_production
 # (which builds an app) during collection. With the real URL in place, create_all()/drop_all()
 # ran against production and dropped its tables (Oct 2026).
-os.environ['DATABASE_URL'] = os.getenv('TEST_DATABASE_URL') or 'sqlite:///:memory:'
+def _local_test_database(url: str) -> bool:
+    """SQLite, or a Postgres server on this machine (the pgvector lane). Nothing else, ever."""
+    from sqlalchemy.engine import make_url
+    parsed = make_url(url)
+    return parsed.get_backend_name() == 'sqlite' or parsed.host in ('localhost', '127.0.0.1', '::1')
+
+
+_test_db_url = os.getenv('TEST_DATABASE_URL') or 'sqlite:///:memory:'
+if not _local_test_database(_test_db_url):
+    raise SystemExit(f"TEST_DATABASE_URL must be SQLite or a local Postgres, not {_test_db_url.split('@')[-1]}")
+os.environ['DATABASE_URL'] = _test_db_url
 
 # Unset means production (fail closed), so the suite must say what it is.
 os.environ['APP_ENV'] = 'testing'
@@ -58,33 +68,9 @@ TEST_DATABASE_URL = os.getenv('TEST_DATABASE_URL', 'sqlite:///:memory:')
 @pytest.fixture(scope='session')
 def app():
     """Create Flask app for testing"""
-    # CRITICAL: Save original DATABASE_URL to restore later
-    original_db_url = os.environ.get('DATABASE_URL', '')
-    
-    # CRITICAL SAFETY CHECK: Prevent tests from using production database
-    production_db_url = original_db_url
-    test_db_url = os.getenv('TEST_DATABASE_URL', 'sqlite:///:memory:')
-    
-    # ALWAYS use in-memory SQLite for tests unless explicitly overridden
-    # This ensures tests NEVER touch production database
-    if not test_db_url or test_db_url == original_db_url:
-        test_db_url = 'sqlite:///:memory:'
-    
-    if production_db_url:
-        # Check for production database indicators
-        production_indicators = ['supabase.co', 'amazonaws.com', 'azure.com', 'gcp.com', 'heroku.com', 'postgresql://', 'postgres://']
-        is_production = any(indicator in production_db_url.lower() for indicator in production_indicators)
-        
-        if is_production and 'sqlite' not in production_db_url.lower():
-            # This looks like a production database!
-            # Force test database to prevent accidental data loss
-            print("\n" + "="*70)
-            print("⚠️  WARNING: Production database detected in DATABASE_URL!")
-            print(f"   Found: {production_db_url[:50]}...")
-            print("   Forcing in-memory SQLite test database to prevent data loss.")
-            print("="*70 + "\n")
-            test_db_url = 'sqlite:///:memory:'
-    
+    # DATABASE_URL was pinned to the test database at the top of this file, before any import.
+    test_db_url = os.environ['DATABASE_URL']
+
     # CRITICAL: Override database URL BEFORE importing create_app
     # This ensures create_app() and all its imports use the test database
     os.environ['BCRYPT_LOG_ROUNDS'] = '4'
@@ -117,21 +103,17 @@ def app():
     with flask_app.app_context():
         from models import db
         
-        # CRITICAL: Verify we're using test database before any operations
-        current_db_url = flask_app.config.get('SQLALCHEMY_DATABASE_URI') or os.environ.get('DATABASE_URL', '')
-        
-        if not current_db_url or 'sqlite' not in current_db_url.lower():
-            test_db_url = 'sqlite:///:memory:'
-            os.environ['DATABASE_URL'] = test_db_url
-            flask_app.config['SQLALCHEMY_DATABASE_URI'] = test_db_url
-            db.init_app(flask_app)
-        
-        # Last line of defence: refuse to run against anything but the intended test database.
-        bound_url = db.engine.url
-        expected = os.getenv('TEST_DATABASE_URL')
-        if bound_url.get_backend_name() != 'sqlite' and not (expected and str(bound_url) == expected):
-            pytest.exit(f"Refusing to run tests: database engine is bound to {bound_url.host}", returncode=3)
+        # Last line of defence: refuse to run against anything but the intended local test database.
+        bound = db.engine.url
+        if bound.get_backend_name() != 'sqlite' and not (
+                _local_test_database(bound.render_as_string(hide_password=False))
+                and bound.render_as_string(hide_password=False) == test_db_url):
+            pytest.exit(f"Refusing to run tests: database engine is bound to {bound.host}", returncode=3)
 
+        if bound.get_backend_name() == 'postgresql':
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
         db.create_all()
         yield flask_app
         t_app_0 = time.perf_counter()

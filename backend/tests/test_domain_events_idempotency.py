@@ -2,40 +2,11 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-def _make_test_app():
-    """Create a Flask app for testing without triggering production env validation."""
-    os.environ['SECRET_KEY'] = 'test-secret-key-for-ci'
-    os.environ['JWT_SECRET_KEY'] = 'test-jwt-secret-key-for-ci'
-    os.environ['FLASK_ENV'] = 'testing'
-    os.environ['TESTING'] = 'true'
-    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
-
-    from run_production import create_app
-    flask_app = create_app()
-    flask_app.config['TESTING'] = True
-    flask_app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    flask_app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': False,
-        'connect_args': {'check_same_thread': False},
-    }
-    return flask_app
-
 @pytest.fixture
-def test_app():
-    flask_app = _make_test_app()
-    from models import db
-    with flask_app.app_context():
-        db.create_all()
-        yield flask_app
-        try:
-            db.session.rollback()
-        except:
-            pass
-        db.session.remove()
-        try:
-            db.drop_all()
-        except Exception:
-            pass
+def test_app(app):
+    """The suite's shared app: a second app here re-bound the engine and dropped the shared tables."""
+    return app
+
 
 @pytest.fixture
 def test_user(test_app):

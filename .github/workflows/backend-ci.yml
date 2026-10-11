@@ -98,6 +98,17 @@ jobs:
         run: |
           pytest --cov=. --cov-report=xml --cov-report=html -v
       
+      # SQLite can't run pgvector queries, row locks or real concurrency; this lane can.
+      - name: Run tests on Postgres + pgvector
+        working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: testing
+          TEST_DATABASE_URL: postgresql://fuze_test:fuze_test_password@localhost:5432/fuze_test_db
+          GEMINI_API_KEY: 'test-key-for-ci'
+        run: |
+          pytest -q
+
       - name: Upload coverage reports
         if: always()
         continue-on-error: true
