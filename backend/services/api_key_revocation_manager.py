@@ -13,6 +13,10 @@ from core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# SCAN page size and DEL batch size. KEYS blocks Redis while it walks the whole keyspace,
+# which on a shared instance stalls every other client (cache, queue, rate limits).
+SCAN_COUNT = 500
+
 
 class APIKeyRevocationManager:
     """
@@ -165,10 +169,17 @@ class APIKeyRevocationManager:
             return False
 
         try:
-            keys = self.redis_cache.redis_client.keys(f"{self.REVOCATION_KEY_PREFIX}*")
-            if keys:
-                self.redis_cache.redis_client.delete(*keys)
-            logger.warning("all_revocations_cleared", extra={"cleared_count": len(keys)})
+            client = self.redis_cache.redis_client
+            cleared = 0
+            batch = []
+            for key in client.scan_iter(match=f"{self.REVOCATION_KEY_PREFIX}*", count=SCAN_COUNT):
+                batch.append(key)
+                if len(batch) >= SCAN_COUNT:
+                    cleared += client.delete(*batch) or 0
+                    batch = []
+            if batch:
+                cleared += client.delete(*batch) or 0
+            logger.warning("all_revocations_cleared", extra={"cleared_count": cleared})
             return True
         except Exception:
             logger.exception("clear_revocations_failed")
@@ -179,8 +190,9 @@ class APIKeyRevocationManager:
         try:
             if not self.redis_cache or not getattr(self.redis_cache, 'connected', False):
                 return 0
-            keys = self.redis_cache.redis_client.keys(f"{self.REVOCATION_KEY_PREFIX}*")
-            return len(keys)
+            # A set: SCAN may return a key more than once.
+            return len(set(self.redis_cache.redis_client.scan_iter(
+                match=f"{self.REVOCATION_KEY_PREFIX}*", count=SCAN_COUNT)))
         except Exception:
             logger.exception("get_revoked_count_failed")
             return 0

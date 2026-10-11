@@ -9,6 +9,7 @@ from services.api_key_revocation_manager import APIKeyRevocationManager
 class _MemoryRedis:
     def __init__(self):
         self.data = {}
+        self.delete_batches = []
 
     def set(self, key, value, ex=None):
         self.data[key] = value
@@ -17,11 +18,15 @@ class _MemoryRedis:
         return int(key in self.data)
 
     def delete(self, *keys):
+        self.delete_batches.append(len(keys))
         return sum(1 for k in keys if self.data.pop(k, None) is not None)
 
     def keys(self, pattern):
-        prefix = pattern.rstrip('*')
-        return [k for k in self.data if k.startswith(prefix)]
+        raise AssertionError("KEYS blocks Redis while it walks the whole keyspace; use SCAN")
+
+    def scan_iter(self, match=None, count=None):
+        prefix = (match or '*').rstrip('*')
+        yield from [k for k in self.data if k.startswith(prefix)]
 
 
 @pytest.fixture
@@ -66,6 +71,18 @@ def test_clear_requires_confirmation(manager):
     assert not mgr.clear_all_revocations()
     assert mgr.clear_all_revocations(confirm=True)
     assert mgr.get_revoked_count() == 0
+
+
+def test_count_and_clear_scan_instead_of_keys_and_delete_in_batches(manager):
+    mgr, store = manager
+    for i in range(1201):
+        mgr.revoke_api_key(f'AIzaSyDummyKeyForTesting{i:015d}')
+    store.data['fuze:unrelated'] = '1'
+    assert mgr.get_revoked_count() == 1201
+    assert mgr.clear_all_revocations(confirm=True)
+    assert mgr.get_revoked_count() == 0
+    assert store.delete_batches and max(store.delete_batches) <= 500
+    assert 'fuze:unrelated' in store.data
 
 
 def test_redis_down_fails_open_by_default(monkeypatch):
