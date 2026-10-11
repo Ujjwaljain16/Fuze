@@ -15,8 +15,11 @@ from scrapers.easy_linkedin_scraper import EasyLinkedInScraper
 from utils.gemini_utils import GeminiAnalyzer
 from middleware.rate_limiting import limiter
 from core.logging_config import get_logger
+from concurrent.futures import ThreadPoolExecutor
 
 logger = get_logger(__name__)
+
+BATCH_FETCH_CONCURRENCY = 5
 
 linkedin_bp = Blueprint('linkedin', __name__)
 
@@ -272,39 +275,32 @@ def batch_extract_linkedin():
 
         logger.info("linkedin_batch_extract_started", user_id=user_id, count=len(urls))
 
-        scraper = EasyLinkedInScraper()
-        results = []
-        successful = 0
-        failed = 0
-
-        for url in urls:
-            url_str = (url or '').strip()
+        def extract_one(url_str):
             if not validate_linkedin_url(url_str):
-                results.append({'url': url_str, 'success': False, 'error': 'Invalid LinkedIn URL'})
-                failed += 1
-                continue
-
+                return {'url': url_str, 'success': False, 'error': 'Invalid LinkedIn URL'}
             try:
-                extracted = scraper.scrape_post(url_str)
-                if extracted and extracted.get('success'):
-                    results.append({
-                        'url': url_str,
-                        'success': True,
-                        'data': {
-                            'title': extracted.get('title'),
-                            'content': extracted.get('content'),
-                            'quality_score': extracted.get('quality_score', 0),
-                            'method_used': extracted.get('method_used', '')
-                        }
-                    })
-                    successful += 1
-                else:
-                    results.append({'url': url_str, 'success': False, 'error': 'Extraction failed'})
-                    failed += 1
+                extracted = EasyLinkedInScraper().scrape_post(url_str)
             except Exception:
                 logger.exception("linkedin_batch_url_failed", user_id=user_id)
-                results.append({'url': url_str, 'success': False, 'error': 'Extraction failed'})
-                failed += 1
+                return {'url': url_str, 'success': False, 'error': 'Extraction failed'}
+            if not (extracted and extracted.get('success')):
+                return {'url': url_str, 'success': False, 'error': 'Extraction failed'}
+            return {
+                'url': url_str,
+                'success': True,
+                'data': {
+                    'title': extracted.get('title'),
+                    'content': extracted.get('content'),
+                    'quality_score': extracted.get('quality_score', 0),
+                    'method_used': extracted.get('method_used', '')
+                }
+            }
+
+        # Fetch concurrently: sequential fetching made the worst case (10 URLs x timeout) block one request for minutes.
+        with ThreadPoolExecutor(max_workers=BATCH_FETCH_CONCURRENCY) as pool:
+            results = list(pool.map(extract_one, [(u or '').strip() for u in urls]))
+        successful = sum(1 for r in results if r['success'])
+        failed = len(results) - successful
 
         return jsonify({
             'success': True,

@@ -20,6 +20,15 @@ if backend_dir not in sys.path:
 
 load_dotenv()
 
+# .env points at production Upstash; without this the suite writes cache keys and rate-limit
+# counters there and enqueues RQ jobs that a production worker would later run against the real DB.
+os.environ['REDIS_URL'] = os.getenv('TEST_REDIS_URL', 'redis://127.0.0.1:6379/15')
+os.environ['REDIS_HOST'] = '127.0.0.1'
+os.environ['REDIS_PORT'] = '6379'
+os.environ['REDIS_DB'] = '15'
+os.environ.pop('REDIS_PASSWORD', None)
+os.environ.pop('REDIS_SSL', None)
+
 def pytest_sessionstart(session):
     session._start_time = time.perf_counter()
     print(f"\n[TIMING HOOK] pytest_sessionstart at {time.strftime('%H:%M:%S')}")

@@ -35,3 +35,24 @@ class TestLinkedIn:
         data = response.json
         assert data['success'] is True
         assert data['data']['overall_status'] == 'operational'
+
+
+def test_batch_extract_runs_concurrently_and_reports_invalid(client, auth_headers):
+    import time
+    from unittest.mock import patch
+
+    def slow_scrape(self, url):
+        time.sleep(0.4)
+        return {'success': True, 'title': 'Post', 'content': 'x' * 300, 'quality_score': 7}
+
+    urls = [f"https://www.linkedin.com/posts/p-{i}" for i in range(5)] + ["https://evil.com/post"]
+    with patch('blueprints.linkedin.EasyLinkedInScraper.scrape_post', slow_scrape):
+        start = time.time()
+        resp = client.post('/api/linkedin/batch-extract', json={'urls': urls}, headers=auth_headers)
+        elapsed = time.time() - start
+
+    data = resp.get_json()['data']
+    assert resp.status_code == 200
+    assert data['successful'] == 5 and data['failed'] == 1
+    assert [r['url'] for r in data['results']] == urls
+    assert elapsed < 1.5  # sequential would be >= 2.0s

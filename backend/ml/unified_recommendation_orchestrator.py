@@ -2359,12 +2359,10 @@ class UnifiedRecommendationOrchestrator:
             self.cache_misses += 1
             # Perform intent analysis (with caching and fallback)
             user_input = f"{request.title} {request.description} {request.technologies} {request.user_interests}".strip()
-            try:
-                intent = analyze_user_intent(user_input, request.project_id)
-            except Exception as e:
-                logger.warning(f"Intent analysis failed (likely quota): {e}, using fallback")
-                from intent_analysis_engine import get_fallback_intent
-                intent = get_fallback_intent(user_input, request.project_id)
+            # Never block on Gemini here (measured ~7.6s on a cache miss): use the cached LLM intent if a
+            # background job has produced one, else the instant rule-based intent and schedule the LLM call.
+            from intent_analysis_engine import get_intent_nonblocking
+            intent = get_intent_nonblocking(user_input, request.project_id)
             
             # Generate cache key including intent
             cache_key = self._generate_cache_key_with_intent(request, intent)
@@ -2647,60 +2645,6 @@ class UnifiedRecommendationOrchestrator:
     # ROBUST INTENT ANALYSIS INTEGRATION - Added for reliability and performance
     # ============================================================================
 
-    def get_intent_analysis_robust(self, request: UnifiedRecommendationRequest) -> Optional[Dict]:
-        """Get intent analysis with multiple fallback layers"""
-        try:
-            # Layer 1: Try AI analysis
-            user_input = f"{request.title} {request.description} {request.technologies}"
-            from intent_analysis_engine import analyze_user_intent
-            intent = analyze_user_intent(user_input, request.project_id)
-            
-            if intent and intent.primary_goal != 'learn':  # Valid analysis
-                return {
-                    'primary_goal': intent.primary_goal,
-                    'learning_stage': intent.learning_stage,
-                    'project_type': intent.project_type,
-                    'urgency_level': intent.urgency_level,
-                    'specific_technologies': intent.specific_technologies,
-                    'complexity_preference': intent.complexity_preference,
-                    'time_constraint': intent.time_constraint,
-                    'focus_areas': intent.focus_areas
-                }
-        
-        except Exception as e:
-            logger.warning(f"AI intent analysis failed: {e}")
-        
-        try:
-            # Layer 2: Try project-based analysis
-            if request.project_id:
-                from models import Project
-                project = Project.query.get(request.project_id)
-                if project and project.intent_analysis:
-                    return json.loads(project.intent_analysis)
-        
-        except Exception as e:
-            logger.warning(f"Project-based analysis failed: {e}")
-        
-        try:
-            # Layer 3: Use fallback analysis
-            from intent_analysis_engine import get_fallback_intent
-            fallback_intent = get_fallback_intent(
-                f"{request.title} {request.description} {request.technologies}"
-            )
-            return {
-                'primary_goal': fallback_intent.primary_goal,
-                'learning_stage': fallback_intent.learning_stage,
-                'project_type': fallback_intent.project_type,
-                'urgency_level': fallback_intent.urgency_level,
-                'specific_technologies': fallback_intent.specific_technologies,
-                'complexity_preference': fallback_intent.complexity_preference,
-                'time_constraint': fallback_intent.time_constraint,
-                'focus_areas': fallback_intent.focus_areas
-            }
-        
-        except Exception as e:
-            logger.error(f"All intent analysis methods failed: {e}")
-            return None
 
     def generate_context_summaries(self, recommendations: List[UnifiedRecommendationResult],
                                  request: UnifiedRecommendationRequest, user_id: int) -> List[UnifiedRecommendationResult]:
@@ -2787,21 +2731,6 @@ class UnifiedRecommendationOrchestrator:
             logger.error(f"Error generating context summary: {e}")
             return recommendation.basic_summary
 
-    def get_recommendations_robust(self, request: UnifiedRecommendationRequest):
-        """Get recommendations with robust intent analysis"""
-        # Get intent analysis with fallbacks
-        intent_data = self.get_intent_analysis_robust(request)
-        
-        if intent_data:
-            # Enhance request with intent data
-            enhanced_request = self._enhance_request_with_intent(request, intent_data)
-            # Get candidate content
-            content_list = self.data_layer.get_candidate_content(request.user_id, request)
-            return self._execute_engine_strategy(enhanced_request, content_list)
-        else:
-            # Fallback to basic recommendations without intent
-            content_list = self.data_layer.get_candidate_content(request.user_id, request)
-            return self._execute_engine_strategy(request, content_list)
 
     def split_multi_topic_content(self, content: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Split content covering multiple topics into focused recommendations

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Download, ExternalLink, CheckCircle, AlertCircle, FileArchive, Settings, Key } from 'lucide-react'
+import { baseURL } from '../services/api'
 
 const ExtensionDownload = () => {
   const [downloadStep, setDownloadStep] = useState(1)
@@ -254,7 +255,7 @@ const ExtensionDownload = () => {
                           <ol className="list-decimal list-inside space-y-2 text-sm text-gray-300">
                             <li>Click the Fuze Web Clipper icon in your Chrome toolbar</li>
                             <li>Click <strong>"Settings"</strong> in the popup</li>
-                            <li>Enter your Fuze API URL: <code className="bg-gray-900 px-1 rounded">https://Ujjwaljain16-fuze-backend.hf.space</code></li>
+                            <li>Enter your Fuze API URL: <code className="bg-gray-900 px-1 rounded">{baseURL}</code></li>
                             <li>Enter your Fuze email and password</li>
                             <li>Click <strong>"Login to Fuze"</strong></li>
                             <li>Enable <strong>"Auto-sync Chrome bookmarks"</strong> if desired</li>
@@ -363,7 +364,7 @@ const ExtensionDownload = () => {
             </div>
             <div>
               <strong className="text-white">Can't connect to Fuze?</strong>
-              <p className="text-gray-400 mt-1">Verify the API URL is set to: <code className="bg-gray-900 px-1 rounded">https://Ujjwaljain16-fuze-backend.hf.space</code></p>
+              <p className="text-gray-400 mt-1">Verify the API URL is set to: <code className="bg-gray-900 px-1 rounded">{baseURL}</code></p>
             </div>
             <div>
               <strong className="text-white">Login not working?</strong>

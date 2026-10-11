@@ -456,3 +456,59 @@ async def analyze_intent_async(user_input: str) -> UserIntent:
             return intent
         except Exception as e:
             return get_fallback_intent(user_input) 
+
+# ============================================================================
+# NON-BLOCKING INTENT (request path never waits on Gemini)
+# ============================================================================
+
+INTENT_CACHE_PREFIX = "intent:v1:"
+INTENT_CACHE_TTL = 86400
+INTENT_PENDING_TTL = 300
+PRECOMPUTE_JOB_PATH = "ml.intent_analysis_engine.precompute_intent_job"
+
+
+def _intent_input_hash(user_input: str, project_id: Optional[int]) -> str:
+    return hashlib.md5(f"{user_input}_{project_id}".encode()).hexdigest()
+
+
+def precompute_intent_job(user_input: str, project_id: Optional[int] = None) -> Optional[str]:
+    """RQ job: run the (slow) Gemini intent analysis and cache it for the request path."""
+    from dataclasses import asdict
+    from utils.redis_utils import redis_cache
+
+    input_hash = _intent_input_hash(user_input, project_id)
+    try:
+        intent = analyze_user_intent(user_input, project_id)
+        # analyze_intent returns an empty context_hash when it failed outright; don't cache that
+        if intent.context_hash:
+            redis_cache.set_cache(INTENT_CACHE_PREFIX + input_hash, asdict(intent), INTENT_CACHE_TTL)
+        return intent.primary_goal
+    finally:
+        try:
+            redis_cache.redis_client.delete(INTENT_CACHE_PREFIX + "pending:" + input_hash)
+        except Exception:
+            pass
+
+
+def get_intent_nonblocking(user_input: str, project_id: Optional[int] = None) -> UserIntent:
+    """Return cached LLM intent if available; otherwise schedule it and return the rule-based intent now."""
+    input_hash = _intent_input_hash(user_input, project_id)
+    try:
+        from utils.redis_utils import redis_cache
+        cached = redis_cache.get_cache(INTENT_CACHE_PREFIX + input_hash)
+        if cached:
+            return UserIntent(**cached)
+
+        client = getattr(redis_cache, "redis_client", None)
+        if client is not None and client.set(INTENT_CACHE_PREFIX + "pending:" + input_hash, 1, nx=True, ex=INTENT_PENDING_TTL):
+            from services.task_queue import get_queue
+            queue = get_queue("default")
+            if queue is not None:
+                queue.enqueue(PRECOMPUTE_JOB_PATH, user_input, project_id, job_timeout=120)
+                logger.info(f"Queued intent precompute {input_hash}")
+            else:
+                client.delete(INTENT_CACHE_PREFIX + "pending:" + input_hash)
+    except Exception as e:
+        logger.warning(f"Non-blocking intent lookup failed, using fallback: {e}")
+
+    return get_fallback_intent(user_input, project_id)

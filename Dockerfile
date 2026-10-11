@@ -72,7 +72,14 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
 
-RUN chmod +x start.sh
+# Run as an unprivileged user (UID 1000, the UID Hugging Face Spaces runs containers with) so a
+# compromise of anything parsing untrusted fetched HTML doesn't get root in the container.
+# HOME must be writable: the embedding model is downloaded into ~/.cache on first use.
+RUN useradd --create-home --uid 1000 appuser && \
+    chmod +x start.sh && \
+    chown -R appuser:appuser /app
+USER appuser
+ENV HOME=/home/appuser
 
 EXPOSE 7860
 
