@@ -47,12 +47,54 @@ jobs:
           done
 
       - name: Commit and push to HF Space
+        id: push
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           cd hf-space
           git add -A
-          git diff --staged --quiet || git commit -m "chore: sync from main @ ${SHA::7} [skip ci]"
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: sync from main @ ${SHA::7} [skip ci]"
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
           BRANCH=$(git branch --show-current || echo "main")
           git push origin HEAD:$BRANCH
+
+      # A push that builds but never becomes healthy (failed migration, missing secret, crash loop)
+      # used to leave this job green. Wait for the new build to run and report the current schema.
+      - name: Smoke test the deployed Space
+        timeout-minutes: 20
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_ID: Ujjwaljain16/fuze-backend
+          SPACE_URL: ${{ vars.HF_SPACE_URL || 'https://ujjwaljain16-fuze-backend.hf.space' }}
+          PUSHED: ${{ steps.push.outputs.pushed }}
+        run: |
+          # The previous container keeps answering until HF swaps in the new build, so a 200 right
+          # after the push may come from the old version. Give HF time to start the build, then
+          # require both the runtime stage RUNNING (not RUNNING_BUILDING) and a ready response.
+          if [ "$PUSHED" = "true" ]; then sleep 60; fi
+          deadline=$(( $(date +%s) + 900 ))
+          while :; do
+            stage=$(curl -fsS --max-time 10 -H "Authorization: Bearer $HF_TOKEN" \
+              "https://huggingface.co/api/spaces/${SPACE_ID}/runtime" | jq -r '.stage // "UNKNOWN"' 2>/dev/null) || stage=UNKNOWN
+            [ -n "$stage" ] || stage=UNKNOWN
+            case "$stage" in
+              BUILD_ERROR|RUNTIME_ERROR|CONFIG_ERROR|NO_APP_FILE)
+                echo "::error::Space stage is $stage"; exit 1 ;;
+            esac
+            response=$(curl -sS --max-time 10 -w '\n%{http_code}' "${SPACE_URL%/}/health/readiness" || true)
+            code=$(printf '%s\n' "$response" | tail -n 1)
+            schema=$(printf '%s\n' "$response" | sed '$d' | jq -r '.schema // empty' 2>/dev/null || true)
+            echo "$(date -u +%H:%M:%S) stage=$stage readiness=$code schema=${schema:-?}"
+            if [ "$code" = "200" ] && [ "$schema" = "current" ] && { [ "$stage" = "RUNNING" ] || [ "$stage" = "UNKNOWN" ]; }; then
+              echo "Space is ready on the current schema"
+              exit 0
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Space did not report ready with the current schema within 15 minutes"
+              exit 1
+            fi
+            sleep 30
+          done
