@@ -29,6 +29,16 @@ export default defineConfig({
       disable: !process.env.SENTRY_AUTH_TOKEN, // Disable if no token
     }),
   ],
+  resolve: {
+    // One React for the whole app. Two copies make every hook throw "Invalid hook call"
+    // ("Cannot read properties of null (reading 'useState')").
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    // Pre-bundle these up front. Left to discovery, the dev server re-optimizes the first time a
+    // page imports one of them, and a tab loaded before that keeps the old React next to the new.
+    include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-router', 'axios'],
+  },
   server: {
     host: '0.0.0.0', // Allow external connections
     port: 5173,
