@@ -51,6 +51,10 @@ class GeminiAnalyzer:
 
         self.client: Any = None
         self._compat: Optional[llm_provider.OpenAICompatClient] = None
+        # Why the last request returned nothing: 'quota' (key out of quota or balance), 'unavailable'
+        # (unreachable or erroring, so a retry later may work) or 'failed' (answered, but unusable).
+        # Callers use it to leave work waiting instead of recording a failure that was only an outage.
+        self.last_failure: Optional[str] = None
         self.model = None  # kept for callers that test truthiness; the model name when ready
         self.active_model_name = None
         self.max_retries = 2
@@ -154,18 +158,23 @@ class GeminiAnalyzer:
             except Exception:
                 pass
 
+        self.last_failure = None
         if not self.client or not prompt or not isinstance(prompt, str):
             return None
 
         from core import gemini_quota
         if gemini_quota.cooldown_seconds(getattr(self, '_key', None)) > 0:
             count("quota_cooldown")  # out of quota: don't spend a request (or a retry) to learn it again
+            self.last_failure = 'quota'
             return None
 
         if not gemini_circuit_breaker.allow_request():
             logger.warning("gemini_request_blocked_by_circuit_breaker")
             count("circuit_breaker_blocked")
+            self.last_failure = 'unavailable'
             return None
+
+        unreachable = False
 
         for model_name in self.model_candidates:
             for attempt in range(self.max_retries + 1):
@@ -182,12 +191,14 @@ class GeminiAnalyzer:
                     if e.code in (402, 429):
                         gemini_quota.mark_exhausted(getattr(self, '_key', None), str(e))
                         count("quota_exhausted")
+                        self.last_failure = 'quota'
                         return None  # not a service failure: leaves the circuit breaker alone
                     count("client_error")
                     return None
                 except Exception as e:
                     logger.warning("gemini_request_failed_attempt",
                                    extra={"model": model_name, "attempt": attempt + 1, "error": str(e)})
+                    unreachable = True
                     text = None
                 if text:
                     self.active_model_name = model_name
@@ -199,6 +210,7 @@ class GeminiAnalyzer:
 
         gemini_circuit_breaker.record_failure()
         count("failed")
+        self.last_failure = 'unavailable' if unreachable else 'failed'
         return None
 
     def _extract_json_from_response(self, response_text: str) -> Optional[Union[Dict, List]]:

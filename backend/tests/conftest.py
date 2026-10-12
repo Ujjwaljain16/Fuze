@@ -54,6 +54,12 @@ os.environ.pop('SENTRY_DSN', None)
 os.environ['ENABLE_READER_FALLBACK'] = 'false'
 os.environ['ENABLE_ARCHIVE_FALLBACK'] = 'false'
 os.environ.pop('READER_API_KEY', None)
+# A real LLM provider in .env (LLM_PROVIDER, LLM_API_KEY...) must never be reachable from tests: a test
+# that forgot to mock the network would spend the developer's balance. Set, not popped: a later
+# load_dotenv() only fills in variables that are missing.
+for _name, _value in (('LLM_PROVIDER', 'gemini'), ('LLM_BASE_URL', ''), ('LLM_API_KEY', ''),
+                      ('LLM_MODEL', ''), ('LLM_FALLBACK_MODEL', ''), ('LLM_JSON_MODE', 'false')):
+    os.environ[_name] = _value
 
 @pytest.fixture(autouse=True)
 def _reset_gemini_quota_cooldowns():

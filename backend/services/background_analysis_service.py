@@ -295,16 +295,22 @@ class BackgroundAnalysisService:
 
             if not analysis_result:
                 from core import gemini_quota
+                stopped_by = getattr(gemini_analyzer, 'last_failure', None)
                 if gemini_quota.cooldown_seconds(api_key or os.environ.get('GEMINI_API_KEY')) > 0:
-                    # This very call hit the quota: not an analysis failure. Stays PENDING.
-                    logger.info("bg_analysis_stopped_by_quota", extra={"content_id": content.id})
+                    stopped_by = 'quota'
+                if stopped_by in ('quota', 'unavailable'):
+                    # The model was out of quota or unreachable (a DNS blip, a provider outage):
+                    # nothing is wrong with this bookmark. Stays PENDING so a later pass retries it,
+                    # instead of a FAILED that then waits an hour or more.
+                    logger.info("bg_analysis_stopped_by_provider", extra={"content_id": content.id, "reason": stopped_by})
                     publish_pipeline_event(
                         event_type="bookmark.pipeline.analysis.failed",
                         bookmark_id=content.id,
                         user_id=target_user_id,
                         pipeline_run_id=run_id,
                         sequence=6,
-                        error={"error_code": "QUOTA_EXHAUSTED", "retryable": True}
+                        error={"error_code": "QUOTA_EXHAUSTED" if stopped_by == 'quota' else "PROVIDER_UNAVAILABLE",
+                               "retryable": True}
                     )
                     return
                 logger.warning("bg_analysis_empty_result", extra={"content_id": content.id})

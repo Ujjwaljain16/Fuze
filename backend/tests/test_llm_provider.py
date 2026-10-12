@@ -201,3 +201,67 @@ def test_nobody_needs_a_gemini_key_when_a_provider_is_configured(provider_on, ap
 def test_the_key_is_never_part_of_the_status_response(provider_on, client, auth_headers):
     response = client.get('/api/user/api-key/status', headers=auth_headers)
     assert response.status_code == 200 and SECRET not in response.get_data(as_text=True)
+
+
+def test_last_failure_tells_an_outage_from_a_bad_answer_and_from_quota(provider_on):
+    import requests as rq
+
+    def run(post_side_effect=None, post_return=None):
+        with patch('utils.llm_provider.requests.post', side_effect=post_side_effect, return_value=post_return), \
+             patch('utils.gemini_utils.time.sleep'), \
+             patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+            breaker.allow_request.return_value = True
+            analyzer = GeminiAnalyzer()
+            assert analyzer._make_gemini_request('hi') is None
+            return analyzer.last_failure
+
+    assert run(post_side_effect=rq.ConnectionError('getaddrinfo failed')) == 'unavailable'   # a DNS blip
+    assert run(post_return=_response(503, {'error': {'code': 'no_available_provider', 'message': 'x'}})) == 'unavailable'
+    assert run(post_return=_ok('')) == 'failed'                                              # answered, unusable
+    assert run(post_return=_response(429, {}, {'Retry-After': '600'})) == 'quota'
+
+
+def test_analysis_stays_pending_when_the_provider_is_unreachable(provider_on, app, test_user):
+    """A DNS blip used to leave 167 bookmarks FAILED (and waiting an hour or more to be retried)."""
+    import requests as rq
+    from models import db, SavedContent
+    from services.background_analysis_service import BackgroundAnalysisService
+    with app.app_context():
+        bookmark = SavedContent(user_id=test_user['id'], url='https://example.com/outage', title='T',
+                                extracted_text='text worth analyzing', embedding_status='SUCCESS')
+        db.session.add(bookmark)
+        db.session.commit()
+        service = BackgroundAnalysisService.__new__(BackgroundAnalysisService)
+        service.redis_cache = MagicMock()
+        service._local_failed_analyses = set()
+        with patch('utils.llm_provider.requests.post', side_effect=rq.ConnectionError('getaddrinfo failed')), \
+             patch('utils.gemini_utils.time.sleep'), \
+             patch('utils.event_bus.publish_pipeline_event') as publish:
+            service._analyze_single_content(bookmark, user_id=test_user['id'], pipeline_run_id='run_x')
+        events = [c.kwargs for c in publish.call_args_list]
+        assert [e['event_type'] for e in events] == ['bookmark.pipeline.analysis.started',
+                                                      'bookmark.pipeline.analysis.failed']
+        assert events[1]['error'] == {'error_code': 'PROVIDER_UNAVAILABLE', 'retryable': True}
+        db.session.expire_all()
+        assert db.session.get(SavedContent, bookmark.id).analysis_status in (None, 'PENDING')
+        service.redis_cache.set_cache.assert_not_called()  # not recorded as a failed analysis
+
+
+def test_a_reply_that_cannot_be_parsed_is_still_a_failed_analysis(provider_on, app, test_user):
+    from models import db, SavedContent
+    from services.background_analysis_service import BackgroundAnalysisService
+    with app.app_context():
+        bookmark = SavedContent(user_id=test_user['id'], url='https://example.com/junk', title='T',
+                                extracted_text='text', embedding_status='SUCCESS')
+        db.session.add(bookmark)
+        db.session.commit()
+        service = BackgroundAnalysisService.__new__(BackgroundAnalysisService)
+        service.redis_cache = MagicMock()
+        service._local_failed_analyses = set()
+        with patch('utils.llm_provider.requests.post', return_value=_ok('I cannot help with that.')), \
+             patch('utils.gemini_utils.gemini_circuit_breaker') as breaker, \
+             patch('utils.event_bus.publish_pipeline_event'):
+            breaker.allow_request.return_value = True
+            service._analyze_single_content(bookmark, user_id=test_user['id'], pipeline_run_id='run_y')
+        db.session.expire_all()
+        assert db.session.get(SavedContent, bookmark.id).analysis_status == 'FAILED'
