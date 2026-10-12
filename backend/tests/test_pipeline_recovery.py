@@ -482,3 +482,63 @@ def test_embeddings_go_on_the_high_queue_not_behind_fetches():
         assert PipelineOrchestrator().request_embedding(1, 1) is True
     get_queue.assert_called_with('high')
     enqueue.assert_called_once()
+
+
+def test_a_bookmark_waiting_in_a_long_queue_is_not_counted_as_failed(app, test_user):
+    """The reconciler used to count every 5-minute pass as a failed try for each PENDING bookmark,
+    even while its job was simply waiting its turn. A 200-bookmark import takes over half an hour,
+    so the ones at the back were marked FAILED without ever being fetched."""
+    from models import db, SavedContent
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        row = SavedContent(user_id=test_user['id'], url='https://e.com/queued', title='queued',
+                           scrape_status='PENDING', saved_at=now - timedelta(hours=2))
+        db.session.add(row)
+        db.session.commit()
+        row_id = row.id
+        fake = _FakeRedis()
+        for minutes in range(0, 60, 5):  # an hour of passes
+            fake.data.pop(pipeline_reconciler._LOCK_KEY, None)
+            with patch.object(pipeline_reconciler, '_redis', return_value=fake), \
+                 patch('services.task_queue.is_job_active', return_value=True), \
+                 patch('services.task_queue.enqueue_bookmark_processing') as enqueue_fetch:
+                counts = pipeline_reconciler.reconcile(now + timedelta(minutes=minutes))
+            enqueue_fetch.assert_not_called()
+            assert counts['fetch_gave_up'] == 0 and counts['fetch_requeued'] == 0
+        db.session.expire_all()
+        assert db.session.get(SavedContent, row_id).scrape_status == 'PENDING'
+        assert pipeline_reconciler._fetch_attempts(fake, row_id) == 0
+
+
+def test_a_lost_job_is_still_retried(app, test_user):
+    """The other half: with no job in any queue, stuck work is retried as before."""
+    from models import db, SavedContent
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        row = SavedContent(user_id=test_user['id'], url='https://e.com/lost', title='lost',
+                           scrape_status='PENDING', saved_at=now - timedelta(hours=2))
+        db.session.add(row)
+        db.session.commit()
+        fake = _FakeRedis()
+        with patch.object(pipeline_reconciler, '_redis', return_value=fake), \
+             patch('services.task_queue.is_job_active', return_value=False), \
+             patch('services.task_queue.enqueue_bookmark_processing', return_value=MagicMock()) as enqueue_fetch:
+            counts = pipeline_reconciler.reconcile(now)
+    enqueue_fetch.assert_called_once()
+    assert counts['fetch_requeued'] == 1
+
+
+def test_is_job_active_tells_waiting_from_finished():
+    from rq.job import JobStatus
+    from services import task_queue
+    with patch.object(task_queue.Job, 'fetch') as fetch:
+        for status, expected in [(JobStatus.QUEUED, True), (JobStatus.STARTED, True), (JobStatus.SCHEDULED, True),
+                                 (JobStatus.FINISHED, False), (JobStatus.FAILED, False)]:
+            fetch.return_value.get_status.return_value = status
+            assert task_queue.is_job_active('bookmark_process_1', connection=MagicMock()) is expected
+        fetch.side_effect = task_queue.NoSuchJobError()
+        assert task_queue.is_job_active('bookmark_process_2', connection=MagicMock()) is False
+        fetch.side_effect = ConnectionError('redis down')
+        assert task_queue.is_job_active('bookmark_process_3', connection=MagicMock()) is False

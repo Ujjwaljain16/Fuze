@@ -73,7 +73,7 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
     """One pass. Safe to run from several processes: a Redis lock lets only one pass run at a time."""
     from models import SavedContent, db
     from services.pipeline_orchestrator import PipelineOrchestrator
-    from services.task_queue import enqueue_bookmark_processing
+    from services.task_queue import bookmark_job_id, enqueue_bookmark_processing, is_job_active
 
     now = now or datetime.utcnow()
     counts = {"fetch_requeued": 0, "fetch_gave_up": 0, "embedding_requeued": 0,
@@ -97,6 +97,11 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
                   .order_by(SavedContent.saved_at)
                   .limit(BATCH_LIMIT).all())
     for bookmark_id, url, user_id, status, scraped_at in candidates:
+        if is_job_active(bookmark_job_id(bookmark_id), redis_conn):
+            # Still waiting its turn (or running, or waiting for its own retry): not lost. Without
+            # this a long queue was counted as failed tries and bookmarks at the back of a big
+            # import were marked FAILED after about half an hour without ever being fetched.
+            continue
         attempts = _fetch_attempts(redis_conn, bookmark_id)
         if attempts >= len(FETCH_RETRY_BACKOFF):
             # Terminal: drop it out of this oldest-first window so it can't crowd out new work.
@@ -173,7 +178,7 @@ def _retry_analyses(redis_conn, now: datetime, stale: datetime, counts: Dict[str
     from models import SavedContent, db
     from services.multi_user_api_manager import has_gemini_allowance
     from services.pipeline_orchestrator import MAX_QUEUE_BACKLOG
-    from services.task_queue import enqueue_unique, get_queue
+    from services.task_queue import enqueue_unique, get_queue, is_job_active
 
     candidates = (db.session.query(SavedContent.id, SavedContent.user_id)
                   .filter(SavedContent.embedding_status == 'SUCCESS',
@@ -199,6 +204,8 @@ def _retry_analyses(redis_conn, now: datetime, stale: datetime, counts: Dict[str
     for bookmark_id, user_id in candidates:
         if counts["analysis_requeued"] >= ANALYSIS_BATCH_LIMIT:
             break
+        if is_job_active(analysis_job_id(bookmark_id), redis_conn):
+            continue  # already queued or running: waiting is not a failed try
         due = _analysis_due(redis_conn, bookmark_id, now)
         if due is None:
             counts["analysis_gave_up"] += 1

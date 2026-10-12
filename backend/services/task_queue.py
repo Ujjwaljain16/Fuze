@@ -137,6 +137,20 @@ def get_queue(name: str = 'default') -> Optional[Queue]:
 _ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.STARTED, JobStatus.SCHEDULED, JobStatus.DEFERRED}
 
 
+def is_job_active(job_id: str, connection=None) -> bool:
+    """Whether a job with this id is waiting in a queue, running, scheduled for a retry or deferred.
+
+    A job still waiting its turn is not a lost job. Anything that retries "stuck" work has to ask
+    this first, or a long queue (a 200-bookmark import takes more than half an hour) looks like
+    200 failures. When it cannot tell (Redis trouble), the answer is no: stuck work gets retried.
+    """
+    try:
+        connection = connection or get_redis_connection()
+        return Job.fetch(job_id, connection=connection).get_status(refresh=True) in _ACTIVE_STATUSES
+    except Exception:
+        return False
+
+
 def enqueue_unique(queue: Queue, func, job_id: str, *, args: tuple = (), kwargs: Optional[Dict] = None,
                    job_timeout: Any = 600, retry: Optional[Retry] = None) -> Optional[Job]:
     """Enqueue under a fixed job id unless that job is already waiting or running.
