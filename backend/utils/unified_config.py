@@ -248,7 +248,7 @@ class UnifiedConfig:
         # Check AI configuration
         from utils.llm_provider import config_problems, is_active as llm_provider_active
         errors.extend(config_problems(self.ai))
-        if self.ai.enable_gemini and not self.ai.gemini_api_key and not llm_provider_active():
+        if self.ai.enable_gemini and not self.ai.gemini_api_key and not llm_provider_active(self.ai):
             warnings.append("GEMINI_API_KEY is not set, Gemini features will be disabled")
         
         # Log warnings and errors

@@ -36,9 +36,12 @@ def settings():
     return get_config().ai
 
 
-def is_active() -> bool:
-    """Whether LLM calls are routed to the external provider (and it is fully configured)."""
-    ai = settings()
+def is_active(ai=None) -> bool:
+    """Whether LLM calls are routed to the external provider (and it is fully configured).
+
+    `ai` is the AIConfig to judge. Config validation passes the one it is still building: asking
+    get_config() for it from inside its own constructor recursed without end."""
+    ai = ai if ai is not None else settings()
     return (ai.llm_provider == PROVIDER_NAME and bool(ai.llm_base_url and ai.llm_api_key and ai.llm_model))
 
 

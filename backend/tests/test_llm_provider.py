@@ -282,3 +282,17 @@ def test_a_cut_off_reply_is_logged_as_truncated(caplog):
          patch.object(llm_provider.logger, 'warning') as warn:
         llm_provider.OpenAICompatClient('https://x.test/v1', 'k', 5).chat('m', 'p', max_tokens=1024, temperature=0)
     assert warn.call_args.args[0] == 'llm_reply_truncated'
+
+
+@pytest.mark.parametrize('with_provider', [False, True])
+def test_building_the_config_without_a_gemini_key_does_not_recurse(monkeypatch, with_provider):
+    """Config validation asked get_config() for the config it was still building: infinite recursion,
+    but only when GEMINI_API_KEY was unset (as in the Docker image), so nothing else caught it."""
+    from utils.unified_config import UnifiedConfig
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    if with_provider:
+        for name, value in {'LLM_PROVIDER': 'openai_compat', 'LLM_BASE_URL': 'https://api.example.test/v1',
+                            'LLM_API_KEY': 'k', 'LLM_MODEL': 'm'}.items():
+            monkeypatch.setenv(name, value)
+    config = UnifiedConfig()  # a fresh instance, as the first get_config() call builds it
+    assert llm_provider.is_active(config.ai) is with_provider
