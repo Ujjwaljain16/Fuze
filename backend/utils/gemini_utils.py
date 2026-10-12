@@ -9,6 +9,7 @@ from core.logging_config import get_logger
 
 from core.circuit_breaker import gemini_circuit_breaker
 from core.job_timeout import JobTimeoutException
+from utils import llm_provider
 
 logger = get_logger(__name__)
 
@@ -42,15 +43,22 @@ class GeminiAnalyzer:
     user's key was configured last: one user's saved content billed to another user's key.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, provider: Optional[str] = None):
+        """provider='gemini' forces Gemini (a user's own key is being checked or used as theirs);
+        by default a deployment configured with LLM_PROVIDER=openai_compat routes everything to it."""
         from utils.unified_config import get_config
         config = get_config()
 
         self.client: Any = None
+        self._compat: Optional[llm_provider.OpenAICompatClient] = None
         self.model = None  # kept for callers that test truthiness; the model name when ready
         self.active_model_name = None
         self.max_retries = 2
         self.retry_delay = 1.0
+
+        if provider != 'gemini' and llm_provider.is_active():
+            self._init_external_provider(config.ai)
+            return
 
         # None means "the caller has no opinion": use the system key. An empty string means no key
         # is allowed for this user (e.g. their daily share of the system key is used up).
@@ -81,6 +89,17 @@ class GeminiAnalyzer:
             'max_output_tokens': config.ai.gemini_max_tokens,
         }
 
+    def _init_external_provider(self, ai) -> None:
+        """Route this analyzer's calls to the OpenAI-compatible provider. Any key passed to the
+        constructor is ignored: the deployment's provider is the one in charge."""
+        self._key = ai.llm_api_key  # for the quota cooldown only; never logged
+        self._compat = llm_provider.OpenAICompatClient(
+            ai.llm_base_url, ai.llm_api_key, timeout=ai.gemini_timeout, json_mode=ai.llm_json_mode)
+        self.client = self._compat  # truthy: "ready"
+        self.model_candidates = [m for m in (ai.llm_model, ai.llm_fallback_model) if m]
+        self.model = self.active_model_name = self.model_candidates[0]
+        self.generation_config = {'temperature': ai.gemini_temperature, 'max_output_tokens': ai.gemini_max_tokens}
+
     def generate_json(self, prompt: str) -> Optional[Union[Dict, List]]:
         """Request a JSON response (Gemini JSON mode) and parse it; None on any failure."""
         raw = self._make_gemini_request(prompt, json_mode=True)
@@ -95,6 +114,12 @@ class GeminiAnalyzer:
         """One cheap call with no retries: does this key work at all?"""
         if not self.client or not self.active_model_name:
             return False
+        if self._compat is not None:
+            try:
+                return bool(self._compat.chat(self.active_model_name, 'Reply with OK.', max_tokens=5, temperature=0))
+            except (llm_provider.ProviderClientError, llm_provider.ProviderServerError) as e:
+                logger.info("llm_provider_key_validation_failed", extra={"error": str(e)})
+                return False
         try:
             response = self.client.models.generate_content(
                 model=self.active_model_name, contents='Reply with OK.',
@@ -106,6 +131,11 @@ class GeminiAnalyzer:
             return False
 
     def _generate(self, model_name: str, prompt: str, json_mode: bool) -> Optional[str]:
+        if self._compat is not None:
+            return self._compat.chat(
+                model_name, prompt, json_mode=json_mode,
+                max_tokens=self.generation_config['max_output_tokens'],
+                temperature=self.generation_config['temperature'])
         config = dict(self.generation_config)
         if json_mode:
             config['response_mime_type'] = 'application/json'
@@ -143,13 +173,13 @@ class GeminiAnalyzer:
                     text = self._generate(model_name, prompt, json_mode)
                 except JobTimeoutException:
                     raise
-                except genai_errors.ClientError as e:
-                    # 4xx (bad key, quota, unknown model) will not succeed on retry. An unknown
-                    # model moves on to the fallback model; anything else ends the request.
+                except (genai_errors.ClientError, llm_provider.ProviderClientError) as e:
+                    # 4xx (bad key, quota, balance, unknown model) will not succeed on retry. An
+                    # unknown model moves on to the fallback model; anything else ends the request.
                     logger.warning("gemini_client_error", extra={"model": model_name, "code": e.code, "error": str(e)})
                     if e.code == 404:
                         break
-                    if e.code == 429:
+                    if e.code in (402, 429):
                         gemini_quota.mark_exhausted(getattr(self, '_key', None), str(e))
                         count("quota_exhausted")
                         return None  # not a service failure: leaves the circuit breaker alone

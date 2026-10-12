@@ -56,7 +56,7 @@ def _redis():
     return None
 
 
-def mark_exhausted(api_key: str, error_message: str = '') -> int:
+def mark_exhausted(api_key: Optional[str], error_message: str = "") -> int:
     """Record that this key is out of quota; returns the cooldown in seconds."""
     if not api_key:
         return 0
@@ -91,7 +91,7 @@ def cooldown_seconds(api_key: Optional[str]) -> int:
     return int(remaining) if remaining > 0 else 0
 
 
-def clear(api_key: str) -> None:
+def clear(api_key: Optional[str]) -> None:
     """Forget a cooldown (a new key was saved, or the quota was raised)."""
     if not api_key:
         return

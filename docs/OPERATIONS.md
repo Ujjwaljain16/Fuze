@@ -176,6 +176,30 @@ fallback, because vectors from another model would sit next to real ones and bre
 similarity score. Hash vectors are used only when `DISABLE_EMBEDDINGS=true` opts into them for
 local development.
 
+## LLM provider (Gemini or OpenAI-compatible)
+
+By default every LLM call goes to Google Gemini with the user's own key (or a shared system key
+within a daily allowance). A free Gemini key can be as small as 20 requests a day, which a bulk
+import uses up in minutes. Fuze reads Google's "retry in 6h52m" answer and stops calling that key
+until it resets (`core/gemini_quota.py`); the analysis simply waits.
+
+For a deployment that should not depend on per-user Gemini keys, set an OpenAI-compatible provider
+(CloseRouter, OpenRouter, a local server):
+
+| Variable | Meaning |
+|---|---|
+| `LLM_PROVIDER` | `openai_compat` turns it on; anything else (default `gemini`) leaves Gemini |
+| `LLM_BASE_URL` | e.g. `https://api.closerouter.dev/v1` (https only, `http://localhost` allowed) |
+| `LLM_API_KEY` | the provider key; set it as a host secret, never in git |
+| `LLM_MODEL` / `LLM_FALLBACK_MODEL` | model ids as the provider names them; the fallback is tried on a 404 |
+| `LLM_JSON_MODE` | `true` sends `response_format: json_object` (not every model accepts it) |
+
+With it on, all analysis, Ask, intent and explanation calls use it, users are not asked for a Gemini
+key, and the cooldown applies to the provider key: a 429 (using `Retry-After`) or a 402 (empty
+balance) pauses calls instead of failing every bookmark. Users' page text is sent to the provider,
+so use one you trust with it. A partly set configuration (a missing URL, key or model) is reported
+at startup and Fuze stays on Gemini.
+
 ## Error tracking (Sentry)
 
 Both halves report to Sentry only when a DSN is configured. Without one, nothing is imported or sent.

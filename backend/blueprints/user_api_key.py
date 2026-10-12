@@ -300,7 +300,7 @@ def test_api_key():
                     'message': 'API key not found'
                 }), 200
 
-            if GeminiAnalyzer(api_key=api_key).validate_key():
+            if GeminiAnalyzer(api_key=api_key, provider='gemini').validate_key():
                 return jsonify({
                     'valid': True,
                     'message': 'API key is valid and working',

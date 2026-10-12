@@ -149,6 +149,16 @@ class AIConfig:
     gemini_max_tokens: int = field(default_factory=lambda: int(os.getenv('GEMINI_MAX_TOKENS', '1024')))
     gemini_timeout: int = field(default_factory=lambda: int(os.getenv('GEMINI_TIMEOUT', '30')))
     enable_gemini: bool = field(default_factory=lambda: os.getenv('ENABLE_GEMINI', 'true').lower() == 'true')
+    # An OpenAI-compatible provider (CloseRouter, OpenRouter...) instead of Gemini for the whole
+    # deployment. Off unless LLM_PROVIDER=openai_compat; see utils/llm_provider.py.
+    llm_provider: str = field(default_factory=lambda: os.getenv('LLM_PROVIDER', 'gemini').strip().lower())
+    llm_base_url: Optional[str] = field(default_factory=lambda: (os.getenv('LLM_BASE_URL') or '').strip() or None)
+    llm_api_key: Optional[str] = field(default_factory=lambda: (os.getenv('LLM_API_KEY') or '').strip() or None)
+    llm_model: Optional[str] = field(default_factory=lambda: (os.getenv('LLM_MODEL') or '').strip() or None)
+    llm_fallback_model: Optional[str] = field(default_factory=lambda: (os.getenv('LLM_FALLBACK_MODEL') or '').strip() or None)
+    # Ask the provider for JSON-only output. Off by default: not every routed model accepts it,
+    # and the prompts already demand JSON and the parser copes with fenced or chatty replies.
+    llm_json_mode: bool = field(default_factory=lambda: os.getenv('LLM_JSON_MODE', 'false').lower() == 'true')
 
 @dataclass
 class CORSConfig:
@@ -232,7 +242,9 @@ class UnifiedConfig:
                 warnings.append("DEBUG mode should be disabled in production")
         
         # Check AI configuration
-        if self.ai.enable_gemini and not self.ai.gemini_api_key:
+        from utils.llm_provider import config_problems, is_active as llm_provider_active
+        errors.extend(config_problems(self.ai))
+        if self.ai.enable_gemini and not self.ai.gemini_api_key and not llm_provider_active():
             warnings.append("GEMINI_API_KEY is not set, Gemini features will be disabled")
         
         # Log warnings and errors

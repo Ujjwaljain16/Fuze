@@ -250,7 +250,14 @@ class MultiUserAPIManager:
         Users without their own key share the system key, up to SYSTEM_KEY_DAILY_LIMIT uses a day
         each; past that this returns '' (no key) so one account can't spend the shared quota.
         for_use=False only asks which key applies (status pages) and isn't counted.
+
+        A deployment configured with an external LLM provider (LLM_PROVIDER) has one key for
+        everybody: that provider's. Nobody needs a Gemini key of their own then, and there is no
+        per-user share to count.
         """
+        from utils import llm_provider
+        if llm_provider.is_active():
+            return llm_provider.active_key()
         try:
             from services.api_key_revocation_manager import get_revocation_manager
             revocation_manager = get_revocation_manager()
@@ -524,6 +531,9 @@ class MultiUserAPIManager:
                 # on another worker than the one the key was saved on, it is empty. Reading only
                 # the map told users with a saved key that they had none.
                 key_status = self._stored_key_status(user_id) or 'none'
+            from utils import llm_provider
+            if llm_provider.is_active():
+                key_status = 'active'  # the deployment's provider serves everyone
             has_key = key_status != 'none'
             quota_wait = 0
             if has_key:
