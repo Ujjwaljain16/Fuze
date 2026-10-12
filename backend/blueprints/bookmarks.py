@@ -584,11 +584,16 @@ def bulk_import_bookmarks():
             added_count = len(created_ids_urls)
             skipped_count += len(new_rows) - added_count
 
-            for bm_id, bm_url in created_ids_urls:
-                try:
-                    process_bookmark_content_async(bm_id, bm_url, user_id)
-                except Exception as enqueue_err:
-                    logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
+            # One Redis transaction for the whole import; one at a time only if that fails.
+            from services.task_queue import enqueue_bookmarks_bulk, is_rq_available
+            enqueued = is_rq_available() and enqueue_bookmarks_bulk(
+                (bm_id, bm_url, user_id) for bm_id, bm_url in created_ids_urls)
+            if not enqueued:
+                for bm_id, bm_url in created_ids_urls:
+                    try:
+                        process_bookmark_content_async(bm_id, bm_url, user_id)
+                    except Exception as enqueue_err:
+                        logger.warning(f"Could not enqueue bulk processing for bookmark {bm_id}: {enqueue_err}")
 
             redis_cache.invalidate_query_cache(cache_keys.bookmarks_pattern(user_id))
             from blueprints.recommendations import invalidate_user_recommendations

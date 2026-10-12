@@ -195,6 +195,39 @@ def enqueue_bookmark_processing(bookmark_id: int, url: str, user_id: int, queue_
         return None
 
 
+def enqueue_bookmarks_bulk(items) -> int:
+    """Enqueue processing for freshly inserted bookmarks in one Redis transaction.
+
+    items: iterable of (bookmark_id, url, user_id). Only for bookmarks created by the caller a
+    moment ago: their job ids cannot exist yet, so the per-job lookup in enqueue_unique (several
+    round trips each, about a second per bookmark against a remote Redis) is skipped. Returns
+    how many were enqueued, or 0 when nothing was, so the caller can fall back to one at a time;
+    anything still PENDING is picked up by the reconciler either way.
+    """
+    items = list(items)
+    if not items:
+        return 0
+    queue = get_queue('default')
+    if not queue:
+        return 0
+    try:
+        from services.bookmark_processing_service import process_bookmark_content_task
+        datas = [
+            Queue.prepare_data(process_bookmark_content_task, args=(bookmark_id, url, user_id),
+                               timeout=600, job_id=bookmark_job_id(bookmark_id),
+                               retry=Retry(max=2, interval=[60, 300]))
+            for bookmark_id, url, user_id in items
+        ]
+        with queue.connection.pipeline() as pipe:
+            jobs = queue.enqueue_many(datas, pipeline=pipe)
+            pipe.execute()
+    except Exception as e:
+        logger.error("rq_bulk_enqueue_failed", extra={"count": len(items), "error": str(e)})
+        return 0
+    logger.info("rq_jobs_enqueued_bulk", extra={"count": len(jobs)})
+    return len(jobs)
+
+
 def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     """
     Get status of a job safely without exposing sensitive stack trace info or massive payloads.
