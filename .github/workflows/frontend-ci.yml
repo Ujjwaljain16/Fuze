@@ -51,9 +51,10 @@ jobs:
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
       
+      # Required: errors and warnings both fail the build.
       - name: Run ESLint
         working-directory: frontend
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
       
       - name: Run unit tests
         working-directory: frontend
