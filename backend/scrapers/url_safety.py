@@ -18,7 +18,7 @@ import re
 from urllib.parse import parse_qsl, urlparse
 
 from core.logging_config import get_logger
-from scrapers.safe_http import UnsafeURLError, check_url
+from scrapers.safe_http import UnresolvableHostError, UnsafeURLError, check_url
 
 logger = get_logger(__name__)
 
@@ -32,6 +32,18 @@ def is_safe_url(url: str) -> bool:
     except UnsafeURLError as e:
         logger.warning("url_safety_blocked_unsafe_target", extra={"url": url, "reason": str(e)})
         return False
+    except Exception:
+        return False
+
+
+def is_unresolved_host(url: str) -> bool:
+    """True when `url` is refused only because its host name did not resolve (DNS failure),
+    as opposed to resolving to a private address or using a bad scheme."""
+    try:
+        check_url(url)
+        return False
+    except UnresolvableHostError:
+        return True
     except Exception:
         return False
 

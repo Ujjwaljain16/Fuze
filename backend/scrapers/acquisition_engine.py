@@ -19,7 +19,7 @@ from scrapers.normalizer import MetadataNormalizer
 from scrapers.quality_evaluator import QualityEvaluator
 from scrapers.decision_engine import DecisionEngine
 from scrapers.event_publisher import ScrapingEventPublisher
-from scrapers.url_safety import is_safe_url
+from scrapers.url_safety import is_safe_url, is_unresolved_host
 from scrapers.models import (ContentDocument, RawFetchResult, NormalizedDocument, QualityMetrics, compute_content_hash)
 from core.circuit_breaker import RedisCircuitBreaker
 from core.job_timeout import JobTimeoutException
@@ -370,6 +370,10 @@ class ContentAcquisitionEngine:
                 logger.info("acquisition_rate_limited", extra={"url": url, "wait_time": wait_time})
                 return self._unfetched(url, "failed", retryable=True, note="Per-domain rate limit")
             strategy_plan = self.fetch_policy.get_strategy_plan(url)
+        elif is_unresolved_host(url):
+            # A DNS failure says nothing about the site: retry later instead of blocking it.
+            logger.warning("acquisition_dns_failed_will_retry", extra={"url": url})
+            return self._unfetched(url, "failed", retryable=True, note="Host name did not resolve")
         else:
             logger.error("acquisition_blocked_unsafe_url", extra={"url": url})
             strategy_plan = []

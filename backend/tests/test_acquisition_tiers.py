@@ -402,3 +402,21 @@ def test_all_tiers_in_order_by_default(monkeypatch):
     monkeypatch.delenv("ENABLE_ARCHIVE_FALLBACK", raising=False)
     from scrapers.fetch_policy import FetchPolicy
     assert FetchPolicy().get_strategy_plan("https://example.com/") == ["HTTP", "READER", "ARCHIVE"]
+
+
+def test_a_dns_failure_is_retried_not_blocked():
+    """A flaky resolver used to mark public sites as unsafe for good (BLOCKED, never retried)."""
+    import socket
+    from scrapers.acquisition_engine import ContentAcquisitionEngine
+    from scrapers.url_safety import is_safe_url, is_unresolved_host
+    with patch("scrapers.safe_http.socket.getaddrinfo", side_effect=socket.gaierror(11002, "getaddrinfo failed")):
+        assert not is_safe_url("https://tc39.es/ecma262/")
+        assert is_unresolved_host("https://tc39.es/ecma262/")
+        doc = ContentAcquisitionEngine().acquire_and_normalize("https://tc39.es/ecma262/")
+    assert doc.outcome == "failed" and doc.retryable
+
+
+def test_a_private_address_is_still_blocked_not_retried():
+    from scrapers.url_safety import is_unresolved_host
+    with patch("scrapers.safe_http.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", 0))]):
+        assert not is_unresolved_host("https://internal.example/")

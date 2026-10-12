@@ -33,6 +33,11 @@ class UnsafeURLError(ValueError):
     """The URL's scheme or resolved address is not allowed for server-side fetches."""
 
 
+class UnresolvableHostError(UnsafeURLError):
+    """The host name did not resolve. Still refused (nothing is known about its address), but
+    often temporary: a DNS outage or a flaky network, so callers may try again later."""
+
+
 def is_public_ip(ip_str: str) -> bool:
     try:
         ip = ipaddress.ip_address(ip_str)
@@ -50,7 +55,7 @@ def resolve_public_ip(hostname: str) -> str:
     try:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except OSError as e:
-        raise UnsafeURLError(f"cannot resolve {hostname}: {e}") from e
+        raise UnresolvableHostError(f"cannot resolve {hostname}: {e}") from e
     addresses = [info[4][0] for info in infos]
     if not addresses:
         raise UnsafeURLError(f"{hostname} has no addresses")
