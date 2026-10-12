@@ -93,7 +93,7 @@ Passwords and keys never go through chat. The copy script reads them from enviro
 9. **Everything else that holds the old URL:** the GitHub Actions secrets above (the nightly backup, the
    weekly restore drill and the keep-alive all use them), and your local `.env`. Then run the
    "Database backup" workflow once and check it is green.
-10. **Verify and roll back if needed.** Run `python scripts/bench_live.py --ask 0 --ramp ""` and compare with
+10. **Verify and roll back if needed.** Run `python scripts/bench_live.py --ask 0 --no-ramp` and compare with
     `docs/perf/`. Sign in with Google and with a password, save a bookmark, run a search. **Rollback** takes
     a minute: put the old `DATABASE_URL` (and Supabase values) back in the Space secrets. The old project is
     never modified by any step, so it stays a working fallback.

@@ -94,7 +94,9 @@ def main():
     parser.add_argument("--base", default=DEFAULT_BASE)
     parser.add_argument("--samples", type=int, default=30, help="requests per endpoint in the sequential phase")
     parser.add_argument("--ask", type=int, default=3, help="Ask calls (0 skips; each costs a fraction of a cent)")
-    parser.add_argument("--ramp", default="1,2,4,8", help="client counts for the concurrency ramp ('' skips)")
+    parser.add_argument("--ramp", default="1,2,4,8", help="client counts for the concurrency ramp")
+    parser.add_argument("--no-ramp", action="store_true",
+                        help="skip the concurrency ramp (the app's default limit is 50 requests/minute per client)")
     parser.add_argument("--step-seconds", type=int, default=10)
     args = parser.parse_args()
 
@@ -146,7 +148,7 @@ def main():
             "ask", "POST", "/api/ask", args.ask, 8.0,
             make_kwargs=lambda i: {"json": {"question": QUESTIONS[i % len(QUESTIONS)]}}))
 
-    if args.ramp:
+    if args.ramp and not args.no_ramp:
         print("\n3. Concurrency ramp on GET /api/bookmarks (gentle: stops at the first errors)")
         results["ramp"] = []
         for clients in [int(x) for x in args.ramp.split(",") if x.strip()]:
