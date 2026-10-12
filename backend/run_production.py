@@ -221,6 +221,10 @@ def create_app(config_name: str = None) -> Flask:
             from utils.unified_config import get_config
             statement_timeout_ms = get_config().database.statement_timeout_ms
 
+            if get_config().database.pool_pre_ping:
+                from utils.db_pool import install_idle_ping
+                install_idle_ping(db.engine, get_config().database.ping_idle_seconds)
+
             @event.listens_for(db.engine, 'connect')
             def _limit_statement_time(dbapi_connection, _record):
                 # Set per connection, not as a startup option, so it also works through Supabase's

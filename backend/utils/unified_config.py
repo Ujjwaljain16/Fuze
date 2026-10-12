@@ -64,6 +64,9 @@ class DatabaseConfig:
     pool_timeout: int = field(default_factory=lambda: int(os.getenv('DB_POOL_TIMEOUT', '20')))
     pool_recycle: int = field(default_factory=lambda: int(os.getenv('DB_POOL_RECYCLE', '300')))
     pool_pre_ping: bool = field(default_factory=lambda: os.getenv('DB_POOL_PRE_PING', 'true').lower() == 'true')
+    # With pre-ping on, ping a pooled connection only after it has been idle this many seconds (every
+    # request otherwise pays a `SELECT 1` round trip). 0 pings on every checkout, as plain pre-ping does.
+    ping_idle_seconds: int = field(default_factory=lambda: int(os.getenv('DB_PING_IDLE_SECONDS', '15')))
     echo: bool = field(default_factory=lambda: os.getenv('DB_ECHO', 'false').lower() == 'true')
     # A request must never wait 30 s for a connection or hang on one query: fail fast instead.
     connect_timeout: int = field(default_factory=lambda: int(os.getenv('DB_CONNECT_TIMEOUT', '5')))
@@ -306,7 +309,8 @@ class UnifiedConfig:
                 'pool_size': self.database.pool_size,
                 'pool_timeout': self.database.pool_timeout,
                 'pool_recycle': self.database.pool_recycle,
-                'pool_pre_ping': self.database.pool_pre_ping,
+                # Idle-only pinging (utils/db_pool.py) replaces per-checkout pre-ping when enabled.
+                'pool_pre_ping': self.database.pool_pre_ping and self.database.ping_idle_seconds <= 0,
                 'max_overflow': self.database.max_overflow,
                 'connect_args': {
                     'connect_timeout': self.database.connect_timeout,
