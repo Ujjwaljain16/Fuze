@@ -1,0 +1,24 @@
+# Lint config for the backend. Run from backend/: `ruff check .`
+# Lint only: there is no `ruff format` step, so existing code style is left alone.
+target-version = "py311"
+extend-exclude = ["htmlcov"]
+
+[lint]
+# E9: syntax and IO errors. F: pyflakes (unused imports and variables, undefined names).
+# E401/E402: one import per line, imports at the top of the module.
+# Import sorting (I001) is left off for now: turning it on would reorder 190+ files.
+select = ["E9", "F", "E401", "E402"]
+
+[lint.per-file-ignores]
+# The package imports its submodules so `blueprints.<name>` resolves after `import blueprints`.
+"blueprints/__init__.py" = ["F401"]
+# Alembic's migration template imports `sa` and `postgresql` whether a revision uses them or not.
+"alembic/versions/*.py" = ["F401"]
+# Entry points and one-off scripts put backend/ on sys.path or load .env before importing app modules.
+"scripts/**" = ["E402"]
+"alembic/env.py" = ["E402"]
+"config.py" = ["E402"]
+"run_production.py" = ["E402"]
+"wsgi.py" = ["E402"]
+"services/background_analysis_service.py" = ["E402"]
+"services/multi_user_api_manager.py" = ["E402"]

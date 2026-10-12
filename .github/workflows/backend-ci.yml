@@ -86,6 +86,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r ../requirements-dev.txt
 
+      # Rules and per-file exceptions live in backend/ruff.toml.
+      - name: Lint with ruff
+        working-directory: backend
+        run: ruff check --output-format=github .
+
       # Known-vulnerable pins fail the build. The lock covers every transitive package;
       # requirements.txt adds torch, whose +cpu build in the lock isn't on PyPI to look up.
       - name: Audit Python dependencies
