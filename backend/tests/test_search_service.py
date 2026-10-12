@@ -102,5 +102,80 @@ def test_document_vector_search_enables_iterative_hnsw_scan_on_postgres():
     calls = session.execute.call_args_list
     sql = [str(c.args[0]) for c in calls]
     assert "hnsw.iterative_scan" in sql[0] and "relaxed_order" in sql[0]
-    assert "hnsw.ef_search" in sql[1] and calls[1].args[1] == {"ef": "40"}
-    assert "<=>" in sql[2]  # the ANN query runs after both settings
+    assert "hnsw.ef_search" in sql[0] and calls[0].args[1] == {"ef": "40"}  # both settings, one statement
+    assert "<=>" in sql[1]  # the ANN query runs right after them
+
+
+@pytest.mark.unit
+def test_ann_settings_are_one_statement_and_sent_once_per_transaction():
+    """Each statement is a network round trip: the settings used to be two statements, repeated per query."""
+    from services.hybrid_search import configure_filtered_ann
+    session = MagicMock()
+    session.info = {}
+    transaction = object()
+    session.get_transaction.return_value = transaction
+
+    configure_filtered_ann(session, 60)
+    assert session.execute.call_count == 1
+    sql = str(session.execute.call_args.args[0])
+    assert "hnsw.iterative_scan" in sql and "hnsw.ef_search" in sql  # both settings in the one statement
+
+    configure_filtered_ann(session, 60)   # same transaction, same ef: nothing sent
+    configure_filtered_ann(session, 10)   # a smaller ef is covered by the larger one already set
+    assert session.execute.call_count == 1
+
+    configure_filtered_ann(session, 100)  # a larger ef needs the setting raised
+    assert session.execute.call_count == 2
+
+    session.get_transaction.return_value = object()  # a new transaction has forgotten the settings
+    configure_filtered_ann(session, 60)
+    assert session.execute.call_count == 3
+
+
+@pytest.mark.unit
+def test_passage_search_makes_no_second_query_when_retrieval_returned_the_details():
+    from services import hybrid_search
+    session = MagicMock()
+    candidates = [{"content_id": 1, "passage": "p", "similarity": 0.9, "id": 1, "title": "T", "url": "https://e.com",
+                   "notes": "", "saved_at": None}]
+    with patch.object(hybrid_search, 'retrieve', return_value=candidates):
+        results = hybrid_search.semantic_search(session, 7, "q", limit=5, rerank=False, query_vector=[0.1] * 384)
+    assert results[0]["title"] == "T"
+    session.execute.assert_not_called()
+
+
+@pytest.mark.unit
+def test_passage_search_still_fetches_details_for_candidates_that_lack_them():
+    from services import hybrid_search
+    session = MagicMock()
+    session.execute.return_value.mappings.return_value = [{"id": 1, "title": "From the table", "url": "u", "notes": "", "saved_at": None}]
+    with patch.object(hybrid_search, 'retrieve', return_value=[{"content_id": 1, "passage": "p", "similarity": 0.9}]):
+        results = hybrid_search.semantic_search(session, 7, "q", limit=5, rerank=False, query_vector=[0.1] * 384)
+    assert results[0]["title"] == "From the table"
+    assert session.execute.call_count == 1
+
+
+def test_ann_settings_work_with_the_scoped_session_the_app_really_uses(tmp_path):
+    """uow.session is a scoped_session, which has no get_transaction(): a MagicMock session hid that."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import scoped_session, sessionmaker
+    from services.hybrid_search import _real_session
+    engine = create_engine(f"sqlite:///{tmp_path / 's.db'}")
+    session = scoped_session(sessionmaker(bind=engine))
+    try:
+        real = _real_session(session)
+        assert real.get_transaction() is None            # nothing begun yet
+        session.execute(__import__('sqlalchemy').text("SELECT 1"))
+        first = real.get_transaction()
+        assert first is not None and real.get_transaction() is first   # one transaction, a stable identity
+        session.commit()
+        session.execute(__import__('sqlalchemy').text("SELECT 1"))
+        assert real.get_transaction() is not first         # a new transaction after commit
+        real.info["ann_config"] = (first, 60)              # settings remembered for the old transaction ...
+        from services.hybrid_search import configure_filtered_ann
+        with patch.object(session, 'execute') as run:      # ... do not count for the new one
+            configure_filtered_ann(session, 60)
+        assert run.call_count == 1
+    finally:
+        session.remove()
+        engine.dispose()

@@ -66,12 +66,19 @@ def index_content_chunks(session, content_id: int) -> int:
 
 
 # Nearest passages for one query vector. Called once per query vector; results are merged in Python.
+# The inner query keeps the shape HNSW needs (ORDER BY distance LIMIT k on the filtered table); the
+# join then adds each bookmark's title, url, notes and date, so showing results needs no second query.
 _ANN_SQL = """
-SELECT c.content_id, c.text, 1 - (c.embedding <=> CAST(:emb AS vector)) AS similarity
-FROM content_chunks c
-WHERE c.user_id = :uid AND c.embedding_model = :model
-ORDER BY c.embedding <=> CAST(:emb AS vector)
-LIMIT :k
+SELECT x.content_id, x.text, x.similarity, s.title, s.url, s.notes, s.saved_at
+FROM (
+    SELECT c.content_id, c.text, 1 - (c.embedding <=> CAST(:emb AS vector)) AS similarity
+    FROM content_chunks c
+    WHERE c.user_id = :uid AND c.embedding_model = :model
+    ORDER BY c.embedding <=> CAST(:emb AS vector)
+    LIMIT :k
+) x
+JOIN saved_content s ON s.id = x.content_id AND s.user_id = :uid
+ORDER BY x.similarity DESC
 """
 
 _DOCS_SQL = """
@@ -86,9 +93,28 @@ def configure_filtered_ann(session, k: int) -> None:
     user_id can leave a user with fewer than k results (or none). With iterative scan
     (pgvector >= 0.8) the index keeps scanning until k rows pass the filter. Settings are
     transaction-local (set_config(..., true)). Postgres only.
+
+    Every statement is a network round trip (about 250 ms between a Hugging Face Space and a Supabase
+    project in another region), so this is one statement, and it is skipped when the current
+    transaction already has the settings with an ef_search at least this large (a request that runs
+    several ANN queries used to repeat both set_config calls before each of them).
     """
-    session.execute(text("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)"))
-    session.execute(text("SELECT set_config('hnsw.ef_search', :ef, true)"), {"ef": str(max(k, 40))})
+    ef = max(k, 40)
+    real = _real_session(session)
+    transaction = real.get_transaction()
+    configured = real.info.get("ann_config")
+    if transaction is not None and configured is not None and configured[0] is transaction and configured[1] >= ef:
+        return
+    session.execute(
+        text("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true), set_config('hnsw.ef_search', :ef, true)"),
+        {"ef": str(ef)})
+    real.info["ann_config"] = (real.get_transaction(), ef)
+
+
+def _real_session(session):
+    """The Session behind a Flask-SQLAlchemy scoped_session (which proxies only some Session methods)."""
+    from sqlalchemy.orm import scoped_session
+    return session() if isinstance(session, scoped_session) else session
 
 
 def user_has_chunks(session, user_id: int) -> bool:
@@ -126,12 +152,14 @@ def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES
     model = active_embedding_model_name()
     best: Dict[int, Dict[str, Any]] = {}
     for vec in query_vectors:
-        for content_id, passage, sim in session.execute(
+        for content_id, passage, sim, title, url, notes, saved_at in session.execute(
             text(_ANN_SQL), {"emb": _vec_literal(vec), "uid": user_id, "k": k, "model": model}
         ):
             sim = float(sim)
             if content_id not in best or sim > best[content_id]["similarity"]:
-                best[content_id] = {"content_id": content_id, "passage": passage, "similarity": sim}
+                best[content_id] = {"content_id": content_id, "passage": passage, "similarity": sim,
+                                    "id": content_id, "title": title, "url": url, "notes": notes,
+                                    "saved_at": saved_at}
     return sorted(best.values(), key=lambda r: r["similarity"], reverse=True)
 
 
@@ -155,12 +183,14 @@ def semantic_search(session, user_id: int, query: str, limit: int = 10,
             pool = head + pool[RERANK_TOP_N:]
     pool = pool[:limit]
 
-    if pool:
+    missing = [c["content_id"] for c in pool if "title" not in c]
+    if missing:  # retrieve() normally returns the details already; this is for any other source of candidates
         docs = {d["id"]: dict(d) for d in session.execute(
-            text(_DOCS_SQL), {"uid": user_id, "ids": [c["content_id"] for c in pool]}
+            text(_DOCS_SQL), {"uid": user_id, "ids": missing}
         ).mappings()}
         for c in pool:
-            c.update(docs.get(c["content_id"], {}))
+            if "title" not in c:
+                c.update(docs.get(c["content_id"], {}))
 
     logger.info("passage_search_completed", extra={
         "user_id": user_id, "rerank": bool(rerank), "results": len(pool),
