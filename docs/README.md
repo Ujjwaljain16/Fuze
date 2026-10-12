@@ -58,6 +58,7 @@ Complete documentation for Fuze - Intelligent Bookmark Manager.
   - Troubleshooting
 
 - **[Operations](OPERATIONS.md)** - Running it in production
+- **[Region move](REGION_MOVE.md)** - Moving the database next to the backend (measured 215 ms per query across regions)
   - Backups and the monthly restore drill
   - Migrations and rollback
   - Pipeline health queries
