@@ -1,0 +1,51 @@
+{
+  "space GET /health/liveness": {
+    "n": 40,
+    "min": 244,
+    "p50": 294,
+    "p95": 384,
+    "max": 5419
+  },
+  "space GET /health/readiness (db+redis)": {
+    "n": 40,
+    "min": 1131,
+    "p50": 1224,
+    "p95": 1424,
+    "max": 4761
+  },
+  "space GET /api/auth/verify (401 path)": {
+    "n": 40,
+    "min": 252,
+    "p50": 315,
+    "p95": 418,
+    "max": 476
+  },
+  "pg passage vector search (HNSW, per-user filter)": {
+    "n": 10,
+    "min": 9,
+    "p50": 25,
+    "p95": 120,
+    "max": 120
+  },
+  "pg keyword search (tsvector)": {
+    "n": 10,
+    "min": 3,
+    "p50": 5,
+    "p95": 44,
+    "max": 44
+  },
+  "end-to-end retrieval from laptop (incl. network to Supabase)": {
+    "n": 10,
+    "min": 277,
+    "p50": 412,
+    "p95": 701,
+    "max": 701
+  },
+  "laptop -> Supabase SELECT 1 round trip": {
+    "n": 15,
+    "min": 94,
+    "p50": 201,
+    "p95": 247,
+    "max": 247
+  }
+}
