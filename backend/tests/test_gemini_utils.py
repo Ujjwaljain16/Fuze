@@ -81,6 +81,8 @@ def test_client_errors_are_not_retried_and_unknown_model_falls_back():
         assert analyzer._make_gemini_request('hi') is None
         assert generate.call_count == 1
 
+        from core import gemini_quota
+        gemini_quota.clear('k')  # the 429 above started a cooldown for this key
         generate.reset_mock()
         generate.side_effect = [client_error(404), MagicMock(text='from fallback')]
         assert analyzer._make_gemini_request('hi') == 'from fallback'

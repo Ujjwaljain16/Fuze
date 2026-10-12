@@ -58,6 +58,7 @@ class GeminiAnalyzer:
         if not key:
             logger.info("gemini_disabled_no_api_key_configured")
             return
+        self._key = key  # only to look up this key's quota cooldown; never logged
 
         try:
             self.client = genai.Client(
@@ -126,6 +127,11 @@ class GeminiAnalyzer:
         if not self.client or not prompt or not isinstance(prompt, str):
             return None
 
+        from core import gemini_quota
+        if gemini_quota.cooldown_seconds(getattr(self, '_key', None)) > 0:
+            count("quota_cooldown")  # out of quota: don't spend a request (or a retry) to learn it again
+            return None
+
         if not gemini_circuit_breaker.allow_request():
             logger.warning("gemini_request_blocked_by_circuit_breaker")
             count("circuit_breaker_blocked")
@@ -143,6 +149,10 @@ class GeminiAnalyzer:
                     logger.warning("gemini_client_error", extra={"model": model_name, "code": e.code, "error": str(e)})
                     if e.code == 404:
                         break
+                    if e.code == 429:
+                        gemini_quota.mark_exhausted(getattr(self, '_key', None), str(e))
+                        count("quota_exhausted")
+                        return None  # not a service failure: leaves the circuit breaker alone
                     count("client_error")
                     return None
                 except Exception as e:

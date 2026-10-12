@@ -342,6 +342,9 @@ class MultiUserAPIManager:
         key = self.get_user_api_key(user_id, for_use=False)
         if not key:
             return False
+        from core import gemini_quota
+        if gemini_quota.cooldown_seconds(key) > 0:
+            return False  # Google already said this key is out of quota until later
         if key != os.environ.get('GEMINI_API_KEY'):
             return True  # their own key: only the rate limits above apply
         client = getattr(self.redis, 'redis_client', None)
@@ -522,6 +525,10 @@ class MultiUserAPIManager:
                 # the map told users with a saved key that they had none.
                 key_status = self._stored_key_status(user_id) or 'none'
             has_key = key_status != 'none'
+            quota_wait = 0
+            if has_key:
+                from core import gemini_quota
+                quota_wait = gemini_quota.cooldown_seconds(self.get_user_api_key(user_id, for_use=False))
 
             return {
                 'user_id': user_id,
@@ -533,7 +540,10 @@ class MultiUserAPIManager:
                 'minute_limit': self.REQUESTS_PER_MINUTE,
                 'daily_limit': self.REQUESTS_PER_DAY,
                 'monthly_limit': self.REQUESTS_PER_MONTH,
-                'can_make_request': rate_status.get('can_make_request', True)
+                'can_make_request': rate_status.get('can_make_request', True) and quota_wait == 0,
+                # Google's own answer when the key ran out (free keys can be as low as 20 a day):
+                # seconds until it may be used again, 0 when it can be used now.
+                'quota_wait_seconds': quota_wait,
             }
         except Exception as e:
             logger.error("get_user_api_stats_failed", extra={"user_id": user_id, "error": str(e)})

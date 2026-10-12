@@ -55,6 +55,15 @@ os.environ['ENABLE_READER_FALLBACK'] = 'false'
 os.environ['ENABLE_ARCHIVE_FALLBACK'] = 'false'
 os.environ.pop('READER_API_KEY', None)
 
+@pytest.fixture(autouse=True)
+def _reset_gemini_quota_cooldowns():
+    """A 429 in one test must not leave its key in cooldown for the next (the state is process-wide)."""
+    from core import gemini_quota
+    gemini_quota._local.clear()
+    yield
+    gemini_quota._local.clear()
+
+
 def pytest_sessionstart(session):
     session._start_time = time.perf_counter()
     print(f"\n[TIMING HOOK] pytest_sessionstart at {time.strftime('%H:%M:%S')}")

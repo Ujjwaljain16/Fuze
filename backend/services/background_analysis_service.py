@@ -252,6 +252,13 @@ class BackgroundAnalysisService:
                         # Their daily share of the shared key is used up: leave it PENDING.
                         logger.info("bg_analysis_deferred_no_key_allowance", extra={"user_id": target_user_id})
                         return
+                    from core import gemini_quota
+                    wait = gemini_quota.cooldown_seconds(api_key or os.environ.get('GEMINI_API_KEY'))
+                    if wait > 0:
+                        # Google said this key is out of quota until later: leave it PENDING (not
+                        # FAILED, not a try) and let the reconciler come back after the reset.
+                        logger.info("bg_analysis_deferred_quota_cooldown", extra={"user_id": target_user_id, "wait_seconds": wait})
+                        return
                 except Exception as e:
                     logger.warning("bg_analysis_api_key_failed", extra={"user_id": target_user_id, "error": str(e)})
 
@@ -287,6 +294,19 @@ class BackgroundAnalysisService:
                     pass
 
             if not analysis_result:
+                from core import gemini_quota
+                if gemini_quota.cooldown_seconds(api_key or os.environ.get('GEMINI_API_KEY')) > 0:
+                    # This very call hit the quota: not an analysis failure. Stays PENDING.
+                    logger.info("bg_analysis_stopped_by_quota", extra={"content_id": content.id})
+                    publish_pipeline_event(
+                        event_type="bookmark.pipeline.analysis.failed",
+                        bookmark_id=content.id,
+                        user_id=target_user_id,
+                        pipeline_run_id=run_id,
+                        sequence=6,
+                        error={"error_code": "QUOTA_EXHAUSTED", "retryable": True}
+                    )
+                    return
                 logger.warning("bg_analysis_empty_result", extra={"content_id": content.id})
                 content.analysis_status = 'FAILED'
                 db.session.commit()
