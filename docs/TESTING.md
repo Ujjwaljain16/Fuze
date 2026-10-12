@@ -61,6 +61,24 @@ TEST_DATABASE_URL=postgresql://postgres:test@localhost:55432/postgres pytest
 - Mocked Gemini
 - JWT authentication fixtures; bcrypt at 4 rounds for speed
 
+## Quality Checks
+
+CI runs each of these and fails on any finding. Run them locally before pushing:
+
+```bash
+cd backend
+ruff check .                                  # lint: pyflakes + import placement (backend/ruff.toml)
+mypy                                          # types for core/ and utils/ (backend/mypy.ini)
+pytest --cov=. --cov-fail-under=74            # suite plus the coverage floor CI enforces
+
+cd frontend
+npm run lint -- --max-warnings=0              # ESLint; warnings fail CI too
+```
+
+ruff and mypy are pinned in `requirements-dev.txt`. There is no `ruff format` step, and
+import sorting (ruff's `I` rules) is not enabled yet. When coverage rises, raise
+`--cov-fail-under` in `backend-ci.yml` to a few points under the new total.
+
 ## Frontend Tests
 
 **Location:** `frontend/src/tests/`
@@ -102,16 +120,18 @@ python scripts/e2e_smoke_test.py --base-url http://localhost:5000
 
 **Backend CI** (`.github/workflows/backend-ci.yml`), with Postgres (pgvector) and Redis services:
 1. Install `requirements-dev.txt`
-2. `pip-audit` over `requirements.lock` and `requirements.txt`: known vulnerabilities fail the build
-3. `alembic upgrade head`, `alembic check`, then `downgrade 0001` → `upgrade head` → `check`
+2. `ruff check` and `mypy` (see Quality Checks)
+3. `pip-audit` over `requirements.lock` and `requirements.txt`: known vulnerabilities fail the build
+4. `alembic upgrade head`, `alembic check`, then `downgrade 0001` → `upgrade head` → `check`
    (every downgrade must work and land on the same schema)
-4. Full suite on SQLite with coverage
-5. Full suite again on Postgres + pgvector (`TEST_DATABASE_URL`)
+5. Full suite on SQLite with coverage; total coverage under 74% fails the build
+6. Full suite again on Postgres + pgvector (`TEST_DATABASE_URL`)
 
 A successful Backend CI run on `main` is what triggers the Hugging Face deploy.
 
 **Frontend CI** (`.github/workflows/frontend-ci.yml`): Node 20; fails on high-severity
-advisories in production dependencies.
+advisories in production dependencies, on any ESLint error or warning, on failing unit
+tests, and on a broken production build.
 
 All actions are pinned to commit SHAs and workflows get a read-only token by default.
 
