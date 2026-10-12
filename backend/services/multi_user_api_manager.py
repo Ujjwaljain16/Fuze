@@ -499,13 +499,29 @@ class MultiUserAPIManager:
         except Exception as db_err:
             logger.warning("db_connection_check_failed", extra={"error": str(db_err)})
 
+    def _stored_key_status(self, user_id: int) -> Optional[str]:
+        """Status of the key saved in the database for this user, or None when there is none."""
+        # One column, straight from the database: an already-loaded User may be stale.
+        metadata = db.session.query(User.user_metadata).filter(User.id == user_id).scalar()
+        info = (metadata or {}).get('api_key')
+        if not info or not info.get('encrypted'):
+            return None
+        return info.get('status') or APIKeyStatus.ACTIVE.value
+
     def get_user_api_stats(self, user_id: int) -> Dict:
         """Get API usage stats for a user."""
         try:
             rate_status = self.check_user_rate_limit(user_id)
             with self.lock:
-                has_key = user_id in self.user_api_keys
-                key_status = self.user_api_keys[user_id].status.value if has_key else 'none'
+                cached = self.user_api_keys.get(user_id)
+            if cached is not None:
+                key_status = cached.status.value
+            else:
+                # The in-memory map is per process and filled on first use: after a restart, or
+                # on another worker than the one the key was saved on, it is empty. Reading only
+                # the map told users with a saved key that they had none.
+                key_status = self._stored_key_status(user_id) or 'none'
+            has_key = key_status != 'none'
 
             return {
                 'user_id': user_id,

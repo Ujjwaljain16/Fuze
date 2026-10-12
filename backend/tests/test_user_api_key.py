@@ -69,3 +69,33 @@ class TestUserAPIKey:
         data = response.json
         assert 'has_api_key' in data
 
+
+
+def test_a_saved_key_is_reported_after_a_restart_or_on_another_worker(app, client, auth_headers, test_user):
+    """has_api_key read only a per-process in-memory map, so after a restart (or on the other
+    gunicorn worker) users with a saved key were told to add one."""
+    from sqlalchemy.orm.attributes import flag_modified
+    from models import db, User
+    from services.multi_user_api_manager import api_manager
+    with app.app_context():
+        user = db.session.get(User, test_user['id'])
+        meta = dict(user.user_metadata or {})
+        meta['api_key'] = {'encrypted': 'gAAAA-not-decrypted-here', 'status': 'active'}
+        user.user_metadata = meta
+        flag_modified(user, 'user_metadata')
+        db.session.commit()
+    with api_manager.lock:
+        api_manager.user_api_keys.pop(test_user['id'], None)  # a fresh process knows nothing
+
+    status = client.get('/api/user/api-key/status', headers=auth_headers)
+    assert status.status_code == 200 and status.json['has_api_key'] is True
+    summary = client.get('/api/dashboard/summary', headers=auth_headers)
+    assert summary.status_code == 200 and summary.json['apiKeyStatus']['has_api_key'] is True
+
+
+def test_no_saved_key_is_still_reported_as_none(app, client, auth_headers, test_user):
+    from services.multi_user_api_manager import api_manager
+    with api_manager.lock:
+        api_manager.user_api_keys.pop(test_user['id'], None)
+    status = client.get('/api/user/api-key/status', headers=auth_headers)
+    assert status.status_code == 200 and status.json['has_api_key'] is False

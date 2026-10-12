@@ -45,11 +45,12 @@ def _get_authenticated_user_id() -> Optional[int]:
 
 
 def _invalidate_user_api_key_cache(user_id: int):
-    """Safely invalidate user's cached API key status in Redis"""
+    """Safely invalidate user's cached API key status in Redis, including the copy inside the
+    dashboard summary (the app decides from that one whether to ask for a key)."""
     try:
         if redis_cache and redis_cache.connected:
-            cache_key = f"api_key_status:{user_id}"
-            redis_cache.redis_client.delete(cache_key)
+            from core import cache_keys
+            redis_cache.redis_client.delete(f"api_key_status:{user_id}", cache_keys.dashboard_summary(user_id))
     except Exception as e:
         logger.warning("api_key_status_cache_invalidation_failed", extra={"user_id": user_id, "error": str(e)})
 
