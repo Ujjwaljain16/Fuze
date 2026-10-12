@@ -121,3 +121,27 @@ def test_process_bookmark_content_task_flow(app):
             assert mock_bookmark.quality_score == 8
             # embeddings are produced by generate_embedding_task, not inline
             mock_emb.assert_not_called()
+
+
+def test_embedding_task_enqueues_analysis_instead_of_running_it_inline(app):
+    """A slow or failing Gemini call used to hold the embedding worker for all of its retries."""
+    import numpy as np
+    from services.bookmark_processing_service import generate_embedding_task
+    queue = MagicMock()
+    with patch('services.bookmark_processing_service.UnitOfWork') as mock_uow_cls, \
+         patch('services.bookmark_processing_service.generate_comprehensive_embedding',
+               return_value=np.full(384, 0.2, dtype=np.float32)), \
+         patch('services.bookmark_processing_service.redis_cache'), \
+         patch('services.background_analysis_service.analyze_content') as inline, \
+         patch('services.task_queue.get_queue', return_value=queue) as get_queue, \
+         patch('services.task_queue.enqueue_unique') as enqueue:
+        mock_uow = MagicMock()
+        mock_uow_cls.return_value.__enter__.return_value = mock_uow
+        mock_uow.bookmarks.get_by_id.return_value = MagicMock(
+            title='T', notes='', extracted_text='text', url='https://example.com')
+        generate_embedding_task(bookmark_id=7, user_id=3)
+    inline.assert_not_called()
+    get_queue.assert_called_with('default')
+    args, kwargs = enqueue.call_args
+    assert args[2] == 'analyze_bookmark_7' or args[2].endswith('7')
+    assert kwargs['kwargs'] == {'bookmark_id': 7, 'user_id': 3}

@@ -14,7 +14,6 @@ from services.bookmark_service import BookmarkService
 from scrapers.acquisition_engine import ContentAcquisitionEngine
 from scrapers.models import ContentDocument, compute_content_hash
 from core.events import ScrapingCompleted, ScrapingSkipped
-from core.job_timeout import JobTimeoutException
 from services.pipeline_orchestrator import PipelineOrchestrator
 from services.captured_content import fetch_beats_capture, has_captured_content
 from utils.redis_utils import redis_cache
@@ -447,23 +446,20 @@ def generate_embedding_task(bookmark_id: int, user_id: int):
     except Exception as cache_err:
         logger.warning("bg_embedding_cache_invalidation_warning", extra={"bookmark_id": bookmark_id, "error": str(cache_err)})
 
-    # Trigger AI analysis downstream
-    try:
-        from services.background_analysis_service import analyze_content
-        # analyze_content()'s signature is (content_id, user_id) only -- it never
-        # accepted pipeline_run_id. This call unconditionally raised
-        # `TypeError: analyze_content() got an unexpected keyword argument
-        # 'pipeline_run_id'` on every single bookmark, which this bare except
-        # caught and logged as a warning-level "trigger failed" instead of
-        # propagating -- so AI content analysis has silently never run for any
-        # bookmark, with no failure visible in RQ's job status. Confirmed via
-        # an end-to-end test against real production infra.
-        if has_content:
-            analyze_content(bookmark_id, user_id)
-    except JobTimeoutException:
-        raise
-    except Exception as e:
-        logger.error("bg_embedding_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
+    # AI analysis is its own job on the default queue. Run inline it held this worker for the whole
+    # Gemini call (30 s or more, or all of its retries) while the next bookmarks waited to be
+    # embedded, and a slow or failing Gemini slowed search for everything imported after it.
+    # If the enqueue fails the bookmark stays PENDING and the reconciler enqueues it.
+    if has_content and is_embedded:
+        try:
+            from services.pipeline_reconciler import ANALYSIS_TASK, analysis_job_id
+            from services.task_queue import enqueue_unique, get_queue
+            queue = get_queue('default')
+            if queue is not None:
+                enqueue_unique(queue, ANALYSIS_TASK, analysis_job_id(bookmark_id),
+                               kwargs={'bookmark_id': bookmark_id, 'user_id': user_id}, job_timeout=300)
+        except Exception as e:
+            logger.error("bg_embedding_analysis_trigger_failed", extra={"bookmark_id": bookmark_id, "error": str(e)})
 
 
 def analyze_bookmark_task(bookmark_id: int, user_id: int):
