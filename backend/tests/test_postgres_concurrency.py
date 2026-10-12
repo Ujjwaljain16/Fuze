@@ -38,7 +38,9 @@ def test_concurrent_refreshes_mint_at_most_one_new_pair(app, client, test_user):
     login = client.post('/api/auth/login', json={'email': test_user['email'], 'password': test_user['password']})
     refresh = login.get_json()['refresh_token']
     responses = _parallel(app, lambda c: c.post('/api/auth/refresh', headers={'Authorization': f'Bearer {refresh}'}), 4)
-    assert [r.status_code for r in responses].count(200) <= 1
+    # Requests that lose the race may get the winner's pair again (refresh grace), never a second one.
+    minted = {r.get_json()['refresh_token'] for r in responses if r.status_code == 200}
+    assert len(minted) <= 1
 
 
 def test_connections_carry_a_statement_timeout(app):

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
+import json
 import os
 import time
 import uuid
@@ -448,6 +449,55 @@ def _verify_refresh_token() -> bool:
     return False
 
 
+# A refresh token presented again within this many seconds of its rotation gets the pair it was
+# already rotated into, instead of tripping reuse detection: the response may simply have been
+# lost (a closed tab, a service worker stopped mid-request, a dropped connection), or two tabs
+# refreshed at once. Every holder ends up with the same pair, so a real replay is still caught
+# the next time that pair rotates. 0 turns the grace off.
+REFRESH_GRACE_SECONDS = int(os.getenv('REFRESH_GRACE_SECONDS', '60'))
+
+
+def _grace_cipher():
+    import base64
+    from cryptography.fernet import Fernet
+    from core.app_env import derived_secret
+    return Fernet(base64.urlsafe_b64encode(derived_secret('refresh-grace')))
+
+
+def _redis_client():
+    from utils.redis_utils import redis_cache
+    return redis_cache.redis_client if getattr(redis_cache, 'connected', False) else None
+
+
+def _remember_rotation(old_jti: str, new_jti: str, access: str, refresh_token: str) -> None:
+    """Keep the pair issued for old_jti (encrypted) for the grace window. Best effort."""
+    if REFRESH_GRACE_SECONDS <= 0:
+        return
+    try:
+        client = _redis_client()
+        if client is None:
+            return
+        payload = json.dumps({'jti': new_jti, 'access_token': access, 'refresh_token': refresh_token})
+        client.setex(f"refresh_grace:{old_jti}", REFRESH_GRACE_SECONDS, _grace_cipher().encrypt(payload.encode()))
+    except Exception as e:
+        logger.warning(f"Could not record refresh grace entry: {e}")
+
+
+def _pair_within_grace(old_jti: str, current_jti: str):
+    """The pair old_jti was rotated into moments ago, if that pair is still the family's current one."""
+    if REFRESH_GRACE_SECONDS <= 0:
+        return None
+    try:
+        client = _redis_client()
+        raw = client.get(f"refresh_grace:{old_jti}") if client is not None else None
+        if not isinstance(raw, (bytes, str)) or not raw:
+            return None
+        data = json.loads(_grace_cipher().decrypt(raw if isinstance(raw, bytes) else raw.encode()))
+        return data if data.get('jti') == current_jti else None
+    except Exception:
+        return None
+
+
 @auth_bp.route('/refresh', methods=['POST'])
 def refresh():
     """Refresh access token with rotation and reuse detection."""
@@ -469,6 +519,13 @@ def refresh():
             return error_response('invalid_refresh_token', 'Session expired. Please log in again.', 401)
 
         if family.current_jti != old_jti:
+            reissued = _pair_within_grace(old_jti, family.current_jti)
+            if reissued:
+                logger.info(f"Refresh token presented again within the grace window: user={identity} family={family_id}")
+                response = jsonify({'access_token': reissued['access_token'], 'refresh_token': reissued['refresh_token']})
+                set_access_cookies(response, reissued['access_token'])
+                set_refresh_cookies(response, reissued['refresh_token'])
+                return response, 200
             uow.token_families.revoke_family(family_id, 'reuse_detected')
             from core.sessions import mark_family_revoked
             mark_family_revoked(family_id)
@@ -479,12 +536,12 @@ def refresh():
         new_refresh = create_refresh_token(identity=identity, additional_claims={'family_id': family_id})
         new_jti = decode_token(new_refresh)['jti']
 
-        try:
-            from utils.redis_utils import redis_cache
-            redis_cache.client.setex(f"revoked_jti:{old_jti}", 60 * 60 * 24 * 30, "1")
-        except Exception as e:
-            logger.warning(f"Could not blacklist old refresh jti: {e}")
-
+        # The spent token is deliberately not put on the jti blocklist: the blocklist rejects it
+        # before this handler runs, which made a replay a plain 401 and skipped the reuse
+        # detection above. The family's current_jti is the authority for refresh tokens.
+        # Recorded before the row lock is released, so a concurrent refresh with the same token
+        # waits for the lock and then finds this pair.
+        _remember_rotation(old_jti, new_jti, new_access, new_refresh)
         uow.token_families.update_current_jti(family_id, new_jti)
 
     response = jsonify({'access_token': new_access, 'refresh_token': new_refresh})
