@@ -124,8 +124,10 @@ jobs:
           APP_ENV: testing
           DATABASE_URL: 'sqlite:///:memory:'
           GEMINI_API_KEY: 'test-key-for-ci'
+        # Total coverage measured about 76.5% locally (Oct 2026); the floor sits a few points under it
+        # so a real drop fails the build without flaking. Raise it as coverage grows.
         run: |
-          pytest --cov=. --cov-report=xml --cov-report=html -v
+          pytest --cov=. --cov-report=xml --cov-report=html --cov-fail-under=74 -v
       
       # SQLite can't run pgvector queries, row locks or real concurrency; this lane can.
       - name: Run tests on Postgres + pgvector
