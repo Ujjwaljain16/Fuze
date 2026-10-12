@@ -441,15 +441,30 @@ def create_app(config_name: str = None) -> Flask:
         from core.schema_version import schema_status
         db_ready = False
         schema_ready = False
+        want_timing = request.args.get('timing') == '1'
+        timing = {}
         try:
             with db.engine.connect() as conn:
                 # Code running against an older schema 500s on every query that touches new columns.
                 schema_ready = schema_status(conn)['up_to_date']
+                if want_timing:
+                    # One more query on the now-warm connection: the pure network round trip to the
+                    # database, which is what a deployment in the wrong region pays on every statement.
+                    started = time.perf_counter()
+                    conn.execute(text('SELECT 1'))
+                    timing['database_round_trip_ms'] = round((time.perf_counter() - started) * 1000, 1)
             db_ready = True
         except Exception:
             db_ready = False
 
         redis_ready = getattr(redis_cache, 'connected', False)
+        if want_timing and redis_ready:
+            try:
+                started = time.perf_counter()
+                redis_cache.redis_client.ping()
+                timing['redis_round_trip_ms'] = round((time.perf_counter() - started) * 1000, 1)
+            except Exception:
+                pass
         is_ready = db_ready and schema_ready and redis_ready
 
         body = {
@@ -458,6 +473,8 @@ def create_app(config_name: str = None) -> Flask:
             'schema': 'current' if schema_ready else 'outdated',
             'redis': 'ready' if redis_ready else 'unhealthy'
         }
+        if timing:
+            body['timing'] = timing  # only with ?timing=1: round trips from this process to its data stores
         if is_ready:
             return jsonify(body), 200
         return error_response('not_ready', 'Service is not ready', 503, **body)

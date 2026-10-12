@@ -38,3 +38,20 @@ def test_readiness_reports_outdated_schema(client, app):
             conn.execute(text('UPDATE alembic_version SET version_num = :v'), {'v': expected_head()})
     response = client.get('/health/readiness')
     assert response.json['schema'] == 'current'
+
+
+def test_readiness_reports_round_trip_times_only_when_asked(client, app, patch_redis_for_tests):
+    """?timing=1 lets a deployment report how far it is from its database (a region mismatch shows up here)."""
+    from models import db
+    with app.app_context():
+        with db.engine.begin() as conn:
+            conn.execute(text('CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32))'))
+            conn.execute(text('DELETE FROM alembic_version'))
+            conn.execute(text('INSERT INTO alembic_version VALUES (:v)'), {'v': expected_head()})
+    plain = client.get('/health/readiness')
+    assert 'timing' not in plain.json  # probes are unchanged
+
+    timed = client.get('/health/readiness?timing=1')
+    assert timed.status_code == plain.status_code
+    assert timed.json['timing']['database_round_trip_ms'] >= 0
+    assert set(timed.json['timing']) <= {'database_round_trip_ms', 'redis_round_trip_ms'}
