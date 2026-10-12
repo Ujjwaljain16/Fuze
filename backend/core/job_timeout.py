@@ -8,7 +8,7 @@ this first and re-raises it.
 try:
     from rq.timeouts import JobTimeoutException
 except ImportError:  # rq not installed (e.g. tooling); nothing can raise it then
-    class JobTimeoutException(Exception):
+    class JobTimeoutException(Exception):  # type: ignore[no-redef]
         pass
 
 __all__ = ['JobTimeoutException']

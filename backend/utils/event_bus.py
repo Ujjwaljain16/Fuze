@@ -147,7 +147,7 @@ _STREAM_ID = re.compile(r"^\d+-\d+$")
 
 
 def valid_stream_id(value: Optional[str]) -> bool:
-    return bool(value) and bool(_STREAM_ID.match(value))
+    return value is not None and bool(_STREAM_ID.match(value))
 
 
 def read_user_stream(client, user_id: int, cursor: str, block_ms: int = 5000,

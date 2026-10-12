@@ -33,6 +33,7 @@ Usage:
 """
 
 import os
+from typing import Any
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -42,7 +43,7 @@ METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 # ---------------------------------------------------------------------------
 # Registry setup — multiprocess-aware
 # ---------------------------------------------------------------------------
-_registry = None
+_registry: Any = None
 _multiproc_enabled = False
 
 try:
@@ -170,7 +171,7 @@ else:
             import contextlib
             return contextlib.nullcontext()
 
-    _noop = _NoOpMetric()
+    _noop: Any = _NoOpMetric()
 
     http_request_duration = _noop
     recommendation_latency = _noop

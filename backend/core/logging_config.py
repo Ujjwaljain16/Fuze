@@ -4,7 +4,7 @@ import socket
 import logging
 import uuid
 import structlog
-from typing import Optional
+from typing import Any, Optional
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "fuze-api")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -65,9 +65,9 @@ def configure_logging(debug: bool = False, force: bool = False):
     """
     if getattr(configure_logging, "_configured", False) and not force:
         return
-    configure_logging._configured = True
+    configure_logging._configured = True  # type: ignore[attr-defined]
 
-    shared_processors = [
+    shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.processors.add_log_level,

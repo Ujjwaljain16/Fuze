@@ -86,7 +86,7 @@ def check_target(database_url: str, argv: Sequence[str] = ()) -> Tuple[bool, str
     return False, why
 
 
-def require_safe_target(database_url: str, argv: Optional[Sequence[str]] = None) -> str:
+def require_safe_target(database_url: str, argv: Optional[Sequence[str]] = None) -> Optional[str]:
     """Exit non-zero unless the target is safe or the operator typed its host back. Returns the host."""
     argv = sys.argv[1:] if argv is None else argv
     allowed, reason = check_target(database_url, argv)

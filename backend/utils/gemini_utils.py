@@ -1,7 +1,7 @@
 import json
 import re
 import time
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -46,7 +46,7 @@ class GeminiAnalyzer:
         from utils.unified_config import get_config
         config = get_config()
 
-        self.client = None
+        self.client: Any = None
         self.model = None  # kept for callers that test truthiness; the model name when ready
         self.active_model_name = None
         self.max_retries = 2
@@ -92,7 +92,7 @@ class GeminiAnalyzer:
 
     def validate_key(self) -> bool:
         """One cheap call with no retries: does this key work at all?"""
-        if not self.client:
+        if not self.client or not self.active_model_name:
             return False
         try:
             response = self.client.models.generate_content(

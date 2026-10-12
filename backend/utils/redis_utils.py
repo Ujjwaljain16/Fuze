@@ -122,7 +122,7 @@ class RedisCache:
             use_ssl = True
 
         try:
-            params = {
+            params: Dict[str, Any] = {
                 'host': redis_host,
                 'port': redis_port,
                 'db': redis_db,

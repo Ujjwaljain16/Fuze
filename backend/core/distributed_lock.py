@@ -1,7 +1,7 @@
 import uuid
 import time
 import random
-from typing import Optional, Union, Callable
+from typing import Any, Optional, Union, Callable
 from core.logging_config import get_logger
 from utils.redis_utils import redis_cache
 
@@ -48,8 +48,8 @@ class DistributedLock:
         self.owner_id = str(uuid.uuid4())
         self.locked = False
         self.client = redis_cache.redis_client
-        self._release_script = None
-        self._extend_script = None
+        self._release_script: Any = None
+        self._extend_script: Any = None
 
     def acquire(self, blocking: Optional[bool] = None, acquire_timeout_s: Optional[float] = None) -> bool:
         """
