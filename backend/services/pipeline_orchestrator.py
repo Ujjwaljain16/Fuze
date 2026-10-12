@@ -16,6 +16,10 @@ from utils.event_bus import publish_pipeline_event
 logger = get_logger(__name__)
 
 MAX_QUEUE_BACKLOG = 500  # Backpressure threshold in jobs count
+# Embedding is what makes a fetched bookmark searchable and takes about a second, so it goes on
+# the high queue (its own worker in production) instead of waiting behind every fetch of a bulk
+# import on the default queue.
+EMBEDDING_QUEUE = 'high'
 EMBEDDING_TASK = "services.bookmark_processing_service.generate_embedding_task"
 
 
@@ -27,7 +31,7 @@ class PipelineOrchestrator:
     """
     Decoupled Orchestrator for downstream pipeline processing with backpressure control.
     """
-    def __init__(self, queue_name: str = 'default', max_backlog: int = MAX_QUEUE_BACKLOG):
+    def __init__(self, queue_name: str = EMBEDDING_QUEUE, max_backlog: int = MAX_QUEUE_BACKLOG):
         self.queue_name = queue_name
         self.max_backlog = max_backlog
 

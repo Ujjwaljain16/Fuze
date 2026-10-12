@@ -469,3 +469,16 @@ def test_robots_disallowed_bookmark_is_marked_and_still_embedded(app, test_user,
         process_bookmark_content_task(saved_bookmark, 'https://example.com/a', test_user['id'])
     assert _bookmark(app, saved_bookmark).scrape_status == 'DISALLOWED'
     request_embedding.assert_called_once()
+
+
+def test_embeddings_go_on_the_high_queue_not_behind_fetches():
+    """On the default queue an embedding waited behind every fetch of a bulk import, so nothing
+    imported was searchable until the whole import had been fetched."""
+    from services.pipeline_orchestrator import PipelineOrchestrator
+    queue = MagicMock()
+    queue.__len__.return_value = 0
+    with patch('services.pipeline_orchestrator.get_queue', return_value=queue) as get_queue, \
+         patch('services.pipeline_orchestrator.enqueue_unique') as enqueue:
+        assert PipelineOrchestrator().request_embedding(1, 1) is True
+    get_queue.assert_called_with('high')
+    enqueue.assert_called_once()

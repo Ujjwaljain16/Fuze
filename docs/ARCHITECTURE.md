@@ -936,8 +936,9 @@ User Action → API Endpoint → Enqueue Job → Immediate Response
 
 **Queue Configuration:**
 
-- **Default Queue**: bookmark fetch and embedding jobs, project intent jobs
-- **High Priority Queue**: login-triggered cache warming
+- **Default Queue**: bookmark fetch jobs, project intent jobs
+- **High Priority Queue**: embedding jobs (a fetched bookmark becomes searchable without waiting
+  behind the rest of a bulk import's fetches), login-triggered cache warming
 - **Retry Logic**: fetch jobs 2 retries (after 1 min, then 5 min); project jobs 3
 - **Job Timeout**: 10 minutes per job (cache warming: 30 s)
 
