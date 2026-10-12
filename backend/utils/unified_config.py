@@ -159,6 +159,10 @@ class AIConfig:
     # Ask the provider for JSON-only output. Off by default: not every routed model accepts it,
     # and the prompts already demand JSON and the parser copes with fenced or chatty replies.
     llm_json_mode: bool = field(default_factory=lambda: os.getenv('LLM_JSON_MODE', 'false').lower() == 'true')
+    # Output budget per call. Much larger than GEMINI_MAX_TOKENS: models behind a router often "think"
+    # first and that hidden reasoning (500-700 tokens for a short page) counts against the limit, so
+    # 1024 cut the JSON off mid-reply for about four bookmarks in five. Only tokens used are billed.
+    llm_max_tokens: int = field(default_factory=lambda: int(os.getenv('LLM_MAX_TOKENS', '4096')))
 
 @dataclass
 class CORSConfig:

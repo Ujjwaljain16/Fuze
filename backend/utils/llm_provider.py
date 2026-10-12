@@ -103,9 +103,13 @@ class OpenAICompatClient:
         if response.status_code >= 500:
             raise ProviderServerError(f'HTTP {response.status_code}: {self._error_message(response)}')
         try:
-            text = response.json()['choices'][0]['message']['content']
+            choice = response.json()['choices'][0]
+            text = choice['message']['content']
         except (ValueError, KeyError, IndexError, TypeError) as e:
             raise ProviderServerError('unexpected response shape') from e
+        if choice.get('finish_reason') == 'length':
+            # The model ran out of output budget (hidden reasoning counts): the reply is cut off.
+            logger.warning("llm_reply_truncated", extra={"model": model, "max_tokens": max_tokens})
         return (text or '').strip() or None
 
     @staticmethod

@@ -265,3 +265,20 @@ def test_a_reply_that_cannot_be_parsed_is_still_a_failed_analysis(provider_on, a
             service._analyze_single_content(bookmark, user_id=test_user['id'], pipeline_run_id='run_y')
         db.session.expire_all()
         assert db.session.get(SavedContent, bookmark.id).analysis_status == 'FAILED'
+
+
+def test_the_provider_gets_a_budget_big_enough_for_hidden_reasoning(provider_on):
+    """1024 (the Gemini setting) cut thinking-model replies off mid-JSON for ~4 bookmarks in 5."""
+    with patch('utils.llm_provider.requests.post', return_value=_ok('{}')) as post, \
+         patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+        breaker.allow_request.return_value = True
+        GeminiAnalyzer()._make_gemini_request('hi')
+    assert post.call_args.kwargs['json']['max_tokens'] == 4096
+
+
+def test_a_cut_off_reply_is_logged_as_truncated(caplog):
+    cut = _response(200, {'choices': [{'message': {'content': '{"summary": "half a'}, 'finish_reason': 'length'}]})
+    with patch('utils.llm_provider.requests.post', return_value=cut), \
+         patch.object(llm_provider.logger, 'warning') as warn:
+        llm_provider.OpenAICompatClient('https://x.test/v1', 'k', 5).chat('m', 'p', max_tokens=1024, temperature=0)
+    assert warn.call_args.args[0] == 'llm_reply_truncated'

@@ -102,7 +102,7 @@ class GeminiAnalyzer:
         self.client = self._compat  # truthy: "ready"
         self.model_candidates = [m for m in (ai.llm_model, ai.llm_fallback_model) if m]
         self.model = self.active_model_name = self.model_candidates[0]
-        self.generation_config = {'temperature': ai.gemini_temperature, 'max_output_tokens': ai.gemini_max_tokens}
+        self.generation_config = {'temperature': ai.gemini_temperature, 'max_output_tokens': ai.llm_max_tokens}
 
     def generate_json(self, prompt: str) -> Optional[Union[Dict, List]]:
         """Request a JSON response (Gemini JSON mode) and parse it; None on any failure."""
