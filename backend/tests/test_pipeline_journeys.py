@@ -171,7 +171,17 @@ def test_save_process_embed_then_semantic_search_finds_it(app, client, test_user
     assert sorted(job[0] for job in worker.fetch_jobs) == sorted(row['id'] for row in rows.values())
 
     # 2-3. The worker fetches each page, which requests the embedding, which the worker runs.
-    patches = worker.queue_patches()[1:]  # fetch jobs are already captured; capture embedding requests
+    # The embedding job enqueues the AI analysis as a job of its own (it no longer runs inline); capture
+    # those too, to run them below the way a worker would.
+    analysis_jobs = []
+
+    def capture_analysis(queue, func, job_id, *, args=(), kwargs=None, **options):
+        analysis_jobs.append((func, job_id, kwargs))
+        return MagicMock(id=job_id)
+
+    patches = worker.queue_patches()[1:] + [
+        patch('services.task_queue.get_queue', return_value=MagicMock()),
+        patch('services.task_queue.enqueue_unique', side_effect=capture_analysis)]
     for p in patches:
         p.start()
     try:
@@ -180,6 +190,8 @@ def test_save_process_embed_then_semantic_search_finds_it(app, client, test_user
         for p in patches:
             p.stop()
     assert ran == {'fetch': 3, 'embed': 3, 'transient': 0}
+    assert stub_analysis.call_count == 0  # embedding no longer waits for Gemini
+    assert sorted(job_id for _, job_id, _ in analysis_jobs) ==         sorted(f"analyze_bookmark_{row['id']}" for row in _rows(app, test_user['id']).values())
 
     rows = _rows(app, test_user['id'])
     for url, row in rows.items():
@@ -187,6 +199,10 @@ def test_save_process_embed_then_semantic_search_finds_it(app, client, test_user
             ('SUCCESS', 'SUCCESS', FAKE_MODEL_NAME, True), url
         assert _chunk_count(app, row['id']) > 0, url
     assert rows[target]['title'] == 'Tuning HNSW indexes in pgvector'  # 'Untitled' replaced by the page title
+    from services.bookmark_processing_service import analyze_bookmark_task
+    with app.app_context():
+        for _, _, job_kwargs in analysis_jobs:
+            analyze_bookmark_task(**job_kwargs)  # the queued analysis jobs, run as the worker would
     assert stub_analysis.call_count == 3  # Gemini analysis was triggered, and stubbed
 
     # 4. Semantic search over the user's bookmarks ranks the pgvector article first.
