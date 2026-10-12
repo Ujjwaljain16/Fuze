@@ -66,6 +66,8 @@ htmlcov/
 *.cover
 .hypothesis/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Frontend test coverage
 frontend/coverage/

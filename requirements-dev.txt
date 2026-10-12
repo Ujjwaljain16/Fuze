@@ -10,3 +10,4 @@ faker==33.1.0
 freezegun==1.5.1
 pip-audit==2.9.0
 ruff==0.9.7
+mypy==1.15.0

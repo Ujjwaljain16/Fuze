@@ -91,6 +91,11 @@ jobs:
         working-directory: backend
         run: ruff check --output-format=github .
 
+      # Checks backend/core and backend/utils; config in backend/mypy.ini.
+      - name: Type check with mypy
+        working-directory: backend
+        run: mypy
+
       # Known-vulnerable pins fail the build. The lock covers every transitive package;
       # requirements.txt adds torch, whose +cpu build in the lock isn't on PyPI to look up.
       - name: Audit Python dependencies
