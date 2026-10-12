@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Download, ExternalLink, CheckCircle, AlertCircle, FileArchive, Settings, Key } from 'lucide-react'
-import { baseURL } from '../services/api'
+
+const EXTENSION_REPO = 'https://github.com/Ujjwaljain16/BookmarkExtension'
+const FOLDER = 'fuze-web-clipper'
 
 const ExtensionDownload = () => {
   const [downloadStep, setDownloadStep] = useState(1)
@@ -61,7 +63,7 @@ const ExtensionDownload = () => {
                             📦 Download Fuze Web Clipper Extension
                           </p>
                           <p className="text-sm text-gray-300 mb-4">
-                            Click the button below to download the extension package (~2.4 MB). Then extract it and load it in Chrome.
+                            Click the button below to download the extension package (under 1 MB). Then extract it and load it in Chrome.
                           </p>
                           
                           <a
@@ -130,9 +132,9 @@ const ExtensionDownload = () => {
                             <li>Locate the downloaded <code className="bg-gray-900 px-1 rounded">fuze-web-clipper.zip</code> file (usually in Downloads)</li>
                             <li>Right-click on the zip file</li>
                             <li>Select "Extract All..." or "Extract to..."</li>
-                            <li>Choose a location (e.g., <code className="bg-gray-900 px-1 rounded">C:\Users\YourName\Downloads\fuze-web-clipper</code>)</li>
+                            <li>Keep the suggested location (e.g., <code className="bg-gray-900 px-1 rounded">C:\Users\YourName\Downloads\fuze-web-clipper</code>)</li>
                             <li>Click "Extract"</li>
-                            <li>You should see a <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code> folder after extraction</li>
+                            <li>You should see a <code className="bg-gray-900 px-1 rounded">{FOLDER}</code> folder containing <code className="bg-gray-900 px-1 rounded">manifest.json</code></li>
                             </>
                           )}
                           {osType === 'mac' && (
@@ -140,7 +142,7 @@ const ExtensionDownload = () => {
                             <li>Locate the downloaded <code className="bg-gray-900 px-1 rounded">fuze-web-clipper.zip</code> file (usually in Downloads)</li>
                             <li>Double-click the zip file</li>
                             <li>It will automatically extract to the same location</li>
-                            <li>You should see a folder named <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code></li>
+                            <li>You should see a folder named <code className="bg-gray-900 px-1 rounded">{FOLDER}</code> containing <code className="bg-gray-900 px-1 rounded">manifest.json</code></li>
                             </>
                           )}
                           {osType === 'linux' && (
@@ -148,7 +150,7 @@ const ExtensionDownload = () => {
                             <li>Locate the downloaded <code className="bg-gray-900 px-1 rounded">fuze-web-clipper.zip</code> file (usually in Downloads)</li>
                             <li>Right-click on the zip file</li>
                             <li>Select "Extract Here" or "Extract to..."</li>
-                            <li>You should see a folder named <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code></li>
+                            <li>You should see a folder named <code className="bg-gray-900 px-1 rounded">{FOLDER}</code> containing <code className="bg-gray-900 px-1 rounded">manifest.json</code></li>
                             </>
                           )}
                         </ol>
@@ -193,7 +195,7 @@ const ExtensionDownload = () => {
                             <li>Open Chrome and navigate to <code className="bg-gray-900 px-1 rounded">chrome://extensions/</code></li>
                             <li>Enable <strong>"Developer mode"</strong> toggle in the top-right corner</li>
                             <li>Click <strong>"Load unpacked"</strong> button</li>
-                            <li>Navigate to and select the extracted <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code> folder</li>
+                            <li>Select the extracted <code className="bg-gray-900 px-1 rounded">{FOLDER}</code> folder</li>
                             <li>The extension should now appear in your extensions list</li>
                           </ol>
                         </div>
@@ -202,7 +204,7 @@ const ExtensionDownload = () => {
                           <div className="flex items-start gap-2">
                             <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
                             <div className="text-sm text-amber-200">
-                              <strong>Important:</strong> Make sure you select the <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code> folder itself, not a parent folder. The folder should contain <code className="bg-gray-900 px-1 rounded">MANIFEST.JSON</code> directly.
+                              <strong>Important:</strong> Select the folder that contains <code className="bg-gray-900 px-1 rounded">manifest.json</code> directly, not a folder above it.
                             </div>
                           </div>
                         </div>
@@ -240,9 +242,9 @@ const ExtensionDownload = () => {
                     {downloadStep > 4 ? <CheckCircle className="w-6 h-6" /> : '4'}
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-semibold mb-2">Configure Extension</h3>
+                    <h3 className="text-xl font-semibold mb-2">Sign In</h3>
                     <p className="text-gray-400 mb-4">
-                      Set up the extension with your Fuze account
+                      Connect the extension to your Fuze account
                     </p>
                     
                     {downloadStep === 4 && (
@@ -250,24 +252,22 @@ const ExtensionDownload = () => {
                         <div>
                           <div className="flex items-center gap-2 mb-2">
                             <Key className="w-5 h-5 text-cyan-400" />
-                            <span className="font-semibold">Configuration Steps</span>
+                            <span className="font-semibold">Two ways to sign in</span>
                           </div>
                           <ol className="list-decimal list-inside space-y-2 text-sm text-gray-300">
-                            <li>Click the Fuze Web Clipper icon in your Chrome toolbar</li>
-                            <li>Click <strong>"Settings"</strong> in the popup</li>
-                            <li>Enter your Fuze API URL: <code className="bg-gray-900 px-1 rounded">{baseURL}</code></li>
-                            <li>Enter your Fuze email and password</li>
-                            <li>Click <strong>"Login to Fuze"</strong></li>
-                            <li>Enable <strong>"Auto-sync Chrome bookmarks"</strong> if desired</li>
-                            <li>Click <strong>"Save Settings"</strong></li>
+                            <li>Sign in on the Fuze website: the extension picks up the session by itself. If you were already signed in, reload the Fuze tab once.</li>
+                            <li>Or right-click the extension icon, choose <strong>"Options"</strong>, and sign in with your Fuze email and password.</li>
                           </ol>
+                          <p className="text-sm text-gray-400 mt-3">
+                            In <strong>Options</strong> you can also turn on <strong>auto-sync</strong> of new Chrome bookmarks and <strong>import all</strong> your existing ones.
+                          </p>
                         </div>
                         
                         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
                           <div className="flex items-start gap-2">
                             <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
                             <div className="text-sm text-green-200">
-                              <strong>Default Settings:</strong> The extension is pre-configured with production URLs. You only need to log in with your Fuze credentials.
+                              <strong>Nothing to configure:</strong> the extension already knows Fuze's server. You only need to sign in.
                             </div>
                           </div>
                         </div>
@@ -276,7 +276,7 @@ const ExtensionDownload = () => {
                           onClick={() => window.location.href = '/login'}
                           className="w-full px-4 py-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-600 hover:to-emerald-600 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 font-semibold"
                         >
-                          Go to Login
+                          Sign in on Fuze
                         </button>
                       </div>
                     )}
@@ -301,9 +301,9 @@ const ExtensionDownload = () => {
                     <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-lg p-4">
                       <h4 className="font-semibold mb-2 text-green-300">How to Use:</h4>
                       <ul className="list-disc list-inside space-y-1 text-sm text-gray-300">
-                        <li>Click the extension icon to save the current page</li>
-                        <li>Right-click any link and select "Save to Fuze"</li>
-                        <li>Use "Import All Bookmarks" to sync your Chrome bookmarks</li>
+                        <li>Click the extension icon to save the page you are on, with its content</li>
+                        <li>Right-click a page or a link and choose "Save page to Fuze" or "Save link to Fuze"</li>
+                        <li>Import all your Chrome bookmarks from the extension's Options</li>
                       </ul>
                     </div>
                     
@@ -324,18 +324,23 @@ const ExtensionDownload = () => {
 
         {/* Quick Links */}
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl p-4 hover:border-cyan-500/30 transition-all duration-300 group">
+          <a
+            href={EXTENSION_REPO}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-xl p-4 hover:border-cyan-500/30 transition-all duration-300 group"
+          >
             <div className="flex items-center gap-3">
               <ExternalLink className="w-6 h-6 text-cyan-400 group-hover:scale-110 transition-transform" />
               <div>
                 <h3 className="font-semibold">Manual Installation</h3>
-                <p className="text-sm text-gray-400">Download from repository</p>
+                <p className="text-sm text-gray-400">Get the source on GitHub</p>
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Clone the repository and navigate to the <code className="bg-gray-900 px-1 rounded">BookmarkExtension</code> folder
+              Clone the repository and load its folder with "Load unpacked"
             </p>
-          </div>
+          </a>
           
           <a
             href="/dashboard"
@@ -360,15 +365,15 @@ const ExtensionDownload = () => {
           <div className="space-y-3 text-sm text-gray-300">
             <div>
               <strong className="text-white">Extension not loading?</strong>
-              <p className="text-gray-400 mt-1">Make sure you selected the correct folder (should contain MANIFEST.JSON directly)</p>
+              <p className="text-gray-400 mt-1">Select the folder that contains <code className="bg-gray-900 px-1 rounded">manifest.json</code> directly, not a folder above it.</p>
             </div>
             <div>
               <strong className="text-white">Can't connect to Fuze?</strong>
-              <p className="text-gray-400 mt-1">Verify the API URL is set to: <code className="bg-gray-900 px-1 rounded">{baseURL}</code></p>
+              <p className="text-gray-400 mt-1">The extension uses Fuze's server by default. If you changed <strong>API server</strong> in its Options, click <strong>"Use Fuze"</strong> there.</p>
             </div>
             <div>
               <strong className="text-white">Login not working?</strong>
-              <p className="text-gray-400 mt-1">Make sure you're using the same credentials as your Fuze web account</p>
+              <p className="text-gray-400 mt-1">Sign in on the Fuze website and reload the tab, or sign in from the extension's Options with your Fuze email and password. After updating from an older version of the extension, sign in once again.</p>
             </div>
           </div>
         </div>
