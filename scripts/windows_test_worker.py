@@ -24,7 +24,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/../backend")
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/../backend")
 
-SCHEDULER_INTERVAL_SECONDS = 5
+SCHEDULER_INTERVAL_SECONDS = 15   # each pass costs Redis commands; the shortest retry wait is 10 s
 
 
 def run_scheduler(queue_names, connection, stop: threading.Event) -> None:

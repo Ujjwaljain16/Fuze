@@ -15,6 +15,8 @@ import socket
 import argparse
 import multiprocessing
 from rq import Worker
+from rq.scheduler import RQScheduler
+from rq.worker import base as rq_worker_base
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +30,20 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 ALLOWED_QUEUES = {'default', 'high', 'low', 'background_analysis', 'recommendations'}
+
+# RQ's scheduler looks for due retries every second by default: about two Redis commands a second, all day,
+# per worker, for nothing. On Upstash's free plan (500,000 commands a month) that used the whole month in a
+# day or two. Retries here wait 10 seconds or more, so checking every 15 is plenty.
+SCHEDULER_INTERVAL_SECONDS = 15
+
+
+class PacedScheduler(RQScheduler):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('interval', SCHEDULER_INTERVAL_SECONDS)
+        super().__init__(*args, **kwargs)
+
+
+rq_worker_base.RQScheduler = PacedScheduler   # the class Worker.work(with_scheduler=True) builds its scheduler from
 
 
 class FuzeWorker(Worker):
