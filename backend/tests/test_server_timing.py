@@ -2,9 +2,11 @@
 import re
 from unittest.mock import patch
 
+import pytest
+
 import numpy as np
 
-from core.server_timing import header_value
+from core.server_timing import header_value, total_ms
 
 
 def _durations(header):
@@ -39,3 +41,11 @@ def test_a_semantic_search_also_reports_the_embedding_time(client, auth_headers)
     timing = _durations(response.headers['Server-Timing'])
     assert timing['total'] >= timing['embed'] >= 0
     assert 'embed' in timing and 'db' in timing
+
+
+def test_total_counts_from_the_first_sql_statement_when_another_hook_queried_first():
+    """On Postgres an earlier request hook queried the database before this module's hook started its clock,
+    so db (1.4 ms) exceeded total (1.2 ms)."""
+    assert total_ms(request_started=10.0, first_statement_started=9.998, now=10.001) == pytest.approx(3.0)
+    assert total_ms(request_started=10.0, first_statement_started=None, now=10.001) == pytest.approx(1.0)
+    assert total_ms(request_started=10.0, first_statement_started=10.0005, now=10.001) == pytest.approx(1.0)  # a later first statement changes nothing

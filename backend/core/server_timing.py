@@ -38,6 +38,16 @@ def timed(name: str):
         record(name, (time.perf_counter() - started) * 1000)
 
 
+def total_ms(request_started: float, first_statement_started, now: float) -> float:
+    """Milliseconds the request took, counted from the earlier of its start and its first SQL statement.
+
+    Other request hooks (authentication, session checks) can query the database before this module's own
+    hook runs; counting only from that hook would leave `db` larger than `total`.
+    """
+    start = request_started if first_statement_started is None else min(request_started, first_statement_started)
+    return (now - start) * 1000
+
+
 def header_value(timings: dict, total_ms: float) -> str:
     parts = [f"total;dur={total_ms:.1f}"]
     for name in ("embed", "db"):
@@ -54,7 +64,10 @@ def install(app, engine) -> None:
 
     @event.listens_for(engine, "before_cursor_execute")
     def _start(conn, cursor, statement, parameters, context, executemany):
-        conn.info.setdefault("timing_starts", []).append(time.perf_counter())
+        started = time.perf_counter()
+        conn.info.setdefault("timing_starts", []).append(started)
+        if has_request_context():
+            g.setdefault("server_timing_first_statement", started)
 
     @event.listens_for(engine, "after_cursor_execute")
     def _stop(conn, cursor, statement, parameters, context, executemany):
@@ -70,6 +83,6 @@ def install(app, engine) -> None:
     @app.after_request
     def _add_header(response):
         if request.headers.get(REQUEST_HEADER) == "1" and hasattr(g, "server_timing_started"):
-            total = (time.perf_counter() - g.server_timing_started) * 1000
+            total = total_ms(g.server_timing_started, g.get("server_timing_first_statement"), time.perf_counter())
             response.headers["Server-Timing"] = header_value(g.get("server_timings", {}), total)
         return response
