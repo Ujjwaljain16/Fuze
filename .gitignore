@@ -1,7 +1,7 @@
-# Environment variables
+# Environment variables (keep the examples)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -15,8 +15,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -28,6 +28,7 @@ MANIFEST
 
 # Virtual environments
 venv/
+.venv/
 env/
 ENV/
 env.bak/
@@ -105,7 +106,27 @@ certs/
 ssl/
 interview/
 
+# Local databases, dumps and backups
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql
+*.bak
+*.orig
+*.rej
+*.patch
+*.diff
+backups/
+backend/feedback_eval/
+feedback_eval/
+
+# Coverage output
+coverage.xml
+.coverage.*
+
 # AI agent and temp scripts
+.claude/
 backend/brain/
 backend/scratch/
 /commit_script.ps1

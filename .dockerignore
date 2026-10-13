@@ -6,6 +6,8 @@
 frontend/
 BookmarkExtension/
 venv/
+.venv/
+.claude/
 **/__pycache__/
 **/*.pyc
 **/.pytest_cache/
@@ -17,6 +19,13 @@ docs/
 scripts/
 **/*.log
 **/*.pem
+**/*.key
+**/*.crt
+**/.mypy_cache/
+**/.coverage
+**/htmlcov/
+**/*.sqlite*
+**/*.db
 **/.env
 **/.env.*
 
@@ -29,3 +38,6 @@ backend/tests/
 backend/eval/
 backend/*.txt
 image.png
+backend/scripts/*.txt
+backend/backups/
+backend/feedback_eval/
