@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { BookOpenText, ChevronDown, CircleAlert, ExternalLink, LoaderCircle, MessageSquareText, Send } from 'lucide-react'
 import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
+import { groupSources } from '../utils/askSources'
 
 export const MAX_QUESTION_LENGTH = 500
 const MIN_QUESTION_LENGTH = 3
@@ -63,25 +64,30 @@ const AnswerText = ({ answer, citations }) => {
   )
 }
 
-const SourceItem = ({ citation }) => {
+const SourceItem = ({ source }) => {
   const [open, setOpen] = useState(false)
+  const many = source.passages.length > 1
+  const label = many ? `${source.passages.length} passages` : 'passage'
   return (
     <li className="bg-gradient-to-br from-gray-800/50 to-black/50 border border-gray-700 rounded-xl p-4 hover:border-cyan-500/30 transition-all duration-300">
       <div className="flex items-start gap-3">
-        <span className="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 text-sm font-semibold rounded-lg bg-cyan-600/20 text-cyan-300">
-          {citation.n}
+        <span
+          className="flex-shrink-0 inline-flex items-center justify-center min-w-[1.75rem] h-7 px-1.5 text-sm font-semibold rounded-lg bg-cyan-600/20 text-cyan-300"
+          data-testid="source-numbers"
+        >
+          {source.passages.map((p) => p.n).join(', ')}
         </span>
         <div className="flex-1 min-w-0">
           <a
-            href={getSafeHref(citation.url)}
+            href={getSafeHref(source.url)}
             target="_blank"
             rel="noopener noreferrer"
             className="font-semibold text-white hover:text-cyan-300 transition-colors duration-200 break-words inline-flex items-center gap-1.5"
           >
-            <span>{citation.title}</span>
+            <span>{source.title}</span>
             <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
           </a>
-          <p className="text-xs text-cyan-400/80 truncate">{citation.url}</p>
+          <p className="text-xs text-cyan-400/80 truncate">{source.url}</p>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
@@ -89,13 +95,14 @@ const SourceItem = ({ citation }) => {
             className="mt-2 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-cyan-300 transition-colors duration-200"
           >
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
-            {open ? 'Hide passage' : 'Show passage'}
+            {open ? `Hide ${label}` : `Show ${label}`}
           </button>
-          {open && (
-            <blockquote className="mt-2 pl-3 border-l-2 border-cyan-500/30 text-sm text-gray-400 leading-relaxed">
-              {citation.snippet}
+          {open && source.passages.map((p) => (
+            <blockquote key={p.n} className="mt-2 pl-3 border-l-2 border-cyan-500/30 text-sm text-gray-400 leading-relaxed">
+              {many && <span className="mr-1.5 text-xs font-semibold text-cyan-300">[{p.n}]</span>}
+              {p.snippet}
             </blockquote>
-          )}
+          ))}
         </div>
       </div>
     </li>
@@ -208,7 +215,7 @@ const AskBookmarks = () => {
                 Sources <span className="text-gray-500 font-normal">({result.used_passages} passages read)</span>
               </h3>
               <ol className="space-y-3">
-                {citations.map((c) => <SourceItem key={c.n} citation={c} />)}
+                {groupSources(citations).map((source) => <SourceItem key={source.key} source={source} />)}
               </ol>
             </div>
           )}

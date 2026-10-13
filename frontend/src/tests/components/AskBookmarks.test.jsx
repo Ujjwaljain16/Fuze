@@ -83,6 +83,34 @@ describe('AskBookmarks', () => {
     expect(screen.getByRole('button', { name: /hide passage/i })).toHaveAttribute('aria-expanded', 'true')
   })
 
+  it('lists a page once, with every passage that was cited from it', async () => {
+    api.post.mockResolvedValue({
+      data: {
+        answer: 'Docker packages apps [1][2]. Compose runs several containers [3].',
+        citations: [
+          { n: 1, bookmark_id: 5, title: 'Awesome Docker', url: 'https://example.com/awesome', snippet: 'A curated list of Docker resources.' },
+          { n: 2, bookmark_id: 5, title: 'Awesome Docker', url: 'https://example.com/awesome', snippet: 'Docker Engine is a portable runtime.' },
+          { n: 3, bookmark_id: 6, title: 'Compose guide', url: 'https://example.com/compose', snippet: 'Define multi-container apps.' },
+        ],
+        used_passages: 9,
+      },
+    })
+    const user = userEvent.setup()
+    renderAsk()
+    await askQuestion(user)
+    const rows = await screen.findAllByRole('listitem')
+    expect(rows).toHaveLength(2)                                       // two pages, not three passages
+    expect(within(rows[0]).getByTestId('source-numbers')).toHaveTextContent('1, 2')
+    expect(within(rows[1]).getByTestId('source-numbers')).toHaveTextContent('3')
+    // the answer still has a chip for every citation
+    expect(within(screen.getByTestId('ask-answer')).getAllByRole('link')).toHaveLength(3)
+
+    await user.click(within(rows[0]).getByRole('button', { name: /show 2 passages/i }))
+    expect(screen.getByText('A curated list of Docker resources.', { selector: 'blockquote' })).toBeInTheDocument()
+    expect(screen.getByText('Docker Engine is a portable runtime.', { selector: 'blockquote' })).toBeInTheDocument()
+    expect(within(rows[1]).getByRole('button', { name: /show passage$/i })).toBeInTheDocument()   // a single passage keeps its label
+  })
+
   it('says plainly when nothing in the bookmarks answers the question', async () => {
     api.post.mockResolvedValue({ data: { answer: "I couldn't find anything in your saved bookmarks.", citations: [], used_passages: 0 } })
     const user = userEvent.setup()
