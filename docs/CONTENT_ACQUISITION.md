@@ -2,7 +2,7 @@
 
 How the backend gets a bookmarked page's text without running a browser on our servers.
 Hugging Face flagged the Space twice for browser automation (Camoufox/Playwright), so the
-image stays browser-free (see [`RE_ENABLE_ON_NEW_HOST.md`](../RE_ENABLE_ON_NEW_HOST.md)).
+image stays browser-free (see [`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md)).
 The pages that used to need a browser (JavaScript apps, bot-protected and login-walled sites)
 are recovered by the tiers below instead.
 
@@ -226,5 +226,5 @@ decision-engine tests turn them on with every call mocked.
 
 These tiers stay useful: they are cheaper than a browser, and the reader keeps working when a
 headless browser gets fingerprinted. Put a browser tier (STEALTH/DYNAMIC, see
-`RE_ENABLE_ON_NEW_HOST.md`) between HTTP and READER, so the reader only gets what our own
+[`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md)) between HTTP and READER, so the reader only gets what our own
 browser could not render.

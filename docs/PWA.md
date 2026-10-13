@@ -1,129 +1,128 @@
 # PWA (Progressive Web App) Guide
 
-Complete guide for Fuze's Progressive Web App functionality, including installation, share target, and testing.
+How the Fuze web app installs as a Progressive Web App, how its service worker behaves,
+how the share target works, and how to test them.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Features](#features)
-3. [Implementation](#implementation)
-4. [Share Functionality](#share-functionality)
-5. [Testing Guide](#testing-guide)
-6. [Troubleshooting](#troubleshooting)
+2. [Implementation](#implementation)
+3. [Share Functionality](#share-functionality)
+4. [Testing Guide](#testing-guide)
+5. [Troubleshooting](#troubleshooting)
+6. [Browser Compatibility](#browser-compatibility)
+7. [Production Checklist](#production-checklist)
 
 ---
 
 ## Overview
 
-Fuze is a fully functional Progressive Web App (PWA) that can be installed on mobile and desktop devices. It provides:
+The web app ships a manifest and a service worker, so browsers can install it as a
+standalone app on desktop and mobile. It provides:
 
-- ✅ **Offline Support** - Cached pages work offline
-- ✅ **App-like Experience** - Standalone window, no browser UI
-- ✅ **Share Target** - Receive shared URLs from other apps (LinkedIn, browsers, etc.)
-- ✅ **Fast Loading** - Service worker caching for instant loads
-- ✅ **Mobile Optimized** - Responsive design, touch-friendly
+- **Installability**: a web app manifest (`display: standalone`) and icons
+- **Share target**: URLs shared from other apps open Fuze's `/share` page
+- **Faster repeat loads**: the service worker caches the app shell and hashed static assets
+- **Offline shell**: with no network, navigations fall back to the cached app shell. Data
+  comes from the API, which is never cached, so lists and searches need a connection
 
----
-
-## Features
-
-### 1. PWA Installation
-
-Users can install Fuze as a native app on:
-- **Desktop** (Chrome, Edge, Safari)
-- **Android** (Chrome, Edge, Samsung Internet)
-- **iOS** (Safari - limited support)
-
-### 2. Share Target API
-
-Users can share URLs directly to Fuze from:
-- LinkedIn app
-- Browsers
-- Other apps that support sharing
-
-### 3. Service Worker
-
-- Caches static assets
-- Enables offline functionality
-- Provides fast page loads
-- Automatically updates when new version is deployed
-
-### 4. Manifest Configuration
-
-- App name, icons, theme colors
-- Display mode (standalone)
-- Start URL
-- Share target configuration
+Install is done from the browser (address-bar install icon or the menu). The app calls
+`preventDefault()` on `beforeinstallprompt`, which suppresses the browser's automatic
+install banner, and it has no install button of its own.
 
 ---
 
 ## Implementation
 
-### Files Structure
+### Files
 
 ```
 frontend/
 ├── public/
-│   ├── manifest.json      # PWA manifest
-│   └── sw.js              # Service worker
+│   ├── manifest.json        # PWA manifest
+│   ├── sw.js                # Service worker
+│   └── logo1.svg            # Icon used by the manifest
 ├── src/
-│   ├── main.jsx          # Service worker registration
+│   ├── main.jsx             # Service worker registration, install-prompt listeners
 │   └── pages/
-│       └── ShareHandler.jsx  # Share handler page
-└── index.html            # Manifest link
+│       └── ShareHandler.jsx # /share page
+├── vite.config.js           # Replaces __BUILD_HASH__ in dist/sw.js at build time
+├── vercel.json              # Headers for /sw.js and /manifest.json
+└── index.html               # Manifest link, theme-color, apple-touch-icon
 ```
 
-### Manifest Configuration
+### Manifest
 
-**File**: `public/manifest.json`
+**File**: `frontend/public/manifest.json`
 
 ```json
 {
-  "name": "Fuze - Intelligent Bookmark Manager",
+  "name": "Fuze - Smart Content Analysis & Recommendations",
   "short_name": "Fuze",
-  "description": "AI-powered bookmark management",
+  "description": "AI-powered content analysis, LinkedIn post extraction, and personalized recommendations",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#6366f1",
-  "background_color": "#ffffff",
-  "icons": [...],
+  "background_color": "#0F0F1E",
+  "theme_color": "#4DD0E1",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["productivity", "education", "business"],
+  "icons": [
+    { "src": "/logo1.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/logo1.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/logo1.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
   "share_target": {
     "action": "/share",
     "method": "GET",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "url": "url"
-    }
+    "enctype": "application/x-www-form-urlencoded",
+    "params": { "title": "title", "text": "text", "url": "url" }
   }
 }
 ```
 
+All three icons are the same SVG (`/logo1.svg`); there are no PNG icons. `index.html` also
+sets `theme-color` to `#4DD0E1` and an `apple-touch-icon`.
+
 ### Service Worker
 
-**File**: `frontend/public/sw.js`
+**File**: `frontend/public/sw.js`. It handles same-origin GET traffic only, and does
+nothing else (no push notifications, no background sync, no offline write queue).
 
-- Caches static assets
-- Bypasses API calls (doesn't cache them)
-- Handles offline scenarios
-- Auto-updates on new deployments
+| Request | Strategy |
+|---------|----------|
+| Cross-origin | Not intercepted |
+| `/api/*` | Not intercepted: always goes to the network |
+| `/oauth/callback`, `/auth/callback`, `/login` | Network only, never cached |
+| Navigations (`request.mode === 'navigate'`) | Network first. A successful response is stored as `/index.html` and under the request; if the network fails, the cached `/index.html` is served, or a plain 503 "Offline mode" response if there is none |
+| `/assets/*` and files ending in `.js .css .woff .woff2 .png .jpg .jpeg .svg .ico .webp .gif` | Cache first. Only `basic` 200 responses with a matching content type (never HTML) are stored; the asset cache keeps at most 120 entries, trimming the oldest |
+
+Other details:
+- **Precache**: `/index.html` and `/manifest.json` on install, then `skipWaiting()`.
+- **Versioning**: the cache names are `shell-<hash>` and `assets-<hash>`. `vite.config.js`
+  replaces the `__BUILD_HASH__` placeholder in `dist/sw.js` with a base-36 timestamp on
+  each build, and the service worker deletes caches from other versions on activate and
+  then claims clients.
+- **Registration** (`src/main.jsx`): on window load the app checks that `/sw.js` is
+  reachable, registers it, checks for an update every 60 seconds, and reloads the page
+  when a new worker finishes installing while an old one controls the page.
+- **Headers** (`vercel.json`): `/sw.js` is served as JavaScript with
+  `Cache-Control: public, max-age=0, must-revalidate` and `Service-Worker-Allowed: /`.
 
 ### Share Handler
 
-**File**: `frontend/src/pages/ShareHandler.jsx`
+**File**: `frontend/src/pages/ShareHandler.jsx`, routed at `/share` in `src/App.jsx`
+(outside `ProtectedRoute`: the page itself redirects when signed out).
 
-- Extracts URL, title, and text from share intent
-- Shows preview of shared content
-- Integrates with bookmark save endpoint
-- Handles authentication redirects
-
-### Route Configuration
-
-**File**: `frontend/src/App.jsx`
-
-```jsx
-<Route path="/share" element={<ShareHandler />} />
-```
+- Reads `url`, `title` and `text` from the query string. If `url` is empty it looks for a
+  URL inside `text` or `title`, including long LinkedIn feed URLs and `lnkd.in` links
+- When signed in, asks `POST /api/bookmarks/extract-url` for a preview
+- Saves with `POST /api/bookmarks/quick-save` (`url`, `title`, `description`)
+- When signed out, redirects to `/login?redirect=/share?url=...`; the login page honors
+  `?redirect=` for internal paths
+- After a successful save it shows a confirmation, then goes back in history or closes
+  the window; if neither works it navigates to `/dashboard`. Cancel goes to `/dashboard`
 
 ---
 
@@ -131,61 +130,31 @@ frontend/
 
 ### How It Works
 
-1. **User shares a URL** from LinkedIn app or browser
-2. **Selects "Fuze"** from share menu
-3. **Fuze PWA opens** to `/share` route
-4. **URL is extracted** from query parameters
-5. **Content is previewed** (if extraction available)
-6. **User saves bookmark** with one click
-7. **Redirects to bookmarks page**
+1. The user shares a URL from another app or a browser
+2. Selects "Fuze" from the share menu (available once the PWA is installed)
+3. Fuze opens at `/share` with `title`, `text` and `url` query parameters
+4. The URL is extracted and previewed
+5. The user saves the bookmark with one click
 
-### Share Target Configuration
-
-The manifest includes `share_target` configuration:
-
-```json
-"share_target": {
-  "action": "/share",
-  "method": "GET",
-  "params": {
-    "title": "title",
-    "text": "text",
-    "url": "url"
-  }
-}
-```
+The saved bookmark goes through the normal pipeline (scrape, embed, analyze) like any
+other quick save.
 
 ### Share Handler Flow
 
 ```mermaid
 flowchart TD
     A[User shares URL] --> B[Selects Fuze from share menu]
-    B --> C[Fuze PWA opens /share route]
+    B --> C[Fuze opens /share]
     C --> D{User authenticated?}
-    D -->|No| E[Redirect to login]
+    D -->|No| E[Redirect to /login?redirect=/share?url=...]
     E --> F[Return to /share after login]
     D -->|Yes| G[Extract URL from query params]
-    G --> H[Show preview of content]
+    G --> H[Preview via /api/bookmarks/extract-url]
     H --> I{User clicks Save?}
-    I -->|Yes| J[Save bookmark via API]
-    J --> K[Redirect to bookmarks page]
-    I -->|No| L[User can cancel]
+    I -->|Yes| J[POST /api/bookmarks/quick-save]
+    J --> K[Go back, close, or open /dashboard]
+    I -->|No| L[Cancel opens /dashboard]
 ```
-
-### Supported Share Sources
-
-- ✅ LinkedIn app (Android/iOS)
-- ✅ Chrome browser (Android)
-- ✅ Safari browser (iOS - limited)
-- ✅ Other apps with share functionality
-
-### LinkedIn Integration
-
-When a LinkedIn post URL is shared:
-- Backend automatically detects LinkedIn URL
-- Extracts post content, author, and metadata
-- Generates preview with title and description
-- Saves as bookmark with full content
 
 ---
 
@@ -193,126 +162,66 @@ When a LinkedIn post URL is shared:
 
 ### Prerequisites
 
-1. **HTTPS Required**: PWAs require HTTPS (except localhost)
-2. **PWA Installation**: The app must be installed as a PWA
-3. **Mobile Device**: Testing requires a mobile device (Android/iOS)
+1. **HTTPS**: PWAs require HTTPS (localhost is exempt)
+2. **Installed PWA**: the share target only appears once the app is installed
+3. **A mobile device** (Android recommended) for the share tests
+
+Replace `https://<your-host>` below with the address the frontend is served from.
 
 ### Test 1: Service Worker Registration
 
-**Steps:**
-1. Open `https://itsfuze.vercel.app` in Chrome
-2. Open DevTools → Application tab → Service Workers
-3. Check if service worker is registered
+1. Open `https://<your-host>` in Chrome
+2. DevTools → Application → Service Workers
 
-**Expected:**
-- ✅ Service worker shows as "activated and is running"
-- ✅ Scope: `https://itsfuze.vercel.app/`
-- ✅ No errors in console
+Expected: the worker is "activated and is running", scope `https://<your-host>/`, no
+console errors. Under Application → Cache Storage there are `shell-*` and `assets-*`
+caches.
 
-### Test 2: PWA Installation (Desktop)
+### Test 2: Installation (Desktop)
 
-**Steps:**
-1. Open `https://itsfuze.vercel.app` in Chrome
-2. Look for install button in address bar (or menu)
-3. Click "Install" or "Add to Home Screen"
+1. Open the site in Chrome or Edge
+2. Use the install icon in the address bar, or the browser menu → Install
 
-**Expected:**
-- ✅ Install prompt appears
-- ✅ App installs successfully
-- ✅ App opens in standalone window (no browser UI)
-- ✅ App icon appears in applications/taskbar
+Expected: the app opens in a standalone window without browser UI.
 
-### Test 3: PWA Installation (Mobile - Android)
+### Test 3: Installation (Android)
 
-**Steps:**
-1. Open `https://itsfuze.vercel.app` in Chrome on Android
-2. Tap menu (3 dots) → "Add to Home screen" or "Install app"
-3. Confirm installation
+1. Open the site in Chrome on Android
+2. Menu → "Install app" / "Add to Home screen"
 
-**Expected:**
-- ✅ Install prompt appears
-- ✅ App icon added to home screen
-- ✅ App opens in standalone mode (no browser UI)
-- ✅ App works offline (cached pages)
+Expected: an icon on the home screen; the app opens in standalone mode.
 
-### Test 4: PWA Installation (Mobile - iOS)
+### Test 4: Installation (iOS)
 
-**Steps:**
-1. Open `https://itsfuze.vercel.app` in Safari on iOS
-2. Tap Share button
-3. Tap "Add to Home Screen"
-4. Confirm
+1. Open the site in Safari
+2. Share → "Add to Home Screen"
 
-**Expected:**
-- ✅ App icon added to home screen
-- ✅ App opens in standalone mode
-- ✅ Status bar styling matches theme-color
+Expected: an icon on the home screen; the app opens in standalone mode. The Web Share
+Target API is not supported by iOS Safari, so sharing into Fuze does not work there.
 
-### Test 5: Share Target (Mobile)
+### Test 5: Share Target (Android)
 
-**Steps:**
-1. Install PWA on mobile device
-2. Open a LinkedIn post in browser
-3. Tap Share button
-4. Look for "Fuze" in share options
-5. Select "Fuze"
-6. App should open with shared URL
+1. Install the PWA
+2. In another app or browser, share a page and pick "Fuze"
 
-**Expected:**
-- ✅ "Fuze" appears in share menu
-- ✅ App opens to `/share` route
-- ✅ URL is extracted from share
-- ✅ User can save the bookmark
+Expected: Fuze opens at `/share`, shows the URL, and saves the bookmark. You can also test
+without a phone: open `/share?url=https://example.com` directly.
 
-### Test 6: Share from LinkedIn App
+### Test 6: Offline Behaviour
 
-**Steps:**
-1. Open LinkedIn app on Android
-2. Find a post you want to share
-3. Tap the Share button on the post
-4. Select "Fuze" from the share menu
-5. The Fuze app should open with the shared URL
-6. Verify the preview is shown correctly
-7. Tap "Save Bookmark"
-8. Verify it redirects to bookmarks page
-9. Check that the bookmark appears in your bookmarks list
+1. Load the app and visit a few pages while online
+2. Go offline (DevTools → Network → Offline)
+3. Reload or navigate
 
-### Test 7: Offline Functionality
+Expected: the app shell loads from the cache and API calls fail with an error message.
+Data that was not already on screen is not available, because API responses are not cached.
 
-**Steps:**
-1. Install PWA
-2. Open app and navigate to different pages
-3. Turn off internet/WiFi
-4. Try to navigate within the app
+### Test 7: Edge Cases
 
-**Expected:**
-- ✅ Cached pages still load
-- ✅ App doesn't show "No internet" error immediately
-- ✅ Navigation between cached pages works
-- ✅ API calls fail gracefully (show error message)
-
-### Test 8: Edge Cases
-
-#### No URL Provided
-- Navigate to `/share` without URL parameter
-- Should show error message
-- Should provide option to go to dashboard
-
-#### Invalid URL
-- Share a malformed URL
-- Should handle gracefully
-- Should still allow saving (may have limited preview)
-
-#### Not Authenticated
-- Share while logged out
-- Should redirect to login
-- Should preserve share URL in redirect
-- After login, should return to share handler
-
-#### Network Issues
-- Test with poor/no connectivity
-- Should show appropriate error messages
-- Should allow retry
+- **No URL**: open `/share` with no parameters. The page reports that no URL was provided
+- **Not signed in**: open `/share?url=...` while logged out. You are sent to the login
+  page and returned to `/share` after signing in
+- **Network failure**: the save error is shown and Save can be retried
 
 ---
 
@@ -320,138 +229,56 @@ When a LinkedIn post URL is shared:
 
 ### Service Worker Not Registering
 
-**Symptoms:**
-- No service worker in DevTools → Application → Service Workers
-- Console shows "Service worker file not found"
+- Verify `sw.js` exists in `frontend/public/` and in the build output (`dist/sw.js`)
+- Verify it is reachable at `/sw.js` and returns JavaScript, not the SPA's HTML fallback
+- Check the console for "Service Worker not available"
 
-**Fixes:**
-- Verify `sw.js` exists in `frontend/public/` directory
-- Check Vercel build includes `sw.js` in output
-- Verify `sw.js` is accessible at `/sw.js` URL
-- Check file permissions
+### Stale Assets After a Deploy
 
-### API Calls Blocked by Service Worker
+- Each build gets a new cache version, and an update check runs every 60 seconds; the page
+  reloads when the new worker installs. If a build did not replace `__BUILD_HASH__`
+  (see the build log line "Service worker version injected"), the old caches are kept
+- Unregister the worker in DevTools and reload
 
-**Symptoms:**
-- API calls show as "canceled" or "failed"
-- Network tab shows requests intercepted by service worker
-- SSE streams don't work
+### API Calls Failing Through the Service Worker
 
-**Fixes:**
-- Verify service worker fetch handler bypasses `/api/` requests
-- Verify service worker fetch handler bypasses external requests
-- Check service worker code for proper `return;` statements
-- Unregister service worker and re-register
+The worker does not intercept `/api/` or cross-origin requests, so API failures are
+network or backend problems. If they only happen with the worker active, unregister it and
+retest.
 
-### Install Prompt Not Appearing
+### Install Option Not Appearing
 
-**Symptoms:**
-- No install button in browser
-- "Add to Home Screen" not available
-
-**Fixes:**
-- Verify manifest.json is valid
-- Check all required manifest fields are present
-- Ensure app is served over HTTPS
-- Check if app is already installed
-- Try in incognito/private mode
+- Verify `manifest.json` is valid and served over HTTPS
+- Check whether the app is already installed
+- Try a private window
+- Remember the app has no in-page install button; use the browser's own install control
 
 ### Share Target Not Working
 
-**Symptoms:**
-- "Fuze" doesn't appear in share menu
-- Share opens app but doesn't extract URL
-
-**Fixes:**
-- Verify `share_target` is in manifest.json
-- Check manifest.json MIME type (should be `application/manifest+json`)
-- Verify `/share` route exists in app
-- Test on Android (iOS has limited support)
-- Check share handler component logic
-
-### URL Not Extracted
-
-**Symptoms:**
-- Share opens app but URL parameter is missing
-
-**Fixes:**
-- Check share_target configuration in manifest
-- Verify URL parameter name matches (`url`, `title`, `text`)
-- Check ShareHandler component extraction logic
-- Test with manual URL: `/share?url=https://example.com`
-
-### Authentication Issues
-
-**Symptoms:**
-- User not logged in when sharing
-- Redirect doesn't preserve share URL
-
-**Fixes:**
-- Implement redirect to login with return URL
-- Preserve share parameters in redirect
-- Return to share handler after login
-
-### Content Not Extracting
-
-**Symptoms:**
-- Shared URL doesn't show preview
-- Backend extraction fails
-
-**Fixes:**
-- Check backend extract-url endpoint works
-- Verify API authentication
-- Check network connectivity
-- Test endpoint directly, check logs
+- Confirm `share_target` is in the served `manifest.json` and the PWA was reinstalled after
+  it changed
+- Test on Android (iOS does not support it)
+- Test the route with `/share?url=https://example.com`
 
 ---
 
 ## Browser Compatibility
 
-### Full Support
-- ✅ Chrome (Android) - Full Web Share Target API support
-- ✅ Edge (Android) - Full support
-- ✅ Samsung Internet - Full support
-
-### Limited Support
-- ⚠️ Safari (iOS) - Limited Web Share Target API support
-  - Users may need to use "Add to Home Screen" first
-  - Share may not appear in all share menus
-
-### No Support
-- ❌ Firefox (Android) - No Web Share Target API support
-- ❌ Opera (Android) - Limited support
+The Web Share Target API requires an installed PWA in a Chromium-based browser on Android
+(Chrome, Edge, Samsung Internet). It is not available in Safari on iOS or in Firefox for
+Android. Installation itself works on desktop Chrome and Edge, Android Chrome, and iOS Safari
+("Add to Home Screen").
 
 ---
 
 ## Production Checklist
 
-Before deploying to production:
-
-- [ ] Manifest.json is accessible at `/manifest.json`
-- [ ] Service worker is registered and active
-- [ ] Share target is configured correctly
-- [ ] Share handler page exists and works
-- [ ] Authentication flow works with share
-- [ ] Content extraction works for LinkedIn URLs
-- [ ] Error handling is implemented
-- [ ] Mobile UI is responsive
-- [ ] Icons are properly sized and accessible
-- [ ] HTTPS is enabled (required for PWA)
-
----
-
-## Success Criteria
-
-The PWA implementation is successful when:
-
-- ✅ Users can install Fuze as PWA
-- ✅ Share option appears in share menus
-- ✅ Shared URLs are extracted correctly
-- ✅ Content is previewed before saving
-- ✅ Bookmarks are saved successfully
-- ✅ Users are redirected after save
-- ✅ Service worker doesn't block API calls
-- ✅ Offline functionality works for cached pages
+- [ ] `/manifest.json` is accessible and valid
+- [ ] `/sw.js` is served as JavaScript with `Cache-Control: max-age=0, must-revalidate`
+- [ ] The service worker registers and activates
+- [ ] `__BUILD_HASH__` was replaced in the built `sw.js`
+- [ ] `/share` loads and the sign-in redirect returns to it
+- [ ] HTTPS is enabled
 
 ---
 
@@ -461,10 +288,3 @@ The PWA implementation is successful when:
 - [PWA Best Practices](https://web.dev/pwa-checklist/)
 - [Manifest.json Reference](https://developer.mozilla.org/en-US/docs/Web/Manifest)
 - [Service Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
-
----
-
-**Status**: ✅ Ready for Production  
-**Last Updated**: Implementation complete  
-**Next Action**: Test on real mobile devices
-

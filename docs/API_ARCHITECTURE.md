@@ -21,6 +21,8 @@ Complete API documentation for Fuze - Intelligent Bookmark Manager.
 
 **Authentication**: JWT (JSON Web Tokens)
 
+**Errors**: every non-2xx JSON body is `{"error": "<snake_case_code>", "message": "<sentence>"}`; see [Error Handling](#error-handling)
+
 **Content Type**: `application/json`
 
 **Status Codes**:
@@ -84,6 +86,7 @@ blocklist checks. Changing the password ends every other session.
 | `POST` | `/api/auth/register` | ❌ | Register new user |
 | `POST` | `/api/auth/login` | ❌ | Login user |
 | `POST` | `/api/auth/refresh` | Refresh token | Rotate tokens |
+| `POST` | `/api/auth/fork-session` | Refresh token (header) | Start a separate session for another client (the browser extension) |
 | `POST` | `/api/auth/logout` | ✅ | Logout user (revokes the session) |
 | `GET` | `/api/auth/verify` | ✅ | Verify token; returns a whitelisted profile |
 | `POST` | `/api/auth/verify-token` | ✅ | Verify token status |
@@ -98,6 +101,23 @@ blocklist checks. Changing the password ends every other session.
 guesses block that client, not the owner signing in from elsewhere. The account-wide
 lock is at 50 failures (5 when Redis is unavailable). A password lockout doesn't
 block Google sign-in.
+
+**Fork session** (`POST /api/auth/fork-session`, 20 per hour per IP): refresh tokens
+rotate and a replayed one revokes its whole family, so two clients can't share one. The
+client sends the web app's current refresh token in the `Authorization: Bearer` header
+and receives a new token family of its own; the web app's token is not rotated and keeps
+working. Only a refresh token that is the family's current one is accepted (an access
+token, a spent or revoked one, or one without a family returns `401 invalid_refresh_token`).
+The new family inherits the parent's start time, so it doesn't count as a fresh sign-in for
+"signed in recently" checks, and no cookies are set.
+
+```json
+{
+  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "user": {"id": 1, "username": "johndoe", "email": "john@example.com"}
+}
+```
 
 **Register Request**:
 ```json
@@ -131,6 +151,59 @@ block Google sign-in.
 
 ---
 
+### Account (`/api/account`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/account/export` | ✅ | Download everything the user stored as a JSON file (5 per hour) |
+| `DELETE` | `/api/account` | ✅ | Delete the account and everything it owns, after re-authentication (5 per 15 minutes) |
+
+**Export** (`GET /api/account/export`) returns `Content-Disposition: attachment;
+filename=fuze-export-YYYY-MM-DD.json` and `Cache-Control: no-store`. The document contains
+`format_version`, `exported_at`, `profile`, `bookmarks` (id, url, title, notes, tags,
+category, saved_at, scrape_status, extracted_text), `projects` (each with its tasks and
+subtasks), `feedback` and `recommendation_feedback` (including the per-project
+`project_id`). It never contains the password hash, API keys, embeddings or sessions.
+`404 user_not_found` if the account no longer exists.
+
+**Delete Account Request**:
+```json
+{
+  "password": "SecurePass123"
+}
+```
+
+Accounts with a usable password must send `password`: missing is `400 password_required`,
+wrong is `403 invalid_password`. Accounts created through Google sign-in that never set a
+password send no body and instead need a sign-in within the last 15 minutes, otherwise
+`403 recent_sign_in_required`. (Failures are 403 rather than 401 so the web app does not
+refresh the token and retry.) On success every session is revoked, the user's rows are
+deleted table by table (chunks, events, feedback, analyses, metadata, subtasks, tasks,
+projects, bookmarks, token families, the user), the current access token is blocked, the
+user's Redis keys are purged best-effort, and the auth cookies are cleared:
+```json
+{"message": "Account deleted"}
+```
+
+---
+
+### Dashboard (`/api/dashboard`)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/dashboard/summary` | ✅ | Everything the dashboard shows in one request |
+
+The response is cached in Redis per user for 30 seconds. It contains `profile`
+(`id`, `username`, `email`, `created_at`), `apiKeyStatus` (Gemini key and usage; a default
+"no key" shape when unavailable), `pipeline_stats` (`scraping`, `embedding`, `analyzing`,
+`analyzed` counts), `stats` (`total_bookmarks`, `active_projects`, `weekly_saves`,
+`success_rate`, each `{value, change, change_value}`), `recentBookmarks` (the latest 5,
+without the extracted text), `recentProjects` (the latest 3 with `task_count`),
+`totalProjects` and `totalBookmarks`. `GET /api/bookmarks/dashboard/stats` serves the
+bookmark statistics alone.
+
+---
+
 ### Bookmarks (`/api/bookmarks`)
 
 | Method | Endpoint | Auth | Description |
@@ -141,6 +214,7 @@ block Google sign-in.
 | `DELETE` | `/api/bookmarks/<id>` | ✅ | Delete bookmark by ID |
 | `DELETE` | `/api/bookmarks/url/<url>` | ✅ | Delete bookmark by URL |
 | `DELETE` | `/api/bookmarks/all` | ✅ | Delete all bookmarks |
+| `GET` | `/api/bookmarks/lookup?url=<url>` | ✅ | Find the caller's bookmark saved under exactly that URL |
 | `GET` | `/api/bookmarks/dashboard/stats` | ✅ | Get dashboard statistics |
 | `POST` | `/api/bookmarks/import` | ✅ | Bulk import bookmarks |
 | `POST` | `/api/bookmarks/check-duplicate` | ✅ | Check if URL is duplicate |
@@ -168,6 +242,13 @@ stream reads the user's Redis Stream (`fuze:events:stream:{user_id}`) with block
 it back as `Last-Event-ID` and reading resumes right after it. The progress SSE
 endpoints authenticate with `verify_jwt_in_request` or a stream ticket, so revoked
 tokens and refresh tokens are refused.
+
+**Lookup** (`GET /api/bookmarks/lookup?url=<url>`): exact match on the stored URL (no
+normalization). The extension uses it to resolve a removed Chrome bookmark to its Fuze id
+before deleting by id. The URL is a query parameter rather than a path segment because
+proxies may collapse the `//` of the scheme in a path. Returns
+`{"bookmark": {"id": 42, "url": "...", "title": "..."}}`; `400 url_required`,
+`400 url_too_long`, or `404 bookmark_not_found`.
 
 **Save Bookmark Request**:
 ```json
@@ -212,6 +293,7 @@ tokens and refresh tokens are refused.
 | `PUT` | `/api/projects/<id>` | ✅ | Update project |
 | `DELETE` | `/api/projects/<id>` | ✅ | Delete project |
 | `GET` | `/api/projects/<id>/tasks` | ✅ | Get project tasks |
+| `GET` | `/api/projects/user/<user_id>` | ✅ | Paginated projects of a user; `<user_id>` must be the caller (`403 forbidden` otherwise) |
 
 **Create Project Request**:
 ```json
@@ -227,6 +309,10 @@ tokens and refresh tokens are refused.
 - `per_page` (default: 10)
 - `include_tasks` (default: true)
 
+`GET /api/projects/user/<user_id>` takes `page` (default 1) and `per_page` (default 10,
+max 100) and returns `{"projects": [{id, title, description, technologies, created_at}],
+"total", "page", "per_page", "pages"}` without tasks.
+
 ---
 
 ### Recommendations (`/api/recommendations`)
@@ -237,7 +323,7 @@ tokens and refresh tokens are refused.
 | `POST` | `/api/recommendations/generate-context` | ✅ | Gemini explanation of how one item helps with the current context |
 | `POST` | `/api/recommendations/task/<id>` | ✅ | Task-based recommendations |
 | `POST` | `/api/recommendations/subtask/<id>` | ✅ | Subtask-based recommendations |
-| `GET` | `/api/recommendations/status` | ✅ | Get engine status |
+| `GET` | `/api/recommendations/status` | ❌ | Get engine status |
 | `POST` | `/api/recommendations/cache/clear` | ✅ | Clear recommendation cache |
 | `POST` | `/api/recommendations/cache/clear-context` | ✅ | Clear context cache |
 | `POST` | `/api/recommendations/cache/clear-all-recommendations` | ✅ | Clear all recommendation cache |
@@ -246,22 +332,30 @@ tokens and refresh tokens are refused.
 | `POST` | `/api/recommendations/feedback` | ✅ | Submit recommendation feedback (`feedback_data` keys are whitelisted; references to other users' projects/tasks are dropped) |
 | `GET` | `/api/recommendations/suggested-contexts` | ✅ | Suggested contexts (only the caller's own projects) |
 | `GET` | `/api/recommendations/recent-contexts` | ✅ | Recently used contexts |
-| `GET` | `/api/recommendations/gemini-status` | ✅ | Gemini availability for the user |
+| `GET` | `/api/recommendations/gemini-status` | ✅ | Whether a server-side `GEMINI_API_KEY` is configured |
+| `GET` | `/api/recommendations/user-preferences` | ✅ | Feedback counts by type, bookmark statistics and top tags for the caller |
+| `GET` | `/api/recommendations/learning-insights` | ✅ | Technologies from the caller's 20 most recent bookmarks |
+| `GET` | `/api/recommendations/performance-metrics` | ✅ | Redis cache statistics and database totals (`total_content`, `analyzed_content`, `analysis_coverage`; counted across all users) |
 
-**Unified Orchestrator Request**:
+**Unified Orchestrator Request** (15 per minute per user). Send either free text or a
+stored context (`project_id`, `task_id`, `subtask_id`). With a project or task the stored
+context is the intent and only `user_interests` is used from the request text; otherwise
+`title`, `description`, `technologies` and `user_interests` are joined into the query.
 ```json
 {
-  "user_input": "I want to learn React hooks",
-  "context": "general",
-  "limit": 10,
-  "diversity": true
+  "title": "Learn React hooks",
+  "description": "Building a dashboard",
+  "technologies": "React",
+  "user_interests": "state management",
+  "project_id": 7,
+  "max_recommendations": 10
 }
 ```
 
-**Context Options**:
-- `general` - General recommendations
-- `project` - Project-specific recommendations
-- `task` - Task-specific recommendations
+Limits: `title` 500 characters, `description` 5000, `technologies` 1000
+(`400 title_too_long` and similar). `max_recommendations` defaults to 10 and is capped at 50.
+`POST /api/recommendations/task/<id>` and `/subtask/<id>` accept `max_recommendations`
+and return the same `recommendations` list plus the task (and subtask) id and title.
 
 **Response**:
 ```json
@@ -271,16 +365,55 @@ tokens and refresh tokens are refused.
       "id": 123,
       "title": "React Hooks Guide",
       "url": "https://example.com/react-hooks",
-      "relevance_score": 0.95,
-      "reason": "Highly relevant to React hooks learning",
-      "context_summary": "Comprehensive guide covering useState, useEffect..."
+      "score": 95.0,
+      "confidence": 95.0,
+      "reason": "Matches what you're working on: ...",
+      "basic_summary": "...",
+      "content_type": "article",
+      "difficulty": "mixed",
+      "technologies": ["react"],
+      "key_concepts": ["hooks"],
+      "quality_score": 8.5,
+      "engine_used": "intent_engine",
+      "metadata": {"matched_passage": "...", "use_when": null, "vector_similarity": 0.8123, "rerank_score": null}
     }
   ],
-  "total": 10,
-  "engine_used": "unified_orchestrator",
-  "cache_hit": false
+  "total_recommendations": 1,
+  "engine_used": "intent_engine",
+  "intent": {"intent_text": "...", "intent_statement": null, "needs": [], "intent_source": "context"},
+  "cached": false,
+  "performance_metrics": {"response_time_ms": 120.5},
+  "request_processed": {"project_id": 7, "task_id": null, "subtask_id": null}
 }
 ```
+
+Results are only the caller's own saved content. `score` is a 0-100 match percentage.
+
+**Feedback** (`POST /api/recommendations/feedback`):
+```json
+{
+  "recommendation_id": 123,
+  "feedback_type": "positive",
+  "feedback_data": {"source": "recommendations_page", "project_id": 7, "task_id": 3, "position": 2, "score": 91.2}
+}
+```
+`recommendation_id` and `feedback_type` are required (`400 missing_fields`).
+`positive`, `negative` and `neutral` are stored as `helpful`, `not_relevant` and `clicked`;
+other accepted types are `saved`, `like`, `dislike` and `completed`. The bookmark must
+belong to the caller. Only the `feedback_data` keys `source`, `timestamp`, `project_id`,
+`task_id`, `query`, `position` and `score` (scalar values) are kept, and a `project_id` or
+`task_id` the caller does not own is dropped. A kept `project_id` is stored in the
+`user_feedback.project_id` column (in addition to the `context_data` JSON), because a
+bookmark can be right for one project and wrong for another; the column is set to NULL
+if the project is later deleted, so the judgment of the bookmark itself survives.
+Response: `{"message": "Feedback recorded successfully", "feedback_id": 1}`.
+
+**Preferences and insights**: `GET /api/recommendations/user-preferences` returns
+`{user_id, feedback_patterns: {<feedback_type>: count}, content_statistics:
+{total_bookmarks, avg_quality_score}, top_technologies: [{technology, count}] (up to 10),
+learning_style}`. `GET /api/recommendations/learning-insights` returns `{user_id,
+learning_trends: {recent_technologies, learning_velocity}, recommendations: [...],
+engine_used: "basic_insights"}`, derived from the tags of the 20 most recent bookmarks.
 
 ---
 
@@ -290,6 +423,7 @@ tokens and refresh tokens are refused.
 |--------|----------|------|-------------|
 | `POST` | `/api/search/semantic` | ✅ | Semantic search (vector similarity) |
 | `GET` | `/api/search/text` | ✅ | Text search (keyword-based) |
+| `POST` | `/api/search/supabase-semantic` | ✅ | Same search as `/semantic`; the name is kept for the web app |
 
 Semantic search ranks passages, and merges in bookmarks that have no chunks yet by
 their document embedding, so nothing still processing drops out. It only compares
@@ -305,8 +439,10 @@ query can't be embedded the endpoint returns 503 rather than a meaningless ranki
 ```
 
 **Text Search Query Params**:
-- `q` - Search query (required)
+- `q` - Search query (an empty query returns an empty result)
 - `limit` (default: 10)
+
+Both searches clamp `limit` to 1-100 and reject over-long queries with `400 query_too_long`. The response is `{"query", "results", "total"}`.
 
 ---
 
@@ -404,7 +540,17 @@ response lets citations be validated before anything is shown.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/feedback` | ✅ | Submit user feedback |
+| `POST` | `/api/feedback` | ✅ | Submit or update relevance feedback for one of the caller's bookmarks |
+
+**Request**: `{"content_id": 42, "feedback_type": "relevant"}`; `feedback_type` is
+`relevant` or `not_relevant`. One row exists per user and bookmark (a second submission
+updates it). A `project_id` in the request is ignored: the server derives it and does not
+trust client input. `404 content_not_found` if the bookmark is not the caller's. Response:
+`{"message": "Feedback recorded"}`.
+
+Per-project feedback (judging a bookmark for a specific project) is recorded by
+`POST /api/recommendations/feedback` above. Ask (`/api/ask`) neither reads nor writes
+feedback.
 
 **Update Profile Request**:
 ```json
@@ -465,29 +611,24 @@ X-Request-ID: {unique_request_id}  # For request tracking
 
 ### Response Format
 
-**Success Response**:
-```json
-{
-  "message": "Operation successful",
-  "data": { ... }
-}
-```
+**Success Response**: a JSON object shaped per endpoint (see the examples above); there is
+no common envelope. Simple mutations return `{"message": "..."}`.
 
 **Error Response**:
 ```json
 {
-  "message": "Error description",
-  "error": "Detailed error message",
-  "code": "ERROR_CODE"
+  "error": "snake_case_code",
+  "message": "Human-readable description"
 }
 ```
 
 ### Pagination
 
-**Paginated Response**:
+**Paginated Response**: the list key is named after the resource (`bookmarks`, `projects`);
+the rest is shared:
 ```json
 {
-  "items": [...],
+  "bookmarks": [...],
   "total": 100,
   "page": 1,
   "per_page": 10,
@@ -501,27 +642,20 @@ X-Request-ID: {unique_request_id}  # For request tracking
 
 ### Error Codes
 
-| Code | Description |
-|------|-------------|
-| `VALIDATION_ERROR` | Input validation failed |
-| `AUTHENTICATION_ERROR` | Invalid or missing token |
-| `AUTHORIZATION_ERROR` | Insufficient permissions |
-| `NOT_FOUND` | Resource not found |
-| `DUPLICATE_ERROR` | Duplicate resource |
-| `RATE_LIMIT_ERROR` | Rate limit exceeded |
-| `DATABASE_ERROR` | Database operation failed |
-| `EXTERNAL_SERVICE_ERROR` | External service unavailable |
-
-### Error Response Example
+Every non-2xx JSON body has one shape (`core/http_errors.py`):
 
 ```json
 {
-  "message": "Invalid input",
-  "error": "Username must be 3-50 characters",
-  "code": "VALIDATION_ERROR",
-  "field": "username"
+  "error": "content_not_found",
+  "message": "Content not found"
 }
 ```
+
+`error` is a stable snake_case code clients branch on; `message` is for people and may be
+reworded. Some responses add fields, for example `suggestions` on a username conflict or
+`retry_after` on a 429. A bare HTTP error gets the code for its status (`bad_request`,
+`unauthorized`, `forbidden`, `not_found`, `conflict`, `payload_too_large`,
+`rate_limit_exceeded`, `internal_error`, `service_unavailable`, and so on).
 
 ### Comprehensive Error Handling System
 
@@ -561,15 +695,11 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
    - Automatic toast notifications
    - Context-aware error messages
 
-3. **Error Display Component** (`components/ErrorDisplay.jsx`)
-   - Reusable error UI component
-   - Different variants (compact, full, card)
-   - Visual error categorization
+3. **Error Boundary** (`components/ErrorBoundary.jsx`)
+   - Catches rendering errors so one failing component does not blank the app
 
-4. **Enhanced Toast System** (`contexts/ToastContext.jsx`)
-   - Beautiful, animated notifications
-   - Multiple notification types
-   - Responsive design
+4. **Toast System** (`contexts/ToastContext.jsx`)
+   - Notifications for success and error states
 
 #### Error Logging
 
@@ -589,6 +719,10 @@ Fuze has a robust, user-friendly error handling system that provides consistent 
 | `/api/auth/login`, `/api/auth/set-password`, `PUT /api/users/<id>/password` | 5 requests | 15 minutes | Per user, else per IP |
 | `/api/auth/register`, `/api/auth/update-username` | 10 requests | 1 hour | Per user, else per IP |
 | `/api/auth/check-username` | 30 requests | 1 minute | Per IP |
+| `/api/auth/bulk-check-usernames` | 20 requests | 1 minute | Per IP |
+| `/api/auth/fork-session` | 20 requests | 1 hour | Per IP |
+| `DELETE /api/account` | 5 requests | 15 minutes | Per user |
+| `GET /api/account/export` | 5 requests | 1 hour | Per user |
 | `/api/recommendations/unified-orchestrator` | 15 requests | 1 minute | Per User |
 | `/api/recommendations/generate-context` | 10 requests | 1 minute | Per User |
 | `/api/search/semantic` | 30 requests | 1 minute | Per User |
@@ -631,99 +765,33 @@ X-RateLimit-Reset: 1609459200
 
 ```mermaid
 graph TB
-    subgraph Client["CLIENT LAYER"]
-        direction LR
-        Web["Web Application"]
-        Ext["Chrome Extension"]
+    Web["Web application"]
+    Ext["Browser extension"]
+
+    subgraph API["Flask blueprints"]
+        AuthBP["/api/auth"]
+        AccountBP["/api/account"]
+        BookBP["/api/bookmarks"]
+        DashBP["/api/dashboard"]
+        EventsBP["/api/realtime"]
+        ProjBP["/api/projects"]
+        TaskBP["/api/tasks"]
+        RecBP["/api/recommendations"]
+        SearchBP["/api/search"]
+        AskBP["/api/ask"]
+        ProfBP["/api/profile, /api/users"]
+        UserBP["/api/user"]
+        LinkedBP["/api/linkedin"]
+        FeedBP["/api/feedback"]
     end
-    
-    subgraph "API Layer"
-        AuthBP[Auth Blueprint<br/>/api/auth]
-        BookBP[Bookmarks Blueprint<br/>/api/bookmarks]
-        ProjBP[Projects Blueprint<br/>/api/projects]
-        RecBP[Recommendations Blueprint<br/>/api/recommendations]
-        SearchBP[Search Blueprint<br/>/api/search]
-        AskBP[Ask Blueprint<br/>/api/ask]
-        ProfBP[Profile Blueprint<br/>/api/profile]
-        UserBP[User API Key Blueprint<br/>/api/user]
-        TaskBP[Tasks Blueprint<br/>/api/tasks]
-        LinkedBP[LinkedIn Blueprint<br/>/api/linkedin]
-        FeedBP[Feedback Blueprint<br/>/api/feedback]
-    end
-    Web --> Row3
-    Web --> Row4
-    Web --> Row5
-    Web --> Row6
-    Ext --> Row1
-    Ext --> Row4
-    
-    AuthBP --> JWT
-    BookBP --> JWT
-    ProjBP --> JWT
-    RecBP --> JWT
-    SearchBP --> JWT
-    ProfBP --> JWT
-    
-    %% Middleware chain
-    JWT --> RateLimit
-    RateLimit --> Validation
-    Validation --> CORS
-    
-    AuthBP --> JWT
-    BookBP --> JWT
-    ProjBP --> JWT
-    RecBP --> JWT
-    SearchBP --> JWT
-    ProfBP --> JWT
-    UserBP --> JWT
-    TaskBP --> JWT
-    LinkedBP --> JWT
-    FeedBP --> JWT
 
-    JWT --> RateLimit
-    RateLimit --> Validation
-    Validation --> CORS
+    Web --> API
+    Ext --> API
 
-    AuthBP --> DB
-    BookBP --> DB
-    ProjBP --> DB
-    RecBP --> DB
-    SearchBP --> DB
-    AskBP --> JWT
-    AskBP --> DB
-    ProfBP --> DB
-    UserBP --> DB
-    TaskBP --> DB
-    LinkedBP --> DB
-    FeedBP --> DB
-
-    BookBP --> Redis
-    RecBP --> Redis
-    ProjBP --> Redis
-
-    RecBP --> Gemini
-    BookBP --> Gemini
+    API --> Limiter["Rate limiter (Flask-Limiter)"]
+    API --> JWT["JWT check"]
+    API --> DB[("PostgreSQL")]
+    API --> Redis[("Redis")]
+    RecBP --> Gemini["Gemini"]
     AskBP --> Gemini
-    
-    classDef clientStyle fill:#667eea,stroke:#5a67d8,stroke-width:3px,color:#fff,font-weight:bold
-    classDef authStyle fill:#f093fb,stroke:#c471ed,stroke-width:2px,color:#fff,font-weight:bold
-    classDef apiStyle fill:#4facfe,stroke:#00b4d8,stroke-width:2px,color:#fff,font-weight:bold
-    classDef aiStyle fill:#fa709a,stroke:#f77089,stroke-width:2px,color:#fff,font-weight:bold
-    classDef middlewareStyle fill:#ffa726,stroke:#fb8c00,stroke-width:2px,color:#fff,font-weight:bold
-    classDef dbStyle fill:#43e97b,stroke:#38f9d7,stroke-width:3px,color:#fff,font-weight:bold
-    
-    class Web,Ext clientStyle
-    class Row1 authStyle
-    class Row2,Row3,Row4,Row5 apiStyle
-    class Row6 aiStyle
-    class JWT,RateLimit,CORS,Validation middlewareStyle
-    class DB,Redis,Gemini dbStyle
 ```
-
----
-
-
----
-Ujjwal Jain
-
-

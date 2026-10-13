@@ -1,142 +1,68 @@
 # Documentation
 
-Complete documentation for Fuze - Intelligent Bookmark Manager.
+Documentation for Fuze, an intelligent bookmark manager.
 
-## 📚 Documentation Index
+## Index
 
-### Core Documentation
+### Architecture and design
 
-- **[Architecture](ARCHITECTURE.md)** - Complete scalable system architecture
-  - System overview and layers
-  - Database architecture (PostgreSQL + pgvector)
-  - Caching architecture (Redis)
-  - Horizontal scaling strategy
-  - ML/AI architecture
-  - Deployment architecture
+- **[Architecture](ARCHITECTURE.md)**: what runs where, the database, caching, background processing, ML/AI, and scaling
+- **[API Architecture](API_ARCHITECTURE.md)**: endpoints by blueprint, authentication, error format and rate limits
+- **[Recommendations](RECOMMENDATIONS.md)**: how saved items are chosen for a project, task, subtask or free-text query
+- **[Architecture decision records](adr/README.md)**: index of the decision records in [`adr/`](adr/)
+- **[Content Acquisition](CONTENT_ACQUISITION.md)**: how pages are fetched without a browser (adapters, HTTP, remote reader, Wayback Machine)
+- **[API Key Revocation](API_KEY_REVOCATION.md)**: how a deleted user API key stops working immediately despite caching
+- **[User Flows](USERFLOW.md)**: user journeys and system flows
 
-- **[API Architecture](API_ARCHITECTURE.md)** - Complete API documentation
-  - All endpoints organized by blueprint
-  - Request/response formats
-  - Authentication (JWT)
-  - Error handling
-  - Rate limiting
-  - Example usage
+### Running and deploying
 
-- **[User Flows](USERFLOW.md)** - User journey documentation
-  - Onboarding flow
-  - Bookmark saving
-  - Extension import
-  - Content analysis
-  - Recommendation generation
-  - Project-based recommendations
-  - Search flows
-  - Extension authentication
+- **[Deployment](DEPLOYMENT.md)**: platform comparison and deployment steps, environment variables, workers and the frontend connection
+- **[Operations](OPERATIONS.md)**: repository secrets, backups and the restore drill, migrations, pipeline health, and Redis command budget
+- **[Region move](REGION_MOVE.md)**: moving the database next to the backend to cut per-query latency (not carried out)
+- **[Re-enabling features on a new host](RE_ENABLE_ON_NEW_HOST.md)**: what was removed only because of Hugging Face and how to restore it
+- **[Performance](perf/README.md)**: measurements and the raw benchmark results in [`perf/`](perf/)
+- **[Optimizations](OPTIMIZATIONS.md)**: performance changes and what was measured for each
 
-- **[Optimizations](OPTIMIZATIONS.md)** - Performance optimizations
-  - Backend optimizations (model caching, cooperative gevent workers)
-  - Frontend optimizations (debouncing, batching, caching, deduplication)
-  - Database optimizations (indexing, connection pooling, timeouts)
-  - Redis caching strategy
-  - Performance metrics and improvements
+### Development
 
-- **[Testing](TESTING.md)** - Complete testing guide
-  - Backend tests (Pytest)
-  - Frontend tests (Vitest)
-  - Postgres + pgvector test lane, smoke test and CI
-  - Test structure and examples
-  - Coverage goals
-  - Troubleshooting
+- **[Testing](TESTING.md)**: backend, frontend and extension tests, the Postgres lane, the smoke test and CI
+- **[PWA](PWA.md)**: manifest, service worker, share target and testing
+- **[Supabase Google OAuth](SUPABASE_GOOGLE_OAUTH.md)**: configuring "Sign in with Google"
 
-### Additional Documentation
+The self-hosted deployment files (Caddy and Docker Compose) are documented in [`../deploy/README.md`](../deploy/README.md).
 
-- **[Deployment](DEPLOYMENT.md)** - Complete deployment guide
-  - Platform comparison (Hugging Face Spaces, Railway, Fly.io)
-  - Hugging Face Spaces deployment (step-by-step)
-  - Environment variables setup
-  - RQ worker configuration
-  - Frontend-backend connection
-  - Troubleshooting
+## Where to start
 
-- **[Operations](OPERATIONS.md)** - Running it in production
-- **[Region move](REGION_MOVE.md)** - Moving the database next to the backend (measured 215 ms per query across regions)
-  - Backups and the monthly restore drill
-  - Migrations and rollback
-  - Pipeline health queries
-  - Secret rotation effects
+- Developers: [Architecture](ARCHITECTURE.md), then [API Architecture](API_ARCHITECTURE.md) and [Testing](TESTING.md)
+- Operators: [Deployment](DEPLOYMENT.md), then [Operations](OPERATIONS.md)
 
-- **[Content Acquisition](CONTENT_ACQUISITION.md)** - How pages are fetched without a browser
-  - Tier order: official adapters, HTTP, remote reader, Wayback Machine
-  - Privacy trade-offs, cost and limits of each service
-  - Live smoke results per site
-
-- **[Intent x Content Engine](INTENT_ENGINE_PLAN.md)** - Recommendation design and benchmark results
-
-- **[Architecture Decision Records](adr/)** - ADR-001 to ADR-006 cover the legacy recommendation stack and are kept as history (superseded)
-
-- **[PWA](PWA.md)** - Progressive Web App guide
-  - PWA installation and features
-  - Share target functionality
-  - Testing guide
-  - Troubleshooting
-
-
-## 🚀 Quick Links
-
-### For Developers
-- Start with [Architecture](ARCHITECTURE.md) for system overview
-- Check [API Architecture](API_ARCHITECTURE.md) for endpoint details
-- Review [Testing](TESTING.md) for test setup
-
-### For Users
-- See [User Flows](USERFLOW.md) for feature walkthroughs
-
-### For DevOps
-- Start with [Deployment](DEPLOYMENT.md) for deployment guide
-- Keep [Operations](OPERATIONS.md) at hand for backups, rollback and pipeline health
-- Review [Architecture](ARCHITECTURE.md) for system design
-- Check [Optimizations](OPTIMIZATIONS.md) for performance tuning
-
-## 📖 Documentation Structure
+## Layout
 
 ```
 docs/
-├── README.md                    # This file
-├── ARCHITECTURE.md             # System architecture
-├── API_ARCHITECTURE.md          # API documentation
-├── USERFLOW.md                  # User flows
-├── OPTIMIZATIONS.md             # Performance optimizations
-├── TESTING.md                   # Testing guide
+├── README.md                    # This index
+├── ARCHITECTURE.md              # System architecture
+├── API_ARCHITECTURE.md          # API reference
+├── API_KEY_REVOCATION.md        # User API key revocation
+├── CONTENT_ACQUISITION.md       # Page fetching tiers
 ├── DEPLOYMENT.md                # Deployment guide
-├── OPERATIONS.md                # Backups, restore, rollback, pipeline health
-├── INTENT_ENGINE_PLAN.md        # Recommendation engine design + benchmark
+├── OPERATIONS.md                # Backups, restore, migrations, pipeline health
+├── OPTIMIZATIONS.md             # Performance optimizations
 ├── PWA.md                       # PWA guide
-├── API_KEY_REVOCATION.md        # API key revocation
+├── RECOMMENDATIONS.md           # Recommendation engine
+├── REGION_MOVE.md               # Database region move plan
+├── RE_ENABLE_ON_NEW_HOST.md     # Features removed for Hugging Face
 ├── SUPABASE_GOOGLE_OAUTH.md     # Google sign-in setup
-└── adr/                         # Architecture decision records
+├── TESTING.md                   # Testing guide
+├── USERFLOW.md                  # User flows
+├── adr/                         # Architecture decision records
+└── perf/                        # Benchmark results
 ```
 
-## 🔄 Documentation Status
+## Contributing
 
-| Document | Status | Last Updated |
-|----------|--------|--------------|
-| Architecture | ✅ Complete | 2024 |
-| API Architecture | ✅ Complete | 2024 |
-| User Flows | ✅ Complete | 2024 |
-| Optimizations | ✅ Complete | 2024 |
-| Testing | ✅ Complete | 2024 |
-| Deployment | ✅ Complete | 2024 |
-| PWA | ✅ Complete | 2024 |
-| Operations | ✅ Complete | 2026 |
-
-## 📝 Contributing
-
-When adding new documentation:
-1. Create markdown file in `docs/` directory
-2. Update this README with link and description
-3. Follow existing documentation style
-4. Include code examples where relevant
-5. Add diagrams using Mermaid syntax
-
----
-
-*Last Updated: 2024*
+When adding documentation:
+1. Create the markdown file in `docs/`
+2. Add it to this index with one line describing it
+3. Verify every claim against the code; link to the code rather than restating it
+4. Use Mermaid for diagrams
