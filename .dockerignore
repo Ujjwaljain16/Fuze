@@ -29,5 +29,3 @@ backend/tests/
 backend/eval/
 backend/*.txt
 image.png
-index.html
-sw.html
