@@ -304,8 +304,9 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 - **Measured**: 5 concurrent 1-second queries on one gevent worker take 1.01 s with psycogreen vs 5.05 s without; the ML stack upgrade left embeddings unchanged (cosine 1.0)
 - **Retrieval quality**: nDCG@10 on BEIR SciFact recorded in `backend/eval/results/`
-- **Not yet measured**: request latency under load and cache hit rate. Numbers will be published from a load test rather than estimated
-- **300+ Automated Tests**: Backend suite run in CI on every change, once on SQLite and once on Postgres + pgvector
+- **Live latency, measured on the deployed Space** (`scripts/bench_live.py`, 30 samples per endpoint, results in [`docs/perf/`](docs/perf/)): cached reads (bookmark list, dashboard) add 3-9 ms to the network; keyword search p50 **1.03 s**; semantic search p50 **2.1 s** (p95 2.6 s), down from 3.0 s after cutting the database round trips per search from about 10 to 5. The remaining time is dominated by database distance (see Known Limitations)
+- **Found by measuring**: the Space reported a 215 ms round trip to its database against 2 ms to Redis (`/health/readiness?timing=1`), which explained why every database-backed request was slow even though the queries themselves take 5-25 ms inside Postgres
+- **800+ Automated Tests**: Backend suite (77% coverage, a 74% floor enforced in CI) run on every change, once on SQLite and once on Postgres + pgvector, plus ruff and mypy gates
 - **Stateless Processes**: web and worker processes keep no state of their own; everything shared lives in Postgres and Redis
 - **Gated Deployments**: the HF Space is deployed only after Backend CI passes on that exact commit, and the container refuses to serve if migrations fail
 
@@ -331,6 +332,30 @@ Fuze/
 ├── BookmarkExtension/      # Chrome extension
 └── docs/                  # Documentation
 ```
+
+---
+
+## ⚠️ Known Limitations & Scope for Improvement
+
+What is not good enough yet, with the evidence, so the next step is obvious.
+
+**Performance**
+- **The database is in the wrong region.** The backend (a Hugging Face Space) measures a **215 ms round trip** to Supabase in Singapore, against 2 ms to Redis. Every SQL statement pays it, so semantic search sits at about 2.1 s (p50) even though Postgres answers in 25 ms. Moving Supabase to the backend's region (US East) should bring a search to roughly 0.5 s. The runbook, a verified copy tool (`scripts/copy_database.py`) and the measurements are ready: [docs/REGION_MOVE.md](docs/REGION_MOVE.md). It is deliberately not done yet.
+- **About 0.7 s of each semantic search is still unaccounted for** after the network (query embedding on a shared 2-vCPU CPU and request handling are the suspects). Next step: a `Server-Timing` header with the embed, database and total times, so it is measured rather than guessed.
+- **Throughput under load is not measured.** The app rate-limits clients to 50 requests a minute by default, which is right for production but stops a naive load test. A proper capacity test needs a dedicated limit exemption for the test client.
+- **Ask your bookmarks is not benchmarked on the live Space** yet (needs the LLM provider secrets on the Space). Locally an LLM call takes 4-9 s through the router.
+
+**Infrastructure and cost**
+- Free tiers throughout: a shared-CPU Space, Supabase free (500 MB, pauses after a week idle, kept alive by a scheduled workflow), Upstash free. The free Gemini key allows 20 requests a day, so the LLM provider can be switched to any OpenAI-compatible service (`LLM_PROVIDER`), which is how the analysis of a 238-bookmark import ran for about 7 cents.
+- The Space needs `SECRET_KEY`, `JWT_SECRET_KEY` and the data-store URLs as secrets before it boots; there is no staging environment, so local development points at the same database and queue as production.
+
+**Content acquisition**
+- No browser runs on the server by design (the host flagged browser automation). Pages that need one are recovered through official APIs, a remote reader and the Wayback Machine, but some stay thin: Reddit blocks its JSON endpoint (title only), YouTube playlists and login-walled pages have no readable text unless saved from the extension, which sends the rendered page.
+- `robots.txt` disallows are respected, so some sites are deliberately not fetched.
+
+**Quality evidence still missing**
+- Recommendation quality is measured offline on a public benchmark, not on real users' feedback. Feedback is stored one rating per bookmark, not per project, so it cannot yet label "useful for *this* project".
+- The browser extension has unit tests (48) but has not been exercised end to end in a real Chrome against the deployed backend.
 
 ---
 

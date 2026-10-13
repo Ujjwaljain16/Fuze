@@ -1,5 +1,8 @@
 # Moving the database next to the backend
 
+**Status: deferred.** Everything below is measured and ready; the move itself has not been done. It is listed
+as the main known limitation in the README.
+
 **Why.** The Hugging Face Space measures its own distance to the database
 (`GET /health/readiness?timing=1`):
 
