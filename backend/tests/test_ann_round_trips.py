@@ -135,32 +135,35 @@ def _statements_of_one_search(app, user_id):
     return sent
 
 
-def _set_database_defaults(app, enabled):
+def _set_defaults(app, enabled, level):
+    """Set (or clear) the vector-search defaults the way migrations 0015 (database) and 0017 (role) do."""
     from sqlalchemy import text
     from models import db
     with app.app_context():
         name = db.session.execute(text('SELECT current_database()')).scalar()
         db.session.commit()
+        target = f'DATABASE "{name}"' if level == 'database' else 'ROLE CURRENT_USER'
         with db.engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-            if enabled:
-                conn.execute(text(f'ALTER DATABASE "{name}" SET hnsw.iterative_scan = \'relaxed_order\''))
-                conn.execute(text(f'ALTER DATABASE "{name}" SET hnsw.ef_search = \'60\''))
-            else:
-                conn.execute(text(f'ALTER DATABASE "{name}" RESET hnsw.iterative_scan'))
-                conn.execute(text(f'ALTER DATABASE "{name}" RESET hnsw.ef_search'))
+            for setting, value in (('hnsw.iterative_scan', 'relaxed_order'), ('hnsw.ef_search', '60')):
+                if enabled:
+                    conn.execute(text(f"ALTER {target} SET {setting} = '{value}'"))
+                else:
+                    conn.execute(text(f'ALTER {target} RESET {setting}'))
         db.engine.dispose()   # new connections pick the defaults up (and record them) at connect time
 
 
-def test_a_real_search_sends_one_statement_when_the_database_has_the_defaults(app, test_user, postgres_only):
-    _set_database_defaults(app, True)
+@pytest.mark.parametrize('level', ['database', 'role'])   # 0015 where the database is ours, 0017 on Supabase
+def test_a_real_search_sends_one_statement_when_the_connection_has_the_defaults(app, test_user, postgres_only, level):
+    _set_defaults(app, True, level)
     try:
         sent = _statements_of_one_search(app, test_user['id'])
     finally:
-        _set_database_defaults(app, False)
+        _set_defaults(app, False, level)
     assert len(sent) == 1 and sent[0].startswith("SELECT 'p' AS src"), sent   # was 3 statements, then 2
 
 
 def test_without_the_defaults_a_real_search_still_works_with_one_extra_statement(app, test_user, postgres_only):
-    _set_database_defaults(app, False)
+    _set_defaults(app, False, 'database')
+    _set_defaults(app, False, 'role')
     sent = _statements_of_one_search(app, test_user['id'])
     assert len(sent) == 2 and 'set_config' in sent[0] and sent[1].startswith("SELECT 'p' AS src"), sent
