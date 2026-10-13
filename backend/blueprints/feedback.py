@@ -49,9 +49,8 @@ def submit_feedback():
         if not content:
             return error_response('content_not_found', 'Content not found', 404)
 
-        # Derive project_id from content model (ignore unverified user input)
-        project_id = getattr(content, 'project_id', None)
-
+        # A bookmark is not tied to one project, so this endpoint records a rating without one. Ratings that
+        # belong to a project go through POST /api/recommendations/feedback, which verifies the project.
         feedback = db.session.query(Feedback).filter_by(
             user_id=user_id,
             content_id=content_id
@@ -59,12 +58,9 @@ def submit_feedback():
 
         if feedback:
             feedback.feedback_type = feedback_type
-            if project_id:
-                feedback.project_id = project_id
         else:
             feedback = Feedback(
                 user_id=user_id,
-                project_id=project_id,
                 content_id=content_id,
                 feedback_type=feedback_type
             )

@@ -316,13 +316,18 @@ def get_performance_metrics():
             logger.error(f"Error getting Redis metrics: {e}")
             metrics['redis_cache'] = {'error': 'Internal server error'}
         
-        # Get database stats
+        # The caller's own counts: these used to be counted across every user's bookmarks.
         try:
-            from models import SavedContent, ContentAnalysis
+            from models import SavedContent, ContentAnalysis, db
+            user_id = int(get_jwt_identity())
+            total = SavedContent.query.filter_by(user_id=user_id).count()
+            analyzed = (db.session.query(ContentAnalysis)
+                        .join(SavedContent, SavedContent.id == ContentAnalysis.content_id)
+                        .filter(SavedContent.user_id == user_id).count())
             metrics['database'] = {
-                'total_content': SavedContent.query.count(),
-                'analyzed_content': ContentAnalysis.query.count(),
-                'analysis_coverage': round((ContentAnalysis.query.count() / max(SavedContent.query.count(), 1)) * 100, 2)
+                'total_content': total,
+                'analyzed_content': analyzed,
+                'analysis_coverage': round((analyzed / max(total, 1)) * 100, 2)
             }
         except Exception as e:
             logger.error(f"Error getting database metrics: {e}")
