@@ -10,15 +10,15 @@
 > **This project is actively under development with ongoing iterations and improvements.** Features and interfaces may evolve as we continue to enhance the user experience and add new capabilities.
 
 > [!NOTE]
-> **Hosting status:** the backend runs on a Hugging Face Space (Docker SDK). The Space was paused twice by Hugging Face's abuse detection because the dependencies included a browser-automation library; all browser-automation and header-spoofing code has since been removed, and the app fetches only the single page a user saves, over plain HTTP. HF also requires a paid **PRO** subscription to *create* new Docker Spaces, so a self-hosted fallback is provided in [`deploy/`](deploy/); features removed only for HF are listed in [`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md). You can always run the full stack locally with the [Quick Start](#-quick-start) steps below.
+> **Hosting:** the reference deployment runs the backend on a Hugging Face Space (Docker SDK), the frontend on Vercel, Postgres on Supabase and Redis on Upstash, all on free tiers. Hugging Face forbids browser automation, so the image has none: the app fetches only the page a user saves, over plain HTTP, and recovers harder pages through a remote reader and the Wayback Machine ([details](docs/CONTENT_ACQUISITION.md)). Features removed only for that host are listed in [`docs/RE_ENABLE_ON_NEW_HOST.md`](docs/RE_ENABLE_ON_NEW_HOST.md), and a self-hosted fallback (Caddy + Docker Compose) is in [`deploy/`](deploy/). You can always run the full stack locally with the [Quick Start](#-quick-start).
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-3.1.1-green?logo=flask)
+![Flask](https://img.shields.io/badge/Flask-3.1-green?logo=flask)
 ![React](https://img.shields.io/badge/React-19-blue?logo=react)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?logo=postgresql)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [API](#-api-documentation) • [Contributing](#-contributing)
+[Features](#-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [API](docs/API_ARCHITECTURE.md) • [Contributing](#-contributing)
 
 </div>
 
@@ -185,7 +185,7 @@ Create a `.env` file in the root directory:
 # Database
 DATABASE_URL=postgresql://user:password@localhost:5432/fuze
 
-# Redis
+# Redis (rediss:// for TLS, as Upstash gives it)
 REDIS_URL=redis://localhost:6379/0
 
 # Security
@@ -203,7 +203,9 @@ DEBUG=true
 CORS_ORIGINS=
 ```
 
-See [`.env.example`](.env.example) for every setting the code reads.
+The frontend reads `VITE_API_URL` (the backend origin; default `http://127.0.0.1:5000`) and, for Google sign-in,
+`VITE_SUPABASE_URL`; see [`frontend/.env.example`](frontend/.env.example). See [`.env.example`](.env.example)
+for every backend setting the code reads.
 
 ---
 
@@ -216,17 +218,21 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[API Documentation](docs/API_ARCHITECTURE.md)** - Complete API reference
 - **[User Flows](docs/USERFLOW.md)** - Feature walkthroughs
 - **[Testing Guide](docs/TESTING.md)** - Testing setup and examples
-- **[Optimizations](docs/OPTIMIZATIONS.md)** - Performance optimizations
+- **[Recommendations](docs/RECOMMENDATIONS.md)** - How the intent engine ranks your saved content
+- **[Optimizations](docs/OPTIMIZATIONS.md)** - Performance work, with measurements
+- **[Performance data](docs/perf/README.md)** - Raw live-benchmark results and what they show
+- **[Decision records](docs/adr/README.md)** - Why the architecture is the way it is
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Complete deployment instructions
 - **[Operations Runbook](docs/OPERATIONS.md)** - Backups, restore drill, rollback, pipeline health and secret rotation
 - **[PWA Guide](docs/PWA.md)** - Progressive Web App features and setup
+- **[Content acquisition](docs/CONTENT_ACQUISITION.md)** - How pages are fetched without a browser
 
 ---
 
 ## 🛠️ Tech Stack
 
 ### Backend
-- **Framework**: Flask 3.1.1
+- **Framework**: Flask 3.1
 - **Database**: PostgreSQL 15 with pgvector
 - **Caching**: Redis (Upstash)
 - **ML/AI**: 
@@ -253,12 +259,12 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 ### 🚀 Technical Innovations
 
-#### **Intent × Content Engine** ([design](docs/INTENT_ENGINE_PLAN.md))
+#### **Intent × Content Engine** ([how it works](docs/RECOMMENDATIONS.md))
 - **Content understanding**: every saved item is split into overlapping passages (the whole text, not just what fits in the embedding model's window) and given a validated Gemini *content profile* — summary, what it teaches or solves, key concepts, and when it's useful — which is embedded alongside the passages
 - **Intent understanding**: what you're doing right now is built from your own words (search text, or project → task → subtask); Gemini refines it in the background into an intent statement plus concrete information needs, cached per context so requests never wait on the LLM
 - **Ranking by meaning only**: multi-query nearest-passage search over pgvector (HNSW, per-user filtered), optional cross-encoder rerank, then MMR so the top results aren't near-duplicates — no keyword lists, hand-tuned boosts or rule-based fallbacks
 - **Grounded explanations**: each recommendation shows the passage that matched; on demand Gemini explains how the item helps with your current task
-- **Measured, not assumed**: an end-to-end retrieval benchmark (`backend/scripts/eval_retrieval.py`) runs the production search code against BEIR SciFact (300 queries) in a real Postgres + pgvector database. On long documents, where the relevant text sits past the embedding model's input window, the previous one-vector-per-bookmark search scored **0.001 nDCG@10**; passage search scores **0.504**. Switching MiniLM → bge-small-en-v1.5 (same 384 dims) added **+10% nDCG@10** (0.652 → 0.718). A cross-encoder reranker was measured and left off: no quality gain for ~700 ms extra per query ([results](docs/INTENT_ENGINE_PLAN.md))
+- **Measured, not assumed**: an end-to-end retrieval benchmark (`backend/scripts/eval_retrieval.py`) runs the production search code against BEIR SciFact (300 queries) in a real Postgres + pgvector database. On long documents, where the relevant text sits past the embedding model's input window, the previous one-vector-per-bookmark search scored **0.016 nDCG@10** with the same bge-small model; passage search scores **0.504**. Switching MiniLM → bge-small-en-v1.5 (same 384 dims) added **+10% nDCG@10** (0.652 → 0.718). A cross-encoder reranker was measured and left off: no quality gain for ~700 ms extra per query ([results](docs/RECOMMENDATIONS.md))
 
 #### **Model Caching & Performance Optimization**
 - **Model Loaded Once Per Process**: a thread-safe singleton in the web workers; RQ workers load it in the parent before forking, so jobs share it instead of reloading it
@@ -304,9 +310,9 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 - **Measured**: 5 concurrent 1-second queries on one gevent worker take 1.01 s with psycogreen vs 5.05 s without; the ML stack upgrade left embeddings unchanged (cosine 1.0)
 - **Retrieval quality**: nDCG@10 on BEIR SciFact recorded in `backend/eval/results/`
-- **Live latency, measured on the deployed Space** (`scripts/bench_live.py`, 30 samples per endpoint, results in [`docs/perf/`](docs/perf/)): cached reads (bookmark list, dashboard) add 3-9 ms to the network; keyword search p50 **1.03 s**; semantic search p50 **2.1 s** (p95 2.6 s), down from 3.0 s after cutting the database round trips per search from about 10 to 5. The remaining time is dominated by database distance (see Known Limitations)
+- **Live latency, measured on the deployed Space** (`scripts/bench_live.py`, 30 samples per endpoint from India, results in [`docs/perf/`](docs/perf/)): semantic search p50 fell from **3.0 s to about 1.7 s** by cutting the database round trips per search from about 10 to 1 and returning only the start of each passage; keyword search from 1.24 s to about 0.95 s. The server reports where the time went (`X-Server-Timing: 1`): embedding is about 2 ms, so the remaining time is database distance (see Known Limitations). Cached reads add a few milliseconds to the network floor when Redis is healthy
 - **Found by measuring**: the Space reported a 215 ms round trip to its database against 2 ms to Redis (`/health/readiness?timing=1`), which explained why every database-backed request was slow even though the queries themselves take 5-25 ms inside Postgres
-- **800+ Automated Tests**: Backend suite (77% coverage, a 74% floor enforced in CI) run on every change, once on SQLite and once on Postgres + pgvector, plus ruff and mypy gates
+- **Automated tests**: 800+ backend tests (a 74% coverage floor enforced in CI) run on every change, once on SQLite and once on Postgres + pgvector, plus ruff and mypy gates; 79 frontend and 52 extension tests
 - **Stateless Processes**: web and worker processes keep no state of their own; everything shared lives in Postgres and Redis
 - **Gated Deployments**: the HF Space is deployed only after Backend CI passes on that exact commit, and the container refuses to serve if migrations fail
 
@@ -318,19 +324,23 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 Fuze/
 ├── backend/                 # Flask backend
 │   ├── blueprints/         # API route handlers
-│   ├── ml/                 # Machine learning models
-│   ├── services/           # Background services
-│   ├── utils/              # Utility functions
+│   ├── core/               # Cross-cutting pieces: cache keys, locks, quotas, server timing, feature flags
+│   ├── services/           # Business logic and the background pipeline (reconciler, search, Ask)
+│   ├── ml/                 # Intent engine and ranking
+│   ├── scrapers/           # Page acquisition: HTTP fetch, extractors, reader and archive tiers
+│   ├── repositories/ uow/  # Data access and unit of work
+│   ├── utils/              # Shared helpers (config, DB pool, embeddings, LLM provider)
+│   ├── alembic/            # Database migrations (alembic.ini is at the repo root)
+│   ├── eval/               # Retrieval benchmark results
+│   ├── scripts/            # Maintenance and evaluation scripts
 │   ├── tests/              # Test suite
-│   └── run_production.py   # Production server
-├── frontend/               # React frontend
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components
-│   │   └── utils/         # Frontend utilities
-│   └── public/            # Static assets
-├── BookmarkExtension/      # Chrome extension
-└── docs/                  # Documentation
+│   ├── worker.py           # RQ worker entry point
+│   └── run_production.py   # App factory and server entry point
+├── frontend/                # React frontend (Vite)
+├── BookmarkExtension/       # Browser extension (git submodule)
+├── deploy/                  # Self-hosted fallback: Caddy + Docker Compose
+├── scripts/                 # Benchmarks, DB copy, usage sampler, extension packaging
+└── docs/                    # Documentation
 ```
 
 ---
@@ -341,7 +351,7 @@ What is not good enough yet, with the evidence, so the next step is obvious.
 
 **Performance**
 - **The database is in the wrong region.** The backend (a Hugging Face Space) measures a **215 ms round trip** to Supabase in Singapore, against 2 ms to Redis. Every SQL statement pays it, so semantic search sits at about 2.1 s (p50) even though Postgres answers in 25 ms. Moving Supabase to the backend's region (US East) should bring a search to roughly 0.5 s. The runbook, a verified copy tool (`scripts/copy_database.py`) and the measurements are ready: [docs/REGION_MOVE.md](docs/REGION_MOVE.md). It is deliberately not done yet.
-- **About 0.7 s of each semantic search is still unaccounted for** after the network (query embedding on a shared 2-vCPU CPU and request handling are the suspects). Next step: a `Server-Timing` header with the embed, database and total times, so it is measured rather than guessed.
+- **Where the time goes now.** The `X-Server-Timing: 1` request header returns `total`, `embed`, `db` and the number of SQL statements. A semantic search spends about 2 ms embedding and 1.1 s in one database statement that Postgres itself runs in about 2 ms, so almost all of it is distance and transfer between the Space and the database, which the region move removes.
 - **Throughput under load is not measured.** The app rate-limits clients to 50 requests a minute by default, which is right for production but stops a naive load test. A proper capacity test needs a dedicated limit exemption for the test client.
 - **Ask your bookmarks is not benchmarked on the live Space** yet (needs the LLM provider secrets on the Space). Locally an LLM call takes 4-9 s through the router.
 
@@ -354,44 +364,29 @@ What is not good enough yet, with the evidence, so the next step is obvious.
 - `robots.txt` disallows are respected, so some sites are deliberately not fetched.
 
 **Quality evidence still missing**
-- Recommendation quality is measured offline on a public benchmark, not on real users' feedback. Feedback is stored one rating per bookmark, not per project, so it cannot yet label "useful for *this* project".
-- The browser extension has unit tests (48) but has not been exercised end to end in a real Chrome against the deployed backend.
+- Recommendation quality is measured offline on a public benchmark, not on real users' feedback. Feedback is stored per project (`user_feedback.project_id`) and `backend/scripts/export_feedback_eval.py` turns it into a BEIR-format evaluation set, but only a handful of ratings exist so far.
+- The browser extension has unit tests (52) but has not been exercised end to end in a real Chrome against the deployed backend.
 
 ---
 
-## 🚀 Future Enhancements
+## 🚀 Roadmap
 
-### Short Term
-- [ ] **Platform Integrations**: Link with other professional and educational platforms
-  - GitHub integration for code repositories and documentation
-  - Medium/Dev.to for technical articles
-  - YouTube for educational videos and tutorials
-  - Coursera/Udemy for course content
-  - Twitter/X for tech discussions and threads
-  - Reddit for community discussions and resources
-- [ ] **Collaborative Projects**: Share projects with team members
-- [ ] **Advanced Analytics**: Usage insights and content trends
-- [ ] **Browser Extension Updates**: Firefox and Edge support
-- [ ] **Mobile App**: Native iOS and Android applications
-- [ ] **Export/Import**: Backup and restore functionality
+- [ ] Move the database next to the backend ([runbook](docs/REGION_MOVE.md))
+- [ ] More sources: GitHub, YouTube transcripts, Medium/Dev.to
+- [ ] Shared projects for small teams
+- [ ] Firefox and Edge extensions
+- [ ] A capacity test with a rate-limit exemption for the test client
 
-### Medium Term
-- [ ] **AI Chat Assistant**: Conversational interface for finding content
-- [ ] **Content Summarization**: Auto-generate summaries for saved content
-- [ ] **Smart Collections**: AI-curated collections based on topics
-- [ ] **Integration Hub**: Connect with Notion, Obsidian, and other knowledge management tools
-- [ ] **Advanced Search Filters**: Date ranges, content types, relevance scores
-- [ ] **Cross-Platform Sync**: Sync bookmarks across devices and platforms
+---
 
-### Long Term 
-- [ ] **Multi-Modal Search**: Search by images, code snippets, and more
-- [ ] **Learning Paths**: AI-generated learning paths from your bookmarks
-- [ ] **Knowledge Graph**: Visual representation of content relationships
-- [ ] **Team Workspaces**: Organization-level features for teams
-- [ ] **API Marketplace**: Third-party integrations and plugins
-- [ ] **Community Features**: Share collections and recommendations with the community
+## 🤝 Contributing
 
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks CI runs and
+the commit conventions, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
+## 📄 License
+
+[MIT](LICENSE) © Ujjwal Jain
 
 ---
 

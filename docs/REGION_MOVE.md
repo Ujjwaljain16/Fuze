@@ -1,7 +1,7 @@
 # Moving the database next to the backend
 
-**Status: deferred.** Everything below is measured and ready; the move itself has not been done. It is listed
-as the main known limitation in the README.
+**Status: not done.** Everything below is measured and ready; the move itself has not been carried out. It is
+listed as a known limitation in the README.
 
 **Why.** The Hugging Face Space measures its own distance to the database
 (`GET /health/readiness?timing=1`):
@@ -24,29 +24,29 @@ number is not close to 1-10 ms, point the secrets back (step 10) and try the nex
 Redis needs no move. Supabase cannot change a project's region in place
 ([their guide](https://supabase.com/docs/guides/troubleshooting/change-project-region-eWJo5Z)):
 a new project is created and the data copied. Free plan: 500 MB per project, at most 2 active projects (the old and the new project make 2; check
-your dashboard for others), and projects pause after a week without activity (the keep-alive workflow
+the dashboard for others), and projects pause after a week without activity (the keep-alive workflow
 covers that). This database is 36 MB.
 
 Time: about 45 minutes, of which the Space is paused (nobody can use it) for about 10.
 
-## What changes, and who does it
+## What changes
 
-| Where | What | Who |
-|---|---|---|
-| Supabase | create the new project; enable Google sign-in; copy URL, anon key, pooler string | you |
-| New database | `alembic upgrade head`, then `scripts/copy_database.py` | me (needs the new URL in your shell) or you |
-| Google Cloud Console | add the new project's callback URL to the OAuth client | you |
-| Hugging Face Space | secrets `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` | you |
-| Vercel (frontend) | env `VITE_SUPABASE_URL` (and the anon key if set), then redeploy | you |
-| GitHub Actions secrets | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (+ `BACKUP_DATABASE_URL` if set) | you |
-| local `.env` | the same three values | you |
+| Where | What |
+|---|---|
+| Supabase | create the new project; enable Google sign-in; copy URL, anon key, pooler string |
+| New database | `alembic upgrade head`, then `scripts/copy_database.py` |
+| Google Cloud Console | add the new project's callback URL to the OAuth client |
+| Hugging Face Space | secrets `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
+| Vercel (frontend) | env `VITE_SUPABASE_URL` (and the anon key if set), then redeploy |
+| GitHub Actions secrets | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (+ `BACKUP_DATABASE_URL` if set) |
+| local `.env` | the same three values |
 
-Passwords and keys never go through chat. The copy script reads them from environment variables.
+Passwords and keys are passed to the copy script through environment variables, never on the command line.
 
 ## Steps
 
 1. **Create the project.** Supabase dashboard, New project: region **East US (North Virginia)**, a new
-   strong database password. Save the password in your password manager.
+   strong database password. Save the password in a password manager.
 2. **Collect three values** from the new project: Project URL (`https://<ref>.supabase.co`), the anon
    key, and the **session pooler** connection string (Connect, "Session pooler", port **5432**, host
    `aws-0-us-east-1.pooler.supabase.com`, user `postgres.<ref>`). Not the transaction pooler (6543):
@@ -94,7 +94,7 @@ Passwords and keys never go through chat. The copy script reads them from enviro
 8. **Frontend.** Set `VITE_SUPABASE_URL` (and `VITE_SUPABASE_ANON_KEY` if the project uses it) in Vercel and
    redeploy.
 9. **Everything else that holds the old URL:** the GitHub Actions secrets above (the nightly backup, the
-   weekly restore drill and the keep-alive all use them), and your local `.env`. Then run the
+   weekly restore drill and the keep-alive all use them), and the local `.env`. Then run the
    "Database backup" workflow once and check it is green.
 10. **Verify and roll back if needed.** Run `python scripts/bench_live.py --ask 0 --no-ramp` and compare with
     `docs/perf/`. Sign in with Google and with a password, save a bookmark, run a search. **Rollback** takes
