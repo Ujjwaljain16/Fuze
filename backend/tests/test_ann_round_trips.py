@@ -77,6 +77,26 @@ def test_the_combined_statement_keeps_each_branch_hnsw_friendly_and_tenant_scope
 
 
 @pytest.mark.unit
+def test_the_combined_statement_returns_only_the_start_of_each_passage():
+    """60 whole passages were 60-140 KB per search; the result list shows 300 characters of one."""
+    from services.search_service import SearchService
+    import re
+    limit = int(re.search(r"left\(x\.text, (\d+)\) AS passage", hybrid_search._COMBINED_SQL).group(1))
+    assert 300 <= limit <= 1000      # enough for the snippet after whitespace is collapsed, far less than a chunk
+    assert "x.text AS passage" not in hybrid_search._COMBINED_SQL
+    long_passage = ("word " * 50).join(["\n\n"] * 3) + "tail " * 400
+    row = {"src": "p", "id": 1, "passage": long_passage[:limit], "similarity": 0.9, "title": "T", "url": "u",
+           "notes": "", "saved_at": None, "has_content": True}
+    session = _session(("relaxed_order", 60))
+    session.execute.return_value.mappings.return_value = [row]
+    with patch.object(hybrid_search, "active_embedding_model_name", return_value="m"):
+        passages, _ = retrieve_with_unchunked(session, 7, np.ones(384, dtype=np.float32))
+    snippet = " ".join(passages[0]["passage"].split())
+    assert len(snippet) >= 300       # collapsing whitespace in the kept part still leaves a full snippet
+    assert SearchService._result(7, 1, "u", "T", snippet, 0.9, "x")["content_snippet"].endswith("…")
+
+
+@pytest.mark.unit
 def test_a_search_makes_one_retrieval_statement_unless_reranking():
     from services.search_service import SearchService
     uow = MagicMock()

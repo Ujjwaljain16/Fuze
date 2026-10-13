@@ -139,9 +139,12 @@ def _real_session(session):
 # trip, ~215 ms between a Hugging Face Space and a Supabase project in another region). Each branch is a
 # LIMITed subquery so HNSW still drives it; 'p' rows are passages (with their bookmark's details), 'd' rows
 # are bookmarks with a document embedding but no chunks yet (still processing, or chunking failed).
+# Only the start of each passage is returned (the result list shows 300 characters): 60 whole passages are
+# 60-140 KB, which takes several round trips to move over a link this slow. Reranking, which needs whole
+# passages, does not use this statement.
 _COMBINED_SQL = """
-SELECT 'p' AS src, x.content_id AS id, x.text AS passage, x.similarity, s.title, s.url, s.notes, s.saved_at,
-       true AS has_content
+SELECT 'p' AS src, x.content_id AS id, left(x.text, 700) AS passage, x.similarity, s.title, s.url, s.notes,
+       s.saved_at, true AS has_content
 FROM (
     SELECT c.content_id, c.text, 1 - (c.embedding <=> CAST(:emb AS vector)) AS similarity
     FROM content_chunks c
