@@ -4,15 +4,13 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 
 ## ⚠️ Important: Current Implementation vs Scalable Design
 
-> [!WARNING]
-> **Deployment status:** the hosted backend runs on a Hugging Face Space and
-> was paused by HF's abuse detection and is pending unpause. HF now requires a paid PRO subscription to *create* new Docker
-> Spaces on the free tier, so a free/low-cost fallback host is being
-> evaluated. The image contains no browser-automation tooling;
-> our own fetch is plain HTTP, and pages that need a browser go to a remote reader
-> service or the Wayback Machine ([`CONTENT_ACQUISITION.md`](CONTENT_ACQUISITION.md)). See the
-> root [`README.md`](../README.md) and
-> [`gaps_closure_plan.md`](../gaps_closure_plan.md).
+> [!NOTE]
+> **Hosting:** the reference deployment runs the backend on a Hugging Face Space (Docker SDK, free
+> `cpu-basic`) with Supabase (Postgres + pgvector) and Upstash (Redis). [`deploy/`](../deploy/README.md)
+> holds a self-hosted fallback (Caddy + Docker Compose). The image contains no browser-automation
+> tooling (Hugging Face's content policy): our own fetch is plain HTTP, and pages that need a browser
+> go to a remote reader service or the Wayback Machine ([`CONTENT_ACQUISITION.md`](CONTENT_ACQUISITION.md)).
+> See the root [`README.md`](../README.md).
 
 **This document describes both:**
 - **Current Implementation**: The single-container design this repo actually runs (whichever host it's deployed to)

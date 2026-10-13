@@ -69,17 +69,6 @@ class FuzeAPIUser(HttpUser):
             name="/api/search/semantic",
         )
 
-    # NOTE: /api/recommendations/unified, /unified-project/<id>, and
-    # /project/<id> are excluded here -- discovered via this load test to be
-    # permanently broken (100% failure) because blueprints/recommendations.py's
-    # get_unified_engine() imports a top-level `unified_recommendation_engine`
-    # module that does not exist anywhere in the codebase (it was superseded
-    # by ml/unified_recommendation_orchestrator.py, used correctly by the only
-    # endpoint the frontend actually calls, /unified-orchestrator). Confirmed
-    # dead/unused code via grep across frontend/ and BookmarkExtension/ -- see
-    # gaps.md. Left out of this run so they don't pollute throughput numbers
-    # with fast-failing 500s that aren't representative of real load.
-
     @task(1)
     def unified_orchestrator_recommendations(self):
         # The heaviest REAL endpoint (the one the frontend actually calls):
