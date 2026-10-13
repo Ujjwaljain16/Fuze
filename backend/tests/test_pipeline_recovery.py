@@ -142,6 +142,12 @@ class _FakeRedis:
     def get(self, key):
         return self.data.get(key)
 
+    def mget(self, keys):
+        return [self.data.get(key) for key in keys]
+
+    def zrangebyscore(self, *args, **kwargs):
+        return []   # no retries waiting
+
     def incr(self, key):
         self.data[key] = int(self.data.get(key, 0)) + 1
         return self.data[key]
@@ -542,3 +548,83 @@ def test_is_job_active_tells_waiting_from_finished():
         assert task_queue.is_job_active('bookmark_process_2', connection=MagicMock()) is False
         fetch.side_effect = ConnectionError('redis down')
         assert task_queue.is_job_active('bookmark_process_3', connection=MagicMock()) is False
+
+
+class _CountingRedis(_FakeRedis):
+    """Counts commands: on a metered Redis plan (Upstash free: 500,000 a month) every one is paid for."""
+    def __init__(self):
+        super().__init__()
+        self.commands = 0
+
+    def __getattribute__(self, name):
+        value = super().__getattribute__(name)
+        if name in ('set', 'get', 'mget', 'incr', 'expire', 'delete', 'zrangebyscore'):
+            object.__setattr__(self, 'commands', object.__getattribute__(self, 'commands') + 1)
+        return value
+
+
+def test_an_idle_pass_over_a_big_backlog_costs_a_handful_of_redis_commands(app, test_user):
+    """The reconciler asked Redis about every stuck bookmark on every pass, four commands each: with a
+    backlog and the Gemini key out of quota that was over 100,000 commands a day, and Upstash's free plan
+    allows 500,000 a month. A pass over 150 candidates that cannot be retried now must cost O(1) commands."""
+    from models import db
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        rows = [_analysis_row(test_user, f'https://e.com/backlog-{i}', now,
+                              analysis_status='FAILED' if i % 2 else 'PENDING') for i in range(150)]
+        db.session.add_all(rows)
+        db.session.commit()
+        fake = _CountingRedis()
+        # half have used every try; the other half are inside a backoff window
+        for n, row in enumerate(rows):
+            attempts = pipeline_reconciler.MAX_ANALYSIS_ATTEMPTS if n % 2 else 1
+            fake.data[pipeline_reconciler._ANALYSIS_ATTEMPTS_KEY.format(row.id)] = str(attempts)
+            fake.data[pipeline_reconciler._ANALYSIS_LAST_TRY_KEY.format(row.id)] = (now - timedelta(minutes=5)).isoformat()
+        fake.commands = 0
+        counts, analysed = _run_analysis_pass(fake, now)
+    assert not analysed and counts['analysis_requeued'] == 0
+    assert counts['analysis_gave_up'] == 75
+    assert fake.commands <= 8, fake.commands    # the lock, a few reads: not one per bookmark
+
+
+def test_a_fetch_inside_its_wait_is_decided_without_asking_redis_about_its_job(app, test_user):
+    from models import db, SavedContent
+    from services import pipeline_reconciler
+    now = datetime.utcnow()
+    with app.app_context():
+        rows = [SavedContent(user_id=test_user['id'], url=f'https://e.com/waiting-{i}', title='w',
+                             scrape_status='FAILED_FETCH', saved_at=now - timedelta(days=1),
+                             scraped_at=now - timedelta(minutes=5), embedding_status='SUCCESS') for i in range(40)]
+        db.session.add_all(rows)
+        db.session.commit()
+        fake = _CountingRedis()
+        with patch.object(pipeline_reconciler, '_redis', return_value=fake),              patch('services.task_queue.is_job_active') as active,              patch('services.task_queue.enqueue_bookmark_processing') as enqueue_fetch:
+            pipeline_reconciler.reconcile(now)
+    active.assert_not_called()
+    enqueue_fetch.assert_not_called()
+    assert fake.commands <= 8, fake.commands
+
+
+def test_due_retries_go_back_on_their_queue_and_waiting_ones_stay():
+    """RQ's scheduler (a Redis command pair every second) is replaced by this, run by the reconciler."""
+    from services import pipeline_reconciler
+    queue = MagicMock()
+    registry = queue.scheduled_job_registry
+    registry.get_jobs_to_schedule.return_value = ['job-a', 'job-b']
+    job_a, job_b = MagicMock(), MagicMock()
+    pipeline = MagicMock()
+    connection = MagicMock()
+    connection.pipeline.return_value.__enter__.return_value = pipeline
+    with patch('rq.Queue', return_value=queue), patch('rq.job.Job.fetch_many', return_value=[job_a, job_b]):
+        moved = pipeline_reconciler.move_due_retries(connection, queue_names=('default',))
+    assert moved == 2
+    assert queue._enqueue_job.call_count == 2
+    assert [c.args[0] for c in registry.remove.call_args_list] == ['job-a', 'job-b']
+    pipeline.execute.assert_called_once()
+
+    registry.get_jobs_to_schedule.return_value = []
+    queue._enqueue_job.reset_mock()
+    with patch('rq.Queue', return_value=queue):
+        assert pipeline_reconciler.move_due_retries(connection, queue_names=('default',)) == 0
+    queue._enqueue_job.assert_not_called()

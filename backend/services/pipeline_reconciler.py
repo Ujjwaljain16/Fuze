@@ -63,6 +63,48 @@ def _fetch_attempts(redis_conn, bookmark_id: int) -> int:
         return 0
 
 
+def _fetch_attempts_many(redis_conn, bookmark_ids) -> Dict[int, int]:
+    """Attempt counts for many bookmarks in ONE Redis command (each command counts against a metered plan)."""
+    ids = list(bookmark_ids)
+    if not ids:
+        return {}
+    try:
+        values = redis_conn.mget([_ATTEMPTS_KEY.format(i) for i in ids])
+    except Exception:
+        return {i: 0 for i in ids}
+    return {i: int(v or 0) for i, v in zip(ids, values)}
+
+
+def move_due_retries(redis_conn, queue_names=("default", "high")) -> int:
+    """Put retries whose wait is over back on their queues; returns how many.
+
+    RQ normally does this in a scheduler that wakes every second. That is two Redis commands a second, all
+    day, per worker, and used up Upstash's free 500,000 a month in a day or two. The reconciler already
+    wakes every few minutes under a lock, so it does the same job there. The waits are 60 s or more (and 10 s
+    for one cache warm-up), so a retry can be late by up to one interval; nothing here needs it sooner.
+    """
+    from rq import Queue
+    from rq.job import Job
+    from rq.utils import current_timestamp
+
+    moved = 0
+    for name in queue_names:
+        queue = Queue(name, connection=redis_conn)
+        registry = queue.scheduled_job_registry
+        job_ids = registry.get_jobs_to_schedule(current_timestamp())
+        if not job_ids:
+            continue
+        with redis_conn.pipeline() as pipeline:
+            for job in Job.fetch_many(job_ids, connection=redis_conn):
+                if job is not None:
+                    queue._enqueue_job(job, pipeline=pipeline, at_front=job.should_enqueue_at_front())
+            for job_id in job_ids:
+                registry.remove(job_id, pipeline=pipeline)
+            pipeline.execute()
+        moved += len(job_ids)
+    return moved
+
+
 def _count_fetch_attempt(redis_conn, bookmark_id: int) -> None:
     key = _ATTEMPTS_KEY.format(bookmark_id)
     redis_conn.incr(key)
@@ -77,13 +119,18 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
 
     now = now or datetime.utcnow()
     counts = {"fetch_requeued": 0, "fetch_gave_up": 0, "embedding_requeued": 0,
-              "analysis_requeued": 0, "analysis_gave_up": 0, "deferred": 0}
+              "analysis_requeued": 0, "analysis_gave_up": 0, "deferred": 0, "retries_moved": 0}
     redis_conn = _redis()
     if redis_conn is None:
         logger.warning("pipeline_reconciler_no_redis")
         return counts
     if not redis_conn.set(_LOCK_KEY, "1", nx=True, ex=INTERVAL_SECONDS - 30):
         return counts
+
+    try:
+        counts["retries_moved"] = move_due_retries(redis_conn)
+    except Exception:
+        logger.exception("move_due_retries_failed")
 
     stale = now - STALE_AFTER
 
@@ -96,21 +143,23 @@ def reconcile(now: datetime = None) -> Dict[str, int]:
                   ))
                   .order_by(SavedContent.saved_at)
                   .limit(BATCH_LIMIT).all())
+    attempts_by_id = _fetch_attempts_many(redis_conn, [c[0] for c in candidates])
     for bookmark_id, url, user_id, status, scraped_at in candidates:
+        attempts = attempts_by_id.get(bookmark_id, 0)
+        if (attempts < len(FETCH_RETRY_BACKOFF) and status == 'FAILED_FETCH' and scraped_at
+                and _naive_utc(scraped_at) > now - FETCH_RETRY_BACKOFF[attempts]):
+            continue  # still inside its wait: decided from data already in hand, no Redis command
         if is_job_active(bookmark_job_id(bookmark_id), redis_conn):
             # Still waiting its turn (or running, or waiting for its own retry): not lost. Without
             # this a long queue was counted as failed tries and bookmarks at the back of a big
             # import were marked FAILED after about half an hour without ever being fetched.
             continue
-        attempts = _fetch_attempts(redis_conn, bookmark_id)
         if attempts >= len(FETCH_RETRY_BACKOFF):
             # Terminal: drop it out of this oldest-first window so it can't crowd out new work.
             db.session.query(SavedContent).filter(SavedContent.id == bookmark_id).update(
                 {SavedContent.scrape_status: 'FAILED'}, synchronize_session=False)
             db.session.commit()
             counts["fetch_gave_up"] += 1
-            continue
-        if status == 'FAILED_FETCH' and scraped_at and _naive_utc(scraped_at) > now - FETCH_RETRY_BACKOFF[attempts]:
             continue
         if enqueue_bookmark_processing(bookmark_id, url, user_id) is not None:
             _count_fetch_attempt(redis_conn, bookmark_id)
@@ -145,11 +194,30 @@ def analysis_job_id(bookmark_id: int) -> str:
     return f"analyze_bookmark_{bookmark_id}"
 
 
-def _analysis_due(redis_conn, bookmark_id: int, now: datetime) -> Optional[bool]:
-    """True when the next analysis try is due, False while backing off, None once out of tries."""
+def _analysis_state_many(redis_conn, bookmark_ids) -> Dict[int, tuple]:
+    """(attempts, last try) for many bookmarks in ONE Redis command."""
+    ids = list(bookmark_ids)
+    if not ids:
+        return {}
+    keys = [key.format(i) for i in ids for key in (_ANALYSIS_ATTEMPTS_KEY, _ANALYSIS_LAST_TRY_KEY)]
     try:
-        attempts = int(redis_conn.get(_ANALYSIS_ATTEMPTS_KEY.format(bookmark_id)) or 0)
-        last_try = redis_conn.get(_ANALYSIS_LAST_TRY_KEY.format(bookmark_id))
+        values = redis_conn.mget(keys)
+    except Exception:
+        return {}
+    return {i: (values[2 * n], values[2 * n + 1]) for n, i in enumerate(ids)}
+
+
+def _analysis_due(redis_conn, bookmark_id: int, now: datetime, stored: Optional[tuple] = None) -> Optional[bool]:
+    """True when the next analysis try is due, False while backing off, None once out of tries.
+
+    `stored` is the (attempts, last try) pair read earlier for many bookmarks at once; without it the
+    two values are read here, one command each."""
+    try:
+        if stored is not None:
+            attempts, last_try = int(stored[0] or 0), stored[1]
+        else:
+            attempts = int(redis_conn.get(_ANALYSIS_ATTEMPTS_KEY.format(bookmark_id)) or 0)
+            last_try = redis_conn.get(_ANALYSIS_LAST_TRY_KEY.format(bookmark_id))
     except Exception:
         return False
     if attempts >= MAX_ANALYSIS_ATTEMPTS:
@@ -199,14 +267,16 @@ def _retry_analyses(redis_conn, now: datetime, stale: datetime, counts: Dict[str
         counts["deferred"] += len(candidates)
         return
 
+    # Every candidate used to cost four Redis commands each pass (about 450 a pass with a backlog and the
+    # Gemini key out of quota, over 100,000 a day). Now: one command for all their counters, and a command
+    # about a job or a user only for a candidate that is actually due.
+    state = _analysis_state_many(redis_conn, [c[0] for c in candidates])
     allowance: Dict[int, bool] = {}
     per_user: Dict[int, int] = {}
     for bookmark_id, user_id in candidates:
         if counts["analysis_requeued"] >= ANALYSIS_BATCH_LIMIT:
             break
-        if is_job_active(analysis_job_id(bookmark_id), redis_conn):
-            continue  # already queued or running: waiting is not a failed try
-        due = _analysis_due(redis_conn, bookmark_id, now)
+        due = _analysis_due(redis_conn, bookmark_id, now, stored=state.get(bookmark_id, (None, None)))
         if due is None:
             counts["analysis_gave_up"] += 1
             continue
@@ -217,6 +287,8 @@ def _retry_analyses(redis_conn, now: datetime, stale: datetime, counts: Dict[str
         if not allowance[user_id]:
             counts["deferred"] += 1  # not a try: the allowance comes back tomorrow
             continue
+        if is_job_active(analysis_job_id(bookmark_id), redis_conn):
+            continue  # already queued or running: waiting is not a failed try
         job = enqueue_unique(queue, ANALYSIS_TASK, analysis_job_id(bookmark_id),
                              kwargs={'bookmark_id': bookmark_id, 'user_id': user_id}, job_timeout=300)
         if job is None:
