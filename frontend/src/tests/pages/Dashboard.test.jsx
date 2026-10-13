@@ -10,14 +10,6 @@ import { ToastProvider } from '../../contexts/ToastContext'
 import api from '../../services/api'
 
 
-vi.mock('../../utils/apiOptimization', () => ({
-  optimizedApiCall: vi.fn(async (fn) => {
-    // Actually call the function to ensure API calls are made
-    // This bypasses caching/deduplication in tests
-    return await fn()
-  })
-}))
-
 // Mock initializeCSRF to prevent real HTTP requests
 vi.mock('../../services/api', async (importOriginal) => {
   const actual = await importOriginal()

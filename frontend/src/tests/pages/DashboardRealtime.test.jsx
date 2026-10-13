@@ -14,10 +14,6 @@ import { realtimeClient } from '../../services/realtime'
 import { applyPipelineEvent, parsePipelineEventType } from '../../utils/pipelineEvents'
 import api from '../../services/api'
 
-vi.mock('../../utils/apiOptimization', () => ({
-  optimizedApiCall: vi.fn(async (fn) => fn()),
-}))
-
 vi.mock('../../services/api', async (importOriginal) => {
   const actual = await importOriginal()
   return {
