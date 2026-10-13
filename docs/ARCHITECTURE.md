@@ -1,8 +1,7 @@
-# System Architecture - Scalable Design
+# System Architecture
 
-Complete scalable architecture documentation for Fuze - Intelligent Content Manager.
-
-## ⚠️ Important: Current Implementation vs Scalable Design
+How Fuze, an intelligent content manager, is put together: what runs, where the data lives, and how a request
+or a saved bookmark flows through it.
 
 > [!NOTE]
 > **Hosting:** the reference deployment runs the backend on a Hugging Face Space (Docker SDK, free
@@ -12,308 +11,93 @@ Complete scalable architecture documentation for Fuze - Intelligent Content Mana
 > go to a remote reader service or the Wayback Machine ([`CONTENT_ACQUISITION.md`](CONTENT_ACQUISITION.md)).
 > See the root [`README.md`](../README.md).
 
-**This document describes both:**
-- **Current Implementation**: The single-container design this repo actually runs (whichever host it's deployed to)
-- **Scalable Design**: Architecture that supports future scaling (ready for horizontal scaling)
+## Contents
 
-**Key Distinction:**
-- **Current**: 2 Gunicorn workers (gevent, sized for a 2-vCPU host), single database, single Redis, RQ workers, no load balancer (platform handles routing)
-- **Scalable**: Architecture designed to support multiple workers, load balancers, database replicas, Redis clusters when needed
-- **Why**: Stateless design means scaling is just configuration changes, not code changes
-
-## Table of Contents
-
-1. [System Overview](#system-overview)
-2. [Architecture Layers](#architecture-layers)
-3. [Database Architecture](#database-architecture)
-4. [Caching Architecture](#caching-architecture)
-5. [Horizontal Scaling Strategy](#horizontal-scaling-strategy)
-6. [Load Distribution](#load-distribution)
-7. [Data Isolation & Security](#data-isolation--security)
-8. [Background Processing Architecture](#background-processing-architecture)
-9. [ML/AI Architecture](#mlai-architecture)
-10. [API Architecture](#api-architecture)
-11. [Frontend Architecture](#frontend-architecture)
-12. [Deployment Architecture](#deployment-architecture)
+1. [Overview](#overview)
+2. [Database](#database)
+3. [Caching](#caching)
+4. [Statelessness and data isolation](#statelessness-and-data-isolation)
+5. [Background processing](#background-processing)
+6. [ML/AI](#mlai)
+7. [API](#api)
+8. [Frontend](#frontend)
+9. [Deployment](#deployment)
+10. [Scaling beyond one container](#scaling-beyond-one-container)
 
 ---
 
-## System Overview
+## Overview
 
-Fuze is built as a scalable, multi-tenant system designed to handle thousands of concurrent users with individual API keys, isolated data, and independent processing pipelines.
+Principles:
 
-### Core Principles
-
-1. **User Isolation**: Complete data isolation per user
-2. **Horizontal Scalability**: Stateless design for easy scaling
-3. **Shared Caching**: Redis (per-process caches only for feature flags and API keys)
-4. **Background Processing**: Non-blocking async operations
-5. **Connection Pooling**: Efficient database connection management
-6. **Rate Limiting**: Per-user and per-IP rate limits
-7. **Graceful Degradation**: System works even when components fail
-
-### High-Level Architecture
-
-**Current Implementation (What's Deployed):**
+1. **User isolation.** Every query is scoped to the authenticated user.
+2. **Stateless web workers.** No sessions and no per-worker copies of user data; state lives in Redis and
+   Postgres.
+3. **Shared caching.** Redis holds per-user caches; per-process caches hold only the embedding model, feature
+   flags and decrypted API keys.
+4. **Background processing.** Fetching, embedding and analysis run in RQ jobs, not in requests.
+5. **Bounded resources.** Pooled database connections, per-user and per-IP rate limits, fail-fast timeouts.
+6. **Graceful degradation.** Redis is optional on the request path; failed work is retried or re-enqueued by a
+   reconciler.
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        WebApp[Web Application<br/>React + Vite]
-        Extension[Chrome Extension<br/>Manifest V3]
+    subgraph "Clients"
+        WebApp[Web app<br/>React + Vite on Vercel]
+        Extension[Chrome extension<br/>Manifest V3]
     end
-    
-    subgraph "Platform Layer"
-        Platform[Hugging Face Spaces<br/>Handles Routing & SSL]
+
+    Platform[Hugging Face Space<br/>routing and TLS]
+
+    subgraph "One container, run by supervisord"
+        Web[Gunicorn<br/>2 gevent workers]
+        RQ[RQ workers<br/>default and high queues]
     end
-    
-    subgraph "Application Layer - Current"
-        Worker1[Gunicorn Worker 1<br/>gevent async<br/>1000+ connections]
-        RQWorker[RQ Worker<br/>Background Jobs]
-    end
-    
-    subgraph "Shared Services Layer"
-        Redis[(Redis Instance<br/>Upstash - Single)]
-        Queue[RQ Task Queue<br/>Redis-based]
-    end
-    
-    subgraph "Data Layer"
-        PostgreSQL[(PostgreSQL<br/>Supabase - Single<br/>+ pgvector)]
-    end
-    
-    subgraph "External Services"
-        Gemini[Google Gemini AI<br/>Per-User API Keys]
-        WebContent[Web Scraping<br/>Services]
-    end
-    
+
+    Redis[(Redis<br/>Upstash)]
+    PG[(Postgres + pgvector<br/>Supabase)]
+    Gemini[Google Gemini<br/>or an OpenAI-compatible LLM]
+    Web_[Web content<br/>HTTP fetch, reader service, Wayback]
+
     WebApp --> Platform
     Extension --> Platform
-    
-    Platform --> Worker1
-    
-    Worker1 --> Redis
-    Worker1 --> PostgreSQL
-    
-    Worker1 --> Queue
-    Queue --> RQWorker
-    
-    RQWorker --> Redis
-    RQWorker --> PostgreSQL
-    RQWorker --> Gemini
-    RQWorker --> WebContent
-    
-    Worker1 --> WebContent
-    
-    style WebApp fill:#4a90e2
-    style Extension fill:#4a90e2
-    style Platform fill:#cd853f
-    style Worker1 fill:#50c878
-    style RQWorker fill:#50c878
-    style Redis fill:#ff6b6b
-    style PostgreSQL fill:#9b59b6
-    style Gemini fill:#9b59b6
+    Platform --> Web
+    Web --> Redis
+    Web --> PG
+    Web -->|enqueue| Redis
+    Redis -->|jobs| RQ
+    RQ --> PG
+    RQ --> Gemini
+    RQ --> Web_
 ```
 
-**Scalable Design (Future-Ready Architecture):**
-
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        WebApp[Web Application<br/>React + Vite]
-        Extension[Chrome Extension<br/>Manifest V3]
-        Mobile[Mobile Apps<br/>Future]
-    end
-    
-    subgraph "Load Balancer Layer"
-        LB[Load Balancer<br/>Nginx/Cloudflare]
-    end
-    
-    subgraph "Application Layer - Stateless Workers"
-        Worker1[Flask Worker 1<br/>Gunicorn]
-        Worker2[Flask Worker 2<br/>Gunicorn]
-        WorkerN[Flask Worker N<br/>Gunicorn]
-    end
-    
-    subgraph "Shared Services Layer"
-        Redis[(Redis Cluster<br/>Caching & Sessions)]
-        Queue[Task Queue<br/>RQ]
-    end
-    
-    subgraph "Data Layer"
-        PostgreSQL[(PostgreSQL Primary<br/>+ pgvector)]
-        Replica1[(PostgreSQL Replica 1)]
-        ReplicaN[(PostgreSQL Replica N)]
-    end
-    
-    subgraph "External Services"
-        Gemini[Google Gemini AI<br/>Per-User API Keys]
-        WebContent[Web Scraping<br/>Services]
-    end
-    
-    WebApp --> LB
-    Extension --> LB
-    Mobile --> LB
-    
-    LB --> Worker1
-    LB --> Worker2
-    LB --> WorkerN
-    
-    Worker1 --> Redis
-    Worker2 --> Redis
-    WorkerN --> Redis
-    
-    Worker1 --> Queue
-    Worker2 --> Queue
-    WorkerN --> Queue
-    
-    Worker1 --> PostgreSQL
-    Worker2 --> Replica1
-    WorkerN --> ReplicaN
-    
-    Queue --> PostgreSQL
-    Queue --> Gemini
-    
-    Worker1 --> WebContent
-    Worker2 --> WebContent
-    
-    style WebApp fill:#4a90e2
-    style Extension fill:#4a90e2
-    style LB fill:#cd853f
-    style Worker1 fill:#50c878
-    style Worker2 fill:#50c878
-    style WorkerN fill:#50c878
-    style Redis fill:#ff6b6b
-    style PostgreSQL fill:#9b59b6
-    style Gemini fill:#9b59b6
-```
+There is no custom load balancer (the platform routes), one Postgres database without replicas, and one Redis.
 
 ---
 
-## Architecture Layers
+## Database
 
-### Layer 1: Client Layer
-
-**Components:**
-- Web Application (React + Vite)
-- Chrome Extension (Manifest V3)
-- Future: Mobile Apps
-
-**Characteristics:**
-- Stateless clients
-- JWT token-based authentication
-- API calls to backend
-- Client-side caching
-
-### Layer 2: Load Balancer Layer
-
-**Current Implementation:**
-- ❌ **Not Implemented**: No custom load balancer
-- ✅ **Platform Handled**: Hugging Face Spaces handles routing, SSL termination, and health checks
-- ✅ **Design Ready**: Architecture supports load balancer when needed
-
-**Scalable Design (Future):**
-- **Responsibilities:**
-  - Request routing
-  - SSL termination
-  - Rate limiting (first line)
-  - Health checks
-  - Session affinity (if needed)
-- **Implementation:**
-  - Nginx or Cloudflare
-  - Round-robin or least-connections
-  - Health check endpoints
-
-### Layer 3: Application Layer (Stateless Workers)
-
-**Current Implementation:**
-- ✅ **2 Gunicorn Workers**: gevent async I/O, sized for the 2-vCPU host
-- ✅ **Gevent Worker Class**: up to 1000 connections per worker; psycogreen makes
-  Postgres queries yield (5 concurrent `pg_sleep(1)`: 5.05 s unpatched, 1.01 s
-  patched), and `model.encode` / bcrypt run on gevent's thread pool
-  (`utils/cooperative.py`)
-- ✅ **Stateless Design**: No local state, all state in Redis/DB
-- ✅ **Connection Pooling**: 5 base, 10 overflow connections, 5 s connect timeout,
-  15 s `statement_timeout` per connection, `sslmode=require` in production
-- ✅ **RQ Workers**: `default` and `high` queues, supervised next to Gunicorn
-
-**Current Configuration** (`gunicorn.conf.py`, started by `supervisord.conf`):
-```python
-workers = 2
-worker_class = "gevent"
-worker_connections = 1000
-timeout = 60            # was 2000 s; a stuck worker is recycled within a minute
-graceful_timeout = 30
-preload_app = False     # each worker opens its own DB/Redis connections after fork
-
-def post_fork(server, worker):
-    from psycogreen.gevent import patch_psycopg
-    patch_psycopg()
-    torch.set_num_threads(1)
-```
-
-**Scalable Design (Future):**
-- **Multiple Flask workers** (Gunicorn)
-- **Stateless design** - no local state
-- **Shared Redis** for sessions/cache
-- **Connection pooling** to database
-- **Scaling:**
-  - Add/remove workers dynamically
-  - Auto-scaling based on load
-  - Each worker handles any request
-
-### Layer 4: Shared Services Layer
-
-**Current Implementation:**
-- ✅ **Single Redis Instance**: Upstash (free tier)
-- ✅ **RQ Task Queue**: Redis-based task queue (not Celery)
-- ✅ **Shared Across Workers**: All workers use same Redis
-
-**Scalable Design (Future):**
-- **Redis Cluster** (caching, sessions, rate limiting)
-- **Task Queue** (RQ/Background workers - already using RQ)
-- **Message Broker** (for async tasks)
-
-### Layer 5: Data Layer
-
-**Current Implementation:**
-- ✅ **Single PostgreSQL**: Supabase (single database instance)
-- ✅ **pgvector Extension**: For vector search
-- ✅ **Connection Pooling**: 5 base, 10 overflow connections
-- ✅ **Alembic-Managed Indexes**: Optimized for performance (HNSW for vectors)
-- ❌ **No Read Replicas**: All operations to single database
-
-**Scalable Design (Future):**
-- **PostgreSQL Primary** (writes)
-- **PostgreSQL Replicas** (reads)
-- **pgvector extension** for vector search
-- **Connection pooling**
-- **Read/write splitting** (architecture supports it)
-
----
-
-## Database Architecture
-
-### Database Schema Design
+### Schema
 
 ```mermaid
 erDiagram
-    USERS ||--o{ SAVED_CONTENT : has
-    USERS ||--o{ PROJECTS : has
-    USERS ||--o{ USER_FEEDBACK : has
+    USERS ||--o{ SAVED_CONTENT : owns
+    USERS ||--o{ PROJECTS : owns
+    USERS ||--o{ USER_FEEDBACK : gives
     PROJECTS ||--o{ TASKS : has
     TASKS ||--o{ SUBTASKS : has
-    SAVED_CONTENT ||--o| CONTENT_ANALYSIS : analyzed_by
+    SAVED_CONTENT ||--o| CONTENT_ANALYSIS : has
+    SAVED_CONTENT ||--o{ CONTENT_CHUNKS : has
     SAVED_CONTENT ||--o{ USER_FEEDBACK : receives
-    
+    PROJECTS ||--o{ USER_FEEDBACK : "judged for"
+
     USERS {
         int id PK
         string username UK
         string email UK
         string password_hash
         json user_metadata
-        datetime created_at
     }
-    
     SAVED_CONTENT {
         int id PK
         int user_id FK
@@ -322,1106 +106,286 @@ erDiagram
         text extracted_text
         vector embedding
         int quality_score
+        string scrape_status
+        string embedding_status
+        string analysis_status
         datetime saved_at
     }
-    
+    CONTENT_CHUNKS {
+        bigint id PK
+        int content_id FK
+        int user_id
+        string kind "passage or profile"
+        text text
+        vector embedding
+        string embedding_model
+    }
+    CONTENT_ANALYSIS {
+        int id PK
+        int content_id FK
+        json analysis_data
+        string content_type
+        string difficulty_level
+    }
     PROJECTS {
         int id PK
         int user_id FK
         string title
         text description
         text technologies
-        vector embedding
-        json intent_analysis
-        datetime created_at
     }
-    
-    CONTENT_ANALYSIS {
+    USER_FEEDBACK {
         int id PK
+        int user_id FK
         int content_id FK
-        json analysis_data
-        text key_concepts
-        string content_type
-        string difficulty_level
-        text technology_tags
-        int relevance_score
+        int project_id FK
+        string feedback_type
+        json context_data
     }
 ```
 
-### Database Indexing Strategy
+Other tables: `tasks`, `subtasks`, `feedback`, `bookmark_metadata`, `bookmark_events`, `token_families`. Alembic
+(`backend/alembic/versions/`) is the only source of schema; `start.sh` runs `alembic upgrade head` before
+anything serves traffic and refuses to start if it fails.
 
-**Critical Indexes for Performance:**
+### Indexes
 
-```sql
--- User Isolation Indexes (CRITICAL for security and performance)
-CREATE INDEX idx_saved_content_user_id ON saved_content(user_id);
-CREATE INDEX idx_saved_content_user_quality ON saved_content(user_id, quality_score DESC);
-CREATE INDEX idx_saved_content_user_saved_at ON saved_content(user_id, saved_at DESC);
+Defined in the models and migrations; the ones that matter most:
 
--- Vector Search Indexes (pgvector)
-CREATE INDEX idx_saved_content_embedding ON saved_content 
-USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+- **User scoping:** `saved_content (user_id, saved_at)`, `(user_id, quality_score)`; `projects (user_id, created_at)`;
+  `tasks (project_id, created_at)`; `content_chunks (user_id, embedding_model)`; unique `(user_id, url)` on
+  `saved_content`.
+- **Vectors (pgvector HNSW, cosine, `m = 16`, `ef_construction = 64`):** `content_chunks.embedding` and
+  `saved_content.embedding`. `hnsw.iterative_scan` and `hnsw.ef_search` are set as database or role defaults
+  (migrations `0015`, `0017`) so a per-user filter still returns enough rows.
+- **Text search:** a `tsvector` index and a trigram index on `saved_content` (migration `0014`); a GIN index on
+  `bookmark_metadata.jsonb_payload`.
+- **Case-insensitive lookup:** `lower(username)` and `lower(email)` on `users`.
 
-CREATE INDEX idx_projects_embedding ON projects 
-USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+### Connection pooling
 
--- Composite Indexes for Common Queries
-CREATE INDEX idx_projects_user_created ON projects(user_id, created_at DESC);
-CREATE INDEX idx_tasks_project_created ON tasks(project_id, created_at DESC);
+One SQLAlchemy engine per process, configured by `utils/unified_config.py` (the `DB_*` variables in
+`.env.example`):
 
--- Case-Insensitive Lookups
-CREATE INDEX idx_users_username_lower ON users(LOWER(username));
-CREATE INDEX idx_users_email_lower ON users(LOWER(email));
-```
+| Setting | Web workers | RQ workers |
+|---|---|---|
+| `pool_size` | 5 (`DB_POOL_SIZE`) | 2 (`DB_WORKER_POOL_SIZE`) |
+| `max_overflow` | 5 (`DB_MAX_OVERFLOW`) | 1 (`DB_WORKER_MAX_OVERFLOW`) |
 
-**Index Strategy:**
-- **User Isolation First**: All queries filtered by `user_id` - indexes ensure fast lookups
-- **Composite Indexes**: Cover common query patterns (user_id + sort column)
-- **Vector Indexes**: IVFFlat indexes for fast similarity search
-- **Partial Indexes**: Conditional indexes for filtered queries
+Also: `pool_recycle` 300 s, `pool_timeout` 20 s, connect timeout 5 s, `statement_timeout` 15 s (set per
+connection, so it works through Supabase's pooler), `sslmode=require` in production, and a ping only after a
+connection has been idle (`DB_PING_IDLE_SECONDS`, default 15; `utils/db_pool.py`). All processes share the
+pooler's connection limit; see the budget in [OPERATIONS.md](OPERATIONS.md).
 
-### Connection Pooling Architecture
+---
+
+## Caching
 
 ```mermaid
 graph LR
-    subgraph "Application Workers"
-        W1[Worker 1]
-        W2[Worker 2]
-        W3[Worker 3]
-        WN[Worker N]
-    end
-    
-    subgraph "Connection Pool Manager"
-        Pool[QueuePool<br/>pool_size: 5<br/>max_overflow: 10<br/>pool_recycle: 300s<br/>pool_pre_ping: true]
-    end
-    
-    subgraph "PostgreSQL"
-        Primary[(Primary DB<br/>Read/Write)]
-        Replica1[(Replica 1<br/>Read Only)]
-        Replica2[(Replica 2<br/>Read Only)]
-    end
-    
-    W1 --> Pool
-    W2 --> Pool
-    W3 --> Pool
-    WN --> Pool
-    
-    Pool -->|Writes| Primary
-    Pool -->|Reads| Replica1
-    Pool -->|Reads| Replica2
-    
-    style Pool fill:#cd853f
-    style Primary fill:#9b59b6
-    style Replica1 fill:#50c878
-    style Replica2 fill:#50c878
+    Request[API request] --> Redis{Redis}
+    Redis -->|hit| Response[Response]
+    Redis -->|miss, or Redis down| PG[(Postgres)]
+    PG --> Store[Store in Redis] --> Response
 ```
 
-**Connection Pool Configuration:**
-- **Pool Size**: 5 connections per worker
-- **Max Overflow**: 10 additional connections
-- **Pool Recycle**: 300 seconds (prevent stale connections)
-- **Pool Pre-ping**: True (verify connections before use)
-- **Connection Timeout**: 30 seconds
-- **SSL Mode**: Auto-detected and configured
+- **In process:** the embedding model instance (a singleton), feature flags (5 s TTL) and decrypted user API
+  keys. User data is never cached per worker.
+- **Redis** (`utils/redis_utils.py`, `RedisCache`). Every per-user key is built in `core/cache_keys.py`, so
+  readers and invalidators cannot drift apart:
+  - per-user pages: `profile:{id}`, `dashboard:v1:summary:{id}` (30 s), `dashboard:stats:{id}`,
+    `bookmarks:{id}:{page}:{per_page}:{search}:{category}` (5 min, 1 min for a search), `bookmarks:{id}:list`,
+    `projects:{id}:{page}:{per_page}:{include_tasks}`;
+  - recommendation results (10 min), keyed by a per-user content version that changes on every save, edit and
+    delete, so stale results are never served;
+  - embeddings, keyed by a hash of model and text, 24 h TTL;
+  - Gemini analysis results, `content_analysis:{content_id}`.
+- Redis is optional on the request path: 2 s socket timeouts, no `PING` per operation, and at most one
+  reconnect attempt every 5 s while it is down.
+- **Invalidation** (`services/cache_invalidation_service.py`) uses the same key builders and wildcard patterns.
+  Web requests invalidate on a background thread; RQ jobs invalidate inline, because work horses exit with
+  `os._exit()` and would kill the thread first. `DELETE /api/bookmarks/all` clears synchronously.
 
-**Benefits:**
-- Reuses connections (faster queries)
-- Limits total connections (prevents DB overload)
-- Automatic connection health checks
-- Handles connection failures gracefully
-
-### Read/Write Splitting Strategy
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant Pool as Connection Pool
-    participant Primary as PostgreSQL Primary
-    participant Replica as PostgreSQL Replica
-    
-    Note over App,Replica: Write Operations
-    App->>Pool: Write Request (INSERT/UPDATE/DELETE)
-    Pool->>Primary: Execute Write
-    Primary-->>Pool: Commit Result
-    Pool-->>App: Success
-    
-    Note over App,Replica: Read Operations
-    App->>Pool: Read Request (SELECT)
-    Pool->>Replica: Execute Read
-    Replica-->>Pool: Query Results
-    Pool-->>App: Data
-    
-    Note over App,Replica: Replication Lag Handling
-    App->>Pool: Read After Write (with consistency flag)
-    Pool->>Primary: Read from Primary (strong consistency)
-    Primary-->>Pool: Fresh Data
-    Pool-->>App: Consistent Data
-```
-
-**Read/Write Splitting:**
-- **Writes**: Always go to Primary
-- **Reads**: Distributed across Replicas
-- **Consistency**: Option to read from Primary for critical reads
-- **Replication Lag**: Handled with read-after-write patterns
+Measured effects of caching and of the other latency work are in [OPTIMIZATIONS.md](OPTIMIZATIONS.md).
 
 ---
 
-## Caching Architecture
+## Statelessness and data isolation
 
-### Caching Strategy
+Authentication is a JWT (Flask-JWT-Extended); there are no server-side sessions, so any worker can serve any
+request. Isolation has three layers:
 
-```mermaid
-graph TB
-    subgraph "Redis Cache (shared)"
-        RedisUser[Per-user pages<br/>profile · dashboard · bookmarks · projects]
-        RedisRecommendations[Recommendation results<br/>keyed by content version]
-        RedisEmbedding[Embedding Cache<br/>24 hours TTL]
-        RedisAnalysis[Analysis Results]
-    end
+1. **Application.** Queries filter on `user_id` from the token; `require_user_context`
+   (`middleware/security_middleware.py`) guards routes that need it.
+2. **Database.** Foreign keys cascade on delete, `saved_content` is unique per `(user_id, url)`, and indexes lead
+   with `user_id`. Vector queries are filtered by `user_id` in the same statement as the HNSW search.
+3. **Row-level security.** Migration `0013` enables RLS on every table and removes `anon` and `authenticated`
+   privileges, so Supabase's REST API exposes nothing; the backend connects as the table owner.
 
-    subgraph "Database"
-        PostgreSQL[(PostgreSQL<br/>Permanent Storage)]
-    end
-
-    Request[API Request] --> RedisUser
-    Request --> RedisRecommendations
-    Request --> RedisEmbedding
-    Request --> RedisAnalysis
-
-    RedisUser -->|Miss or Redis down| PostgreSQL
-    RedisRecommendations -->|Miss or Redis down| PostgreSQL
-    RedisEmbedding -->|Miss| PostgreSQL
-    RedisAnalysis -->|Miss or Redis down| PostgreSQL
-
-    style RedisEmbedding fill:#ff6b6b
-    style RedisUser fill:#ff6b6b
-    style RedisRecommendations fill:#ff6b6b
-    style RedisAnalysis fill:#ff6b6b
-    style PostgreSQL fill:#9b59b6
-```
-
-### Cache Layers Explained
-
-#### In-Process (per worker)
-
-Only values that rarely change: the embedding model instance (singleton), feature
-flags (5 s TTL) and decrypted user API keys. User data is never cached per worker.
-
-#### Redis Cache (Shared Across Workers)
-
-**Location**: `backend/utils/redis_utils.py` (`RedisCache`); every per-user key is
-built by `backend/core/cache_keys.py`, so readers and invalidators can't drift apart
-
-**Cache Types:**
-
-1. **Per-user pages**
-   - Keys: `profile:{user_id}`, `dashboard:v1:summary:{user_id}`, `dashboard:stats:{user_id}`,
-     `bookmarks:{user_id}:{page}:{per_page}:{search}:{category}`, `bookmarks:{user_id}:list`,
-     `projects:{user_id}:{page}:{per_page}:{include_tasks}`
-   - Purpose: fast page loads; the bookmark list also serves import dedup
-
-2. **Recommendation Cache**
-   - Keys include a per-user content version that bumps on every change, so stale
-     results are never served
-   - Purpose: Avoid recomputing recommendations
-
-3. **Embedding Cache**
-   - Key: hash of the text (`RedisCache.cache_embedding`)
-   - TTL: 24 hours
-   - Purpose: Avoid re-encoding identical text
-
-4. **Analysis Cache**
-   - Key: `content_analysis:{content_id}`
-   - Stores: Gemini analysis results
-   - Purpose: Reuse AI analysis
-
-Fetched pages are not cached (the raw-HTML cache was never read, so it was removed).
-Redis is optional on the request path: 2 s timeouts, no PING per operation, and a
-reconnect attempt at most every 5 s while it is down.
-
-**Cache Invalidation Strategy:**
-
-```mermaid
-flowchart TD
-    Event[Data Change Event] --> Identify{Event Type}
-    
-    Identify -->|Content Saved| InvalidateContent[Invalidate Content Cache]
-    Identify -->|Content Updated| InvalidateContent
-    Identify -->|Content Deleted| InvalidateContent
-    Identify -->|Project Created| InvalidateProject[Invalidate Project Cache]
-    Identify -->|Analysis Complete| InvalidateAnalysis[Invalidate Analysis Cache]
-    
-    InvalidateContent --> InvalidateUser[Invalidate User Recommendations]
-    InvalidateProject --> InvalidateUser
-    InvalidateAnalysis --> InvalidateUser
-    
-    InvalidateUser --> ClearPatterns[Clear keys from core/cache_keys.py:<br/>- profile / dashboard<br/>- bookmarks:user:*<br/>- projects:user:*<br/>+ bump content version]
-    
-    ClearPatterns --> UpdateDB[Update Database]
-    
-    style Event fill:#4a90e2
-    style InvalidateUser fill:#ff6b6b
-    style ClearPatterns fill:#ff6b6b
-```
-
-**Cache Invalidation Service:**
-- Location: `backend/services/cache_invalidation_service.py`
-- Automatic invalidation on data changes
-- Pattern-based invalidation (wildcards), using the same key builders as the readers
-- Comprehensive coverage (project lists included); `DELETE /api/bookmarks/all`
-  clears synchronously
-- Web requests invalidate on a background thread; RQ jobs invalidate inline (work
-  horses exit via `os._exit()` and would kill the thread first)
+Per-user and per-IP rate limits use Flask-Limiter with Redis (`middleware/rate_limiting.py`).
 
 ---
 
-## Horizontal Scaling Strategy
-
-### Stateless Application Design
-
-**Key Principle**: No local state in application workers
+## Background processing
 
 ```mermaid
 graph LR
-    subgraph "Stateless Workers"
-        W1[Worker 1<br/>No Local State]
-        W2[Worker 2<br/>No Local State]
-        W3[Worker 3<br/>No Local State]
-    end
-    
-    subgraph "Shared State Storage"
-        Redis[(Redis<br/>Sessions & Cache)]
-        DB[(PostgreSQL<br/>Persistent Data)]
-    end
-    
-    W1 --> Redis
-    W2 --> Redis
-    W3 --> Redis
-    
-    W1 --> DB
-    W2 --> DB
-    W3 --> DB
-    
-    style W1 fill:#50c878
-    style W2 fill:#50c878
-    style W3 fill:#50c878
-    style Redis fill:#ff6b6b
-    style DB fill:#9b59b6
+    Save[POST /api/bookmarks] --> DB[(Postgres)]
+    Save -->|201| Client
+    Save -->|enqueue| Q[RQ queues in Redis]
+    Q --> Fetch[fetch + extract]
+    Fetch --> Embed[embed + index chunks]
+    Embed --> Analyze[Gemini content profile]
+    Rec[Reconciler every 5 min] -.->|re-enqueue lost or deferred work| Q
 ```
 
-**Stateless Components:**
-- ✅ JWT tokens (no server-side sessions)
-- ✅ All state in Redis or Database
-- ✅ No file uploads to workers
-- ✅ No per-worker caches of user data (shared Redis instead)
-- ✅ Connection pooling (managed by SQLAlchemy)
-
-**Benefits:**
-- Any worker can handle any request
-- Easy to add/remove workers
-- No session affinity required
-- Horizontal scaling without limits
-
-### User Isolation Architecture
-
-**Critical for Multi-Tenancy:**
-
-```mermaid
-flowchart TD
-    Request[API Request] --> ExtractUser[Extract user_id from JWT]
-    ExtractUser --> ValidateAuth{Valid JWT?}
-    
-    ValidateAuth -->|No| Reject[401 Unauthorized]
-    ValidateAuth -->|Yes| ApplyFilter[Apply user_id Filter]
-    
-    ApplyFilter --> QueryDB[Query Database]
-    QueryDB --> IndexCheck{Index Used?}
-    
-    IndexCheck -->|Yes| FastQuery[Fast Indexed Query<br/>O log n]
-    IndexCheck -->|No| SlowQuery[Slow Full Scan<br/>O n]
-    
-    FastQuery --> Results[Return Results]
-    SlowQuery --> Results
-    
-    style ExtractUser fill:#cd853f
-    style ApplyFilter fill:#ff6b6b
-    style FastQuery fill:#50c878
-    style SlowQuery fill:#ff6b6b
-```
-
-**User Isolation Implementation:**
-
-1. **Database Level:**
-   ```python
-   # All queries automatically filtered by user_id
-   SavedContent.query.filter_by(user_id=current_user_id).all()
-   ```
-
-2. **Index Level:**
-   ```sql
-   -- Composite indexes ensure fast user-specific queries
-   CREATE INDEX idx_saved_content_user_quality 
-   ON saved_content(user_id, quality_score DESC);
-   ```
-
-3. **Application Level:**
-   ```python
-   # Security middleware enforces user_id in all queries
-   @require_user_context
-   def get_user_bookmarks(user_id: int):
-       # user_id is guaranteed to be present and valid
-   ```
-
-**Benefits:**
-- Complete data isolation
-- Fast queries (indexed lookups)
-- Security at multiple layers
-- Scales per-user independently
+- **RQ workers** (`backend/worker.py`, `services/task_queue.py`): one on `default`, one on `high`, supervised by
+  `supervisord.conf` next to Gunicorn. Each loads the embedding model in the parent process before forking so
+  work horses share it.
+- **Jobs.** `enqueue_unique()` uses one job id per bookmark and stage, so re-enqueueing is safe. Fetch jobs
+  (`default`) retry twice (after 1 min, then 5 min); embedding jobs and login-triggered cache warming run on
+  `high`, so a fetched bookmark becomes searchable without waiting behind a bulk import. Project intent jobs
+  retry three times. Job timeout is 10 minutes (cache warming 30 s). Enqueueing never raises: if Redis is down
+  the bookmark stays `PENDING` and the reconciler enqueues it later. Web enqueues use a 5 s socket timeout.
+- **Pipeline stages** are recorded on the row (`scrape_status`, `embedding_status`, `analysis_status`).
+  `process_bookmark_content_task` fetches through the acquisition engine
+  ([CONTENT_ACQUISITION.md](CONTENT_ACQUISITION.md)). A failed or blocked fetch keeps the user's title and
+  notes and is stored as `FAILED_FETCH`, `BLOCKED` or `DISALLOWED`, never as content; transient failures raise so
+  RQ retries them. `generate_embedding_task` stores the document embedding, indexes passage chunks, and runs the
+  Gemini analysis (the user's own key, or the shared system key up to `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a
+  day).
+- **Reconciler** (`services/pipeline_reconciler.py`): a thread in the `default` worker, one pass every 5 minutes
+  under a Redis lock. It re-enqueues fetches stuck in `PENDING` for 15+ minutes, retries `FAILED_FETCH` after
+  1 h, 6 h and 24 h, re-enqueues bookmarks fetched but never embedded, and moves due retries back onto their
+  queues. There is no RQ scheduler; this keeps idle Redis traffic low (see OPERATIONS.md, Redis command budget).
+- **Bulk import** (`blueprints/bookmarks.py`): at most 5000 items per request; progress is kept in Redis
+  (`import_progress:{user_id}`) and pushed over Server-Sent Events (`blueprints/events.py`).
+- supervisord gives a running job up to 630 s to finish on shutdown.
 
 ---
 
-## Load Distribution
+## ML/AI
 
-### Request Distribution Strategy
+### Embeddings
 
-```mermaid
-graph TB
-    LB[Load Balancer] --> Strategy{Distribution Strategy}
-    
-    Strategy -->|Round Robin| RR[Distribute Equally]
-    Strategy -->|Least Connections| LC[Send to Least Busy]
-    Strategy -->|IP Hash| IH[Sticky Sessions<br/>if needed]
-    
-    RR --> W1[Worker 1]
-    RR --> W2[Worker 2]
-    RR --> W3[Worker 3]
-    
-    LC --> W1
-    LC --> W2
-    LC --> W3
-    
-    IH --> W1
-    IH --> W2
-    IH --> W3
-    
-    style LB fill:#cd853f
-    style Strategy fill:#cd853f
-```
+- Model: `BAAI/bge-small-en-v1.5`, 384 dimensions; queries use the model's query instruction (`embed_query`).
+- One model instance per process, loaded lazily on first use; RQ parents preload it.
+- No silent fallback: if the model cannot load, `EmbeddingUnavailable` is raised (embedding jobs fail and retry,
+  search returns 503), and an encode error raises instead of storing a zero vector. Hash vectors exist only as the
+  explicit `DISABLE_EMBEDDINGS` opt-in for local work.
+- Every stored vector records its model; retrieval compares only vectors from the active model.
 
-**Distribution Methods:**
-- **Round Robin**: Equal distribution (default)
-- **Least Connections**: Send to least busy worker
-- **IP Hash**: Sticky sessions (if needed, but not required due to stateless design)
+### Recommendations and search
 
-### Database Load Distribution
+Recommendations come from the intent x content engine (`backend/ml/intent_engine/`); search uses the same
+passage retrieval. How it works, how it is evaluated and what it scored: [RECOMMENDATIONS.md](RECOMMENDATIONS.md),
+[ADR-007](adr/ADR-007-intent-engine.md).
 
 ```mermaid
-graph TB
-    subgraph "Read Operations"
-        Read1[Read Request 1] --> Replica1[(Replica 1)]
-        Read2[Read Request 2] --> Replica2[(Replica 2)]
-        Read3[Read Request 3] --> Replica3[(Replica 3)]
+graph LR
+    subgraph Write
+        Text[Extracted text] --> Chunks[Overlapping passages] --> PEmb[Passage embeddings]
+        Text --> Profile[Gemini content profile] --> ProfEmb[Profile embedding]
+        PEmb --> CC[(content_chunks, HNSW)]
+        ProfEmb --> CC
     end
-    
-    subgraph "Write Operations"
-        Write1[Write Request 1] --> Primary[(Primary DB)]
-        Write2[Write Request 2] --> Primary
-        Write3[Write Request 3] --> Primary
+    subgraph Read
+        Ctx[Query or project/task/subtask] --> Intent[Intent text + cached Gemini statement]
+        Intent --> Vec[Query vectors] --> ANN[Nearest chunks per user]
+        CC --> ANN --> Rerank[Cross-encoder, optional] --> MMR[MMR diversity] --> Out[Results + matched passage]
     end
-    
-    Primary -.->|Replication| Replica1
-    Primary -.->|Replication| Replica2
-    Primary -.->|Replication| Replica3
-    
-    style Primary fill:#9b59b6
-    style Replica1 fill:#50c878
-    style Replica2 fill:#50c878
-    style Replica3 fill:#50c878
-```
-
-**Read/Write Distribution (Scalable Design - Not Yet Implemented):**
-- **Writes**: All to Primary (single source of truth)
-- **Reads**: Distributed across Replicas (load balancing)
-- **Replication**: Async replication (low latency)
-- **Consistency**: Read-after-write uses Primary
-
-**Current Implementation:**
-- **All Operations**: Single PostgreSQL database (no replicas)
-- **Connection Pooling**: Configured for efficiency
-- **Design Ready**: Architecture supports read/write splitting when replicas are added
-
----
-
-## Data Isolation & Security
-
-### Multi-Tenant Data Isolation
-
-**Three-Layer Isolation:**
-
-```mermaid
-graph TB
-    subgraph "Layer 1: Application Filtering"
-        AppFilter[All Queries Filtered by user_id<br/>@require_user_context decorator]
-    end
-    
-    subgraph "Layer 2: Database Indexes"
-        UserIndex[Composite Indexes<br/>user_id + other columns]
-    end
-    
-    subgraph "Layer 3: Row-Level Security"
-        RLS[PostgreSQL RLS enabled on every table<br/>no policies: Supabase API roles see no rows]
-    end
-    
-    Request[API Request] --> AppFilter
-    AppFilter --> UserIndex
-    UserIndex --> RLS
-    RLS --> Data[(User's Data Only)]
-    
-    style AppFilter fill:#ff6b6b
-    style UserIndex fill:#cd853f
-    style RLS fill:#50c878
-```
-
-**Isolation Mechanisms:**
-
-1. **Application Level:**
-   - All queries include `user_id` filter
-   - Decorators enforce user context
-   - Input validation prevents injection
-
-2. **Database Level:**
-   - Composite indexes on `user_id`
-   - Foreign keys with CASCADE
-   - Unique constraints per user
-   - Row level security on every table and no `anon`/`authenticated` privileges
-     (migration 0013), so Supabase's REST API exposes nothing; the backend connects
-     as the table owner
-
-3. **API Level:**
-   - JWT token contains `user_id`
-   - Token validation on every request
-   - No cross-user data access possible
-
-### Security Architecture
-
-```mermaid
-graph TB
-    Request[Incoming Request] --> ValidateJWT{JWT Valid?}
-    
-    ValidateJWT -->|No| Reject[401 Unauthorized]
-    ValidateJWT -->|Yes| ExtractUser[Extract user_id]
-    
-    ExtractUser --> SanitizeInput[Sanitize Inputs<br/>SQL Injection Prevention<br/>XSS Prevention]
-    SanitizeInput --> RateLimit{Rate Limit OK?}
-    
-    RateLimit -->|No| RateLimitError[429 Too Many Requests]
-    RateLimit -->|Yes| ValidateData{Data Valid?}
-    
-    ValidateData -->|No| ValidationError[400 Bad Request]
-    ValidateData -->|Yes| ApplyUserFilter[Apply user_id Filter]
-    
-    ApplyUserFilter --> ExecuteQuery[Execute Query]
-    ExecuteQuery --> ReturnData[Return User's Data Only]
-    
-    style ValidateJWT fill:#ff6b6b
-    style SanitizeInput fill:#ff6b6b
-    style RateLimit fill:#cd853f
-    style ApplyUserFilter fill:#ff6b6b
 ```
 
 ---
 
-## Background Processing Architecture
+## API
 
-### Async Processing Design
+Flask blueprints, all behind JWT validation, input validation and rate limiting:
 
-```mermaid
-graph TB
-    Request[User Request] --> SaveData[Save to Database]
-    SaveData --> ReturnResponse[Return 201 Created]
-    SaveData --> TriggerAsync[Trigger Background Task]
-    
-    TriggerAsync --> Queue[Task Queue<br/>Redis/RQ]
-    
-    Queue --> Worker1[Background Worker 1]
-    Queue --> Worker2[Background Worker 2]
-    Queue --> WorkerN[Background Worker N]
-    
-    Worker1 --> ProcessTask[Process Task]
-    Worker2 --> ProcessTask
-    WorkerN --> ProcessTask
-    
-    ProcessTask --> UpdateDB[Update Database]
-    ProcessTask --> UpdateCache[Update Cache]
-    
-    style Request fill:#4a90e2
-    style ReturnResponse fill:#50c878
-    style Queue fill:#ff6b6b
-    style ProcessTask fill:#cd853f
-```
+| Blueprint | Prefix |
+|---|---|
+| auth, account, user_api_key | `/api/auth`, `/api/account`, `/api/user` |
+| bookmarks | `/api/bookmarks` |
+| projects, tasks | `/api/projects`, `/api/tasks` |
+| recommendations, feedback | `/api/recommendations`, `/api/feedback` |
+| search, ask | `/api/search`, `/api/ask` |
+| dashboard, profile, events (SSE) | `/api/dashboard`, `/api`, `/api` |
+| linkedin | registered when available |
 
-**Background Services (Current Implementation):**
-
-1. **RQ (Redis Queue) Workers** ⭐ **Primary Background System**
-   - Location: `backend/worker.py` and `backend/services/task_queue.py`
-   - Processes: Bookmark content extraction, embedding generation, analysis
-   - Queue System: Redis-based task queue (`default` and `high`)
-   - Runs: supervised by supervisord next to Gunicorn (`start.sh` → `supervisord.conf`)
-   - Deployment: one `default` and one `high` worker in the same container as the web server
-
-2. **Pipeline Reconciler**
-   - Location: `backend/services/pipeline_reconciler.py`
-   - Runs: a thread in the `default` worker, every 5 minutes (a Redis lock keeps it to one pass at a time)
-   - Re-enqueues: fetches stuck in `PENDING` for 15+ minutes, `FAILED_FETCH` after
-     1 h / 6 h / 24 h backoff, and bookmarks that were fetched but never embedded
-
-3. **Content Analysis**
-   - Location: `backend/services/background_analysis_service.py` (`analyze_content`)
-   - Runs: at the end of the embedding job, skipped when there is no fetched text
-   - Uses: the user's own Gemini key, or the shared system key up to
-     `SYSTEM_GEMINI_DAILY_LIMIT_PER_USER` uses a day
-
-4. **Cache Invalidation Service**
-   - Location: `backend/services/cache_invalidation_service.py`
-   - Processes: Cache invalidation on data changes
-   - Runs: on a background thread for web requests, inline inside RQ jobs
-
-5. **Import Processing**
-   - Location: `backend/blueprints/bookmarks.py`
-   - Processes: Bulk bookmark imports (at most 5000 per request)
-   - Progress: kept in Redis (`import_progress:{user_id}`) and pushed over SSE
-
-### RQ Worker Architecture
-
-**How It Works:**
-
-```
-User Action → API Endpoint → Enqueue Job → Immediate Response
-                                      ↓
-                              RQ Worker → Process Content → Update Database
-```
-
-**Components:**
-
-1. **Task Queue Service** (`backend/services/task_queue.py`)
-   - Manages RQ queues and job enqueueing
-   - `enqueue_unique()`: one job id per bookmark and stage, so re-enqueueing is always safe
-   - Web enqueues use a 5 s socket timeout; workers get a connection without one
-     (they block in BLPOP between jobs)
-   - Enqueueing never raises: if Redis is down the bookmark stays `PENDING` and the
-     reconciler enqueues it later
-   - Queue stats read failures from RQ's `FailedJobRegistry`
-
-2. **Bookmark Processing Tasks** (`backend/services/bookmark_processing_service.py`)
-   - `process_bookmark_content_task()`: fetches and extracts the page through the
-     acquisition engine (official APIs first, then robots.txt, the per-domain rate
-     limit and the SSRF-safe fetch, then a remote reader for thin or blocked pages and the
-     Wayback Machine for gone ones; see `CONTENT_ACQUISITION.md`). A failed or blocked fetch keeps the user's title
-     and notes and is stored as `FAILED_FETCH`, `BLOCKED` or `DISALLOWED`, never as
-     content; transient failures (no response, 5xx, 429, over the domain's rate
-     limit) raise so RQ retries them
-   - `generate_embedding_task()`: enqueued by `PipelineOrchestrator` when a fetch
-     completes (backpressure defers it to the reconciler instead of dropping it);
-     stores the document embedding, indexes passage chunks, then runs Gemini analysis
-
-3. **RQ Worker** (`backend/worker.py`)
-   - Background process that listens to queues and executes tasks
-   - Started `with_scheduler=True`, so `Retry(interval=...)` retries actually run
-   - Loads the embedding model once in the parent; forked work horses share it
-   - `JobTimeoutException` is re-raised through the fetch/Gemini/analysis paths, so
-     a timed-out job really fails
-   - supervisord gives a running job up to 630 s to finish on shutdown
-
-**Queue Configuration:**
-
-- **Default Queue**: bookmark fetch jobs, project intent jobs
-- **High Priority Queue**: embedding jobs (a fetched bookmark becomes searchable without waiting
-  behind the rest of a bulk import's fetches), login-triggered cache warming
-- **Retry Logic**: fetch jobs 2 retries (after 1 min, then 5 min); project jobs 3
-- **Job Timeout**: 10 minutes per job (cache warming: 30 s)
-
-**Current Deployment (Hugging Face Spaces):**
-
-The RQ workers run automatically:
-- ✅ `start.sh` migrates the database (and exits if that fails), then execs supervisord
-- ✅ supervisord runs Gunicorn plus the `default` and `high` RQ workers in the same Docker container
-- ✅ Workers use the same Redis as the web server
-- ✅ No manual configuration needed
-
-**Scalable Deployment (Future):**
-- Can run RQ workers on separate machines
-- Can scale RQ workers independently
-- Multiple workers can process jobs in parallel
-
-**Benefits:**
-- Non-blocking user requests
-- Parallel processing
-- User-specific API key usage
-- Progress tracking for long operations
-- Jobs survive server restarts (persistent queue)
-- Automatic retries on failure
-- Better scalability (can run workers on separate machines)
-
----
-
-## ML/AI Architecture
-
-### Embedding Model Architecture
-
-```mermaid
-graph TB
-    Request[Generate Embedding] --> CheckCache{Redis Cache?}
-    
-    CheckCache -->|Hit| ReturnCached[Return Cached Embedding]
-    CheckCache -->|Miss| CheckModel{Model Loaded?}
-    
-    CheckModel -->|No| LoadModel[Load SentenceTransformer<br/>Singleton Pattern]
-    CheckModel -->|Yes| UseModel[Use Cached Model]
-    
-    LoadModel --> UseModel
-    UseModel --> GenerateEmbedding[Generate Embedding<br/>384 dimensions]
-    GenerateEmbedding --> CacheResult[Cache in Redis<br/>24 hours TTL]
-    CacheResult --> ReturnEmbedding[Return Embedding]
-    
-    style CheckCache fill:#ff6b6b
-    style LoadModel fill:#cd853f
-    style GenerateEmbedding fill:#cd853f
-    style CacheResult fill:#ff6b6b
-```
-
-**Model Management:**
-- **Model**: `BAAI/bge-small-en-v1.5` (384 dimensions); queries use its query instruction (`embed_query`)
-- **Singleton Pattern**: One model instance per process; RQ work horses share the parent's
-- **Lazy Loading**: Model loaded on first use (prevents OOM at startup)
-- **Thread Safety**: Locking prevents race conditions
-- **No Silent Fallback**: if the model can't load, `EmbeddingUnavailable` is raised (embedding
-  jobs fail and retry, search returns 503); an encode error raises instead of storing a zero
-  vector. Hash vectors exist only as an explicit `DISABLE_EMBEDDINGS` opt-in for local work
-- **Redis Caching**: Embeddings cached to avoid regeneration
-
-### Intent × Content Engine
-
-Full design and measurements: [`INTENT_ENGINE_PLAN.md`](INTENT_ENGINE_PLAN.md).
-
-```mermaid
-graph TB
-    subgraph Write path
-        Save[Bookmark saved] --> Acquire[Fetch + extract text]
-        Acquire --> Chunk[Overlapping passages]
-        Chunk --> PEmb[Passage embeddings]
-        Acquire --> Profile[Gemini content profile<br/>summary · use_when · concepts]
-        Profile --> ProfEmb[Profile embedding]
-        PEmb --> Chunks[(content_chunks<br/>HNSW)]
-        ProfEmb --> Chunks
-    end
-    subgraph Read path
-        Req[Query or project/task/subtask] --> Ctx[Intent text<br/>user's own words]
-        Ctx --> Stmt{Cached Gemini<br/>intent statement?}
-        Stmt -->|yes| Multi[Query vectors:<br/>context + statement + needs]
-        Stmt -->|no: schedule job| Multi
-        Multi --> ANN[Nearest passages per user]
-        Chunks --> ANN
-        ANN --> Rerank[Cross-encoder rerank<br/>optional]
-        Rerank --> MMR[MMR diversity]
-        MMR --> Out[Results + matched passage]
-    end
-```
-
-**Properties:**
-- **No keyword rules**: retrieval and ranking use embeddings and model judgements only
-- **Never blocks on Gemini**: intent statements are computed by a background job and cached per context
-- **Fresh results**: result cache keys include a per-user content version that bumps on every change
-- **Versioned vectors**: chunks record their embedding model; retrieval only compares vectors from the active model
-
----
-
-## API Architecture
-
-### Blueprint-Based Modular Design
-
-```mermaid
-graph TB
-    App[Flask Application] --> AuthBP[Auth Blueprint<br/>/api/auth]
-    App --> BookmarksBP[Bookmarks Blueprint<br/>/api/bookmarks]
-    App --> ProjectsBP[Projects Blueprint<br/>/api/projects]
-    App --> RecommendationsBP[Recommendations Blueprint<br/>/api/recommendations]
-    App --> SearchBP[Search Blueprint<br/>/api/search]
-    App --> ProfileBP[Profile Blueprint<br/>/api/profile]
-    
-    AuthBP --> AuthMiddleware[JWT Validation]
-    BookmarksBP --> AuthMiddleware
-    ProjectsBP --> AuthMiddleware
-    RecommendationsBP --> AuthMiddleware
-    SearchBP --> AuthMiddleware
-    ProfileBP --> AuthMiddleware
-    
-    AuthMiddleware --> SecurityMiddleware[Security Middleware<br/>Input Validation<br/>Rate Limiting]
-    
-    SecurityMiddleware --> BusinessLogic[Business Logic]
-    BusinessLogic --> DataLayer[Data Layer<br/>Models + DB]
-    
-    style App fill:#4a90e2
-    style AuthMiddleware fill:#ff6b6b
-    style SecurityMiddleware fill:#ff6b6b
-    style BusinessLogic fill:#cd853f
-```
-
-**Blueprint Benefits:**
-- **Modularity**: Each feature in separate blueprint
-- **Maintainability**: Easy to locate and modify code
-- **Testability**: Each blueprint can be tested independently
-- **Scalability**: Can split blueprints to separate services if needed
-
-### Request Flow Architecture
+Health: `/health/liveness` (no dependencies; the Docker `HEALTHCHECK`), `/health/readiness` (503 unless the
+database, Redis and a schema at this build's Alembic head are ready), and `/api/health` (public up/down only).
+Endpoint details: [API_ARCHITECTURE.md](API_ARCHITECTURE.md).
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant LB as Platform/Load Balancer
-    participant Worker as Flask Worker
-    participant Middleware as Security Middleware
-    participant Cache as Redis Cache
-    participant DB as PostgreSQL
-    participant Background as Background Service
-    
-    Client->>LB: HTTP Request
-    LB->>Worker: Route to Worker
-    Worker->>Middleware: Validate JWT
-    Middleware->>Middleware: Sanitize Input
-    Middleware->>Middleware: Check Rate Limit
-    
-    alt Rate Limit Exceeded
-        Middleware-->>Client: 429 Too Many Requests
-    else Rate Limit OK
-        Middleware->>Cache: Check Cache
-        alt Cache Hit
-            Cache-->>Worker: Cached Data
-            Worker-->>Client: Response (Fast)
-        else Cache Miss
-            Worker->>DB: Query Database
-            DB-->>Worker: Data
-            Worker->>Cache: Store in Cache
-            Worker->>Background: Trigger Async Task (if needed)
-            Worker-->>Client: Response
+    participant C as Client
+    participant W as Flask worker
+    participant R as Redis
+    participant D as Postgres
+    participant Q as RQ
+
+    C->>W: HTTP request + JWT
+    W->>W: validate JWT, rate limit
+    alt rate limit exceeded
+        W-->>C: 429
+    else
+        W->>R: cache lookup
+        alt hit
+            R-->>W: cached data
+        else miss
+            W->>D: query (scoped to user)
+            D-->>W: rows
+            W->>R: store
+            W->>Q: enqueue background work, if any
         end
+        W-->>C: response
     end
 ```
 
 ---
 
-## Frontend Architecture
+## Frontend
 
-### React Application Structure
+React 19 with Vite, Tailwind CSS and React Router (`frontend/src`).
 
-```mermaid
-graph TB
-    subgraph "Entry Point"
-        Main[main.jsx] --> App[App.jsx]
-    end
-    
-    subgraph "Context Layer"
-        App --> AuthContext[AuthContext<br/>JWT Management]
-        App --> ToastContext[ToastContext<br/>Notifications]
-    end
-    
-    subgraph "Routing Layer"
-        App --> Router[React Router]
-        Router --> Routes[Route Components]
-    end
-    
-    subgraph "Page Components"
-        Routes --> Landing[Landing Page]
-        Routes --> Login[Login Page]
-        Routes --> Dashboard[Dashboard]
-        Routes --> Bookmarks[Bookmarks]
-        Routes --> Projects[Projects]
-        Routes --> Recommendations[Recommendations]
-    end
-    
-    subgraph "Service Layer"
-        Pages --> API[API Service<br/>axios + optimizations]
-        API --> Cache[API Optimization<br/>Caching + Deduplication]
-    end
-    
-    style Main fill:#4a90e2
-    style AuthContext fill:#cd853f
-    style API fill:#cd853f
-    style Cache fill:#ff6b6b
-```
-
-**Frontend Optimizations:**
-
-1. **API Call Optimization**
-   - Location: `frontend/src/utils/apiOptimization.js`
-   - Features:
-     - Request debouncing (300ms)
-     - Request batching (50ms window)
-     - Response caching (5 minutes TTL)
-     - Request deduplication
-
-2. **Code Splitting**
-   - React vendor chunk
-   - Axios vendor chunk
-   - Route-based lazy loading (future)
-
-3. **State Management**
-   - React Context for global state
-   - Local state for component state
-   - No Redux (keeps it simple)
+- **State:** React context (`AuthContext`, `ToastContext`, `SidebarContext`) and local component state; no Redux.
+- **Pages:** Landing, Login, OAuthCallback, Dashboard, Bookmarks, SaveContent, ShareHandler, Projects,
+  ProjectDetail, Recommendations, Ask, Profile, ExtensionDownload (`src/pages`).
+- **API client:** `src/services/api.js` (axios). Access and refresh tokens are kept in `localStorage`; concurrent
+  401s share one refresh request. `src/services/realtime.js` consumes the SSE stream for import progress.
+- **Build:** most pages are loaded with `React.lazy`; Vite splits vendor and page chunks
+  (`frontend/vite.config.js`).
+- **PWA:** service worker and web app manifest with a share target ([PWA.md](PWA.md)).
+- The Chrome extension (`BookmarkExtension/`, Manifest V3) saves bookmarks through the same API.
 
 ---
 
-## Deployment Architecture
+## Deployment
 
-### Current Deployment Stack (What's Actually Running)
+Hugging Face Space, one Docker container started by `start.sh`: migrate (exit on failure), then `supervisord`
+runs:
 
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        WebApp[Web Application<br/>React + Vite]
-        Extension[Chrome Extension]
-    end
-    
-    subgraph "Platform Layer"
-        Platform[Hugging Face Spaces<br/>Handles Routing & SSL]
-    end
-    
-    subgraph "Application Container"
-        App1[Gunicorn Worker 1<br/>gevent async<br/>1000+ connections]
-        RQWorker[RQ Worker<br/>Background Jobs]
-    end
-    
-    subgraph "Cache Layer"
-        Redis[(Redis Instance<br/>Upstash - Single)]
-    end
-    
-    subgraph "Database Layer"
-        Primary[(PostgreSQL<br/>Supabase - Single<br/>+ pgvector)]
-    end
-    
-    subgraph "External Services"
-        Gemini[Google Gemini AI<br/>Per-User API Keys]
-    end
-    
-    WebApp --> Platform
-    Extension --> Platform
-    
-    Platform --> App1
-    
-    App1 --> Redis
-    App1 --> Primary
-    App1 --> Gemini
-    
-    App1 --> RQWorker
-    RQWorker --> Redis
-    RQWorker --> Primary
-    RQWorker --> Gemini
-    
-    style WebApp fill:#4a90e2
-    style Extension fill:#4a90e2
-    style Platform fill:#cd853f
-    style App1 fill:#50c878
-    style RQWorker fill:#50c878
-    style Redis fill:#ff6b6b
-    style Primary fill:#9b59b6
-    style Gemini fill:#9b59b6
-```
+- **Gunicorn** (`gunicorn.conf.py`): 2 workers, `worker_class = "gevent"`, 1000 connections per worker,
+  `timeout = 60`, `graceful_timeout = 30`, `preload_app = False` (each worker opens its own DB and Redis
+  connections after fork). `post_fork` calls `psycogreen.patch_psycopg()` so Postgres waits yield, and sets one
+  torch thread per worker; CPU-bound work (query embedding, bcrypt) runs on gevent's thread pool
+  (`utils/cooperative.py`).
+- **RQ workers** for the `default` and `high` queues.
 
-### Scalable Deployment Stack (Future-Ready Design)
-
-```mermaid
-graph TB
-    subgraph "CDN & Edge"
-        CDN[Cloudflare/CDN<br/>Static Assets]
-    end
-    
-    subgraph "Load Balancer"
-        LB[Nginx/Cloudflare<br/>SSL Termination<br/>Rate Limiting]
-    end
-    
-    subgraph "Application Servers"
-        App1[Gunicorn Worker 1<br/>4 workers]
-        App2[Gunicorn Worker 2<br/>4 workers]
-        AppN[Gunicorn Worker N<br/>4 workers]
-    end
-    
-    subgraph "Cache Layer"
-        Redis[(Redis Cluster<br/>High Availability)]
-    end
-    
-    subgraph "Database Layer"
-        Primary[(PostgreSQL Primary<br/>Write Operations)]
-        Replica1[(PostgreSQL Replica 1<br/>Read Operations)]
-        Replica2[(PostgreSQL Replica 2<br/>Read Operations)]
-    end
-    
-    subgraph "Background Workers"
-        BG1[RQ Worker 1]
-        BG2[RQ Worker 2]
-    end
-    
-    CDN --> LB
-    LB --> App1
-    LB --> App2
-    LB --> AppN
-    
-    App1 --> Redis
-    App2 --> Redis
-    AppN --> Redis
-    
-    App1 --> Primary
-    App2 --> Replica1
-    AppN --> Replica2
-    
-    BG1 --> Redis
-    BG2 --> Redis
-    BG1 --> Primary
-    BG2 --> Primary
-    
-    Primary -.->|Replication| Replica1
-    Primary -.->|Replication| Replica2
-    
-    style CDN fill:#4a90e2
-    style LB fill:#cd853f
-    style App1 fill:#50c878
-    style Redis fill:#ff6b6b
-    style Primary fill:#9b59b6
-```
-
-### Current Deployment Configuration
-
-**Application Servers (Current):**
-- **Gunicorn Workers**: 2 workers (gevent async, sized for a 2-vCPU host)
-- **Worker Class**: gevent (handles 1000+ concurrent connections per worker)
-- **Worker Connections**: 1000 per worker
-- **Worker timeout**: 60 s (graceful 30 s); psycogreen patch in `post_fork`
-- **Deployment target**: single Docker container (Hugging Face Space), deployed only
-  after Backend CI passes on that commit
-- **Startup**: `start.sh` runs `alembic upgrade head` and refuses to start if it fails
-- **Health Checks**: `/health/readiness` (503 unless DB, Redis and the schema at this
-  build's Alembic head are ready), `/health/liveness` (Docker `HEALTHCHECK`), and
-  `/api/health` (public up/down only)
-
-**Database (Current):**
-- **Connection Pool**: 5 base connections, 10 overflow, `pool_pre_ping`, 5 s connect
-  timeout, 15 s `statement_timeout`; one engine configured by `UnifiedConfig`
-- **Single Database**: All operations to one PostgreSQL instance
-- **Schema**: Alembic is the only source of schema; each revision runs in its own transaction
-- **Indexes**: defined in the migrations (HNSW for embeddings and passage chunks)
-
-**Redis (Current):**
-- **Single Instance**: Upstash (free tier)
-- **Shared**: All workers use same Redis
-- **Sufficient**: For current scale
-
-**Background Workers (Current):**
-- **RQ Workers**: one on `default` (pipeline + reconciler), one on `high` (cache warming)
-- **Queue**: Redis as message broker
-- **Deployment**: supervisord runs them in the same container as the web server
-
-### Scalable Design Configuration (Future)
-
-**Application Servers (Scalable):**
-- **Gunicorn Workers**: 4+ workers per server
-- **Threads**: 2 threads per worker (if needed)
-- **Auto-scaling**: Based on CPU/memory metrics
-- **Multiple Servers**: With load balancer
-
-**Database (Scalable):**
-- **Connection Pool**: 5 base connections per worker, 10 overflow
-- **Max Overflow**: 10 additional connections
-- **Read Replicas**: Scale horizontally
-- **Read/Write Splitting**: Writes to primary, reads from replicas
-
-**Redis (Scalable):**
-- **Cluster Mode**: For high availability
-- **Replication**: Master-replica setup
-- **Persistence**: RDB + AOF (if needed)
-
-**Background Workers (Scalable):**
-- **RQ Workers**: Multiple workers (separate from web workers)
-- **Queue**: Redis as message broker
-- **Scaling**: Independent of web workers
-- **Note**: Already using RQ (not Celery) - architecture is correct
+The Space deploys only after Backend CI passes on that commit. The frontend is deployed on Vercel. Backups,
+rollback, secrets, keep-alives and the database connection budget are in [OPERATIONS.md](OPERATIONS.md);
+platform steps are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-## Scalability Metrics
+## Scaling beyond one container
 
-### Current Capacity (Actual Implementation)
+Not implemented; the design leaves room for it:
 
-**Current Deployment (Hugging Face Spaces):**
-- **Gunicorn**: 2 workers (gevent async, 1000+ connections per worker)
-- **Concurrent Users / Requests per second**: not measured yet (a load test will set these)
-- **Database Connections**: up to pool_size + max_overflow per process (see docs/OPERATIONS.md)
-- **Background Jobs**: RQ workers process ~10-50 jobs/hour
-- **Memory Usage**: ~2-4GB of 16GB available (room for growth)
-
-**Current Performance:**
-These targets for a scaled-out deployment (replicas, Redis cluster) are design goals, not
-measurements; nothing has been load-tested at that scale.
-
-### Scaling Strategy Summary
-
-**Immediate Scaling (Within Current Platform):**
-- **Vertical Scaling**: Upgrade HF Spaces hardware (CPU, RAM)
-- **Connection Optimization**: Increase gevent workers or connections per worker
-- **Database Optimization**: More aggressive caching, query optimization
-- **Background Processing**: Multiple RQ workers in same container
-
-**Horizontal Scaling (Future Architecture):**
-- **Application Layer**: Add more HF Spaces containers with load balancer
-- **Database Layer**: Add PostgreSQL read replicas for read operations
-- **Cache Layer**: Redis cluster with sharding across multiple instances
-- **Background Workers**: Distributed RQ workers across multiple containers
-
-**Key Scaling Principles:**
-- **Stateless Design**: Any worker can handle any request (no session affinity)
-- **Shared Nothing**: Redis/DB provide shared state across all instances
-- **Connection Pooling**: Efficient database connection management
-- **Circuit Breakers**: Graceful degradation when services are unavailable
-
----
-
-## Key Scalability Features
-
-### 1. Stateless Design
-- ✅ No server-side sessions
-- ✅ JWT tokens (self-contained)
-- ✅ Shared Redis for state
-- ✅ Any worker handles any request
-
-### 2. Connection Pooling
-- ✅ Efficient database connections
-- ✅ Fail-fast timeouts (connect 5 s, statement 15 s)
-- ✅ Configurable pool sizes
-- ✅ Health checks (pool_pre_ping)
-
-### 3. Caching
-- ✅ Redis cache (shared, key builders in `core/cache_keys.py`)
-- ✅ Database (persistent)
-- ✅ Smart invalidation
-
-### 4. Background Processing
-- ✅ Non-blocking operations
-- ✅ User-specific API keys
-- ✅ Parallel processing
-- ✅ Progress tracking
-
-### 5. Database Optimization
-- ✅ Comprehensive indexes
-- ✅ Read/write splitting (design only; one database today)
-- ✅ Connection pooling
-- ✅ Query optimization
-
-### 6. User Isolation
-- ✅ Complete data separation
-- ✅ Per-user rate limits
-- ✅ Independent processing
-- ✅ Security at all layers
-
----
-
-Ujjwal Jain
-
-
+- **More web capacity:** workers are stateless, so more containers behind a load balancer need no code change.
+  Each process adds to the pooler's connection count, so lower the pool settings accordingly.
+- **RQ workers** can run in separate containers against the same Redis.
+- **Reads:** a single Postgres serves reads and writes today; read replicas would need read/write routing in the
+  data layer, which does not exist.
+- **Latency:** the largest measured cost is the round trip between the Space and the database region
+  ([perf/README.md](perf/README.md), [REGION_MOVE.md](REGION_MOVE.md)), not CPU.

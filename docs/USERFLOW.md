@@ -1,6 +1,6 @@
 # User Flow Documentation
 
-Complete user journey and system flows for Fuze - Intelligent Bookmark Manager.
+User journeys and system flows for Fuze.
 
 ## Table of Contents
 
@@ -288,89 +288,90 @@ sequenceDiagram
 
 ## Recommendation Generation Flow
 
-Complete flow for generating AI-powered recommendations.
+How recommendations are produced for a general query, a project, a task or a subtask. The engine is
+`backend/ml/intent_engine/`; see [RECOMMENDATIONS.md](RECOMMENDATIONS.md) for the details.
 
 ```mermaid
 flowchart TD
-    Start([User requests recommendations]) --> SelectContext[Select Context:<br/>- General Learning<br/>- Project<br/>- Task<br/>- Subtask]
-    
-    SelectContext --> BuildRequest[Build Recommendation Request]
-    BuildRequest --> CheckCache{Check Redis Cache}
-    
-    CheckCache -->|Hit| ReturnCached[Return Cached Results]
-    ReturnCached --> End1([Display Recommendations])
-    
-    CheckCache -->|Miss| POSTRequest[POST /api/recommendations/unified-orchestrator]
-    POSTRequest --> ValidateAuth{Validate JWT}
-    ValidateAuth -->|Invalid| Error1[Return 401 Unauthorized]
-    
-    ValidateAuth -->|Valid| BuildIntent[Build intent from the user's own words:<br/>query or project + task + subtask]
-    BuildIntent --> Stmt{Cached Gemini intent statement?}
-    Stmt -->|Yes| Vectors[Query vectors: context + statement + needs]
-    Stmt -->|No: schedule background job| Vectors
-    Vectors --> Retrieve[Nearest passages and content profiles<br/>user's own content, pgvector]
-    Retrieve --> Rerank[Cross-encoder rerank]
-    Rerank --> CalculateScores[MMR diversity]
-    CalculateScores --> FormatResults[Attach matched passage + content profile]
-    FormatResults --> CacheResults[Cache keyed by intent + content version]
-    CacheResults --> ReturnResults[Return Recommendations]
-    ReturnResults --> End2([Display Recommendations])
-    
-    Error1 --> End3([Show Error])
-    
+    Start([User requests recommendations]) --> SelectContext[Select context:<br/>free text, project, task or subtask]
+    SelectContext --> POSTRequest[POST /api/recommendations/unified-orchestrator]
+    POSTRequest --> ValidateAuth{Valid JWT?}
+    ValidateAuth -->|No| Error1[401 Unauthorized]
+    Error1 --> End3([Show error])
+
+    ValidateAuth -->|Yes| BuildIntent[Build intent text from the user's own words:<br/>subtask, task, query, project]
+    BuildIntent --> CheckCache{Redis: results for this intent,<br/>limit and content version?}
+    CheckCache -->|Hit| ReturnCached[Return cached results]
+    ReturnCached --> End1([Display recommendations])
+
+    CheckCache -->|Miss| Stmt{Cached Gemini intent<br/>statement and needs?}
+    Stmt -->|Yes| Vectors[Query vectors:<br/>intent text + statement + needs]
+    Stmt -->|No| Schedule[Schedule background job] --> Vectors2[Query vector:<br/>intent text]
+    Vectors --> Retrieve
+    Vectors2 --> Retrieve[Nearest passages and content profiles<br/>of the user's content, pgvector HNSW]
+    Retrieve --> Rerank{SEARCH_RERANK_ENABLED?}
+    Rerank -->|Yes| CrossEnc[Cross-encoder rerank of the top 30]
+    Rerank -->|No| MMR
+    CrossEnc --> MMR[MMR diversity]
+    MMR --> FormatResults[Attach matched passage and content profile]
+    FormatResults --> CacheResults[Cache for 10 minutes]
+    CacheResults --> End2([Display recommendations])
+
     style Start fill:#4a90e2
     style End1 fill:#50c878
     style End2 fill:#50c878
     style End3 fill:#ff6b6b
     style BuildIntent fill:#cd853f
     style Retrieve fill:#cd853f
-    style Rerank fill:#cd853f
+    style CrossEnc fill:#cd853f
 ```
+
+Helpful / not-relevant judgments are sent to `POST /api/recommendations/feedback` and stored per project.
 
 ---
 
 ## Project-Based Recommendations Flow
 
-Recommendations specific to a project context.
+A project's title, description and technologies are the intent. Creating or editing a project precomputes its
+intent statement in the background, so the first request after that already has it.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Frontend
     participant Backend
-    participant Orchestrator as Unified Orchestrator
-    participant ProjectEmbedding as Project Embedding Manager
+    participant Queue as RQ (Redis)
+    participant Worker as RQ Worker
+    participant Gemini as Gemini
     participant DB as Database
     participant Redis as Redis Cache
-    
-    User->>Frontend: Create/Select Project
+
+    User->>Frontend: Create or edit a project
     Frontend->>Backend: POST /api/projects
-    Backend->>DB: Save Project
-    Backend->>ProjectEmbedding: Generate Project Embedding
-    ProjectEmbedding->>ProjectEmbedding: Combine:<br/>- Title embedding<br/>- Description embedding<br/>- Technologies embedding
-    ProjectEmbedding->>DB: Save project_embedding
-    DB-->>Backend: Project created
-    
-    User->>Frontend: Request Project Recommendations
-    Frontend->>Backend: POST /api/recommendations/unified-orchestrator<br/>{project_id, title, description, technologies}
-    
-    Backend->>Orchestrator: get_recommendations(request)
-    Orchestrator->>DB: Get project with embedding
-    Orchestrator->>DB: Get candidate content
-    
-    Orchestrator->>Orchestrator: Layer 1: Technology Overlap
-    Orchestrator->>Orchestrator: Layer 2: Semantic Similarity<br/>(project embedding vs content embedding)
-    Orchestrator->>Orchestrator: Layer 3: Content Analysis Score
-    
-    Orchestrator->>Orchestrator: Combine Scores:<br/>tech_score * 0.4 +<br/>semantic_score * 0.4 +<br/>analysis_score * 0.2
-    
-    Orchestrator->>Orchestrator: Filter by min_score threshold
-    Orchestrator->>Orchestrator: Sort by final_score DESC
-    Orchestrator->>Orchestrator: Generate reasoning for each
-    
-    Orchestrator-->>Backend: List of recommendations
-    Backend->>Redis: Cache results
-    Backend-->>Frontend: Recommendations with scores
+    Backend->>DB: Save project
+    Backend->>Queue: Enqueue project intent job
+    Backend-->>Frontend: Project created
+    Queue->>Worker: process_project_ml
+    Worker->>Gemini: Intent statement + 2-4 information needs
+    Worker->>Redis: Cache by context hash (7 days)
+
+    User->>Frontend: Request project recommendations
+    Frontend->>Backend: POST /api/recommendations/unified-orchestrator<br/>{project_id}
+    Backend->>DB: Load project (owned by the user), and task or subtask if given
+    Backend->>Redis: Results cached for this intent?
+    alt Hit
+        Redis-->>Backend: Cached results
+    else Miss
+        Backend->>Redis: Intent statement and needs
+        Backend->>Backend: Embed intent text, statement and needs
+        Backend->>DB: Nearest passages and profiles per query vector (user's content only)
+        opt SEARCH_RERANK_ENABLED
+            Backend->>Backend: Cross-encoder rerank
+        end
+        Backend->>Backend: MMR diversity, attach matched passage
+        Backend->>Redis: Cache results
+    end
+    Backend-->>Frontend: Recommendations with score and reason
     Frontend-->>User: Display project-specific recommendations
 ```
 
@@ -378,34 +379,31 @@ sequenceDiagram
 
 ## Search Flow
 
-Semantic and text-based search functionality.
+Keyword and semantic search.
 
 ```mermaid
 flowchart TD
-    Start([User enters search query]) --> SearchType{Search Type?}
-    
-    SearchType -->|Text Search| TextSearch[Text Search Flow]
-    SearchType -->|Semantic Search| SemanticSearch[Semantic Search Flow]
-    
-    TextSearch --> QueryDB[Query Database:<br/>- Title LIKE<br/>- Notes LIKE<br/>- Extracted text LIKE]
-    QueryDB --> TextResults[Return Text Matches]
-    TextResults --> End1([Display Results])
-    
-    SemanticSearch --> GenerateQueryEmbedding[Generate Query Embedding]
-    GenerateQueryEmbedding --> VectorSearch[Vector Similarity Search<br/>using pgvector]
-    
-    VectorSearch --> CalculateSimilarity[Calculate Cosine Similarity<br/>query_embedding vs content_embedding]
-    CalculateSimilarity --> FilterByUser[Filter by User ID]
-    FilterByUser --> SortBySimilarity[Sort by Similarity Score DESC]
-    SortBySimilarity --> LimitResults[Limit Results]
-    LimitResults --> SemanticResults[Return Semantic Matches]
-    SemanticResults --> End2([Display Results])
-    
+    Start([User enters search query]) --> SearchType{Search type?}
+
+    SearchType -->|Text| TextSearch[GET /api/search/text]
+    TextSearch --> QueryDB[Postgres full-text search on search_vector<br/>title, notes and body, websearch syntax<br/>plus a title ILIKE match]
+    QueryDB --> TextResults[Ranked with ts_rank_cd]
+    TextResults --> End1([Display results])
+
+    SearchType -->|Semantic| SemanticSearch[POST /api/search/supabase-semantic]
+    SemanticSearch --> Embed[Embed the query<br/>Redis-cached]
+    Embed --> Retrieve[One SQL statement:<br/>nearest passages with their bookmark's details,<br/>plus bookmarks not yet chunked<br/>filtered by user_id, HNSW]
+    Retrieve --> Rerank{SEARCH_RERANK_ENABLED?}
+    Rerank -->|Yes| CrossEnc[Cross-encoder rerank]
+    Rerank -->|No| Merge
+    CrossEnc --> Merge[One result per bookmark,<br/>best passage as the snippet]
+    Merge --> End2([Display results])
+
     style Start fill:#4a90e2
     style End1 fill:#50c878
     style End2 fill:#50c878
-    style GenerateQueryEmbedding fill:#cd853f
-    style VectorSearch fill:#cd853f
+    style Embed fill:#cd853f
+    style Retrieve fill:#cd853f
 ```
 
 ---
@@ -487,7 +485,7 @@ flowchart TD
     TaskCreated --> ManageTasks[User can update, complete tasks]
     ManageTasks --> GetRecommendations{Get Task Recommendations?}
 
-    GetRecommendations -->|Yes| TaskRecs[POST /api/recommendations/task/<id>]
+    GetRecommendations -->|Yes| TaskRecs[POST /api/recommendations/task/:id]
     GetRecommendations -->|No| ContinueWork[Continue working]
 
     TaskRecs --> ShowTaskRecs[Show relevant content recommendations]
@@ -559,76 +557,75 @@ sequenceDiagram
 
 ## Complete System Architecture Flow
 
-High-level view of how all components interact.
+High-level view of how the components interact. See [ARCHITECTURE.md](ARCHITECTURE.md) for the deployment.
 
 ```mermaid
 graph TB
-    subgraph "User Interface Layer"
-        WebApp[Web Application<br/>React + Vite]
-        Extension[Chrome Extension<br/>Manifest V3]
+    subgraph "User interface"
+        WebApp[Web app<br/>React + Vite]
+        Extension[Chrome extension<br/>Manifest V3]
     end
-    
-    subgraph "API Layer"
-        AuthAPI[Auth Blueprint<br/>JWT Authentication]
-        BookmarksAPI[Bookmarks Blueprint<br/>CRUD Operations]
-        ProjectsAPI[Projects Blueprint<br/>Project Management]
-        RecommendationsAPI[Recommendations Blueprint<br/>AI Recommendations]
-        SearchAPI[Search Blueprint<br/>Semantic Search]
+
+    subgraph "API (Flask blueprints)"
+        AuthAPI[Auth<br/>JWT]
+        BookmarksAPI[Bookmarks<br/>CRUD and import]
+        ProjectsAPI[Projects and tasks]
+        RecommendationsAPI[Recommendations]
+        SearchAPI[Search]
     end
-    
-    subgraph "Business Logic Layer"
-        Orchestrator[Unified Recommendation<br/>Orchestrator]
-        AnalysisService[Background Analysis<br/>Service]
-        ScraperService[Content Scraper<br/>Service]
+
+    subgraph "Engine and services"
+        Engine[Intent engine<br/>ml/intent_engine]
+        Retrieval[Passage retrieval<br/>services/hybrid_search]
     end
-    
-    subgraph "Data Layer"
-        PostgreSQL[(PostgreSQL<br/>+ pgvector)]
-        Redis[(Redis Cache)]
+
+    subgraph "RQ workers"
+        Pipeline[Bookmark pipeline<br/>fetch, embed, chunk, profile]
+        IntentJob[Project intent job]
+        Reconciler[Reconciler<br/>every 5 minutes]
     end
-    
-    subgraph "External Services"
-        Gemini[Google Gemini AI<br/>User's API Key]
-        WebContent[Web Content<br/>Scraping]
+
+    subgraph "Data"
+        PostgreSQL[(PostgreSQL + pgvector<br/>content_chunks, HNSW)]
+        Redis[(Redis<br/>cache and queues)]
     end
-    
+
+    subgraph "External"
+        Gemini[Google Gemini<br/>user's key or capped system key]
+        WebContent[Web content<br/>HTTP fetch, reader service, Wayback]
+    end
+
     WebApp --> AuthAPI
     WebApp --> BookmarksAPI
     WebApp --> ProjectsAPI
     WebApp --> RecommendationsAPI
     WebApp --> SearchAPI
-    
     Extension --> AuthAPI
     Extension --> BookmarksAPI
-    
-    AuthAPI --> PostgreSQL
-    BookmarksAPI --> ScraperService
+
     BookmarksAPI --> PostgreSQL
-    BookmarksAPI --> AnalysisService
-    
+    BookmarksAPI -->|enqueue| Redis
     ProjectsAPI --> PostgreSQL
-    ProjectsAPI --> Orchestrator
-    
-    RecommendationsAPI --> Orchestrator
-    RecommendationsAPI --> Redis
-    
-    SearchAPI --> PostgreSQL
-    
-    Orchestrator --> PostgreSQL
-    Orchestrator --> Redis
-    Orchestrator --> Gemini
-    
-    AnalysisService --> PostgreSQL
-    AnalysisService --> Redis
-    AnalysisService --> Gemini
-    
-    ScraperService --> WebContent
-    ScraperService --> PostgreSQL
-    
+    ProjectsAPI -->|enqueue| Redis
+    RecommendationsAPI --> Engine
+    SearchAPI --> Retrieval
+    Engine --> Retrieval
+    Engine --> Redis
+    Retrieval --> PostgreSQL
+
+    Redis -->|jobs| Pipeline
+    Redis -->|jobs| IntentJob
+    Reconciler -.->|re-enqueue| Redis
+    Pipeline --> WebContent
+    Pipeline --> PostgreSQL
+    Pipeline --> Gemini
+    IntentJob --> Gemini
+    IntentJob --> Redis
+
     style WebApp fill:#4a90e2
     style Extension fill:#4a90e2
-    style Orchestrator fill:#cd853f
-    style AnalysisService fill:#cd853f
+    style Engine fill:#cd853f
+    style Pipeline fill:#cd853f
     style PostgreSQL fill:#50c878
     style Redis fill:#ff6b6b
     style Gemini fill:#9b59b6
@@ -658,12 +655,7 @@ graph TB
 ## Notes
 
 - **Background Processing**: Content analysis runs asynchronously to avoid blocking user requests
-- **Caching Strategy**: Multiple layers of caching (Redis, query cache, recommendation cache) for performance
-- **User Isolation**: Each user's API key is used for their own Gemini requests, ensuring quota isolation
-- **Error Handling**: Graceful fallbacks at every step to ensure system reliability
-- **Real-time Updates**: SSE streams for import progress, WebSocket-ready architecture
-
----
-
-*Last Updated: 2024*
-
+- **Caching Strategy**: shared Redis caches for pages, embeddings, analysis and recommendation results
+- **User Isolation**: Gemini requests use the user's own key, or the shared system key up to a daily per-user cap, so one user cannot use another's quota
+- **Error Handling**: transient failures are retried by RQ, and a reconciler re-enqueues work that was lost or deferred
+- **Real-time Updates**: Server-Sent Events stream import progress and pipeline status
