@@ -118,6 +118,7 @@ class AccountService:
             'recommendation_feedback': [{
                 'content_id': f.content_id,
                 'recommendation_id': f.recommendation_id,
+                'project_id': f.project_id,
                 'feedback_type': f.feedback_type,
                 'context': f.context_data or {},
                 'timestamp': iso_utc(f.timestamp),

@@ -125,3 +125,7 @@ deploy/.env
 
 # Written by the HF deploy (sync-to-hf-space.yml) for Sentry releases; never committed here
 backend/RELEASE
+
+# personal evaluation data exported by backend/scripts/export_feedback_eval.py
+feedback_eval/
+backend/feedback_eval/

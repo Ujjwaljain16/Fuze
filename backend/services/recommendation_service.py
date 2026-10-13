@@ -50,12 +50,15 @@ class RecommendationService:
         if content.user_id != user_id:
             raise PermissionError(f"Content {content_id} does not belong to user {user_id}")
 
+        context = self._clean_feedback_data(user_id, feedback_data)
         feedback = UserFeedback(
             user_id=user_id,
             content_id=content_id,
             recommendation_id=recommendation_id,
+            # _clean_feedback_data keeps project_id only when this user owns that project
+            project_id=int(context['project_id']) if 'project_id' in context else None,
             feedback_type=clean_feedback_type,
-            context_data=self._clean_feedback_data(user_id, feedback_data),
+            context_data=context,
             timestamp=datetime.now(timezone.utc)
         )
 

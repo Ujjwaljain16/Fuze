@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { feedbackContext } from '../utils/feedbackContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router'
@@ -207,7 +208,8 @@ const Recommendations = () => {
         feedback_type: feedbackTypeMap[feedbackType] || feedbackType,
         feedback_data: {
           timestamp: new Date().toISOString(),
-          source: 'recommendations_page'
+          source: 'recommendations_page',
+          ...feedbackContext(selectedContext, recommendations, recommendationId)
         }
       })
     } catch (error) {

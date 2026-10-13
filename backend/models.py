@@ -280,6 +280,9 @@ class UserFeedback(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False)
     recommendation_id = Column(Integer, nullable=True)
+    # The project this was judged FOR: a bookmark can be right for one project and wrong for another.
+    # SET NULL keeps the judgment of the bookmark when the project is deleted.
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='SET NULL'), nullable=True)
     feedback_type = Column(String(20), nullable=False)
     context_data = Column(JSON, nullable=True)
     timestamp = Column(DateTime, default=func.now())
@@ -288,6 +291,7 @@ class UserFeedback(Base):
         db.Index('idx_user_feedback_user', 'user_id'),
         db.Index('idx_user_feedback_content', 'content_id'),
         db.Index('idx_user_feedback_timestamp', 'timestamp'),
+        db.Index('idx_user_feedback_project', 'project_id'),
     )
 
 class Task(Base):
