@@ -126,7 +126,16 @@ def main():
     bench = Bench(args.base)
 
     # --- sign in once; keep only the access token, in memory
-    response = bench.session.post(bench.base + "/api/auth/login", json={"email": email, "password": password}, timeout=60)
+    for attempt in range(1, 6):   # a network hiccup (a failed DNS lookup, say) should not end the run
+        try:
+            response = bench.session.post(bench.base + "/api/auth/login",
+                                          json={"email": email, "password": password}, timeout=60)
+            break
+        except requests.ConnectionError as error:
+            if attempt == 5:
+                sys.exit(f"Could not reach {bench.base} after 5 tries: {type(error).__name__}. Check your connection and retry.")
+            print(f"Connection failed (try {attempt} of 5), retrying...")
+            time.sleep(3)
     del password
     if response.status_code != 200:
         sys.exit(f"Sign-in failed (HTTP {response.status_code}). Nothing else was sent.")
