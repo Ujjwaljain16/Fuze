@@ -112,7 +112,9 @@ class SearchService:
     # space, so they are excluded rather than ranked.
 
     def _query_vector(self, query: str) -> np.ndarray:
-        vec = np.asarray(embed_query(query), dtype=np.float32)
+        from core.server_timing import timed
+        with timed("embed"):
+            vec = np.asarray(embed_query(query), dtype=np.float32)
         if not np.any(vec):
             raise RuntimeError("Failed to generate query embedding")
         return vec

@@ -23,6 +23,7 @@ import datetime
 import getpass
 import json
 import os
+import re
 import statistics
 import sys
 import threading
@@ -56,8 +57,19 @@ class Bench:
         self.base = base.rstrip("/")
         self.session = requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
+        self.session.headers["X-Server-Timing"] = "1"  # ask the server where each request's time went
         self.rate_limited = 0
         self.errors = 0
+        self.last_server = {}
+
+    @staticmethod
+    def parse_server_timing(header):
+        """'total;dur=2154.0, embed;dur=640.2, db;dur=1083.5, dbn;desc="5 statements"' -> numbers."""
+        found = {name: float(value) for name, value in re.findall(r"(\w+);dur=([\d.]+)", header or "")}
+        statements = re.search(r'dbn;desc="(\d+) statements"', header or "")
+        if statements:
+            found["statements"] = float(statements.group(1))
+        return found
 
     def call(self, method, path, **kwargs):
         """One timed request; returns (milliseconds, status). Honors Retry-After and gives up after 3 429s."""
@@ -76,17 +88,26 @@ class Bench:
             return None, 429
         if response.status_code >= 500:
             self.errors += 1
+        self.last_server = self.parse_server_timing(response.headers.get("Server-Timing"))
         return elapsed, response.status_code
 
     def measure(self, label, method, path, samples, pace, make_kwargs=None):
-        times = []
+        times, server = [], []
         for i in range(samples):
             kwargs = make_kwargs(i) if make_kwargs else {}
             ms, status = self.call(method, path(i) if callable(path) else path, **kwargs)
             if ms is not None and status == 200:
                 times.append(ms)
+                if self.last_server:
+                    server.append(self.last_server)
             time.sleep(pace)
-        return summarize(times) if times else None
+        if not times:
+            return None
+        stats = summarize(times)
+        if server:  # median of each part the server reported, across the samples
+            stats["server"] = {key: round(statistics.median(s[key] for s in server if key in s), 1)
+                               for key in ("total", "embed", "db", "statements") if any(key in s for s in server)}
+        return stats
 
 
 def main():
@@ -123,6 +144,15 @@ def main():
         results["endpoints"][label] = stats
         if stats:
             print(f"  {label:<42} p50 {stats['p50']:>5} ms   p95 {stats['p95']:>5} ms   (n={stats['n']}, max {stats['max']} ms)")
+            server = stats.get("server")
+            if server and "db" in server:  # where the server says the time went (medians)
+                parts = [f"total {server.get('total', 0):.0f}"]
+                if "embed" in server:
+                    parts.append(f"embedding {server['embed']:.0f}")
+                parts.append(f"database {server['db']:.0f} ({server.get('statements', 0):.0f} statements)")
+                other = server.get("total", 0) - server.get("embed", 0) - server["db"]
+                parts.append(f"other {other:.0f}")
+                print(f"  {'':<42}   server-side ms: " + ", ".join(parts))
         else:
             print(f"  {label:<42} no successful samples")
 

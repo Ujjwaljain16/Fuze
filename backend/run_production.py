@@ -216,6 +216,8 @@ def create_app(config_name: str = None) -> Flask:
     # Database initialization
     db.init_app(app)
     with app.app_context():
+        from core import server_timing
+        server_timing.install(app, db.engine)  # X-Server-Timing: 1 on a request returns where its time went
         if db.engine.dialect.name == 'postgresql':
             from sqlalchemy import event
             from utils.unified_config import get_config
