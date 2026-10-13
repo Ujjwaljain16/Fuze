@@ -15,8 +15,6 @@ import socket
 import argparse
 import multiprocessing
 from rq import Worker
-from rq.scheduler import RQScheduler
-from rq.worker import base as rq_worker_base
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -31,19 +29,11 @@ if parent_dir not in sys.path:
 
 ALLOWED_QUEUES = {'default', 'high', 'low', 'background_analysis', 'recommendations'}
 
-# RQ's scheduler looks for due retries every second by default: about two Redis commands a second, all day,
-# per worker, for nothing. On Upstash's free plan (500,000 commands a month) that used the whole month in a
-# day or two. Retries here wait 10 seconds or more, so checking every 15 is plenty.
-SCHEDULER_INTERVAL_SECONDS = 15
-
-
-class PacedScheduler(RQScheduler):
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault('interval', SCHEDULER_INTERVAL_SECONDS)
-        super().__init__(*args, **kwargs)
-
-
-rq_worker_base.RQScheduler = PacedScheduler   # the class Worker.work(with_scheduler=True) builds its scheduler from
+# Redis is metered (Upstash's free plan allows 500,000 commands a month), so an idle worker must stay quiet.
+# RQ's own scheduler woke every second to look for due retries: two commands a second, all day, per worker,
+# which used up a month in a day or two. The pipeline reconciler (below) moves due retries instead, every
+# few minutes. The worker's idle heartbeat is also stretched: it renews its registration once per TTL.
+WORKER_TTL_SECONDS = 1800
 
 
 class FuzeWorker(Worker):
@@ -82,7 +72,8 @@ def run_single_worker(args, worker_index: int = 1):
     worker = FuzeWorker(
         [args.queue],
         connection=rq_redis,
-        name=worker_name
+        name=worker_name,
+        worker_ttl=WORKER_TTL_SECONDS,
     )
 
     # Graceful shutdown: RQ installs its own SIGTERM/SIGINT handlers in work() (finish the
@@ -125,7 +116,8 @@ def run_single_worker(args, worker_index: int = 1):
         logger.error("worker_embedding_model_preload_failed", error=str(e))
 
     # The default-queue worker also runs the pipeline reconciler: a periodic pass that
-    # re-enqueues bookmarks whose fetch or embedding was lost or deferred.
+    # re-enqueues bookmarks whose fetch or embedding was lost or deferred, and that puts retries whose
+    # wait is over (Retry(interval=...), enqueue_in) back on their queues.
     if args.queue == 'default' and not args.burst:
         import threading
         from services.pipeline_reconciler import run_forever
@@ -134,10 +126,14 @@ def run_single_worker(args, worker_index: int = 1):
     try:
         with app.app_context():
             logger.info("worker_listening", worker_name=worker_name, queue=args.queue, burst=args.burst)
-            # with_scheduler: jobs enqueued with Retry(interval=...) or enqueue_in() sit in the
-            # ScheduledJobRegistry until a scheduler moves them back to the queue. Without it,
-            # every retry waited forever.
-            worker.work(burst=args.burst, with_scheduler=True)
+            # No RQ scheduler: jobs enqueued with Retry(interval=...) or enqueue_in() sit in the
+            # ScheduledJobRegistry until something moves them back to the queue. That is the
+            # reconciler's move_due_retries(), which runs in the default-queue worker (above). A burst
+            # run has no reconciler, so it flushes the due ones once before it starts.
+            if args.burst:
+                from services.pipeline_reconciler import move_due_retries
+                move_due_retries(rq_redis)
+            worker.work(burst=args.burst, with_scheduler=False)
     except Exception as e:
         logger.error("worker_execution_error", worker_name=worker_name, error=str(e))
         sys.exit(1)

@@ -19,29 +19,20 @@ def test_http_fetcher_still_absorbs_ordinary_errors():
         assert HTTPFetcher().fetch('https://example.com/').http_status == 500
 
 
-def test_worker_runs_with_the_scheduler():
-    """Retry(interval=...) jobs only come back from the ScheduledJobRegistry if a scheduler runs."""
+def test_worker_has_no_per_second_scheduler_and_a_long_idle_ttl():
+    """RQ's scheduler wakes every second (two Redis commands each time, all day, per worker) and used up
+    Upstash's free 500,000 commands a month in a day or two. Due retries are moved by the pipeline
+    reconciler instead (services.pipeline_reconciler.move_due_retries), every few minutes."""
     import ast
     import inspect
     import worker
-    calls = [n for n in ast.walk(ast.parse(inspect.getsource(worker))) if isinstance(n, ast.Call)
-             and getattr(n.func, 'attr', None) == 'work']
-    assert calls and any(k.arg == 'with_scheduler' and k.value.value is True for k in calls[0].keywords)
-
-
-def test_the_scheduler_checks_for_due_retries_rarely_not_every_second():
-    """Every pass costs Redis commands; at RQ's default of one per second an idle worker used up Upstash's
-    free monthly allowance in a day or two. The shortest retry wait in the app is 10 seconds."""
-    import worker
-    from rq.worker import base
-    from rq.scheduler import RQScheduler
-    from unittest.mock import MagicMock
-    assert base.RQScheduler is worker.PacedScheduler
-    assert 10 <= worker.SCHEDULER_INTERVAL_SECONDS <= 30
-    scheduler = worker.PacedScheduler(['default'], connection=MagicMock())
-    assert scheduler.interval == worker.SCHEDULER_INTERVAL_SECONDS
-    assert RQScheduler(['default'], connection=MagicMock()).interval == 1    # the library default we replaced
-    assert worker.PacedScheduler(['default'], connection=MagicMock(), interval=5).interval == 5   # an explicit choice wins
+    tree = ast.parse(inspect.getsource(worker))
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'attr', None) == 'work']
+    assert calls and all(k.value.value is False for c in calls for k in c.keywords if k.arg == 'with_scheduler')
+    assert any(k.arg == 'with_scheduler' for k in calls[0].keywords)        # stated, not left to the default
+    assert worker.WORKER_TTL_SECONDS >= 900
+    source = inspect.getsource(worker.run_single_worker)
+    assert 'worker_ttl=WORKER_TTL_SECONDS' in source and 'run_forever' in source   # the reconciler runs in this worker
 
 
 def test_forked_work_horses_drop_the_inherited_db_pool():

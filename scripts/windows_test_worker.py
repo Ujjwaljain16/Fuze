@@ -10,36 +10,19 @@ This script uses RQ's SimpleWorker (in-process, no fork) purely so bookmark
 background processing can be exercised end-to-end on a Windows dev machine.
 Never used in production and not referenced by anything else in the app.
 
-Like the production default worker it also runs the pipeline reconciler (which enqueues
-embeddings deferred under backpressure and recovers lost jobs) and the RQ scheduler (which
-puts retries such as "fetch failed with HTTP 500, try again in 60 s" back on the queue).
-RQ starts its scheduler in a child process, which on Windows re-imports this script and
-starts a second worker, so here the scheduler runs in a thread instead.
+Like the production default worker it also runs the pipeline reconciler: it enqueues
+embeddings deferred under backpressure, recovers lost jobs, and puts retries such as "fetch
+failed with HTTP 500, try again in 60 s" back on the queue. There is no RQ scheduler: it woke
+every second and cost two Redis commands each time (see backend/worker.py).
 """
 import os
 import sys
 import threading
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/../backend")
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/../backend")
 
-SCHEDULER_INTERVAL_SECONDS = 15   # each pass costs Redis commands; the shortest retry wait is 10 s
-
-
-def run_scheduler(queue_names, connection, stop: threading.Event) -> None:
-    """Move due scheduled jobs (retries, enqueue_in) back onto their queues."""
-    from rq.scheduler import RQScheduler
-    scheduler = RQScheduler(queue_names, connection=connection)
-    while not stop.wait(SCHEDULER_INTERVAL_SECONDS):
-        try:
-            scheduler.acquire_locks()
-            if scheduler.acquired_locks:
-                scheduler.enqueue_scheduled_jobs()
-                scheduler.heartbeat()
-        except Exception as e:  # keep the thread alive across Redis hiccups
-            print(f"scheduler pass failed: {e}", file=sys.stderr)
-            time.sleep(SCHEDULER_INTERVAL_SECONDS)
+WORKER_TTL_SECONDS = 1800   # an idle worker renews its Redis registration once per TTL
 
 
 def main() -> None:
@@ -63,13 +46,7 @@ def main() -> None:
     queue_names = ["high", "default"]
     with app.app_context():
         conn = get_queue_connection()
-        stop = threading.Event()
-        threading.Thread(target=run_scheduler, args=(queue_names, conn, stop),
-                         name="rq-scheduler", daemon=True).start()
-        try:
-            SimpleWorker(queue_names, connection=conn).work(burst=False)
-        finally:
-            stop.set()
+        SimpleWorker(queue_names, connection=conn, worker_ttl=WORKER_TTL_SECONDS).work(burst=False)
 
 
 if __name__ == "__main__":
