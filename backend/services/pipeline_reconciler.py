@@ -97,7 +97,7 @@ def move_due_retries(redis_conn, queue_names=("default", "high")) -> int:
         with redis_conn.pipeline() as pipeline:
             for job in Job.fetch_many(job_ids, connection=redis_conn):
                 if job is not None:
-                    queue._enqueue_job(job, pipeline=pipeline, at_front=job.should_enqueue_at_front())
+                    queue._enqueue_job(job, pipeline=pipeline, at_front=bool(getattr(job, "enqueue_at_front", False)))
             for job_id in job_ids:
                 registry.remove(job_id, pipeline=pipeline)
             pipeline.execute()

@@ -46,7 +46,7 @@ def main() -> None:
     queue_names = ["high", "default"]
     with app.app_context():
         conn = get_queue_connection()
-        SimpleWorker(queue_names, connection=conn, worker_ttl=WORKER_TTL_SECONDS).work(burst=False)
+        SimpleWorker(queue_names, connection=conn, default_worker_ttl=WORKER_TTL_SECONDS).work(burst=False)
 
 
 if __name__ == "__main__":

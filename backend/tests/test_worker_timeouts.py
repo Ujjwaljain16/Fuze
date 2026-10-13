@@ -32,7 +32,17 @@ def test_worker_has_no_per_second_scheduler_and_a_long_idle_ttl():
     assert any(k.arg == 'with_scheduler' for k in calls[0].keywords)        # stated, not left to the default
     assert worker.WORKER_TTL_SECONDS >= 900
     source = inspect.getsource(worker.run_single_worker)
-    assert 'worker_ttl=WORKER_TTL_SECONDS' in source and 'run_forever' in source   # the reconciler runs in this worker
+    assert 'build_worker(' in source and 'run_forever' in source   # the reconciler runs in this worker
+
+
+def test_the_worker_can_be_constructed_with_the_pinned_rq():
+    """A deploy crash-looped both workers with 'unexpected keyword argument worker_ttl': the keyword exists in
+    the newest RQ and not in the pinned 1.15.1, and no test ever built a worker."""
+    from unittest.mock import MagicMock
+    import worker
+    built = worker.build_worker('default', MagicMock(), 'fuze-worker-test')
+    assert built.queue_names() == ['default']
+    assert built.worker_ttl == worker.WORKER_TTL_SECONDS
 
 
 def test_forked_work_horses_drop_the_inherited_db_pool():

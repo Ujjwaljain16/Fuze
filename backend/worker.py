@@ -53,6 +53,12 @@ class FuzeWorker(Worker):
                 pass
 
 
+def build_worker(queue_name: str, connection, name: str) -> FuzeWorker:
+    """The worker as production runs it. Its own function so a test can construct one: the pinned RQ
+    (requirements.txt) is not the newest, and a keyword it lacks only fails when the worker starts."""
+    return FuzeWorker([queue_name], connection=connection, name=name, default_worker_ttl=WORKER_TTL_SECONDS)
+
+
 def run_single_worker(args, worker_index: int = 1):
     """Run a single RQ worker instance within a process context."""
     # Per process (each --workers child), before run_production is imported, so job failures are
@@ -69,12 +75,7 @@ def run_single_worker(args, worker_index: int = 1):
 
     worker_name = f"fuze-worker-{args.queue}-{socket.gethostname()}-{os.getpid()}-{worker_index}"
 
-    worker = FuzeWorker(
-        [args.queue],
-        connection=rq_redis,
-        name=worker_name,
-        worker_ttl=WORKER_TTL_SECONDS,
-    )
+    worker = build_worker(args.queue, rq_redis, worker_name)
 
     # Graceful shutdown: RQ installs its own SIGTERM/SIGINT handlers in work() (finish the
     # current job, then exit), so none are registered here.
