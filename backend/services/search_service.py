@@ -186,9 +186,16 @@ class SearchService:
         query_vec = self._query_vector(clean_query)
         results: List[Dict[str, Any]] = []
 
+        document_hits = None
         if session.get_bind().dialect.name == 'postgresql':
-            from services.hybrid_search import semantic_search as passage_search
-            for h in passage_search(session, user_id, clean_query, limit=limit, query_vector=query_vec):
+            from services.hybrid_search import (retrieve_with_unchunked, semantic_search as passage_search,
+                                                rerank_enabled)
+            candidates = None
+            if not rerank_enabled():
+                # One statement for the passages and the not-yet-chunked bookmarks together.
+                candidates, document_hits = retrieve_with_unchunked(session, user_id, query_vec, doc_limit=limit)
+            for h in passage_search(session, user_id, clean_query, limit=limit, query_vector=query_vec,
+                                    candidates=candidates):
                 relevance = h.get("rerank_score")
                 snippet = " ".join((h.get("passage") or "").split())
                 results.append(self._result(user_id, h["content_id"], h.get("url"), h.get("title"), snippet,
@@ -197,7 +204,9 @@ class SearchService:
         else:
             only_unchunked = False
 
-        for h in self._document_hits(user_id, query_vec, limit, only_unchunked=only_unchunked):
+        if document_hits is None:
+            document_hits = self._document_hits(user_id, query_vec, limit, only_unchunked=only_unchunked)
+        for h in document_hits:
             results.append(self._result(user_id, h['id'], h['url'], h['title'], h['notes'] or '',
                                         h['similarity'], 'Semantic document search'))
 

@@ -101,6 +101,8 @@ def configure_filtered_ann(session, k: int) -> None:
     """
     ef = max(k, 40)
     real = _real_session(session)
+    if _connection_covers(real, ef):
+        return  # the database's own defaults already give this connection what the next query needs
     transaction = real.get_transaction()
     configured = real.info.get("ann_config")
     if transaction is not None and configured is not None and configured[0] is transaction and configured[1] >= ef:
@@ -111,10 +113,83 @@ def configure_filtered_ann(session, k: int) -> None:
     real.info["ann_config"] = (real.get_transaction(), ef)
 
 
+def _connection_covers(real, ef: int) -> bool:
+    """Whether this connection already runs with iterative HNSW scan and ef_search >= ef.
+
+    Migration 0015 sets both as database defaults, and each new connection records what it actually got
+    (run_production: `ann_defaults`), so a search spends no round trip on settings. Anything unexpected
+    (a database without the defaults, a different pooler mode, a mock) answers False and the settings
+    are sent per transaction as before: slower, never wrong.
+    """
+    try:
+        defaults = real.connection().connection.info.get("ann_defaults")
+    except Exception:
+        return False
+    return (isinstance(defaults, tuple) and len(defaults) == 2
+            and defaults[0] == "relaxed_order" and isinstance(defaults[1], int) and defaults[1] >= ef)
+
+
 def _real_session(session):
     """The Session behind a Flask-SQLAlchemy scoped_session (which proxies only some Session methods)."""
     from sqlalchemy.orm import scoped_session
     return session() if isinstance(session, scoped_session) else session
+
+
+# Passages and the not-yet-chunked bookmarks in ONE round trip (each statement costs a network round
+# trip, ~215 ms between a Hugging Face Space and a Supabase project in another region). Each branch is a
+# LIMITed subquery so HNSW still drives it; 'p' rows are passages (with their bookmark's details), 'd' rows
+# are bookmarks with a document embedding but no chunks yet (still processing, or chunking failed).
+_COMBINED_SQL = """
+SELECT 'p' AS src, x.content_id AS id, x.text AS passage, x.similarity, s.title, s.url, s.notes, s.saved_at,
+       true AS has_content
+FROM (
+    SELECT c.content_id, c.text, 1 - (c.embedding <=> CAST(:emb AS vector)) AS similarity
+    FROM content_chunks c
+    WHERE c.user_id = :uid AND c.embedding_model = :model
+    ORDER BY c.embedding <=> CAST(:emb AS vector)
+    LIMIT :k
+) x
+JOIN saved_content s ON s.id = x.content_id AND s.user_id = :uid
+UNION ALL
+SELECT 'd', d.id, NULL, d.similarity, d.title, d.url, d.notes, d.saved_at, d.has_content
+FROM (
+    SELECT s.id, s.title, s.url, s.notes, s.saved_at, s.extracted_text IS NOT NULL AS has_content,
+           1 - (s.embedding <=> CAST(:emb AS vector)) AS similarity
+    FROM saved_content s
+    WHERE s.user_id = :uid AND s.embedding IS NOT NULL AND s.embedding_metadata ->> 'model' = :model
+      AND NOT EXISTS (SELECT 1 FROM content_chunks c WHERE c.content_id = s.id AND c.embedding_model = :model)
+    ORDER BY s.embedding <=> CAST(:emb AS vector)
+    LIMIT :doc_limit
+) d
+"""
+
+
+def retrieve_with_unchunked(session, user_id: int, query_vector, k: int = CANDIDATES_PER_QUERY,
+                            doc_limit: int = 10):
+    """(passage candidates, unchunked document hits) from one statement.
+
+    The first list has the shape of retrieve() (one entry per bookmark, best passage, plus the bookmark's
+    title/url/notes/saved_at); the second the shape of SearchService._document_hits().
+    """
+    configure_filtered_ann(session, max(k, doc_limit))
+    rows = session.execute(text(_COMBINED_SQL), {
+        "emb": _vec_literal(query_vector), "uid": user_id, "k": k, "doc_limit": doc_limit,
+        "model": active_embedding_model_name(),
+    }).mappings()
+    best: Dict[int, Dict[str, Any]] = {}
+    documents: List[Dict[str, Any]] = []
+    for row in rows:
+        sim = float(row["similarity"])
+        if row["src"] == "p":
+            if row["id"] not in best or sim > best[row["id"]]["similarity"]:
+                best[row["id"]] = {"content_id": row["id"], "passage": row["passage"], "similarity": sim,
+                                   "id": row["id"], "title": row["title"], "url": row["url"],
+                                   "notes": row["notes"], "saved_at": row["saved_at"]}
+        else:
+            documents.append({"id": row["id"], "title": row["title"], "url": row["url"], "notes": row["notes"],
+                              "saved_at": row["saved_at"], "has_content": row["has_content"], "similarity": sim})
+    documents.sort(key=lambda r: r["similarity"], reverse=True)
+    return sorted(best.values(), key=lambda r: r["similarity"], reverse=True), documents
 
 
 def user_has_chunks(session, user_id: int) -> bool:
@@ -164,13 +239,19 @@ def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES
 
 
 def semantic_search(session, user_id: int, query: str, limit: int = 10,
-                    rerank: Optional[bool] = None, query_vector=None) -> List[Dict[str, Any]]:
-    """Rank a user's bookmarks for a query by passage meaning; best passage returned as the snippet."""
+                    rerank: Optional[bool] = None, query_vector=None,
+                    candidates: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Rank a user's bookmarks for a query by passage meaning; best passage returned as the snippet.
+
+    `candidates` are passages the caller already retrieved (see retrieve_with_unchunked); without them
+    this retrieves its own.
+    """
     if rerank is None:
         rerank = rerank_enabled()
     started = time.perf_counter()
 
-    candidates = retrieve(session, user_id, [query_vector if query_vector is not None else embed_query(query)])
+    if candidates is None:
+        candidates = retrieve(session, user_id, [query_vector if query_vector is not None else embed_query(query)])
     pool = candidates[:max(limit, RERANK_TOP_N)] if rerank else candidates[:limit]
 
     if rerank and pool:

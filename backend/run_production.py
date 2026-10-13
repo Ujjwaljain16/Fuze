@@ -228,12 +228,21 @@ def create_app(config_name: str = None) -> Flask:
                 install_idle_ping(db.engine, get_config().database.ping_idle_seconds)
 
             @event.listens_for(db.engine, 'connect')
-            def _limit_statement_time(dbapi_connection, _record):
+            def _limit_statement_time(dbapi_connection, record):
                 # Set per connection, not as a startup option, so it also works through Supabase's
                 # pooler. Migrations use their own engine and lift the limit.
+                # The same round trip reads the HNSW settings this connection received (migration 0015
+                # makes them database defaults) so searches know whether they must send them (hybrid_search).
                 with dbapi_connection.cursor() as cursor:
-                    cursor.execute(f"SET statement_timeout = {int(statement_timeout_ms)}")
+                    cursor.execute(
+                        f"SET statement_timeout = {int(statement_timeout_ms)}; "
+                        "SELECT current_setting('hnsw.iterative_scan', true), current_setting('hnsw.ef_search', true)")
+                    scan, ef = cursor.fetchone()
                 dbapi_connection.commit()
+                try:
+                    record.info['ann_defaults'] = (scan, int(ef)) if scan and ef else None
+                except (TypeError, ValueError):
+                    record.info['ann_defaults'] = None
 
     # NOTE: migrations are applied exactly once by start.sh ("alembic upgrade head")
     # before supervisord launches gunicorn + the RQ workers. create_app() runs in
