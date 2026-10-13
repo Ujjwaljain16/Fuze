@@ -228,6 +228,34 @@ Both halves report to Sentry only when a DSN is configured. Without one, nothing
     stay minified until that is turned on.
 - Tests never report: `tests/conftest.py` removes `SENTRY_DSN` before the app is imported.
 
+## Redis command budget
+
+Upstash's free plan allows 500,000 commands a month and then rejects every command until the month rolls
+over ("max requests limit exceeded"). That is about 16,000 a day, so anything that polls is expensive.
+
+What used to use it: RQ's scheduler woke every second per worker (two commands each time, about 170,000 a
+day for each one that held a queue's lock), and the pipeline reconciler asked Redis four questions about
+every stuck bookmark on every five-minute pass (over 100,000 a day with a backlog and the Gemini key out of
+quota). Now:
+
+- No RQ scheduler. The reconciler's pass moves due retries back onto their queues
+  (`move_due_retries`), so retries can be late by up to one interval (5 minutes). `worker.py` and
+  `scripts/windows_test_worker.py` start workers without one.
+- The reconciler reads all attempt counters with one `MGET` and asks about a job or a user only for a
+  bookmark that is actually due. A pass over 150 stuck bookmarks costs under 10 commands
+  (`test_an_idle_pass_over_a_big_backlog_costs_a_handful_of_redis_commands`).
+- Workers renew their idle registration every 30 minutes instead of every 7.
+
+Check the rate with a read-only sampler (it sees every client: Space, workers, your laptop):
+
+```
+python scripts/redis_usage.py --seconds 300
+```
+
+It prints commands a day, the monthly projection against the limit and the top commands. With nobody using
+the app it should project well under 100,000 a month. Local runs share the production Redis, so a worker
+left running on your laptop counts too: stop it when you are not testing.
+
 ## Keeping the free tiers alive
 
 Every production service is on a free tier that is paused, archived or put to sleep when idle.
@@ -236,7 +264,7 @@ Each failing keep-alive opens (or comments on) a GitHub issue, since nobody watc
 | Service | Inactivity limit | What keeps it alive |
 |---|---|---|
 | Supabase Postgres | Paused after about 7 days of low activity. Restore it from the dashboard; a warning email arrives a week before. | `db-keepalive.yml` every 6 hours: a SQL `SELECT 1` through `DATABASE_URL`, plus a request to `$SUPABASE_URL/rest/v1/` with the anon key, so the API gateway sees traffic too (any 2xx/401/403/404 counts; skipped if the two secrets are unset). The nightly backup also reads the whole database. |
-| Upstash Redis | Archived after 14 days without commands (older Upstash docs said 30). Upstash keeps a backup, but you get a new database and must update `REDIS_URL`. | `redis-keepalive.yml` daily `PING`. While the Space runs, the RQ workers also poll Redis constantly. |
+| Upstash Redis | Archived after 14 days without commands (older Upstash docs said 30). Upstash keeps a backup, but you get a new database and must update `REDIS_URL`. | `redis-keepalive.yml` daily `PING`. The workers are deliberately quiet (see the Redis command budget below). |
 | Hugging Face Space (cpu-basic) | Sleeps after 48 hours without HTTP traffic (the runtime API's `gcTimeout`), and the next request wakes it after a cold start. A *paused* Space (paused by you, or by HF) never wakes on requests. | `uptime-monitor.yml` requests `/health/readiness` every 30 minutes. It reports a paused Space separately, with HF's reason. |
 | GitHub scheduled workflows | In a public repository, every `schedule:` trigger is disabled silently after 60 days with no repository activity. That would stop all of the above. | `keep-workflows-enabled.yml` on the 1st and 15th of each month re-enables every scheduled workflow (itself included) with `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`. |
 
