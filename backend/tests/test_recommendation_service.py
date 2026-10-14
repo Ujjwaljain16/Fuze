@@ -31,6 +31,7 @@ def test_recommendation_service_feedback_validation():
     # 4. Valid feedback succeeds and emits event
     own_content = SavedContent(id=10, user_id=1)
     mock_uow.bookmarks.get_by_id.return_value = own_content
+    mock_uow.recommendations.find_feedback.return_value = None
 
     feedback = service.record_feedback(user_id=1, content_id=10, feedback_type="helpful")
     assert feedback.feedback_type == "helpful"

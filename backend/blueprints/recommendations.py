@@ -541,17 +541,26 @@ def record_recommendation_feedback():
         except Exception:
             logger.warning("feedback_content_lookup_failed", extra={"recommendation_id": recommendation_id})
 
-        with UnitOfWork() as uow:
-            service = RecommendationService(uow)
-            feedback = service.record_feedback(
-                user_id=user_id,
-                content_id=content_id,
-                feedback_type=mapped_feedback_type,
-                recommendation_id=recommendation_id,
-                feedback_data=feedback_data,
-            )
-            uow.flush()  # Obtain feedback.id before commit
-            feedback_id = feedback.id
+        from sqlalchemy.exc import IntegrityError
+        for attempt in (1, 2):
+            try:
+                with UnitOfWork() as uow:
+                    service = RecommendationService(uow)
+                    feedback = service.record_feedback(
+                        user_id=user_id,
+                        content_id=content_id,
+                        feedback_type=mapped_feedback_type,
+                        recommendation_id=recommendation_id,
+                        feedback_data=feedback_data,
+                    )
+                    uow.flush()  # Obtain feedback.id before commit
+                    feedback_id = feedback.id
+                break
+            except IntegrityError:
+                # A request for the same judgment stored it between our lookup and our insert (the unique index
+                # refused ours). Try once more: the lookup now finds that row and updates it.
+                if attempt == 2:
+                    raise
 
 
         logger.info("recommendation_feedback_recorded", extra={"user_id": user_id, "recommendation_id": recommendation_id, "feedback_type": mapped_feedback_type})

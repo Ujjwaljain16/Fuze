@@ -51,18 +51,28 @@ class RecommendationService:
             raise PermissionError(f"Content {content_id} does not belong to user {user_id}")
 
         context = self._clean_feedback_data(user_id, feedback_data)
-        feedback = UserFeedback(
-            user_id=user_id,
-            content_id=content_id,
-            recommendation_id=recommendation_id,
-            # _clean_feedback_data keeps project_id only when this user owns that project
-            project_id=int(context['project_id']) if 'project_id' in context else None,
-            feedback_type=clean_feedback_type,
-            context_data=context,
-            timestamp=datetime.now(timezone.utc)
-        )
+        # _clean_feedback_data keeps project_id only when this user owns that project
+        project_id = int(context['project_id']) if 'project_id' in context else None
 
-        self.uow.recommendations.add_feedback(feedback)
+        # One current judgment per user, bookmark and project: rating again (or clicking twice) replaces it
+        # instead of adding rows that would count the same opinion several times in an evaluation.
+        feedback = self.uow.recommendations.find_feedback(user_id, content_id, project_id)
+        if feedback is not None:
+            feedback.recommendation_id = recommendation_id
+            feedback.feedback_type = clean_feedback_type
+            feedback.context_data = context
+            feedback.timestamp = datetime.now(timezone.utc)
+        else:
+            feedback = UserFeedback(
+                user_id=user_id,
+                content_id=content_id,
+                recommendation_id=recommendation_id,
+                project_id=project_id,
+                feedback_type=clean_feedback_type,
+                context_data=context,
+                timestamp=datetime.now(timezone.utc)
+            )
+            self.uow.recommendations.add_feedback(feedback)
         self.uow.flush()
 
         self.uow.emit(

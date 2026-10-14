@@ -38,17 +38,21 @@ def _make(app, user_id, tag):
         project = Project(user_id=user_id, title=f'Project {tag}', description='d', technologies='python')
         db.session.add_all([bookmark, project])
         db.session.commit()
+        # SQLite reuses ids and does not cascade deletes: drop judgments left by an earlier test's bookmark
+        # that had this id, which would otherwise be found (and updated) as this bookmark's own.
+        db.session.execute(text('DELETE FROM user_feedback WHERE content_id = :c'), {'c': bookmark.id})
+        db.session.commit()
         return bookmark.id, project.id
 
 
 def _rows(app, user_id, bookmark_id, first_new_id):
-    """(project_id, context) of this user's feedback on one bookmark given in this test, oldest first."""
+    """(project_id, context) of this user's feedback on one bookmark given in this test, oldest first.
+    `_make` removed whatever an earlier test left under a reused bookmark id, so every row here is this test's."""
     from models import db, UserFeedback
     with app.app_context():
         db.session.expire_all()
         return [(f.project_id, f.context_data or {}) for f in db.session.scalars(
-            select(UserFeedback).where(UserFeedback.user_id == user_id, UserFeedback.content_id == bookmark_id,
-            UserFeedback.id >= first_new_id)
+            select(UserFeedback).where(UserFeedback.user_id == user_id, UserFeedback.content_id == bookmark_id)
             .order_by(UserFeedback.id))]
 
 
@@ -73,6 +77,44 @@ def test_the_same_bookmark_can_be_judged_differently_for_two_projects(app, clien
     _send(client, auth_headers, bookmark, 'positive', {'project_id': first})
     _send(client, auth_headers, bookmark, 'negative', {'project_id': second})
     assert [p for p, _ in _rows(app, test_user['id'], bookmark, first_new_id)] == [first, second]
+
+
+def test_clicking_the_same_thumb_again_does_not_add_rows(app, client, test_user, auth_headers, first_new_id):
+    """Five quick clicks on one thumb used to store five identical judgments."""
+    bookmark, project = _make(app, test_user['id'], 'dbl')
+    for _ in range(5):
+        assert _send(client, auth_headers, bookmark, 'positive', {'project_id': project}).status_code == 200
+    assert len(_rows(app, test_user['id'], bookmark, first_new_id)) == 1
+
+
+def test_changing_your_mind_replaces_the_judgment_for_that_project_only(app, client, test_user, auth_headers, first_new_id):
+    from models import db, UserFeedback
+    bookmark, first = _make(app, test_user['id'], 'mind-a')
+    _, second = _make(app, test_user['id'], 'mind-b')
+    _send(client, auth_headers, bookmark, 'positive', {'project_id': first})
+    _send(client, auth_headers, bookmark, 'positive', {'project_id': second})
+    _send(client, auth_headers, bookmark, 'negative', {'project_id': first})
+    with app.app_context():
+        db.session.expire_all()
+        types = {f.project_id: f.feedback_type for f in db.session.scalars(
+            select(UserFeedback).where(UserFeedback.user_id == test_user['id'],
+                                       UserFeedback.content_id == bookmark))}
+    assert types == {first: 'not_relevant', second: 'helpful'}
+
+
+def test_deleting_a_project_does_not_collide_with_a_rating_given_for_no_project(app, client, test_user, auth_headers):
+    """ON DELETE SET NULL turns the project's rating into a no-project one; the unique rule must allow that."""
+    from models import db, UserFeedback
+    with app.app_context():
+        if db.engine.dialect.name != 'postgresql':
+            pytest.skip('needs Postgres: SQLite does not enforce ON DELETE SET NULL here')
+    bookmark, project = _make(app, test_user['id'], 'collide')
+    _send(client, auth_headers, bookmark, 'positive', {'project_id': project})
+    _send(client, auth_headers, bookmark, 'negative', {})
+    with app.app_context():
+        db.session.execute(text('DELETE FROM projects WHERE id = :p'), {'p': project})
+        db.session.commit()   # raised a unique violation when the index covered no-project ratings too
+        assert db.session.query(UserFeedback).filter_by(user_id=test_user['id'], content_id=bookmark).count() == 2
 
 
 def test_a_project_the_user_does_not_own_is_never_stored(app, client, test_user, other_user, auth_headers, first_new_id):

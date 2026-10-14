@@ -30,6 +30,16 @@ class RecommendationRepository:
         self.session.add(feedback)
         return feedback
 
+    def find_feedback(self, user_id: int, content_id: int, project_id: Optional[int]) -> Optional[UserFeedback]:
+        """The user's current judgment of this bookmark for this project (or for no project), if any."""
+        query = self.session.query(UserFeedback).filter(
+            UserFeedback.user_id == user_id, UserFeedback.content_id == content_id)
+        if project_id is None:
+            query = query.filter(UserFeedback.project_id.is_(None))
+        else:
+            query = query.filter(UserFeedback.project_id == project_id)
+        return query.order_by(UserFeedback.id.desc()).first()
+
     def get_user_bookmarks(self, user_id: int, limit: int = 50, offset: int = 0) -> List[SavedContent]:
         """Fetch paginated user bookmarks with limit and offset."""
         limit = max(1, min(limit, 100))
