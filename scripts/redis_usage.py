@@ -54,15 +54,18 @@ def main():
     print(f"\n{used} commands in {args.seconds} s -> {per_day:,.0f} a day -> {per_month:,.0f} a month "
           f"({per_month / args.limit:.0%} of {args.limit:,})")
     rows = sorted(((end_calls.get(name, 0) - start_calls.get(name, 0), name) for name in end_calls), reverse=True)
-    print("\nBy command in this window (the sampler's own INFO calls excluded):")
-    for count, name in rows[:10]:
-        if name == "info":
-            count = max(0, count - 4)
-        if count:
-            print(f"  {count:>8}  {name}")
+    if end_calls:
+        print("\nBy command in this window (the sampler's own INFO calls excluded):")
+        for count, name in rows[:10]:
+            if name == "info":
+                count = max(0, count - 4)
+            if count:
+                print(f"  {count:>8}  {name}")
+    else:
+        print("\n(This server reports no per-command statistics, as Upstash does, so only the total is shown.)")
     if per_month > args.limit * 0.5:
-        print("\nOver half the monthly allowance at this rate. Look at the top command above: "
-              "blpop/zrangebyscore/expire/get repeating means something is polling.")
+        print("\nOver half the monthly allowance at this rate. Something is polling: compare with a quiet window "
+              "(nobody using the app, no jobs running) before drawing conclusions.")
 
 
 if __name__ == "__main__":

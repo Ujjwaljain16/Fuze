@@ -252,8 +252,10 @@ Check the rate with a read-only sampler (it sees every client: Space, workers, y
 python scripts/redis_usage.py --seconds 300
 ```
 
-It prints commands a day, the monthly projection against the limit and the top commands. With nobody using
-the app it should project well under 100,000 a month. Local runs share the production Redis, so a worker
+It prints commands a day, the monthly projection against the limit and, where the server reports it, the top
+commands (Upstash reports only the total). Sample a quiet window: jobs running or a deploy in progress inflate it.
+With nobody using the app it should project well under 100,000 a month (a 10-minute idle sample of the
+production Redis read 2 commands). Local runs share the production Redis, so a worker
 left running on your laptop counts too: stop it when you are not testing.
 
 ## Keeping the free tiers alive

@@ -11,6 +11,15 @@ Complete deployment guide for Fuze - Intelligent Bookmark Manager.
 > set as Space **Secrets**, not Variables (variables are public on a public Space, and a name can't
 > exist as both). This guide is the architecture and environment-variable reference.
 
+> [!NOTE]
+> **CORS on Hugging Face.** On the hosted Space, preflight (`OPTIONS`) responses and some error responses carry an
+> `access-control-allow-origin` header that echoes the caller's origin, whatever it is. The app does not produce
+> that: its tests and a local run never echo an origin that is not on the allowlist
+> (`backend/utils/cors_utils.py`), so it comes from a layer in front of the app. `access-control-allow-credentials`
+> is still sent only to the allowlisted origins, and the API authenticates with bearer tokens rather than cookies
+> it trusts cross-site, so this does not expose user data. Do not treat CORS as an access control on that host.
+> On the self-hosted fallback in [`deploy/`](../deploy/README.md) the app's allowlist applies as written.
+
 ## Table of Contents
 
 1. [Platform Comparison](#platform-comparison)
