@@ -56,3 +56,46 @@ describe('Google OAuth completion', () => {
     expect(result.status).toBe('linked')
   })
 })
+
+
+describe('Google OAuth remembers where the user was going', () => {
+  const pending = () => JSON.parse(localStorage.getItem('fuze_oauth_pending'))
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.restoreAllMocks()
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co')
+    // startGoogleOAuth navigates away; keep the test page where it is
+    Object.defineProperty(window, 'location', { value: { origin: 'http://localhost', href: 'http://localhost/login' }, writable: true })
+  })
+
+  it('stores a same-app destination with the pending sign-in', async () => {
+    const { startGoogleOAuth } = await import('../../services/oauth')
+    startGoogleOAuth(OAUTH_MODES.SIGN_IN, '/share?url=https%3A%2F%2Fe.com&title=T&text=body')
+    expect(pending().redirect).toBe('/share?url=https%3A%2F%2Fe.com&title=T&text=body')
+  })
+
+  it('never stores an off-site or malformed destination', async () => {
+    const { startGoogleOAuth } = await import('../../services/oauth')
+    for (const bad of ['https://evil.tld/x', '//evil.tld', '/\\evil.tld', 'javascript:alert(1)', '', null, undefined]) {
+      startGoogleOAuth(OAUTH_MODES.SIGN_IN, bad)
+      expect(pending().redirect, String(bad)).toBeUndefined()
+    }
+  })
+
+  it('hands the destination back after a successful sign-in, and checks it again', async () => {
+    localStorage.setItem('fuze_oauth_pending', JSON.stringify({ mode: OAUTH_MODES.SIGN_IN, at: Date.now(), redirect: '/share?url=x' }))
+    vi.spyOn(api, 'post').mockResolvedValue({ data: { user: { id: 1 }, access_token: 'a', refresh_token: 'r' } })
+    expect(await completeOAuth({ accessToken: 'supa' })).toMatchObject({ status: 'signed_in', redirect: '/share?url=x' })
+
+    // something tampered with storage: an off-site value is dropped
+    localStorage.setItem('fuze_oauth_pending', JSON.stringify({ mode: OAUTH_MODES.SIGN_IN, at: Date.now(), redirect: 'https://evil.tld' }))
+    expect((await completeOAuth({ accessToken: 'supa' })).redirect).toBeNull()
+  })
+
+  it('has no destination when there was none', async () => {
+    markPending()
+    vi.spyOn(api, 'post').mockResolvedValue({ data: { user: { id: 1 } } })
+    expect((await completeOAuth({ accessToken: 'supa' })).redirect).toBeNull()
+  })
+})

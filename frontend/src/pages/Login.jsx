@@ -775,7 +775,7 @@ export default function FuzeAuth() {
                 type="button"
                 onClick={() => {
                   try {
-                    startGoogleOAuth()
+                    startGoogleOAuth(undefined, searchParams.get('redirect'))
                   } catch (err) {
                     setError(err.message)
                   }

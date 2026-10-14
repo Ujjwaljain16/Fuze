@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { completeOAuth, readOAuthRedirect } from '../services/oauth'
+import { getSafeInternalRedirect } from '../utils/urlSafety'
 
 const EXCHANGE_LOCK_KEY = 'oauth_exchange_in_progress'
 
@@ -34,11 +35,13 @@ export default function OAuthCallback() {
           return
         }
 
-        navigate('/dashboard', { replace: true })
+        // Back to where the user was going (a shared link), else the dashboard.
+        const destination = getSafeInternalRedirect(result.redirect)
+        navigate(destination, { replace: true })
         // Mobile/PWA fallback: if SPA navigation doesn't take effect, force location redirect.
         setTimeout(() => {
           if (window.location.pathname === '/oauth/callback') {
-            window.location.replace('/dashboard')
+            window.location.replace(destination)
           }
         }, 700)
       } finally {

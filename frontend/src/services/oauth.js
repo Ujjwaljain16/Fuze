@@ -1,4 +1,5 @@
 import api from './api'
+import { getSafeInternalRedirect } from '../utils/urlSafety'
 
 // Google sign-in goes through Supabase's implicit flow: Supabase redirects back with
 // #access_token=... and we exchange that for our own session.
@@ -11,13 +12,16 @@ const PENDING_MAX_AGE_MS = 10 * 60 * 1000
 
 export const OAUTH_MODES = { SIGN_IN: 'signin', LINK: 'link' }
 
-export const startGoogleOAuth = (mode = OAUTH_MODES.SIGN_IN) => {
+// `redirect` is where the user was going (a shared link, say); it rides along with the pending marker and is only
+// ever used after getSafeInternalRedirect has checked it again on the way back.
+export const startGoogleOAuth = (mode = OAUTH_MODES.SIGN_IN, redirect = null) => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || window.__env?.VITE_SUPABASE_URL
   if (!supabaseUrl) {
     throw new Error('Supabase is not configured for OAuth')
   }
   // localStorage (not sessionStorage): mobile/PWA flows can come back in another tab.
-  localStorage.setItem(PENDING_KEY, JSON.stringify({ mode, at: Date.now() }))
+  const safeRedirect = getSafeInternalRedirect(redirect, null)
+  localStorage.setItem(PENDING_KEY, JSON.stringify({ mode, at: Date.now(), ...(safeRedirect ? { redirect: safeRedirect } : {}) }))
   const redirectTo = encodeURIComponent(window.location.origin + '/oauth/callback')
   window.location.href = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}`
 }
@@ -50,7 +54,7 @@ export const hasOAuthRedirect = () => {
 
 /**
  * Finish a Google redirect. Resolves to one of:
- *   { status: 'signed_in', user }           new session stored
+ *   { status: 'signed_in', user, redirect } new session stored; redirect is where the user was going, or null
  *   { status: 'linked' }                    Google connected to the signed-in account
  *   { status: 'error', code, message }      nothing changed
  */
@@ -84,7 +88,7 @@ export const completeOAuth = async ({ accessToken, error }) => {
     }
     localStorage.setItem('user', JSON.stringify(fullUser))
     window.dispatchEvent(new CustomEvent('userLoggedIn', { detail: { user: fullUser } }))
-    return { status: 'signed_in', user: fullUser }
+    return { status: 'signed_in', user: fullUser, redirect: getSafeInternalRedirect(pending.redirect, null) }
   } catch (err) {
     const data = err.response?.data || {}
     return {
