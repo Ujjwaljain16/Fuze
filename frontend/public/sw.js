@@ -73,8 +73,9 @@ async function handleNavigationRequest(request) {
 
     if (response && response.ok) {
       const cache = await caches.open(SHELL_CACHE);
+      // Only the app shell is kept (the offline fallback reads just this). Not the request's own URL: a shared
+      // link arrives as /share?url=... and would otherwise be stored in the cache.
       await cache.put('/index.html', response.clone());
-      await cache.put(request, response.clone());
     }
 
     return response;
