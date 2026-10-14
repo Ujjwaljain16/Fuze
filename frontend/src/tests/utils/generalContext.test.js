@@ -20,12 +20,14 @@ describe('generalRequest', () => {
   it('General asks for all the saved interests together', () => {
     const request = generalRequest('general', interests)
     expect(request.technologies).toBe('React, python, system design')
+    expect(request.interests).toEqual(['React', 'python', 'system design'])   // the server searches each on its own
     expect(request.hasInterests).toBe(true)
     expect(request.description).not.toMatch(/improve my skills/)
   })
 
   it('Surprise Me picks one interest, and a different random value picks a different one', () => {
     expect(generalRequest('surprise', interests, () => 0).technologies).toBe('React')
+    expect(generalRequest('surprise', interests, () => 0).interests).toBeUndefined()   // one topic: the plain text search
     expect(generalRequest('surprise', interests, () => 0.5).technologies).toBe('python')
     expect(generalRequest('surprise', interests, () => 0.99).technologies).toBe('system design')
   })
@@ -33,6 +35,7 @@ describe('generalRequest', () => {
   it('falls back to the generic wording only when no interests are saved', () => {
     const general = generalRequest('general', [])
     expect(general).toMatchObject({ title: 'General Learning', technologies: '', hasInterests: false })
+    expect(general.interests).toBeUndefined()
     expect(generalRequest('surprise', []).hasInterests).toBe(false)
   })
 })

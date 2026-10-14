@@ -106,12 +106,13 @@ const Recommendations = () => {
         } catch (profileError) {
           console.warn('Could not read technology interests; using a generic request', profileError)
         }
-        const { title, description, technologies } = generalRequest(selectedContext.type, interests)
+        const { title, description, technologies, interests: searchEach } = generalRequest(selectedContext.type, interests)
         const surprise = selectedContext.type === 'surprise'
         data = {
           title,
           description,
           technologies,
+          ...(searchEach ? { interests: searchEach } : {}),
           max_recommendations: 10,
           engine_preference: 'auto',
           diversity_weight: surprise ? 0.5 : 0.3,

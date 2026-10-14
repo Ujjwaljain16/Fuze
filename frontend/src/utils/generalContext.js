@@ -19,7 +19,7 @@ export const parseInterests = (raw) => {
 }
 
 /**
- * kind: 'general' (all interests together) or 'surprise' (one interest picked at random, so each press differs).
+ * kind: 'general' (each interest searched on its own and the results merged) or 'surprise' (one interest picked at random, so each press differs).
  * With no saved interests the old wording is used, since there is nothing better to ask for.
  */
 export const generalRequest = (kind, interests, random = Math.random) => {
@@ -33,10 +33,12 @@ export const generalRequest = (kind, interests, random = Math.random) => {
     const pick = list[Math.floor(random() * list.length)]
     return { title: 'Surprise Me', description: 'Something worth reading about', technologies: pick, hasInterests: true }
   }
+  // `interests` lets the server search each one separately and merge, instead of matching one blended text.
   return {
     title: 'General',
     description: 'Things I want to learn and build with',
     technologies: list.join(', '),
+    interests: list,
     hasInterests: true,
   }
 }
