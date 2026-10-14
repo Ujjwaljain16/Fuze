@@ -11,7 +11,7 @@ import { useToast } from '../contexts/ToastContext'
 import {
   Bookmark, FolderOpen, Plus, ExternalLink, Calendar, Sparkles, Lightbulb, 
   Settings, Zap, Grid3X3, List, Star, Clock, TrendingUp, 
-  BarChart3, Globe, MoreHorizontal, Tag, LogOut
+  BarChart3, Globe, MoreHorizontal, Tag, LogOut, AlertTriangle
 } from 'lucide-react'
 import OnboardingBanner from '../components/OnboardingBanner'
 import logo1 from '../assets/logo1.svg'
@@ -50,7 +50,8 @@ const Dashboard = () => {
     scraping: 0,
     embedding: 0,
     analyzing: 0,
-    analyzed: 0
+    analyzed: 0,
+    unreadable: 0
   })
   
   // Use optimized hooks for resize and mouse tracking
@@ -463,7 +464,7 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 relative z-10">
                 {/* Scraping Stage */}
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center justify-between hover:border-amber-500/40 transition-all">
                   <div>
@@ -517,6 +518,23 @@ const Dashboard = () => {
                   </div>
                   <div className="p-2.5 bg-emerald-500/20 rounded-lg text-emerald-400">
                     <BarChart3 className="w-5 h-5" />
+                  </div>
+                </div>
+
+                {/* Pages that could not be read: they stay searchable by title and notes */}
+                <div
+                  className="bg-gray-500/10 border border-gray-500/20 rounded-xl p-4 flex items-center justify-between hover:border-gray-500/40 transition-all"
+                  title="Pages that could not be fetched (blocked by robots.txt, an error, or a site that refuses automated reads). They stay searchable by title and notes."
+                >
+                  <div>
+                    <span className="text-xs font-semibold text-gray-400 tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-gray-400" />
+                      ⚪ Couldn't read
+                    </span>
+                    <div className="text-2xl font-black text-gray-200 mt-1" data-testid="pipeline-unreadable">{pipelineStats.unreadable ?? 0}</div>
+                  </div>
+                  <div className="p-2.5 bg-gray-500/20 rounded-lg text-gray-400">
+                    <AlertTriangle className="w-5 h-5" />
                   </div>
                 </div>
               </div>

@@ -129,8 +129,14 @@ def get_dashboard_summary():
             ).label('embedding_count'),
             func.sum(
                 case(((SavedContent.embedding_status == 'SUCCESS') & (SavedContent.analysis_status == 'PENDING')
-                      & SavedContent.extracted_text.isnot(None), 1), else_=0)
+                      & SavedContent.extracted_text.isnot(None) & (SavedContent.extracted_text != ''), 1), else_=0)
             ).label('analyzing_count'),
+            # Fetching ended without readable text (robots.txt, errors, a site that refuses us): nothing to
+            # embed or analyze, so these were in no counter and the stage counts did not add up to the total.
+            func.sum(
+                case(((SavedContent.scrape_status.in_(('FAILED_FETCH', 'FAILED', 'BLOCKED', 'DISALLOWED')))
+                      & (SavedContent.analysis_status != 'SUCCESS'), 1), else_=0)
+            ).label('unreadable_count'),
             func.sum(
                 case((SavedContent.analysis_status == 'SUCCESS', 1), else_=0)
             ).label('analyzed_count')
@@ -151,7 +157,8 @@ def get_dashboard_summary():
             'scraping': int(stats_result.scraping_count or 0),
             'embedding': int(stats_result.embedding_count or 0),
             'analyzing': int(stats_result.analyzing_count or 0),
-            'analyzed': int(stats_result.analyzed_count or 0)
+            'analyzed': int(stats_result.analyzed_count or 0),
+            'unreadable': int(stats_result.unreadable_count or 0)
         }
 
         changes = stat_changes(bookmarks_this_week, bookmarks_last_week)
