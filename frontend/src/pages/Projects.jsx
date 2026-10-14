@@ -1025,7 +1025,7 @@ const Projects = () => {
       )}
 
       {/* Custom Styles */}
-      <style jsx>{`
+      <style>{`
         .logo-container {
           width: auto;
           height: auto;

@@ -729,7 +729,7 @@ const Bookmarks = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .logo-container {
           width: auto;
           height: auto;
