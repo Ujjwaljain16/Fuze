@@ -145,7 +145,7 @@ jobs:
       # the full requirements bring in torch for nothing.
       - name: Install Alembic and its model dependencies
         run: |
-          mapfile -t pins < <(grep -iE '^(alembic|sqlalchemy|flask|flask-sqlalchemy|pgvector|psycopg2-binary|python-dotenv|structlog|numpy)==' requirements.txt)
+          mapfile -t pins < <(grep -iE '^(alembic|sqlalchemy|flask|flask-sqlalchemy|pgvector|psycopg2-binary|python-dotenv|structlog|numpy|requests)==' requirements.txt)
           echo "Installing: ${pins[*]}"
           pip install --quiet "${pins[@]}"
 
