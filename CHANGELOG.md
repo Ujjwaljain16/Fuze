@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Extension 1.1.1: a post the page publishes as structured data (a LinkedIn post, for example) is captured as that
+  post alone, without the replies and interface around it, so saving a LinkedIn post from the extension gives the
+  same clean text a server fetch would, read from your own browser.
 - A bookmark whose page could not be read now says why under its title: a site that forbids automated reading
   (LinkedIn, which also covers `lnkd.in` short links) or a failed read, and what to do (save it with the extension
   while viewing it, or paste the text into the notes). `GET /api/bookmarks` returns `scrape_status` for this.

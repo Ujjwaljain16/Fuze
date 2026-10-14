@@ -237,7 +237,10 @@ stops every tier (see Order above), so a LinkedIn link, short or long, is stored
 and no page text. Most LinkedIn posts are also behind a login, which no server-side fetch could pass anyway.
 
 What works: tier 0. Open the post in your browser and save it with the extension while you are looking at it; the
-extension sends the text your own browser has rendered, signed in, and nothing third-party sees the URL. Or paste
+extension sends the text your own browser has rendered, signed in, and nothing third-party sees the URL. A page that
+publishes its item as structured data (schema.org JSON-LD, which LinkedIn posts do) is sent as that item alone,
+without the replies and interface around it (extension 1.1.1, `lib/capture.js`: a social post always; an article's
+`articleBody` only when it is nearly as long as the page, so an excerpt never replaces the real article). Or paste
 the text into the bookmark's notes, which are embedded and searched like page text.
 
 The bookmark list says so on the bookmark itself (the `scrape_status` field of `GET /api/bookmarks` feeds a note
