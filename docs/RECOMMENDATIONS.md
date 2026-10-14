@@ -42,6 +42,18 @@ Results are cached in Redis for 10 minutes. The key includes the user, the inten
 setting, the embedding model and a per-user content version that changes on every save, edit and delete, so
 new bookmarks appear without invalidating keys.
 
+### Several interests ("General")
+
+One query that lists unrelated topics ("React, python, system design, backend") matches none of them well, so the
+General choice sends the profile's technology interests as a list (`interests`) and the engine searches each on its
+own (`recommend_interests`): one nearest-passage search per interest, then a round robin over the lists, best
+first, no bookmark twice. Every interest is visible near the top and gets about `limit / n` of the places; an
+interest with few good bookmarks runs out and the others fill in. Each result is tagged
+`metadata.matched_interest` and its weak-match check uses that interest as the query. At most 6 interests are used,
+which costs 6 database round trips. On the 238-bookmark library, one blended query gave 6 strong results of 10,
+and the per-interest search 9 of 10, with all four interests represented. With no interests saved the page sends
+a generic sentence instead.
+
 ### Weak matches
 
 Ranking is by passage similarity plus diversity (nDCG 0.97 on the judged requests below), but the engine always

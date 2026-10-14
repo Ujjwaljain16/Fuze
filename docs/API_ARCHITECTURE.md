@@ -354,6 +354,11 @@ context is the intent and only `user_interests` is used from the request text; o
 
 Limits: `title` 500 characters, `description` 5000, `technologies` 1000
 (`400 title_too_long` and similar). `max_recommendations` defaults to 10 and is capped at 50.
+Without a project or task, `interests` (a list of strings, at most 6 kept, trimmed and de-duplicated) searches the
+caller's content once per interest and interleaves the lists, so each interest gets its share; each result's
+`metadata.matched_interest` names the one it answered, and the weak-match check judges it against that interest
+only. The response `intent` then has `intent_source: "interests"`. A project or task ignores `interests`, and a
+value that is not a list is ignored.
 `POST /api/recommendations/task/<id>` and `/subtask/<id>` accept `max_recommendations`
 and return the same `recommendations` list plus the task (and subtask) id and title.
 
