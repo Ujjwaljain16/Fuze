@@ -6,7 +6,9 @@
   don't carry the full profile; the page now fetches it when it opens. Saving the form failed with "an account
   already exists" whenever the username was left unchanged, and never saved the interests; it now uses
   `PUT /api/profile`, which treats your own username as available, checks usernames case-insensitively and
-  returns `created_at`.
+  returns `created_at`. The form's live username check also reported your own name as taken, which disabled
+  the Update Profile button; it now skips your own name, treats a failed check as unknown, and says when a name
+  really is taken.
 - The thumbs up and down on a recommendation now show the saved rating and say if saving failed; before, a click
   gave no sign, and repeated clicks stored the same rating again.
 - One current rating is kept per user, bookmark and project, enforced by a unique index (migration 0019). Rating
