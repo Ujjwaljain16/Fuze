@@ -125,6 +125,9 @@ feedback_eval/
 coverage.xml
 .coverage.*
 
+# Private working folders
+docs/audit/
+
 # AI agent and temp scripts
 .claude/
 backend/brain/
