@@ -85,8 +85,11 @@ jobs:
         env:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
+          # pg_restore --list stops reading after the table of contents, which breaks the pipe under gpg and
+          # fails the step (pipefail). The container reads the whole stream into its own throwaway filesystem
+          # first, so gpg always finishes and the plaintext still never touches the runner's disk.
           gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 --decrypt backup/fuze-db.dump.gpg 3<<<"$BACKUP_PASSPHRASE" \
-            | docker run --rm -i "$PG_CLIENT_IMAGE" pg_restore --list > toc.txt
+            | docker run --rm -i "$PG_CLIENT_IMAGE" sh -c 'cat > /tmp/verify.dump && pg_restore --list /tmp/verify.dump' > toc.txt
           if ! grep -qE ' TABLE DATA [a-z_]+ alembic_version ' toc.txt; then
             echo "::error::The dump has no alembic_version data; it is not a Fuze database backup."
             exit 1
