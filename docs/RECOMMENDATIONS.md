@@ -42,6 +42,21 @@ Results are cached in Redis for 10 minutes. The key includes the user, the inten
 setting, the embedding model and a per-user content version that changes on every save, edit and delete, so
 new bookmarks appear without invalidating keys.
 
+### Weak matches
+
+Ranking is by passage similarity plus diversity (nDCG 0.97 on the judged requests below), but the engine always
+returns up to `limit` results, so a project with few matching bookmarks gets padded with loosely related ones.
+After the results are picked, a small cross-encoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`, about 0.3 s for ten
+pairs, baked into the image) scores each (intent, best passage) pair and marks results under a raw score of -5 as
+`weak_match`. The page folds them behind "Show N weaker matches"; nothing is removed and the order is untouched.
+
+Where the floor came from: 15 requests (5 projects, 10 tasks, 150 results) over a real library of 238 bookmarks,
+each result judged by hand as clearly useful, loosely related or irrelevant. Unfiltered, 60% were clearly useful.
+With the floor at -5, 89% of the irrelevant and 45% of the loosely related results are marked weak and the strong
+list is 81% clearly useful; 23% of the useful ones are marked weak too, mostly bookmarks with no readable page text.
+Cosine similarity cannot make this cut (irrelevant results reached 77% while some useful ones were at 66%), which is
+why the check uses the cross-encoder. Turn it off with `RECOMMENDATION_CONFIDENCE_ENABLED=false`.
+
 ### Endpoints
 
 | Endpoint | Purpose |

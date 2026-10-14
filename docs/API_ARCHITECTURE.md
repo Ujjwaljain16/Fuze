@@ -375,10 +375,13 @@ and return the same `recommendations` list plus the task (and subtask) id and ti
       "key_concepts": ["hooks"],
       "quality_score": 8.5,
       "engine_used": "intent_engine",
-      "metadata": {"matched_passage": "...", "use_when": null, "vector_similarity": 0.8123, "rerank_score": null}
+      "weak_match": false,
+      "metadata": {"matched_passage": "...", "use_when": null, "vector_similarity": 0.8123, "rerank_score": null,
+                   "confidence_score": -1.9}
     }
   ],
   "total_recommendations": 1,
+  "weak_matches": 0,
   "engine_used": "intent_engine",
   "intent": {"intent_text": "...", "intent_statement": null, "needs": [], "intent_source": "context"},
   "cached": false,
@@ -387,7 +390,11 @@ and return the same `recommendations` list plus the task (and subtask) id and ti
 }
 ```
 
-Results are only the caller's own saved content. `score` is a 0-100 match percentage.
+Results are only the caller's own saved content. `score` is a 0-100 match percentage. `weak_match` is `true` when a
+cross-encoder check of the picked results does not tie the best passage to the current context
+(`metadata.confidence_score` is its raw score; the floor is -5); the page folds those away behind "Show N weaker
+matches". The order is never changed by this check. The field is absent when the check is off or its model is
+unavailable, which means "unknown", not "strong". `weak_matches` counts them.
 
 **Feedback** (`POST /api/recommendations/feedback`):
 ```json
