@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Sharing to the PWA while signed out: the shared title and text now survive the login (before, only the link did),
+  and the share page no longer redirects before it has read what was shared. Signing in with Google also returns to
+  the share instead of the dashboard, where it used to be lost entirely; the destination is checked as a same-app
+  path both when it is stored and when it is used.
 - PWA: real PNG icons (192, 512, maskable, apple-touch), so Android installs the app and lists it in the share
   sheet and iOS shows a proper home-screen icon; the service worker is no longer served as immutable for a year (a
   later `*.js` header rule was overriding it); shared links are no longer stored in the service worker's cache.
