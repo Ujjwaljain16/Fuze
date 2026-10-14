@@ -14,7 +14,7 @@ import ConnectedAccounts from '../components/ConnectedAccounts'
 import AccountData from '../components/AccountData'
 
 const Profile = () => {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, refreshUser } = useAuth()
   const { success, error } = useToast()
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -56,6 +56,13 @@ const Profile = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // The sign-in response and a session stored by an older version carry only id, username and email. Fetch the
+  // full profile (member since, interests) when the page opens.
+  useEffect(() => {
+    if (isAuthenticated && refreshUser) refreshUser()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
   useEffect(() => {
     if (isAuthenticated && user) {
       setFormData(prev => ({
@@ -89,10 +96,11 @@ const Profile = () => {
         technology_interests: formData.technology_interests.trim()
       }
 
-      // Use dedicated endpoint to update username (handles availability and suggestions)
-      const response = await api.post('/api/auth/update-username', { new_username: updateData.username })
-      
+      // One request saves both fields; the server treats the caller's own username as available.
+      const response = await api.put('/api/profile', updateData)
+
       if (response.data) {
+        if (refreshUser) await refreshUser()
         success('Profile updated successfully!')
       }
     } catch (err) {
