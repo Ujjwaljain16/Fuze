@@ -1,5 +1,6 @@
 """Endpoints that used to fail every time, or fail after already succeeding."""
 import time
+import uuid
 from unittest.mock import patch
 
 from flask_jwt_extended import create_access_token
@@ -25,7 +26,8 @@ def _oauth_user(app, password_set=False):
         meta = {'supabase_user_id': 'google-1'}
         if password_set:
             meta['password_set'] = True
-        user = User(username=f'g_{time.time_ns()}', email=f'g{time.time_ns()}@example.com',
+        tag = uuid.uuid4().hex   # the clock has coarse resolution on Windows: two users could collide on email
+        user = User(username=f'g_{tag}', email=f'g{tag}@example.com',
                     password_hash=hash_password('random-unknown-pw-1'), provider_name='google',
                     provider_user_id='google-1', user_metadata=meta)
         db.session.add(user)
