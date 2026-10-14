@@ -177,6 +177,17 @@ def process_bookmark_content_task(bookmark_id: int, url: str, user_id: int):
         if not bookmark:
             logger.error("bg_bookmark_not_found", extra={"bookmark_id": bookmark_id})
             return
+        if bookmark.user_id != user_id:
+            logger.error("bg_job_user_mismatch", extra={"bookmark_id": bookmark_id, "job_user_id": user_id,
+                                                        "owner_id": bookmark.user_id})
+            return
+        # The job carries its own copy of the URL, and a job once ran with its neighbour's: four bookmarks
+        # (a Wix page, a Netlify page, neetcode.io, a GitHub repo) were stored with the text of the
+        # bookmark saved just before them. The row is the truth about which page this bookmark is.
+        if bookmark.url and bookmark.url != url:
+            logger.error("bg_job_url_mismatch", extra={"bookmark_id": bookmark_id, "job_url": url,
+                                                      "stored_url": bookmark.url})
+            url = bookmark.url
         bookmark_title = bookmark.title
 
     publish_pipeline_event(
