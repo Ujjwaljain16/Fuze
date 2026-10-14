@@ -534,3 +534,29 @@ def test_when_the_exception_is_off_the_engine_refuses_it_by_robots_again(monkeyp
          patch.object(engine.robots_manager, "can_fetch", return_value=False):
         doc = engine.acquire_and_normalize(_POST_URL)
     assert doc.fetch_metadata.strategy != "API:linkedin" and not doc.markdown_content.strip()
+
+
+def test_unicode_bold_letters_in_a_linkedin_post_become_ordinary_letters(linkedin_fetch):
+    """LinkedIn posts style words with Unicode 'bold' letters that search and the embedding do not read as the word."""
+    bold = "\U0001d7d7 \U0001d406\U0001d422\U0001d42d\U0001d407\U0001d42e\U0001d41b Repos for \U0001d403\U0001d41e\U0001d42f\U0001d40e\U0001d429\U0001d42c"   # "9 GitHub Repos for DevOps"
+    body = f"{bold}\n\n1. Learning Resources \U0001f4cc caf\u00e9 \u00fcber\nhttps://lnkd.in/d2hARXA7"
+    linkedin_fetch.return_value = _page(content=_linkedin_html(body=body))
+    content = sa.fetch_from_source(_POST_URL)
+    assert content.text.startswith("9 GitHub Repos for DevOps")
+    assert "\U0001d406" not in content.text                      # no mathematical bold letters left
+    assert "\U0001f4cc" in content.text                          # emoji are kept
+    assert "caf\u00e9 \u00fcber" in content.text                 # ordinary accents are kept
+    assert "\n\n1. Learning Resources" in content.text           # paragraph breaks are kept
+    assert "https://lnkd.in/d2hARXA7" in content.text            # links are untouched
+
+
+def test_the_title_and_author_of_a_linkedin_post_are_normalized_too(linkedin_fetch):
+    import json as _json
+    html = ('<html><head><meta property="og:title" content="\U0001d406\U0001d422\U0001d42d\U0001d407\U0001d42e\U0001d41b tips | Jane | LinkedIn">'
+            '<script type="application/ld+json">' + _json.dumps({
+                "@type": "SocialMediaPosting", "articleBody": "A long enough post body for the adapter to accept it.",
+                "author": {"@type": "Person", "name": "\U0001d409\U0001d41a\U0001d427\U0001d41e \U0001d403\U0001d428\U0001d41e"}}) + "</script></head></html>").encode()
+    linkedin_fetch.return_value = _page(content=html)
+    content = sa.fetch_from_source(_POST_URL)
+    assert content.title == "GitHub tips"
+    assert content.author == "Jane Doe"

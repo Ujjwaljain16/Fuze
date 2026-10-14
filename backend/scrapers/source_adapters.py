@@ -17,6 +17,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
@@ -514,8 +515,12 @@ def _linkedin_post_data(html: str) -> Optional[Dict]:
     # og:title reads "Topic | Author posted on the topic | LinkedIn": the topic is the useful part.
     title = (meta("og:title").split(" | ")[0] or headline).strip()
     canonical = soup.find("link", rel="canonical")
-    return {"body": body, "title": title or headline, "author": author or None, "published": published or None,
-            "canonical": (canonical.get("href") if canonical else None)}
+    # Posts often style words with Unicode "bold" letters (the mathematical alphanumerics), which search and the
+    # embedding model do not read as the ordinary word: NFKC turns them back into letters. The title and author get
+    # the same treatment; emoji, line breaks and ordinary accents are untouched.
+    nfkc = lambda text: unicodedata.normalize("NFKC", text) if text else text
+    return {"body": nfkc(body), "title": nfkc(title or headline), "author": nfkc(author) or None,
+            "published": published or None, "canonical": (canonical.get("href") if canonical else None)}
 
 
 def linkedin(url: str) -> Optional[SourceContent]:
