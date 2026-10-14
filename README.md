@@ -361,7 +361,7 @@ What is not good enough yet, with the evidence, so the next step is obvious.
 
 **Content acquisition**
 - No browser runs on the server by design (the host flagged browser automation). Pages that need one are recovered through official APIs, a remote reader and the Wayback Machine, but some stay thin: Reddit blocks its JSON endpoint (title only), YouTube playlists and login-walled pages have no readable text unless saved from the extension, which sends the rendered page.
-- `robots.txt` disallows are respected, so some sites are deliberately not fetched.
+- `robots.txt` disallows are respected, so some sites are deliberately not fetched. The one exception is public LinkedIn posts a user saves (one plain request, switchable with `LINKEDIN_PUBLIC_FETCH_ENABLED`); see [docs/CONTENT_ACQUISITION.md](docs/CONTENT_ACQUISITION.md).
 
 **Quality evidence still missing**
 - Recommendation quality is measured offline on a public benchmark, not on real users' feedback. Feedback is stored per project (`user_feedback.project_id`) and `backend/scripts/export_feedback_eval.py` turns it into a BEIR-format evaluation set, but only a handful of ratings exist so far.

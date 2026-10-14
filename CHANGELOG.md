@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- LinkedIn posts a user saves (a share from the phone to the PWA, a pasted link) are read again: a LinkedIn adapter
+  makes one plain request for the post's public page and reads its structured data. This is a deliberate, documented
+  exception to the robots.txt rule, on by default, switchable with `LINKEDIN_PUBLIC_FETCH_ENABLED=false`, and
+  untested from the hosted Space's address, where LinkedIn may refuse it.
 - Extension 1.1.1: a post the page publishes as structured data (a LinkedIn post, for example) is captured as that
   post alone, without the replies and interface around it, so saving a LinkedIn post from the extension gives the
   same clean text a server fetch would, read from your own browser.

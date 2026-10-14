@@ -229,20 +229,32 @@ headless browser gets fingerprinted. Put a browser tier (STEALTH/DYNAMIC, see
 [`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md)) between HTTP and READER, so the reader only gets what our own
 browser could not render.
 
-## Sites that forbid automated reading (LinkedIn)
+## Sites that forbid automated reading, and the LinkedIn exception
 
-Some sites tell every crawler to stay out. `linkedin.com/robots.txt` says `User-agent: * Disallow: /` (apart from
-LinkedIn's own bot), and a `lnkd.in` short link redirects to that file. Fuze honours robots.txt, and a disallow
-stops every tier (see Order above), so a LinkedIn link, short or long, is stored with `scrape_status = DISALLOWED`
-and no page text. Most LinkedIn posts are also behind a login, which no server-side fetch could pass anyway.
+Some sites tell every crawler to stay out, and Fuze honours that: a robots.txt disallow stops every tier (see Order
+above) and the bookmark is stored as `scrape_status = DISALLOWED` with no page text. LinkedIn is the case that
+matters most to this app, because people save posts from their phone: `linkedin.com/robots.txt` says
+`User-agent: * Disallow: /` (apart from LinkedIn's own bot), and a `lnkd.in` short link redirects to that file.
 
-What works: tier 0. Open the post in your browser and save it with the extension while you are looking at it; the
-extension sends the text your own browser has rendered, signed in, and nothing third-party sees the URL. A page that
-publishes its item as structured data (schema.org JSON-LD, which LinkedIn posts do) is sent as that item alone,
-without the replies and interface around it (extension 1.1.1, `lib/capture.js`: a social post always; an article's
-`articleBody` only when it is nearly as long as the page, so an excerpt never replaces the real article). Or paste
-the text into the bookmark's notes, which are embedded and searched like page text.
+**The one exception, by the owner's decision.** `scrapers/source_adapters.py` has a LinkedIn adapter that runs with
+the other adapters, before the robots check. When the user saves a link to a public LinkedIn post (a share from the
+phone to the PWA, a pasted link, an import), it makes **one** GET of that post's public page with an ordinary desktop
+browser identity and reads the post's schema.org JSON-LD (`SocialMediaPosting`: the post text, headline, author and
+date; the replies are not stored). It does not log in, send cookies, rotate identities or addresses, or retry;
+redirects are SSRF-checked; a login wall, a profile, a company page or a redirect off LinkedIn yields nothing; and
+requests from one process are at least 5 seconds apart so a bulk import does not hammer the site. The result is
+stored as `API:linkedin`. If it yields nothing, the link falls through to the normal pipeline and is `DISALLOWED`
+as before.
 
-The bookmark list says so on the bookmark itself (the `scrape_status` field of `GET /api/bookmarks` feeds a note
-under the title) instead of leaving a bare "Untitled" entry.
+LinkedIn's terms prohibit automated access, so this is a risk the operator accepts, and it is on by default.
+`LINKEDIN_PUBLIC_FETCH_ENABLED=false` turns it off. It was checked from a home connection; LinkedIn often treats
+datacenter addresses differently, so on the hosted Space it may return nothing, which shows as `DISALLOWED`.
 
+**Other ways in, which need no exception.** Save the post from the extension while you are looking at it: it sends
+the text your own browser has rendered, signed in, and a page that publishes its item as structured data is sent as
+that item alone (extension 1.1.1, `lib/capture.js`: a social post always; an article's `articleBody` only when it is
+nearly as long as the page). Or paste the text into the bookmark's notes, which are embedded and searched like page
+text.
+
+The bookmark list says why a page has no text (the `scrape_status` field of `GET /api/bookmarks` feeds a note under
+the title) instead of leaving a bare "Untitled" entry.
