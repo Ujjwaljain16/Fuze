@@ -74,6 +74,7 @@ To restore into a Supabase project (a fresh one, or the old one after a disaster
 ```bash
 # 4. In the target database, enable pgvector in the schema found above (SQL editor):
 #      create extension if not exists vector with schema extensions;   -- or: schema public
+#      create extension if not exists pg_trgm with schema public;      -- the title search index needs it
 # 5. Restore the application schema. Supabase's own schemas (auth, storage, ...) already
 #    exist in every project and are not restored. --clean replaces existing app tables.
 docker run --rm -e TARGET_URL -v "$PWD:/work" pgvector/pgvector:pg17 \

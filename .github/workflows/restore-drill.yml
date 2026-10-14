@@ -113,14 +113,15 @@ jobs:
             exit 1
           fi
           # pgvector may live in "public" or in Supabase's "extensions" schema; columns name it
-          # schema-qualified, so create the extension where the dump expects it.
+          # schema-qualified, so create the extension where the dump expects it. pg_trgm (the title index's
+          # public.gin_trgm_ops) lives in public; without it that index fails to restore.
           vector_schema=$(pg pg_restore --schema-only --use-list /work/toc.public --file - /work/fuze.dump \
             | grep -oE '[a-z_]+\.vector\(' | head -n 1 | cut -d. -f1 || true)
           vector_schema=${vector_schema:-public}
           echo "pgvector schema: $vector_schema"
           pg psql -v ON_ERROR_STOP=1 -q \
             -c "CREATE SCHEMA IF NOT EXISTS \"$vector_schema\"" \
-            -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA \"$vector_schema\"" \
+            -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA \"$vector_schema\""             -c "CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public" \
             -c "ALTER DATABASE fuze_restore SET search_path = public, \"$vector_schema\""
           rc=0
           pg pg_restore --no-owner --no-privileges --dbname fuze_restore --use-list /work/toc.public /work/fuze.dump \
