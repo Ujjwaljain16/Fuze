@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { splitByConfidence } from '../utils/recommendationConfidence'
 import { feedbackContext } from '../utils/feedbackContext'
+import { generalRequest, parseInterests } from '../utils/generalContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router'
@@ -96,27 +97,25 @@ const Recommendations = () => {
       // Build request payload based on selected context
       let data = {}
       
-      if (selectedContext.type === 'general') {
-        data = {
-          title: 'General Learning',
-          description: 'I want to learn and improve my skills',
-          technologies: '',
-          max_recommendations: 10,
-          engine_preference: 'auto',
-          diversity_weight: 0.3,
-          quality_threshold: 6,
-          include_global_content: true,
-          enhance_with_gemini: geminiAvailable
+      if (selectedContext.type === 'general' || selectedContext.type === 'surprise') {
+        // Ask for what the user said they are into (profile technology interests), not a fixed sentence.
+        let interests = []
+        try {
+          const profile = await api.get('/api/profile')
+          interests = parseInterests(profile.data?.technology_interests)
+        } catch (profileError) {
+          console.warn('Could not read technology interests; using a generic request', profileError)
         }
-      } else if (selectedContext.type === 'surprise') {
+        const { title, description, technologies } = generalRequest(selectedContext.type, interests)
+        const surprise = selectedContext.type === 'surprise'
         data = {
-          title: 'Surprise Me',
-          description: 'Random quality learning content',
-          technologies: '',
+          title,
+          description,
+          technologies,
           max_recommendations: 10,
           engine_preference: 'auto',
-          diversity_weight: 0.5,
-          quality_threshold: 7,
+          diversity_weight: surprise ? 0.5 : 0.3,
+          quality_threshold: surprise ? 7 : 6,
           include_global_content: true,
           enhance_with_gemini: geminiAvailable
         }
