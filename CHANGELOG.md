@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A bookmark whose page could not be read now says why under its title: a site that forbids automated reading
+  (LinkedIn, which also covers `lnkd.in` short links) or a failed read, and what to do (save it with the extension
+  while viewing it, or paste the text into the notes). `GET /api/bookmarks` returns `scrape_status` for this.
+
 ## 1.0.0 - 2026-10-14
 
 The first release that is documented, measured and deployed end to end: web app on Vercel, API and workers on a

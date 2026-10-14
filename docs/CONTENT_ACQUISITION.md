@@ -228,3 +228,18 @@ These tiers stay useful: they are cheaper than a browser, and the reader keeps w
 headless browser gets fingerprinted. Put a browser tier (STEALTH/DYNAMIC, see
 [`RE_ENABLE_ON_NEW_HOST.md`](RE_ENABLE_ON_NEW_HOST.md)) between HTTP and READER, so the reader only gets what our own
 browser could not render.
+
+## Sites that forbid automated reading (LinkedIn)
+
+Some sites tell every crawler to stay out. `linkedin.com/robots.txt` says `User-agent: * Disallow: /` (apart from
+LinkedIn's own bot), and a `lnkd.in` short link redirects to that file. Fuze honours robots.txt, and a disallow
+stops every tier (see Order above), so a LinkedIn link, short or long, is stored with `scrape_status = DISALLOWED`
+and no page text. Most LinkedIn posts are also behind a login, which no server-side fetch could pass anyway.
+
+What works: tier 0. Open the post in your browser and save it with the extension while you are looking at it; the
+extension sends the text your own browser has rendered, signed in, and nothing third-party sees the URL. Or paste
+the text into the bookmark's notes, which are embedded and searched like page text.
+
+The bookmark list says so on the bookmark itself (the `scrape_status` field of `GET /api/bookmarks` feeds a note
+under the title) instead of leaving a bare "Untitled" entry.
+
