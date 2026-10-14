@@ -266,7 +266,7 @@ const Bookmarks = () => {
         <div className="w-full">
           <main className={`${isMobile ? 'p-4' : 'p-4 md:p-6 lg:p-8'} max-w-[1600px] mx-auto`} style={{ backgroundColor: '#0F0F1E' }}>
             {/* Header with Logo and Logout */}
-            <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isSmallMobile ? 'flex-col gap-4' : ''} ${isMobile ? 'mt-12' : ''}`}>
+            <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isMobile ? 'mt-12' : ''}`}>
               {/* Logo - Top Left (Home Link) */}
               <Link
                 to="/"
@@ -587,11 +587,11 @@ const Bookmarks = () => {
                           <h3 className={`font-semibold text-white group-hover:text-cyan-400 transition-colors duration-300 line-clamp-2 ${isMobile ? 'text-sm' : ''}`}>
                             {bookmark.title}
                           </h3>
-                          <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}>
-                            <button className="p-1">
+                          <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'} opacity-0 group-hover:opacity-100 touch-visible transition-opacity duration-300`}>
+                            <button className="p-3 sm:p-1">
                               <Star className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-gray-400 hover:text-yellow-500`} />
                             </button>
-                            <button onClick={() => handleDelete(bookmark.id)} className="p-1">
+                            <button onClick={() => handleDelete(bookmark.id)} className="p-3 sm:p-1">
                               <Trash2 className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-gray-400 hover:text-red-500`} />
                             </button>
                           </div>

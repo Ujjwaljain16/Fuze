@@ -341,7 +341,7 @@ const Dashboard = () => {
           {/* Dashboard Content */}
           <main className={`${isMobile ? 'p-4' : 'p-4 md:p-6 lg:p-8'} max-w-[1600px] mx-auto`} style={{ backgroundColor: '#0F0F1E' }}>
             {/* Header with Logo and Logout */}
-            <div className={`flex items-center justify-between ${isMobile ? 'mb-4 pt-2' : 'mb-6 pt-4'} ${isSmallMobile ? 'flex-col gap-4' : ''} ${isMobile ? 'mt-12' : ''}`}>
+            <div className={`flex items-center justify-between ${isMobile ? 'mb-4 pt-2' : 'mb-6 pt-4'} ${isMobile ? 'mt-12' : ''}`}>
               {/* Logo - Top Left (Home Link) */}
               <Link
                 to="/"
@@ -421,14 +421,14 @@ const Dashboard = () => {
             </div>
 
             {/* Stats Cards */}
-            <div className={`grid grid-cols-1 ${isMobile ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-4'} ${isMobile ? 'gap-3' : 'gap-4 md:gap-6'} ${isMobile ? 'mb-6' : 'mb-8'}`}>
+            <div className={`grid grid-cols-2 ${isMobile ? '' : 'lg:grid-cols-4'} ${isMobile ? 'gap-3' : 'gap-4 md:gap-6'} ${isMobile ? 'mb-6' : 'mb-8'}`}>
               {dashboardStatsArray.map((stat, index) => (
-                <div key={index} className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6 hover:border-cyan-500/30 transition-all duration-300 group">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-gradient-to-r from-cyan-600/20 via-teal-600/20 to-emerald-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300">
-                      <stat.icon className="w-6 h-6 text-cyan-400" />
+                <div key={index} className={`bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl ${isMobile ? 'p-4' : 'p-6'} hover:border-cyan-500/30 transition-all duration-300 group`}>
+                  <div className={`flex items-center justify-between gap-2 ${isMobile ? 'mb-3' : 'mb-4'}`}>
+                    <div className={`${isMobile ? 'p-2' : 'p-3'} bg-gradient-to-r from-cyan-600/20 via-teal-600/20 to-emerald-600/20 rounded-xl group-hover:scale-110 transition-transform duration-300`}>
+                      <stat.icon className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-cyan-400`} />
                     </div>
-                    <div className={`text-sm font-medium ${
+                    <div className={`${isMobile ? 'text-xs' : 'text-sm'} font-medium text-right ${
                       stat.changeValue > 0 ? 'text-green-400' : 
                       stat.changeValue < 0 ? 'text-red-400' : 
                       'text-gray-400'
@@ -437,7 +437,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="text-2xl font-bold text-white mb-1">{stat.value}</div>
-                  <div className="text-gray-400 text-sm">{stat.label}</div>
+                  <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -837,7 +837,7 @@ const Dashboard = () => {
                                 <h3 className="font-semibold text-white group-hover:text-cyan-400 transition-colors duration-300 line-clamp-2 flex-1">
                                   {bookmark.title}
                                 </h3>
-                                <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex-shrink-0 ml-2">
+                                <button className="opacity-0 group-hover:opacity-100 touch-visible transition-opacity duration-300 flex-shrink-0 ml-2">
                                   <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
                                 </button>
                               </div>

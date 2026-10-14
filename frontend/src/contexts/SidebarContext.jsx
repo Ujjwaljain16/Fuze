@@ -1,11 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback } from 'react';
+import { isMobileWidth } from '../utils/breakpoints';
 
 const SidebarContext = createContext(null);
 
 export function SidebarProvider({ children }) {
   const [isOpen, setIsOpen] = useState(() => {
-    // Hydrate from localStorage so state persists across refreshes
+    // On a phone "open" means a drawer covering the whole screen, so it always starts closed there (it used to start
+    // open for every new visitor and on every load until closed). On a desktop the choice persists across refreshes.
+    if (isMobileWidth()) return false;
     return localStorage.getItem('sidebar_open') !== 'false';
   });
   const [isCollapsed, setIsCollapsed] = useState(() => {

@@ -437,8 +437,8 @@ const ProjectDetail = () => {
               </button>
             </div>
             {/* Project Header */}
-            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-8 border border-gray-800 shadow-2xl overflow-visible">
-              <div className="flex items-center justify-between mb-6 min-w-0">
+            <div className="mt-8 mb-8 bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl rounded-2xl p-5 sm:p-8 border border-gray-800 shadow-2xl overflow-visible">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 min-w-0">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center space-x-4 mb-4 min-w-0">
                     <div className="relative flex-shrink-0">
@@ -446,7 +446,7 @@ const ProjectDetail = () => {
                       <div className="absolute inset-0 blur-lg bg-green-400 opacity-50 animate-pulse" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h1 className="text-4xl font-bold break-words" style={{ 
+                      <h1 className="text-2xl sm:text-4xl font-bold break-words" style={{ 
                         wordBreak: 'break-word', 
                         overflowWrap: 'anywhere',
                         background: 'linear-gradient(to right, #4ade80, #10b981)',
@@ -459,7 +459,7 @@ const ProjectDetail = () => {
                         display: 'block'
                       }}>{project.title}</h1>
                       {project.description && (
-                        <p className="text-gray-300 text-xl mt-2 break-words" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', width: '100%' }}>{project.description}</p>
+                        <p className="text-gray-300 text-base sm:text-xl mt-2 break-words" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', width: '100%' }}>{project.description}</p>
                       )}
                     </div>
                   </div>
@@ -475,7 +475,7 @@ const ProjectDetail = () => {
                   )}
                 </div>
 
-                <div className="flex items-center space-x-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <button className="px-4 py-2 border border-gray-700 rounded-xl hover:border-gray-500/50 hover:bg-gray-500/10 transition-all duration-300 flex items-center space-x-2">
                     <Edit size={16} />
                     <span>Edit Project</span>
@@ -537,8 +537,8 @@ const ProjectDetail = () => {
         </div>
 
         {/* Tasks Section */}
-        <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-4 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-lg">
                 <CheckSquare className="w-6 h-6 text-green-400" />
@@ -548,7 +548,7 @@ const ProjectDetail = () => {
                 <p className="text-gray-400 text-sm mt-1">{tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}</p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button 
                 onClick={() => setShowCreateTaskModal(true)}
                 style={{ 

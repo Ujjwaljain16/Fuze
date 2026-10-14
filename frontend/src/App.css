@@ -53,7 +53,7 @@ html, body {
 }
 
 /* Desktop sidebar state management - FIXED */
-@media (min-width: 900px) {
+@media (min-width: 901px) {
   /* Default collapsed state */
   .main-content {
     margin-left: 0; /* Remove hardcoded margin */
@@ -166,21 +166,23 @@ html, body {
   width: 100%;
 }
 
-/* Force immediate layout adjustment - CRITICAL FIX */
-.App[data-sidebar-collapsed="false"] .main-content {
-  margin-left: 280px !important;
-  width: calc(100vw - 280px) !important;
-  /* Remove any gaps */
-  margin-right: 0 !important;
-  padding-right: 0 !important;
-}
+/* Force immediate layout adjustment - desktop only: on a phone the sidebar is a drawer and takes no space */
+@media (min-width: 901px) {
+  .App[data-sidebar-collapsed="false"] .main-content {
+    margin-left: 280px !important;
+    width: calc(100vw - 280px) !important;
+    /* Remove any gaps */
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
 
-.App[data-sidebar-collapsed="true"] .main-content {
-  margin-left: 64px !important;
-  width: calc(100vw - 64px) !important;
-  /* Remove any gaps */
-  margin-right: 0 !important;
-  padding-right: 0 !important;
+  .App[data-sidebar-collapsed="true"] .main-content {
+    margin-left: 64px !important;
+    width: calc(100vw - 64px) !important;
+    /* Remove any gaps */
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
 }
 
 /* Ensure main content fills the available space */
@@ -204,27 +206,29 @@ html, body {
   z-index: 1002;
 }
 
-/* Navbar alignment with sidebar - FIXED */
-.App[data-sidebar-collapsed="false"] .navbar {
-  left: 280px !important;
-  width: calc(100vw - 280px) !important;
-  /* Ensure navbar content is properly positioned */
-  padding-right: 1rem !important;
-  box-sizing: border-box !important;
-  /* Ensure navbar extends down to collide with sidebar */
-  height: 80px !important;
-  top: 0 !important;
-}
+/* Navbar alignment with sidebar (desktop only; on a phone the navbar spans the screen) */
+@media (min-width: 901px) {
+  .App[data-sidebar-collapsed="false"] .navbar {
+    left: 280px !important;
+    width: calc(100vw - 280px) !important;
+    /* Ensure navbar content is properly positioned */
+    padding-right: 1rem !important;
+    box-sizing: border-box !important;
+    /* Ensure navbar extends down to collide with sidebar */
+    height: 80px !important;
+    top: 0 !important;
+  }
 
-.App[data-sidebar-collapsed="true"] .navbar {
-  left: 64px !important;
-  width: calc(100vw - 64px) !important;
-  /* Ensure navbar content is properly positioned */
-  padding-right: 1rem !important;
-  box-sizing: border-box !important;
-  /* Ensure navbar extends down to collide with sidebar */
-  height: 80px !important;
-  top: 0 !important;
+  .App[data-sidebar-collapsed="true"] .navbar {
+    left: 64px !important;
+    width: calc(100vw - 64px) !important;
+    /* Ensure navbar content is properly positioned */
+    padding-right: 1rem !important;
+    box-sizing: border-box !important;
+    /* Ensure navbar extends down to collide with sidebar */
+    height: 80px !important;
+    top: 0 !important;
+  }
 }
 
 /* Ensure navbar transitions smoothly with sidebar */
@@ -284,20 +288,21 @@ html, body {
   box-sizing: border-box;
 }
 
-/* Force exact positioning for expanded state */
-.App[data-sidebar-collapsed="false"] .main-content {
-  margin-left: 280px !important;
-  width: calc(100vw - 280px) !important;
-  margin-right: 0 !important;
-  padding-right: 0 !important;
-}
+/* Force exact positioning for the expanded and collapsed sidebar (desktop only) */
+@media (min-width: 901px) {
+  .App[data-sidebar-collapsed="false"] .main-content {
+    margin-left: 280px !important;
+    width: calc(100vw - 280px) !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
 
-/* Force exact positioning for collapsed state */
-.App[data-sidebar-collapsed="true"] .main-content {
-  margin-left: 64px !important;
-  width: calc(100vw - 64px) !important;
-  margin-right: 0 !important;
-  padding-right: 0 !important;
+  .App[data-sidebar-collapsed="true"] .main-content {
+    margin-left: 64px !important;
+    width: calc(100vw - 64px) !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
 }
 
 /* Landing page specific styles - full width */
@@ -393,5 +398,13 @@ html:has(div[data-login-page="true"]) {
   .logo-container img {
     max-width: 120px;
     max-height: 50px;
+  }
+}
+
+/* Actions that only appear on hover (opacity-0 group-hover:opacity-100) would never appear on a phone: Tailwind 4
+   applies hover styles only on devices that can hover. Mark such an action with .touch-visible to keep it visible there. */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 1 !important;
   }
 }

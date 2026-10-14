@@ -12,6 +12,7 @@ import OAuthCallback from './pages/OAuthCallback';
 import { hasOAuthRedirect } from './services/oauth';
 import './App.css';
 import * as Sentry from "@sentry/react";
+import { isMobileWidth } from './utils/breakpoints';
 
 // Lazy load routes for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -29,7 +30,7 @@ function AppContent() {
   const { user, loading, isAuthenticated } = useAuth();
   const { isOpen, isCollapsed, setOpen, setCollapsed } = useSidebar();
   const location = useLocation();
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 900);
+  const [isMobile, setIsMobile] = useState(isMobileWidth());
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Mobile/PWA flows can land on any route with the OAuth fragment; finish them on the callback page.
@@ -47,7 +48,7 @@ function AppContent() {
 
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth <= 900;
+      const mobile = isMobileWidth();
       setIsMobile(mobile);
       if (!mobile) {
         setOpen(false);

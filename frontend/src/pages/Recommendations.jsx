@@ -324,7 +324,7 @@ const Recommendations = () => {
           <div className="w-full">
             <main className={`${isMobile ? 'p-4' : 'p-4 md:p-6 lg:p-8'} max-w-[1600px] mx-auto`} style={{ backgroundColor: '#0F0F1E' }}>
               {/* Header with Logo and Logout */}
-              <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isSmallMobile ? 'flex-col gap-4' : ''} ${isMobile ? 'mt-12' : ''}`}>
+              <div className={`flex items-center justify-between ${isMobile ? 'mb-6 pt-2' : 'mb-8 pt-6'} ${isMobile ? 'mt-12' : ''}`}>
                 {/* Logo - Top Left (Home Link) */}
                 <Link
                   to="/"

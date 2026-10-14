@@ -42,7 +42,7 @@ const ProfileStats = ({ user }) => {
   const isMobile = window.innerWidth <= 768
 
   return (
-    <div className={`grid grid-cols-1 ${isMobile ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-4'} ${isMobile ? 'gap-4 mb-6' : 'gap-6 mb-8'}`}>
+    <div className={`grid grid-cols-2 ${isMobile ? '' : 'lg:grid-cols-4'} ${isMobile ? 'gap-3 mb-6' : 'gap-6 mb-8'}`}>
       {stats.map((stat, index) => (
         <div key={index} className={`bg-gradient-to-br from-gray-900/60 to-black/60 backdrop-blur-xl border border-gray-700/50 rounded-2xl ${isMobile ? 'p-4' : 'p-6'} hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/10 transition-all duration-300 group`}>
           <div className={`flex items-center justify-between ${isMobile ? 'mb-3' : 'mb-4'}`}>
