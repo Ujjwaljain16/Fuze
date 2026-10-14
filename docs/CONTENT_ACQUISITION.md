@@ -240,7 +240,7 @@ matters most to this app, because people save posts from their phone: `linkedin.
 the other adapters, before the robots check. When the user saves a link to a public LinkedIn post (a share from the
 phone to the PWA, a pasted link, an import), it makes **one** GET of that post's public page with an ordinary desktop
 browser identity and reads the post's schema.org JSON-LD (`SocialMediaPosting`: the post text, headline, author and
-date; the replies are not stored). It does not log in, send cookies, rotate identities or addresses, or retry;
+date; the replies are not stored; Unicode "bold" letters such as `𝐆𝐢𝐭𝐇𝐮𝐛` are normalized to ordinary ones with NFKC so search and the embedding read them as words). It does not log in, send cookies, rotate identities or addresses, or retry;
 redirects are SSRF-checked; a login wall, a profile, a company page or a redirect off LinkedIn yields nothing; and
 requests from one process are at least 5 seconds apart so a bulk import does not hammer the site. The result is
 stored as `API:linkedin`. If it yields nothing, the link falls through to the normal pipeline and is `DISALLOWED`
@@ -252,8 +252,9 @@ datacenter addresses differently, so on the hosted Space it may return nothing, 
 
 **Other ways in, which need no exception.** Save the post from the extension while you are looking at it: it sends
 the text your own browser has rendered, signed in, and a page that publishes its item as structured data is sent as
-that item alone (extension 1.1.1, `lib/capture.js`: a social post always; an article's `articleBody` only when it is
-nearly as long as the page). Or paste the text into the bookmark's notes, which are embedded and searched like page
+that item alone (`lib/capture.js`: a social post always; an article's `articleBody` only when it is
+nearly as long as the page). A social post is also saved under its own topic (its `og:title`, else its headline)
+instead of the tab's "Post | LinkedIn", unless you edited the title yourself (extension 1.1.2, `lib/titles.js`). Or paste the text into the bookmark's notes, which are embedded and searched like page
 text.
 
 The bookmark list says why a page has no text (the `scrape_status` field of `GET /api/bookmarks` feeds a note under

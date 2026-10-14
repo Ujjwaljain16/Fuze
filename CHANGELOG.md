@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- LinkedIn posts: Unicode "bold" letters in a fetched post (`𝐆𝐢𝐭𝐇𝐮𝐛`) are turned into ordinary letters, so search and
+  the embedding read them as words. Extension 1.1.2 saves a social post under its own topic instead of the tab's
+  "Post | LinkedIn", unless the title was edited.
 - Phone layout, found by opening every page at 375px: the sidebar's desktop margin applied on phones too, so every
   signed-in page was squeezed into a ~100px column (titles one letter per line); the navigation drawer started open
   and covered the page for every new visitor; the project page's title, and its task buttons, were squeezed or ran
