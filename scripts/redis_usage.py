@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
     url = os.environ.get("REDIS_URL")
     if not url:
         sys.exit("REDIS_URL is not set.")
