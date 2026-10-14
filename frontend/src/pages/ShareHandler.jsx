@@ -5,6 +5,7 @@ import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
 import { Share2, ExternalLink, Loader2, CheckCircle2, XCircle, Globe } from 'lucide-react'
 import Button from '../components/Button'
+import { loginPathForShare } from '../utils/shareRedirect'
 
 const ShareHandler = () => {
   const [searchParams] = useSearchParams()
@@ -14,6 +15,7 @@ const ShareHandler = () => {
   const [sharedUrl, setSharedUrl] = useState('')
   const [sharedTitle, setSharedTitle] = useState('')
   const [sharedText, setSharedText] = useState('')
+  const [paramsRead, setParamsRead] = useState(false) // the shared title/text/url have been read from the address
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
@@ -177,6 +179,7 @@ const ShareHandler = () => {
         'Try extracting manually': extractUrlFromText(text || title || '')
       })
     }
+    setParamsRead(true)
   }, [searchParams])
 
   // Extract detailed preview once authenticated
@@ -195,11 +198,13 @@ const ShareHandler = () => {
   }, [isAuthenticated, sharedUrl])
 
   // Redirect to login if not authenticated
+  // Waits until the shared parameters have been read (otherwise the redirect could go out empty), and carries the
+  // title and text as well as the link through the login, so the post is still there afterwards.
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      navigate('/login?redirect=/share' + (sharedUrl ? `?url=${encodeURIComponent(sharedUrl)}` : ''))
+    if (!authLoading && !isAuthenticated && paramsRead) {
+      navigate(loginPathForShare({ url: sharedUrl, title: sharedTitle, text: sharedText }), { replace: true })
     }
-  }, [isAuthenticated, authLoading, navigate, sharedUrl])
+  }, [isAuthenticated, authLoading, paramsRead, navigate, sharedUrl, sharedTitle, sharedText])
 
   const extractPreview = async (url) => {
     if (!url || !isAuthenticated) {
@@ -255,7 +260,7 @@ const ShareHandler = () => {
     }
 
     if (!isAuthenticated) {
-      navigate('/login?redirect=/share?url=' + encodeURIComponent(sharedUrl))
+      navigate(loginPathForShare({ url: sharedUrl, title: sharedTitle, text: sharedText }))
       return
     }
 
