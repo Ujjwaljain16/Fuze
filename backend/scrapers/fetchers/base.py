@@ -11,7 +11,7 @@ class BaseFetcher(ABC):
     @property
     @abstractmethod
     def strategy_name(self) -> str:
-        """Name of the strategy ('HTTP', 'STEALTH', 'DYNAMIC')."""
+        """Name of the strategy ('HTTP', 'READER', 'ARCHIVE')."""
         pass
 
     @abstractmethod

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any
 @dataclass(frozen=True)
 class FetchMetadata:
     """Provenance and execution metrics for a fetch attempt."""
-    strategy: str  # "HTTP", "STEALTH", "DYNAMIC"
+    strategy: str  # "HTTP", "READER", "ARCHIVE", "EXTENSION" (page captured by the extension), "API:<source>"
     attempts: int
     http_status: int
     redirected: bool
@@ -105,7 +105,7 @@ class Decision:
     """Action decision produced by DecisionEngine."""
     action: str  # "ACCEPT", "RETRY", "ESCALATE", "FAIL"
     reason: str  # e.g., "quality_metrics_passed", "challenge_detected", "hydration_detected"
-    next_strategy: Optional[str] = None  # "STEALTH", "DYNAMIC"
+    next_strategy: Optional[str] = None  # the tier to escalate to: "READER" or "ARCHIVE"
 
 
 @dataclass(frozen=True)

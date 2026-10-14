@@ -110,7 +110,7 @@ class ScrapingStarted(Event):
 @dataclass(frozen=True, kw_only=True)
 class FetchStarted(Event):
     bookmark_id: int
-    strategy: str  # "HTTP", "STEALTH", "DYNAMIC"
+    strategy: str  # "HTTP", "READER", "ARCHIVE", "API:<source>"
     url: str
 
 
