@@ -216,8 +216,10 @@ const Recommendations = () => {
           ...feedbackContext(selectedContext, recommendations, recommendationId)
         }
       })
+      return true
     } catch (error) {
       console.error('Error submitting feedback:', error)
+      return false
     }
   }
 
@@ -657,6 +659,8 @@ const Recommendations = () => {
 const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMobile = false, isSmallMobile = false }) => {
   const { success, error } = useToast()
   const [isExpanded, setIsExpanded] = useState(false)
+  const [rating, setRating] = useState(null) // 'positive' | 'negative' once saved
+  const [ratingInFlight, setRatingInFlight] = useState(false)
   const [showContextSummary, setShowContextSummary] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
   const [generatedContextSummary, setGeneratedContextSummary] = useState(recommendation.context_summary || null)
@@ -687,6 +691,21 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
     isEnhancedRecommendation ||
     recommendation.analysis.technologies
   )
+
+  // One request at a time per card, and a second click on the thumb already chosen does nothing, so a
+  // double click cannot store the same opinion twice. The toast says whether it was saved.
+  const handleRate = async (type) => {
+    if (ratingInFlight || rating === type) return
+    setRatingInFlight(true)
+    const saved = await onFeedback(recommendation.id, type)
+    setRatingInFlight(false)
+    if (saved) {
+      setRating(type)
+      success(type === 'positive' ? 'Marked as helpful' : 'Marked as not relevant')
+    } else {
+      error("Couldn't save your rating. Try again.")
+    }
+  }
 
   const handleGenerateContext = async () => {
     if (!selectedContext) {
@@ -1103,18 +1122,26 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
           
           <div className={`flex items-center ${isSmallMobile ? 'w-full justify-center gap-3' : 'space-x-2'}`}>
             <button
-              onClick={() => onFeedback(recommendation.id, 'positive')}
-              className={`${isMobile ? 'p-1.5' : 'p-2'} bg-gray-800/50 hover:bg-green-600/20 text-gray-400 hover:text-green-400 border border-gray-700 hover:border-green-500/50 rounded-lg transition-all duration-300`}
-              title="Like this recommendation"
+              onClick={() => handleRate('positive')}
+              disabled={ratingInFlight}
+              aria-pressed={rating === 'positive'}
+              aria-label="Mark as helpful"
+              data-testid="thumb-up"
+              className={`${isMobile ? 'p-1.5' : 'p-2'} border rounded-lg transition-all duration-300 disabled:opacity-60 ${rating === 'positive' ? 'bg-green-600/30 text-green-400 border-green-500/60' : 'bg-gray-800/50 hover:bg-green-600/20 text-gray-400 hover:text-green-400 border-gray-700 hover:border-green-500/50'}`}
+              title={rating === 'positive' ? 'Marked as helpful' : 'Like this recommendation'}
             >
-              <ThumbsUp className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
+              <ThumbsUp className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} fill={rating === 'positive' ? 'currentColor' : 'none'} />
             </button>
             <button
-              onClick={() => onFeedback(recommendation.id, 'negative')}
-              className={`${isMobile ? 'p-1.5' : 'p-2'} bg-gray-800/50 hover:bg-red-600/20 text-gray-400 hover:text-red-400 border border-gray-700 hover:border-red-500/50 rounded-lg transition-all duration-300`}
-              title="Dislike this recommendation"
+              onClick={() => handleRate('negative')}
+              disabled={ratingInFlight}
+              aria-pressed={rating === 'negative'}
+              aria-label="Mark as not relevant"
+              data-testid="thumb-down"
+              className={`${isMobile ? 'p-1.5' : 'p-2'} border rounded-lg transition-all duration-300 disabled:opacity-60 ${rating === 'negative' ? 'bg-red-600/30 text-red-400 border-red-500/60' : 'bg-gray-800/50 hover:bg-red-600/20 text-gray-400 hover:text-red-400 border-gray-700 hover:border-red-500/50'}`}
+              title={rating === 'negative' ? 'Marked as not relevant' : 'Dislike this recommendation'}
             >
-              <ThumbsDown className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
+              <ThumbsDown className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} fill={rating === 'negative' ? 'currentColor' : 'none'} />
             </button>
           </div>
         </div>
@@ -1141,4 +1168,5 @@ const MetricBar = ({ label, value, color, textColor, displayValue, isMobile = fa
   </div>
 )
 
+export { RecommendationCard }
 export default Recommendations
