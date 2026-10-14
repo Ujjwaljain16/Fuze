@@ -7,6 +7,7 @@ import re
 from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import db, User
 from core import cache_keys
@@ -32,8 +33,11 @@ def _execute_profile_update(user: User, data: dict):
         if not re.match(USERNAME_REGEX, new_username):
             return error_response('invalid_username', 'Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens', 400)
 
+        # Usernames are stored lowercase and unique regardless of case (as at registration). Your own current
+        # name is never "taken", so saving the form unchanged, or changing only the interests, works.
+        new_username = new_username.lower()
         existing_user = db.session.query(User).filter(
-            User.username == new_username,
+            func.lower(User.username) == new_username,
             User.id != user.id
         ).first()
         if existing_user:
@@ -65,7 +69,9 @@ def _execute_profile_update(user: User, data: dict):
             'user': {
                 'id': user.id,
                 'username': user.username,
-                'technology_interests': user.technology_interests
+                'email': user.email,
+                'technology_interests': user.technology_interests,
+                'created_at': iso_utc(user.created_at)
             }
         }), 200
 

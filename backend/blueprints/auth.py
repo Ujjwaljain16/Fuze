@@ -411,6 +411,10 @@ def update_username():
             if not user:
                 return error_response('user_not_found', 'User not found', 404)
 
+            if new_username.lower() == (user.username or '').lower():
+                # Already this user's own name: nothing to change, and not a conflict.
+                return jsonify({'message': 'Username updated successfully', 'username': user.username}), 200
+
             is_available, exact_match, case_match = auth_service.check_username_availability(new_username)
             if not is_available:
                 suggestions = auth_service.generate_username_suggestions(new_username, 3)
