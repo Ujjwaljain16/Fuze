@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- The thumbs up and down on a recommendation now show the saved rating and say if saving failed; before, a click
+  gave no sign, and repeated clicks stored the same rating again.
+- One current rating is kept per user, bookmark and project, enforced by a unique index (migration 0019). Rating
+  again replaces it; existing duplicates keep only the newest.
+- Removed the `feedback` table and its `/api/feedback` endpoint, which nothing called and which production never
+  filled; `user_feedback` replaced them. Also dropped `saved_content.published_at`, which no code ever wrote.
+  The account export no longer has a `feedback` key (`recommendation_feedback` is unchanged).
+
 ## 1.0.0 - 2026-10-14
 
 The first release that is documented, measured and deployed end to end: web app on Vercel, API and workers on a
