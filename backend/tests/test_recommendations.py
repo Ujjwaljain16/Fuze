@@ -83,6 +83,42 @@ def test_task_and_subtask_context_reach_the_engine(client, auth_headers):
     assert kw['query'] == ''
 
 
+def test_a_list_of_interests_is_searched_one_interest_at_a_time(client, auth_headers, test_user):
+    fake = {"results": [], "intent": {"interests": ["React", "python"]}, "cached": False}
+    with patch('ml.intent_engine.engine.recommend_interests', return_value=fake) as by_interest, \
+         patch('ml.intent_engine.engine.recommend') as single:
+        resp = client.post('/api/recommendations/unified-orchestrator', json={
+            'title': 'General', 'interests': ['React', ' python ', 'react', ''], 'max_recommendations': 7
+        }, headers=auth_headers)
+    assert resp.status_code == 200
+    single.assert_not_called()
+    args, kwargs = by_interest.call_args
+    assert args[1] == test_user['id'] and args[2] == ['React', 'python']      # cleaned: trimmed, no duplicates
+    assert kwargs['limit'] == 7
+
+
+def test_a_project_ignores_the_interests_list(client, auth_headers):
+    fake = {"results": [], "intent": {}, "cached": False}
+    with patch('ml.intent_engine.engine.recommend', return_value=fake) as single, \
+         patch('ml.intent_engine.engine.recommend_interests') as by_interest:
+        resp = client.post('/api/recommendations/unified-orchestrator', json={
+            'project_id': 3, 'interests': ['React']}, headers=auth_headers)
+    assert resp.status_code == 200
+    by_interest.assert_not_called()
+    assert single.call_args.kwargs['project_id'] == 3
+
+
+def test_interests_that_are_not_a_list_fall_back_to_the_text_request(client, auth_headers):
+    fake = {"results": [], "intent": {}, "cached": False}
+    with patch('ml.intent_engine.engine.recommend', return_value=fake) as single, \
+         patch('ml.intent_engine.engine.recommend_interests') as by_interest:
+        resp = client.post('/api/recommendations/unified-orchestrator', json={
+            'title': 'Go', 'interests': 'React, python'}, headers=auth_headers)
+    assert resp.status_code == 200
+    by_interest.assert_not_called()
+    assert single.call_args.kwargs['query'] == 'Go'      # a string is not a list of interests: ignored
+
+
 def test_task_route_404_for_missing_task(client, auth_headers):
     resp = client.post('/api/recommendations/task/999999', json={}, headers=auth_headers)
     assert resp.status_code == 404

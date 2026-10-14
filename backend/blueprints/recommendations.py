@@ -127,11 +127,17 @@ def get_unified_orchestrator_recommendations():
                               if p and str(p).strip())
 
         import time as _time
-        from ml.intent_engine.engine import recommend
+        from ml.intent_engine.engine import clean_interests, recommend, recommend_interests
         started = _time.perf_counter()
+        # A list of interests (the "General" choice) is searched one interest at a time and the lists merged;
+        # a project or task has its own stored context and ignores it.
+        interests = clean_interests(data.get('interests')) if not (project_id or task_id) else []
         with UnitOfWork() as uow:
-            outcome = recommend(uow.session, int(user_id), query=query, project_id=project_id,
-                                task_id=task_id, subtask_id=subtask_id, limit=limit)
+            if interests:
+                outcome = recommend_interests(uow.session, int(user_id), interests, limit=limit)
+            else:
+                outcome = recommend(uow.session, int(user_id), query=query, project_id=project_id,
+                                    task_id=task_id, subtask_id=subtask_id, limit=limit)
 
         return jsonify({
             'recommendations': outcome['results'],

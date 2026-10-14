@@ -241,6 +241,30 @@ def retrieve(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES
     return sorted(best.values(), key=lambda r: r["similarity"], reverse=True)
 
 
+def retrieve_each(session, user_id: int, query_vectors: Sequence, k: int = CANDIDATES_PER_QUERY) -> List[List[Dict[str, Any]]]:
+    """One candidate list per query vector (best first, one entry per bookmark with its best passage).
+
+    retrieve() merges the vectors into one list, which loses which query a bookmark answered; this keeps them
+    apart so the caller can give each query its share. One SQL statement per vector, as retrieve() does.
+    """
+    configure_filtered_ann(session, k)
+
+    model = active_embedding_model_name()
+    lists: List[List[Dict[str, Any]]] = []
+    for vec in query_vectors:
+        best: Dict[int, Dict[str, Any]] = {}
+        for content_id, passage, sim, title, url, notes, saved_at in session.execute(
+            text(_ANN_SQL), {"emb": _vec_literal(vec), "uid": user_id, "k": k, "model": model}
+        ):
+            sim = float(sim)
+            if content_id not in best or sim > best[content_id]["similarity"]:
+                best[content_id] = {"content_id": content_id, "passage": passage, "similarity": sim,
+                                    "id": content_id, "title": title, "url": url, "notes": notes,
+                                    "saved_at": saved_at}
+        lists.append(sorted(best.values(), key=lambda r: r["similarity"], reverse=True))
+    return lists
+
+
 def semantic_search(session, user_id: int, query: str, limit: int = 10,
                     rerank: Optional[bool] = None, query_vector=None,
                     candidates: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:

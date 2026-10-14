@@ -268,3 +268,110 @@ def test_the_check_can_be_switched_off(monkeypatch):
     for off in ("false", "0", "no", "OFF"):
         monkeypatch.setenv("RECOMMENDATION_CONFIDENCE_ENABLED", off)
         assert confidence_check_enabled() is False
+
+
+# ---------------------------------------------------------------- several interests, searched one at a time
+
+def _cand(cid, sim=0.5):
+    return {"content_id": cid, "passage": f"p{cid}", "similarity": sim}
+
+
+def test_interests_are_cleaned_deduplicated_and_capped():
+    from ml.intent_engine.engine import MAX_INTERESTS, MAX_INTEREST_CHARS, clean_interests
+    assert clean_interests(["React", " react ", "", None, "system  design", 7]) == ["React", "system design", "7"]
+    assert clean_interests("React, python") == []            # only a list is accepted
+    assert clean_interests(None) == []
+    assert len(clean_interests([f"topic {i}" for i in range(20)])) == MAX_INTERESTS
+    assert len(clean_interests(["x" * 500])[0]) == MAX_INTEREST_CHARS
+
+
+def test_interleaving_gives_each_interest_its_turn_and_never_repeats_a_bookmark():
+    from ml.intent_engine.engine import interleave_by_interest
+    react = [_cand(1), _cand(2), _cand(3)]
+    design = [_cand(10), _cand(2), _cand(11)]           # 2 answers both: it is picked once, for the first
+    picked = interleave_by_interest([react, design], limit=10)
+    assert [(p["content_id"], p["interest_index"]) for p in picked] == [(1, 0), (10, 1), (2, 0), (11, 1), (3, 0)]
+
+
+def test_an_interest_with_few_matches_runs_out_and_the_others_fill_the_list():
+    from ml.intent_engine.engine import interleave_by_interest
+    picked = interleave_by_interest([[_cand(1)], [_cand(10), _cand(11), _cand(12)], []], limit=4)
+    assert [p["content_id"] for p in picked] == [1, 10, 11, 12]
+
+
+def test_interleaving_stops_at_the_limit_and_copies_its_input():
+    from ml.intent_engine.engine import interleave_by_interest
+    lists = [[_cand(1), _cand(2)], [_cand(10), _cand(11)]]
+    picked = interleave_by_interest(lists, limit=3)
+    assert [p["content_id"] for p in picked] == [1, 10, 2]
+    assert "interest_index" not in lists[0][0]           # the candidates passed in are left untouched
+    assert interleave_by_interest([], limit=5) == []
+
+
+def test_each_result_is_judged_against_its_own_interest():
+    from ml.intent_engine.engine import mark_weak_matches
+    results = [_result(1), _result(2), _result(3)]
+    seen = []
+
+    def score(query, passages):
+        seen.append((query, list(passages)))
+        return [0.0] * len(passages)
+
+    mark_weak_matches(results, ["a", "b", "c"], ["react", "go", "react"], score_fn=score)
+    assert sorted(seen) == [("go", ["b"]), ("react", ["a", "c"])]
+    assert [r["metadata"]["confidence_score"] for r in results] == [0.0, 0.0, 0.0]
+    assert mark_weak_matches(results, ["a", "b", "c"], ["only", "two"], score_fn=score) == 0   # wrong length: ignored
+
+
+def test_recommend_interests_searches_each_one_and_labels_the_matches(app):
+    from ml.intent_engine.engine import recommend_interests
+    from models import db, SavedContent, User
+    with app.app_context():
+        u = User(username="int_u", email="int_u@example.com", password_hash="x")
+        db.session.add(u); db.session.commit()
+        react = SavedContent(user_id=u.id, url="https://e.com/react", title="React hooks", extracted_text="hooks")
+        design = SavedContent(user_id=u.id, url="https://e.com/sd", title="System design primer", extracted_text="design")
+        db.session.add_all([react, design]); db.session.commit()
+
+        def fake_candidates(session, user_id, vectors, k):
+            react_passage = "React hooks\nHow hooks work in components."
+            design_passage = "System design primer\nScaling a service step by step."
+            by_dim = {0: [{"content_id": react.id, "passage": react_passage, "similarity": 0.8}],
+                      1: [{"content_id": design.id, "passage": design_passage, "similarity": 0.7}]}
+            return by_dim[int(np.argmax(vectors[0]))]
+
+        def embed(text):
+            v = np.zeros(384, dtype=np.float32)
+            v[0 if text == "React" else 1] = 1.0
+            return v
+
+        with patch("ml.intent_engine.engine._document_candidates", side_effect=fake_candidates), \
+             patch("utils.embedding_utils.embed_query", side_effect=embed), \
+             patch("ml.intent_engine.engine.mark_weak_matches", return_value=0) as weak:
+            out = recommend_interests(db.session, u.id, ["React", "system design"], use_cache=False)
+
+    assert [r["title"] for r in out["results"]] == ["React hooks", "System design primer"]
+    assert [r["metadata"]["matched_interest"] for r in out["results"]] == ["React", "system design"]
+    assert out["results"][0]["reason"].startswith("Matches your interest in React")
+    assert out["intent"]["intent_source"] == "interests" and out["intent"]["interests"] == ["React", "system design"]
+    assert weak.call_args.args[2] == ["React", "system design"]       # judged against their own interests
+
+
+def test_recommend_interests_with_nothing_to_search_returns_nothing():
+    from ml.intent_engine.engine import recommend_interests
+    out = recommend_interests(MagicMock(), 1, ["", "  ", None], use_cache=False)
+    assert out["results"] == [] and out["intent"]["interests"] == []
+
+
+def test_retrieve_each_keeps_the_queries_apart_with_one_statement_each():
+    from services.hybrid_search import retrieve_each
+    session = MagicMock()
+    session.info = {}
+    session.get_bind.return_value.dialect.name = "postgresql"
+    rows = [(7, "passage", 0.9, "Title", "https://e.com", None, None)]
+    session.execute.side_effect = lambda *a, **k: rows if "<=>" in str(a[0]) and "emb" in (a[1] if len(a) > 1 else {}) else []
+    lists = retrieve_each(session, 1, [np.ones(384, dtype=np.float32), np.ones(384, dtype=np.float32)], k=30)
+    assert len(lists) == 2                                   # one list per query, not one merged list
+    assert [c["content_id"] for c in lists[0]] == [7] == [c["content_id"] for c in lists[1]]
+    queries = [c for c in session.execute.call_args_list if "<=>" in str(c.args[0])]
+    assert len(queries) == 2                                 # one SQL statement per query vector

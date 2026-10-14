@@ -49,8 +49,11 @@ def confidence_check_enabled() -> bool:
     return os.environ.get("RECOMMENDATION_CONFIDENCE_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
-def mark_weak_matches(results: List[Dict[str, Any]], passages: List[str], query: str, score_fn=None) -> int:
+def mark_weak_matches(results: List[Dict[str, Any]], passages: List[str], query, score_fn=None) -> int:
     """Flag results whose best passage the cross-encoder does not tie to `query`; returns how many are weak.
+
+    `query` is one text for every result, or a list with one text per result (results found for different
+    interests are each judged against their own interest, not against a blend of all of them).
 
     The order is left alone (similarity plus diversity ranked well: nDCG 0.97 on the judged requests); this
     only says how sure the engine is. When the model is unavailable nothing is marked, which the page reads as
@@ -58,14 +61,24 @@ def mark_weak_matches(results: List[Dict[str, Any]], passages: List[str], query:
     """
     if not results or len(results) != len(passages):
         return 0
+    queries = [query] * len(results) if isinstance(query, str) else list(query)
+    if len(queries) != len(results):
+        return 0
     if score_fn is None:
         from utils.reranker import rerank_passages as score_fn
+    groups: Dict[str, List[int]] = {}
+    for index, q in enumerate(queries):
+        groups.setdefault(q, []).append(index)
+    scores: List[float] = [0.0] * len(results)
     try:
-        scores = score_fn(query, passages)
+        for q, indexes in groups.items():
+            got = score_fn(q, [passages[i] for i in indexes])
+            if got is None:
+                return 0
+            for i, value in zip(indexes, got):
+                scores[i] = float(value)
     except Exception:
         logger.warning("recommendation_confidence_check_failed", exc_info=True)
-        return 0
-    if scores is None:
         return 0
     weak = 0
     for result, score in zip(results, scores):
@@ -198,6 +211,41 @@ def _load_items(session, user_id: int, ids: List[int]) -> Dict[int, Dict[str, An
     return out
 
 
+def _build_result(c: Dict[str, Any], r: Dict[str, Any], lead: str = "Matches what you're working on") -> Dict[str, Any]:
+    """One recommendation as the API returns it: the bookmark, its profile, and the passage that matched."""
+    profile = r.get("analysis_data") or {}
+    if isinstance(profile, str):
+        try:
+            profile = json.loads(profile)
+        except (json.JSONDecodeError, TypeError):
+            profile = {}
+    if not profile.get("profile_version"):
+        profile = {}  # legacy/unverified analysis: show nothing rather than a guess
+    pct = round(100 * c["relevance"], 1)
+    snippet = _snippet(c["passage"], r.get("title") or "")
+    return {
+        "id": r["id"],
+        "title": r.get("title") or r.get("url"),
+        "url": r.get("url"),
+        "score": pct,
+        "confidence": pct,
+        "reason": f"{lead}: \u201c{snippet}\u201d" if snippet else "",
+        "basic_summary": profile.get("summary", ""),
+        "content_type": profile.get("content_type", "other"),
+        "difficulty": profile.get("audience_level", "mixed"),
+        "technologies": profile.get("technologies", []),
+        "key_concepts": profile.get("key_concepts", []),
+        "quality_score": round((r.get("quality_score") or 0) / 10, 1),  # stored 0-100, UI shows 0-10
+        "engine_used": "intent_engine",
+        "metadata": {
+            "matched_passage": snippet,
+            "use_when": profile.get("use_when"),
+            "vector_similarity": round(c["similarity"], 4),
+            "rerank_score": round(c["rerank_score"], 4) if "rerank_score" in c else None,
+        },
+    }
+
+
 def _cache_key(intent: Intent, user_id: int, limit: int, rerank: bool) -> str:
     from utils.content_version import get_content_version
     from utils.embedding_utils import active_embedding_model_name
@@ -259,40 +307,7 @@ def recommend(session, user_id: int, query: str = "", project_id: Optional[int] 
     doc_vecs = {cid: _parse_vec(r.get("emb")) for cid, r in rows.items()}
     picked = _mmr([c for c in pool if c["content_id"] in rows], doc_vecs, limit)
 
-    results = []
-    for c in picked:
-        r = rows[c["content_id"]]
-        profile = r.get("analysis_data") or {}
-        if isinstance(profile, str):
-            try:
-                profile = json.loads(profile)
-            except (json.JSONDecodeError, TypeError):
-                profile = {}
-        if not profile.get("profile_version"):
-            profile = {}  # legacy/unverified analysis: show nothing rather than a guess
-        pct = round(100 * c["relevance"], 1)
-        snippet = _snippet(c["passage"], r.get("title") or "")
-        results.append({
-            "id": r["id"],
-            "title": r.get("title") or r.get("url"),
-            "url": r.get("url"),
-            "score": pct,
-            "confidence": pct,
-            "reason": f"Matches what you're working on: “{snippet}”" if snippet else "",
-            "basic_summary": profile.get("summary", ""),
-            "content_type": profile.get("content_type", "other"),
-            "difficulty": profile.get("audience_level", "mixed"),
-            "technologies": profile.get("technologies", []),
-            "key_concepts": profile.get("key_concepts", []),
-            "quality_score": round((r.get("quality_score") or 0) / 10, 1),  # stored 0-100, UI shows 0-10
-            "engine_used": "intent_engine",
-            "metadata": {
-                "matched_passage": snippet,
-                "use_when": profile.get("use_when"),
-                "vector_similarity": round(c["similarity"], 4),
-                "rerank_score": round(c["rerank_score"], 4) if "rerank_score" in c else None,
-            },
-        })
+    results = [_build_result(c, rows[c["content_id"]]) for c in picked]
 
     weak = 0
     if confidence_check_enabled():
@@ -302,6 +317,120 @@ def recommend(session, user_id: int, query: str = "", project_id: Optional[int] 
     logger.info("intent_engine_recommendations", extra={
         "user_id": user_id, "candidates": len(candidates), "results": len(results),
         "rerank": bool(rerank), "intent_source": meta["intent_source"], "latency_ms": latency_ms,
+    })
+    if use_cache and results:
+        try:
+            redis_cache.set_cache(key, payload, CACHE_TTL)
+        except Exception:
+            pass
+    return {**payload, "cached": False}
+
+
+MAX_INTERESTS = 6
+MAX_INTEREST_CHARS = 100
+CANDIDATES_PER_INTEREST = 30
+
+
+def clean_interests(raw) -> List[str]:
+    """The interests to search for: strings, trimmed, no blanks or case-insensitive duplicates, capped."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    seen, out = set(), []
+    for item in raw:
+        name = " ".join(str(item).split())[:MAX_INTEREST_CHARS] if isinstance(item, (str, int, float)) else ""
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            out.append(name)
+        if len(out) >= MAX_INTERESTS:
+            break
+    return out
+
+
+def interleave_by_interest(per_interest: List[List[Dict[str, Any]]], limit: int) -> List[Dict[str, Any]]:
+    """Round robin over the interests' candidate lists, best first within each, no bookmark twice.
+
+    Each interest gets its turn in order, so every one is visible near the top and gets about limit / n of
+    the list; an interest with few good bookmarks simply runs out and the others take the places. Each
+    pick is a copy tagged with `interest_index`.
+    """
+    picked: List[Dict[str, Any]] = []
+    seen = set()
+    cursors = [0] * len(per_interest)
+    progressed = True
+    while len(picked) < limit and progressed:
+        progressed = False
+        for i, candidates in enumerate(per_interest):
+            while cursors[i] < len(candidates) and candidates[cursors[i]]["content_id"] in seen:
+                cursors[i] += 1
+            if cursors[i] >= len(candidates):
+                continue
+            pick = dict(candidates[cursors[i]])
+            pick["interest_index"] = i
+            picked.append(pick)
+            seen.add(pick["content_id"])
+            cursors[i] += 1
+            progressed = True
+            if len(picked) >= limit:
+                break
+    return picked
+
+
+def recommend_interests(session, user_id: int, interests, limit: int = 10, use_cache: bool = True) -> Dict[str, Any]:
+    """Recommend the user's saved content across several interests, searching each one on its own.
+
+    One blended query ("React, python, system design, backend") matches nothing well; each interest is
+    searched separately and the lists are interleaved, and every result is judged against its own interest.
+    """
+    from services.hybrid_search import retrieve_each, user_has_chunks
+    from utils.content_version import get_content_version
+    from utils.embedding_utils import active_embedding_model_name, embed_query
+    from utils.redis_utils import redis_cache
+
+    started = time.perf_counter()
+    limit = max(1, min(int(limit or 10), 50))
+    names = clean_interests(interests)
+    meta = {"intent_text": "Interests: " + ", ".join(names), "intent_statement": None, "needs": names,
+            "intent_source": "interests", "interests": names}
+    if not names:
+        return {"results": [], "intent": meta, "cached": False}
+
+    raw_key = (f"interests|{user_id}|{'|'.join(n.lower() for n in names)}|{limit}|{confidence_check_enabled()}|"
+               f"{active_embedding_model_name()}|v{get_content_version(user_id)}")
+    key = "intent_recs:" + hashlib.sha256(raw_key.encode()).hexdigest()[:32]
+    if use_cache:
+        try:
+            cached = redis_cache.get_cache(key)
+            if cached:
+                return {**cached, "cached": True}
+        except Exception:
+            pass
+
+    vectors = [embed_query(n) for n in names]
+    if session.get_bind().dialect.name == "postgresql" and user_has_chunks(session, user_id):
+        per_interest = retrieve_each(session, user_id, vectors, CANDIDATES_PER_INTEREST)
+    else:
+        per_interest = [_document_candidates(session, user_id, [v], CANDIDATES_PER_INTEREST) for v in vectors]
+    for candidates in per_interest:
+        for c in candidates:
+            c["relevance"] = max(0.0, min(1.0, c["similarity"]))
+
+    picked = interleave_by_interest(per_interest, limit)
+    rows = _load_items(session, user_id, [c["content_id"] for c in picked])
+    picked = [c for c in picked if c["content_id"] in rows]
+
+    results = []
+    for c in picked:
+        result = _build_result(c, rows[c["content_id"]], lead=f"Matches your interest in {names[c['interest_index']]}")
+        result["metadata"]["matched_interest"] = names[c["interest_index"]]
+        results.append(result)
+
+    weak = 0
+    if confidence_check_enabled():
+        weak = mark_weak_matches(results, [c["passage"] for c in picked], [names[c["interest_index"]] for c in picked])
+    payload = {"results": results, "intent": meta, "weak_matches": weak}
+    logger.info("intent_engine_interest_recommendations", extra={
+        "user_id": user_id, "interests": len(names), "results": len(results),
+        "latency_ms": round((time.perf_counter() - started) * 1000, 1),
     })
     if use_cache and results:
         try:
