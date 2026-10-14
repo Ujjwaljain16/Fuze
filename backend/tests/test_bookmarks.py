@@ -112,7 +112,7 @@ class TestBookmarks:
         by_url = {b['url']: b for b in response.json['bookmarks']}
         assert set(by_url) == {'https://example.com/with-text', 'https://example.com/empty-text',
                                'https://example.com/no-text'}
-        expected_keys = {'id', 'url', 'title', 'description', 'saved_at', 'category', 'has_content'}
+        expected_keys = {'id', 'url', 'title', 'description', 'saved_at', 'category', 'has_content', 'scrape_status'}
         assert all(set(b) == expected_keys for b in by_url.values())
         first = by_url['https://example.com/with-text']
         assert first['has_content'] is True
@@ -399,3 +399,17 @@ class TestBookmarks:
         normalized = normalize_url(url)
         assert normalized.startswith("https://github.com/OpenAI/GPT-4")
         assert "OpenAI/GPT-4" in normalized
+
+
+def test_the_list_says_why_a_page_has_no_text(client, auth_headers, test_user, app):
+    """A page the site forbids us to read (robots.txt) is DISALLOWED; the page explains that to the user."""
+    from models import db, SavedContent
+    with app.app_context():
+        blocked = SavedContent(user_id=test_user['id'], url='https://lnkd.in/p/blocked-demo', title='Untitled',
+                               scrape_status='DISALLOWED')
+        db.session.add(blocked)
+        db.session.commit()
+    response = client.get('/api/bookmarks?per_page=50', headers=auth_headers)
+    assert response.status_code == 200
+    item = next(b for b in response.json['bookmarks'] if b['url'] == 'https://lnkd.in/p/blocked-demo')
+    assert item['scrape_status'] == 'DISALLOWED' and item['has_content'] is False

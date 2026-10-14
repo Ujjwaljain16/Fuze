@@ -660,7 +660,9 @@ def list_bookmarks():
             'description': b.notes,  # Map 'notes' to 'description' for API consistency
             'saved_at': iso_utc(b.saved_at),
             'category': b.category,
-            'has_content': bool(b.has_extracted_text)
+            'has_content': bool(b.has_extracted_text),
+            # Why there is no text when there is none (e.g. DISALLOWED: the site forbids automated reading)
+            'scrape_status': b.scrape_status
         } for b in pagination.items]
         
         total = pagination.total
