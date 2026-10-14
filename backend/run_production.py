@@ -164,6 +164,14 @@ def create_app(config_name: str = None) -> Flask:
     # Bigger bodies are refused with 413 before any handler parses them.
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_REQUEST_BYTES', 5 * 1024 * 1024))
 
+    @app.before_request
+    def _refuse_oversized_body():
+        # Werkzeug raises its 413 only when a handler first reads the body, and handlers with a broad
+        # `except Exception` turned that into a 500 (login did). The declared length is known up front.
+        limit = app.config.get('MAX_CONTENT_LENGTH')
+        if limit and request.content_length is not None and request.content_length > limit:
+            return error_response('payload_too_large', 'Request body is too large', 413)
+
     from core.app_env import app_env, require_secrets
     env = config_name or app_env()
     if env == 'production':
