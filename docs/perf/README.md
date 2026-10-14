@@ -72,5 +72,11 @@ backend, which removes distance for every statement whatever the cause.
 ## Retrieval quality
 
 See `backend/eval/results/` (BEIR SciFact through the production search code): nDCG@10 0.718, p95 31 ms
-retrieval inside Postgres; passage-level retrieval scores 0.504 against 0.016 for whole-document embedding on
-long documents.
+retrieval inside Postgres. A BM25 baseline (`rank_bm25`, same queries and metric code) scores 0.652 on the same
+corpus (published: 0.665).
+
+The "long" variant is a **synthetic stress test**, not a natural corpus: each relevant abstract is buried among 8
+unrelated ones and never placed first, so a model that reads only the start of a document cannot see it. There,
+whole-document embedding scores 0.016, passage-level retrieval 0.504, and BM25 0.5035 (a tie). It shows that
+passages avoid the truncation failure, not that they beat a lexical baseline. On the standard corpus the gain from
+passages is small (0.718 against 0.713).

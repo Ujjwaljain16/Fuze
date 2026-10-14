@@ -123,6 +123,12 @@ Committed results (BEIR SciFact test split, 300 queries, nDCG@10; "long" buries 
 | all-MiniLM-L6-v2 | long | 0.001 | 0.441 | not run |
 | e5-small-v2 | original | 0.636 | 0.687 | not run |
 
+The "long" corpus is synthetic: it is built to defeat truncation, so one vector per bookmark scoring near zero there
+is expected, not a bug that was fixed. BM25 (`rank_bm25`, lowercase alphanumeric tokens over title and text, same
+queries and metric code, run once outside the committed scripts) scores 0.652 on the original corpus (published:
+0.665) and 0.5035 on the long one, which ties the 0.504 of bge-small passages. Passages are therefore not shown to
+beat a lexical baseline on long documents; on the original corpus they add +0.005 over one vector per bookmark.
+
 Files: `backend/eval/results/scifact_{orig,long8}_<model>_<timestamp>.json`. Reranking moved nDCG@10 by -0.008
 (original) and +0.004 (long) at a p50 of about 715 ms per query against 8-15 ms without it on the machine that
 ran the benchmark, which is why it is off by default.

@@ -10,7 +10,10 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
 
 - Bookmarks are split into overlapping passages (about 200 words) that are embedded and stored with the embedding
   model that produced them; a bookmark is ranked by its best passage. On BEIR SciFact (300 queries) nDCG@10 is
-  0.718, and on long documents 0.504 against 0.016 for one vector per document.
+  0.718 against 0.652 for a BM25 baseline (published: 0.665). On a synthetic stress test that buries each relevant
+  abstract among 8 unrelated ones, passages score 0.504 where one vector per document scores 0.016, and BM25 scores
+  0.5035, so passages remove the single-vector collapse but do not beat BM25 there. On the standard corpus passages
+  add only +0.005 over one vector per document (0.718 against 0.713).
 - One Gemini (or OpenAI-compatible) call per bookmark produces a content profile, which is embedded as its own
   searchable row.
 - The recommendation engine ranks with embeddings, MMR and an optional cross-encoder only; the earlier rule-based

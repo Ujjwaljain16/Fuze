@@ -44,6 +44,10 @@ Measured on BEIR SciFact (test split, 300 queries, nDCG@10; `backend/eval/result
 | MiniLM, original documents | 0.648 | 0.652 |
 | MiniLM, long documents | 0.001 | 0.441 |
 
+"Long documents" is a synthetic stress test (each relevant abstract buried among 8 unrelated ones). A BM25 baseline
+scores 0.652 on the original documents and 0.5035 on the long ones, so passages fix the collapse of one vector per
+bookmark but do not beat BM25 there; the case for passages rests on removing that failure, not on a lead over BM25.
+
 The ms-marco cross-encoder changed nDCG@10 by -0.008 (original) and +0.004 (long documents) while adding about
 700 ms per query on CPU, so reranking stays off by default.
 
