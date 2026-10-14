@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Phone layout, found by opening every page at 375px: the sidebar's desktop margin applied on phones too, so every
+  signed-in page was squeezed into a ~100px column (titles one letter per line); the navigation drawer started open
+  and covered the page for every new visitor; the project page's title, and its task buttons, were squeezed or ran
+  off the edge; page headers stacked into a column that took 40% of the first screen; and the bookmark, dashboard and
+  project action buttons that appear on hover never appeared on a phone. Stat tiles on the dashboard and profile are
+  now two columns. Desktop layout is unchanged.
+- Gradient buttons had no background anywhere in the app: a leftover Tailwind 3 copy of the gradient classes
+  overrode Tailwind 4's. Removed, so the primary buttons show their gradient. The secondary button (Cancel) was a
+  copy of the primary one and is now a quiet outline.
+- The share page showed "Untitled" instead of the title that came with a share, because the server's placeholder
+  beat it.
 - Sharing to the PWA while signed out: the shared title and text now survive the login (before, only the link did),
   and the share page no longer redirects before it has read what was shared. Signing in with Google also returns to
   the share instead of the dashboard, where it used to be lost entirely; the destination is checked as a same-app
