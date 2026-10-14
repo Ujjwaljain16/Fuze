@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Link, useNavigate } from 'react-router'
 import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
+import { unreadableNote } from '../utils/unreadableBookmark'
 import logo1 from '../assets/logo1.svg'
 import { 
   Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles, 
@@ -600,6 +601,9 @@ const Bookmarks = () => {
                         {bookmark.description && (
                           <p className={`text-gray-400 ${isMobile ? 'text-xs mb-3' : 'text-sm mb-4'} line-clamp-2`}>{bookmark.description}</p>
                         )}
+                        {unreadableNote(bookmark) && (
+                          <p data-testid="unreadable-note" className={`text-amber-300/80 ${isMobile ? 'text-xs mb-3' : 'text-xs mb-4'}`}>⚪ {unreadableNote(bookmark)}</p>
+                        )}
                         
                         <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-2' : 'justify-between'}`}>
                           <div className={`flex items-center ${isSmallMobile ? 'gap-1' : 'space-x-2'}`}>
@@ -639,6 +643,9 @@ const Bookmarks = () => {
                         <p className={`text-cyan-400 ${isMobile ? 'text-xs mb-1' : 'text-sm mb-1'} truncate`}>{bookmark.url}</p>
                         {bookmark.description && (
                           <p className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} line-clamp-1`}>{bookmark.description}</p>
+                        )}
+                        {unreadableNote(bookmark) && (
+                          <p data-testid="unreadable-note" className="text-amber-300/80 text-xs mt-1">⚪ {unreadableNote(bookmark)}</p>
                         )}
                         <div className={`flex items-center ${isSmallMobile ? 'flex-col gap-1 items-start' : 'space-x-2'} ${isMobile ? 'mt-1' : 'mt-2'}`}>
                           {bookmark.category && (
