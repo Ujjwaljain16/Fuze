@@ -215,8 +215,8 @@ Measured effects of caching and of the other latency work are in [OPTIMIZATIONS.
 Authentication is a JWT (Flask-JWT-Extended); there are no server-side sessions, so any worker can serve any
 request. Isolation has three layers:
 
-1. **Application.** Queries filter on `user_id` from the token; `require_user_context`
-   (`middleware/security_middleware.py`) guards routes that need it.
+1. **Application.** Every query filters on the `user_id` taken from the verified token, never from the
+   request body.
 2. **Database.** Foreign keys cascade on delete, `saved_content` is unique per `(user_id, url)`, and indexes lead
    with `user_id`. Vector queries are filtered by `user_id` in the same statement as the HNSW search.
 3. **Row-level security.** Migration `0013` enables RLS on every table and removes `anon` and `authenticated`
