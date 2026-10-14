@@ -47,6 +47,9 @@ def _seed(app, user_id, stranger_id):
         db.session.add_all([*mine, unembedded, alien, rust, web, theirs])
         db.session.commit()
         d0, d1, d2, d3 = (m.id for m in mine)
+        # SQLite reuses ids and does not cascade: drop judgments earlier tests left under these bookmark ids
+        db.session.query(UserFeedback).filter(UserFeedback.content_id.in_([d0, d1, d2, d3])).delete(synchronize_session=False)
+        db.session.commit()
 
         def fb(project, content, kind, **context):
             return UserFeedback(user_id=user_id, content_id=content, project_id=project.id if project else None,
@@ -54,8 +57,7 @@ def _seed(app, user_id, stranger_id):
         db.session.add_all([
             fb(rust, d0, 'helpful', position=1, score=91.5),
             fb(rust, d1, 'not_relevant', position=2, score=80),
-            fb(rust, d2, 'dislike', position=3),
-            fb(rust, d2, 'like', position=3),             # re-judged: the latest judgment wins
+            fb(rust, d2, 'like', position=3),             # a re-judgment replaces the earlier row (one per project)
             fb(rust, d3, 'clicked', position=4),          # a bare click is not a judgment
             fb(web, d0, 'not_relevant', position=1),      # the same bookmark, the opposite call for another project
             fb(None, d1, 'helpful'),                      # no project: cannot be used per project
@@ -89,7 +91,7 @@ def test_the_export_is_per_project_and_uses_the_latest_judgment(app, test_user, 
     assert qrels == {
         (rust, f'b{d0}'): 1,       # helpful
         (rust, f'b{d1}'): 0,       # not relevant
-        (rust, f'b{d2}'): 1,       # disliked, then liked: the later call wins
+        (rust, f'b{d2}'): 1,       # liked
         (web, f'b{d0}'): 0,        # the same bookmark is judged separately for the other project
     }
     assert summary['judgments'] == 4 and summary['useful'] == 2 and summary['not_useful'] == 2

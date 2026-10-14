@@ -76,7 +76,8 @@ query as the intent; see [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for how its databa
 The recommendations page sends helpful / not-relevant / clicked judgments (`positive`, `negative`, `neutral`
 are mapped to `helpful`, `not_relevant`, `clicked`). They are stored in `user_feedback` with the project the
 item was judged for (`project_id`, kept only if the user owns that project, `ON DELETE SET NULL`), the
-position it was shown at and its score. Feedback does not change ranking today; it is stored so rankings can
+position it was shown at and its score. One current judgment is kept per user, bookmark and project: rating
+again replaces it instead of adding a row (a unique index enforces it). Feedback does not change ranking today; it is stored so rankings can
 be evaluated on real judgments.
 
 `backend/scripts/export_feedback_eval.py` turns one user's judgments into a BEIR-format folder (queries per

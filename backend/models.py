@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, ForeignKey, func, UniqueConstraint, JSON, Boolean
-from sqlalchemy import Computed, DDL
+from sqlalchemy import Computed, DDL, text
 from sqlalchemy.dialects.postgresql import TEXT, JSONB, TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn
@@ -122,7 +122,6 @@ class SavedContent(Base):
     # Acquisition metadata & provenance fields
     author = Column(String(255), nullable=True)
     reading_time = Column(Integer, default=0)
-    published_at = Column(DateTime(timezone=True), nullable=True)
     language = Column(String(10), nullable=True)
     content_hash = Column(String(64), nullable=True)
     strategy_used = Column(String(20), nullable=True)
@@ -258,21 +257,6 @@ class ContentAnalysis(Base):
         UniqueConstraint('content_id', name='_content_analysis_unique'),
     )
 
-class Feedback(Base):
-    __tablename__ = 'feedback'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
-    content_id = Column(Integer, ForeignKey('saved_content.id', ondelete='CASCADE'), nullable=False, index=True)
-    feedback_type = Column(String(20), nullable=False)  # 'like', 'dislike', 'bookmark', 'dismiss'
-    timestamp = Column(DateTime, default=func.now())
-
-    # Ensure one feedback per user per content
-    __table_args__ = (
-        UniqueConstraint('user_id', 'content_id', name='_user_content_feedback_uc'),
-        db.Index('idx_feedback_lookup', 'user_id', 'content_id'),
-    )
-
 class UserFeedback(Base):
     """Stores detailed user feedback for recommendations to improve recommendation algorithms."""
     __tablename__ = 'user_feedback'
@@ -292,6 +276,11 @@ class UserFeedback(Base):
         db.Index('idx_user_feedback_content', 'content_id'),
         db.Index('idx_user_feedback_timestamp', 'timestamp'),
         db.Index('idx_user_feedback_project', 'project_id'),
+        # One current judgment per user, bookmark and project (migration 0019). Only for ratings that name a
+        # project: deleting a project sets its ratings' project_id to NULL, and those must not collide with a
+        # rating the user gave the same bookmark for no project.
+        db.Index('uq_user_feedback_judgment', 'user_id', 'content_id', 'project_id', unique=True,
+                 postgresql_where=text('project_id IS NOT NULL'), sqlite_where=text('project_id IS NOT NULL')),
     )
 
 class Task(Base):

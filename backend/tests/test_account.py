@@ -47,7 +47,7 @@ def _bearer(app, user_id):
 
 def _populate(app, user_id, tag):
     """One row in every table a user's data lives in."""
-    from models import (db, BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk, Feedback,
+    from models import (db, BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk,
                         Project, SavedContent, Subtask, Task, TokenFamily, User, UserFeedback)
     with app.app_context():
         user = db.session.get(User, user_id)
@@ -68,7 +68,6 @@ def _populate(app, user_id, tag):
                          text='chunk', embedding_model='test-model'),
             BookmarkMetadata(bookmark_id=bookmark.id, jsonb_payload={'og': tag}),
             ContentAnalysis(content_id=bookmark.id, analysis_data={'summary': tag}),
-            Feedback(user_id=user_id, project_id=project.id, content_id=bookmark.id, feedback_type='like'),
             UserFeedback(user_id=user_id, content_id=bookmark.id, feedback_type='positive',
                          context_data={'source': 'recommendations_page'}),
             TokenFamily(user_id=user_id, family_id=str(uuid.uuid4()), current_jti=str(uuid.uuid4())),
@@ -80,7 +79,7 @@ def _populate(app, user_id, tag):
 
 def _row_counts(app, user_id):
     from sqlalchemy import func, select
-    from models import (db, BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk, Feedback,
+    from models import (db, BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk,
                         Project, SavedContent, Subtask, Task, TokenFamily, User, UserFeedback)
     with app.app_context():
         content_ids = select(SavedContent.id).where(SavedContent.user_id == user_id)
@@ -93,7 +92,6 @@ def _row_counts(app, user_id):
                                  .where(BookmarkMetadata.bookmark_id.in_(content_ids)),
             'content_analysis': select(func.count()).select_from(ContentAnalysis)
                                 .where(ContentAnalysis.content_id.in_(content_ids)),
-            'feedback': select(func.count()).select_from(Feedback).where(Feedback.user_id == user_id),
             'user_feedback': select(func.count()).select_from(UserFeedback).where(UserFeedback.user_id == user_id),
             'projects': select(func.count()).select_from(Project).where(Project.user_id == user_id),
             'tasks': select(func.count()).select_from(Task).where(Task.project_id.in_(project_ids)),
@@ -297,7 +295,6 @@ def test_export_contains_the_users_data_and_nothing_else(client, app, test_user,
     [subtask] = task['subtasks']
     assert (project['title'], task['title'], subtask['title']) == ('Project mine', 'Task mine', 'Subtask mine')
     assert subtask['completed'] is True
-    assert data['feedback'][0]['feedback_type'] == 'like'
     assert data['recommendation_feedback'][0]['context'] == {'source': 'recommendations_page'}
 
     # No secrets, no internals, nothing of anyone else's.

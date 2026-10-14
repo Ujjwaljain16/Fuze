@@ -162,7 +162,7 @@ The new family inherits the parent's start time, so it doesn't count as a fresh 
 filename=fuze-export-YYYY-MM-DD.json` and `Cache-Control: no-store`. The document contains
 `format_version`, `exported_at`, `profile`, `bookmarks` (id, url, title, notes, tags,
 category, saved_at, scrape_status, extracted_text), `projects` (each with its tasks and
-subtasks), `feedback` and `recommendation_feedback` (including the per-project
+subtasks) and `recommendation_feedback` (including the per-project
 `project_id`). It never contains the password hash, API keys, embeddings or sessions.
 `404 user_not_found` if the account no longer exists.
 
@@ -543,21 +543,12 @@ response lets citations be validated before anything is shown.
 | `DELETE` | `/api/linkedin/extract/<id>` | ✅ | Delete extraction |
 | `GET` | `/api/linkedin/status` | ✅ | Get LinkedIn service status |
 
-### Feedback (`/api/feedback`)
+### Feedback
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/feedback` | ✅ | Submit or update relevance feedback for one of the caller's bookmarks |
-
-**Request**: `{"content_id": 42, "feedback_type": "relevant"}`; `feedback_type` is
-`relevant` or `not_relevant`. One row exists per user and bookmark (a second submission
-updates it). A `project_id` in the request is ignored: the server derives it and does not
-trust client input. `404 content_not_found` if the bookmark is not the caller's. Response:
-`{"message": "Feedback recorded"}`.
-
-Per-project feedback (judging a bookmark for a specific project) is recorded by
-`POST /api/recommendations/feedback` above. Ask (`/api/ask`) neither reads nor writes
-feedback.
+Ratings are recorded only by `POST /api/recommendations/feedback` (above). There is one current judgment
+per user, bookmark and project: rating again replaces it (a unique index enforces this), and a different
+project gets its own. The earlier `/api/feedback` endpoint and `feedback` table were removed in migration
+0019. Ask (`/api/ask`) neither reads nor writes feedback.
 
 **Update Profile Request**:
 ```json
@@ -789,7 +780,6 @@ graph TB
         ProfBP["/api/profile, /api/users"]
         UserBP["/api/user"]
         LinkedBP["/api/linkedin"]
-        FeedBP["/api/feedback"]
     end
 
     Web --> API

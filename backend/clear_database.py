@@ -28,7 +28,7 @@ def clear_all_data(dry_run=False):
     """Clear all data from database while preserving schema"""
     try:
         from run_production import app, db
-        from models import User, Project, Task, SavedContent, ContentAnalysis, Feedback, UserFeedback
+        from models import User, Project, Task, SavedContent, ContentAnalysis, UserFeedback
 
         with app.app_context():
             print("🔍 Analyzing current database state..." if not dry_run else "🔍 DRY RUN: Analyzing current database state...")
@@ -40,7 +40,6 @@ def clear_all_data(dry_run=False):
                 'tasks': Task.query.count(),
                 'saved_content': SavedContent.query.count(),
                 'content_analysis': ContentAnalysis.query.count(),
-                'feedback': Feedback.query.count(),
                 'user_feedback': UserFeedback.query.count()
             }
 
@@ -52,7 +51,6 @@ def clear_all_data(dry_run=False):
             print(f"    Tasks: {counts['tasks']}")
             print(f"   🔖 Saved Content: {counts['saved_content']}")
             print(f"   📈 Content Analysis: {counts['content_analysis']}")
-            print(f"   💬 Feedback: {counts['feedback']}")
             print(f"   📊 User Feedback: {counts['user_feedback']}")
             print(f"   📈 TOTAL: {total_records} records")
 
@@ -75,10 +73,6 @@ def clear_all_data(dry_run=False):
             # Clear UserFeedback (no dependencies)
             deleted_counts['user_feedback'] = UserFeedback.query.delete()
             print(f"    Cleared {deleted_counts['user_feedback']} user feedback records")
-
-            # Clear Feedback (depends on users, projects, saved_content)
-            deleted_counts['feedback'] = Feedback.query.delete()
-            print(f"    Cleared {deleted_counts['feedback']} feedback records")
 
             # Clear ContentAnalysis (depends on saved_content)
             deleted_counts['content_analysis'] = ContentAnalysis.query.delete()
@@ -114,7 +108,6 @@ def clear_all_data(dry_run=False):
                 'tasks': Task.query.count(),
                 'saved_content': SavedContent.query.count(),
                 'content_analysis': ContentAnalysis.query.count(),
-                'feedback': Feedback.query.count(),
                 'user_feedback': UserFeedback.query.count()
             }
 

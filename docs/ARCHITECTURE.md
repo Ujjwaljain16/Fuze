@@ -144,7 +144,7 @@ erDiagram
     }
 ```
 
-Other tables: `tasks`, `subtasks`, `feedback`, `bookmark_metadata`, `bookmark_events`, `token_families`. Alembic
+Other tables: `tasks`, `subtasks`, `bookmark_metadata`, `bookmark_events`, `token_families`. Alembic
 (`backend/alembic/versions/`) is the only source of schema; `start.sh` runs `alembic upgrade head` before
 anything serves traffic and refuses to start if it fails.
 
@@ -307,7 +307,7 @@ Flask blueprints, all behind JWT validation, input validation and rate limiting:
 | auth, account, user_api_key | `/api/auth`, `/api/account`, `/api/user` |
 | bookmarks | `/api/bookmarks` |
 | projects, tasks | `/api/projects`, `/api/tasks` |
-| recommendations, feedback | `/api/recommendations`, `/api/feedback` |
+| recommendations, feedback | `/api/recommendations` |
 | search, ask | `/api/search`, `/api/ask` |
 | dashboard, profile, events (SSE) | `/api/dashboard`, `/api`, `/api` |
 | linkedin | registered when available |

@@ -84,7 +84,6 @@ try:
     from blueprints.projects import projects_bp
     from blueprints.tasks import tasks_bp
     from blueprints.bookmarks import bookmarks_bp
-    from blueprints.feedback import feedback_bp
     from blueprints.profile import profile_bp
     from blueprints.search import search_bp
     from blueprints.events import events_bp
@@ -376,7 +375,6 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(projects_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(bookmarks_bp)
-    app.register_blueprint(feedback_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(events_bp)

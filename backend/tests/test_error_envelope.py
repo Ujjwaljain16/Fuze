@@ -46,9 +46,6 @@ CASES = [
      'authorization_required'),
     # events
     ('events-stream-no-ticket', 'GET', '/api/realtime/stream', None, False, 401, 'authorization_required'),
-    # feedback
-    ('feedback-no-content-id', 'POST', '/api/feedback', {}, True, 400, 'content_id_required'),
-    ('feedback-bad-content-id', 'POST', '/api/feedback', {'content_id': 'abc'}, True, 400, 'invalid_content_id'),
     # linkedin
     ('linkedin-extract-no-url', 'POST', '/api/linkedin/extract', {}, True, 400, 'linkedin_url_required'),
     ('linkedin-delete-missing', 'DELETE', '/api/linkedin/extract/987654321', None, True, 404, 'extraction_not_found'),

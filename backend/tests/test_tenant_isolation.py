@@ -55,6 +55,8 @@ def test_suggested_contexts_ignore_foreign_project_ids_already_stored(client, ap
         own_bookmark = SavedContent(user_id=test_user['id'], url='https://example.com/b', title='B')
         db.session.add_all([victim_project, own_bookmark])
         db.session.commit()
+        # SQLite reuses ids and does not cascade: drop a judgment an earlier test left under this bookmark id
+        db.session.query(UserFeedback).filter_by(content_id=own_bookmark.id).delete()
         db.session.add(UserFeedback(user_id=test_user['id'], content_id=own_bookmark.id, feedback_type='helpful',
                                     context_data={'project_id': victim_project.id}))
         db.session.commit()
@@ -175,7 +177,7 @@ def test_every_id_route_is_covered_by_the_sweep(app):
 
 def _make_owner(tag):
     """A user with one of every object an id route can name. Every title carries `tag`."""
-    from models import db, User, Project, Task, Subtask, SavedContent, Feedback
+    from models import db, User, Project, Task, Subtask, SavedContent, UserFeedback
     from blueprints.auth import hash_password
     user = User(username=f'owner_{tag}', email=f'owner_{tag}@example.com',
                 password_hash=hash_password(OWNER_PASSWORD), technology_interests=f'{tag} interests')
@@ -194,7 +196,7 @@ def _make_owner(tag):
     db.session.add(task)
     db.session.flush()
     subtask = Subtask(task_id=task.id, title=f'{tag} subtask', description=f'{tag} subtask details')
-    feedback = Feedback(user_id=user.id, project_id=project.id, content_id=bookmark.id, feedback_type='like')
+    feedback = UserFeedback(user_id=user.id, project_id=project.id, content_id=bookmark.id, feedback_type='helpful')
     db.session.add_all([subtask, feedback])
     db.session.commit()
     return {'user': user.id, 'project': project.id, 'task': task.id, 'subtask': subtask.id,
@@ -203,7 +205,7 @@ def _make_owner(tag):
 
 def _snapshot(ids):
     """Everything an intruder could change or delete, as plain values."""
-    from models import db, User, Project, Task, Subtask, SavedContent, Feedback
+    from models import db, User, Project, Task, Subtask, SavedContent, UserFeedback
     db.session.expire_all()
 
     def row(model, key, *attrs):
@@ -217,14 +219,14 @@ def _snapshot(ids):
         'subtask': row(Subtask, 'subtask', 'title', 'description', 'completed'),
         'bookmark': row(SavedContent, 'bookmark', 'title', 'notes', 'extracted_text'),
         'linkedin_extraction': row(SavedContent, 'linkedin_extraction', 'title', 'extracted_text'),
-        'feedback': row(Feedback, 'feedback', 'feedback_type'),
+        'feedback': row(UserFeedback, 'feedback', 'feedback_type'),
     }
 
 
 def _drop_owner(ids):
-    from models import db, User, Feedback
+    from models import db, User, UserFeedback
     db.session.rollback()
-    db.session.query(Feedback).filter_by(user_id=ids['user']).delete()
+    db.session.query(UserFeedback).filter_by(user_id=ids['user']).delete()
     user = db.session.get(User, ids['user'])
     if user is not None:
         db.session.delete(user)

@@ -19,7 +19,7 @@ from sqlalchemy import delete, or_, select
 from core import cache_keys
 from core.logging_config import get_logger
 from models import (
-    BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk, Feedback, Project,
+    BookmarkEvent, BookmarkMetadata, ContentAnalysis, ContentChunk, Project,
     SavedContent, Subtask, Task, TokenFamily, User, UserFeedback,
 )
 from uow.unit_of_work import UnitOfWork
@@ -108,13 +108,6 @@ class AccountService:
             'profile': profile,
             'bookmarks': bookmarks,
             'projects': self._export_projects(user_id),
-            'feedback': [{
-                'content_id': f.content_id,
-                'project_id': f.project_id,
-                'feedback_type': f.feedback_type,
-                'timestamp': iso_utc(f.timestamp),
-            } for f in session.scalars(
-                select(Feedback).where(Feedback.user_id == user_id).order_by(Feedback.id))],
             'recommendation_feedback': [{
                 'content_id': f.content_id,
                 'recommendation_id': f.recommendation_id,
@@ -182,8 +175,6 @@ class AccountService:
         statements = (
             delete(ContentChunk).where(or_(ContentChunk.user_id == user_id, ContentChunk.content_id.in_(content_ids))),
             delete(BookmarkEvent).where(or_(BookmarkEvent.user_id == user_id, BookmarkEvent.bookmark_id.in_(content_ids))),
-            delete(Feedback).where(or_(Feedback.user_id == user_id, Feedback.content_id.in_(content_ids),
-                                       Feedback.project_id.in_(project_ids))),
             delete(UserFeedback).where(or_(UserFeedback.user_id == user_id, UserFeedback.content_id.in_(content_ids))),
             delete(ContentAnalysis).where(ContentAnalysis.content_id.in_(content_ids)),
             delete(BookmarkMetadata).where(BookmarkMetadata.bookmark_id.in_(content_ids)),

@@ -51,7 +51,7 @@ TEST_DATABASE_URL=postgresql://postgres:test@localhost:55432/fuze_test pytest
   `test_safe_http.py` (SSRF-safe fetching)
 - Projects and tasks: `test_projects.py`, `test_tasks.py`
 - Recommendations, search and ask: `test_recommendations.py`, `test_intent_engine.py`,
-  `test_feedback.py`, `test_feedback_project.py`, `test_search.py`, `test_ask.py`
+  `test_feedback_project.py`, `test_search.py`, `test_ask.py`
 - Infrastructure: `test_rate_limiting.py`, `test_redis_utils.py`, `test_events.py`,
   `test_live_events.py`, `test_run_production.py`, `test_schema_version.py`
 - `test_tenant_isolation.py` - one user cannot read or change another user's data
