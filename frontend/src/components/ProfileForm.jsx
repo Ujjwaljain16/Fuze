@@ -3,7 +3,7 @@ import { Save, User, Tag } from 'lucide-react';
 import Input from './Input';
 import { checkUsernameAvailability } from '../services/api';
 
-const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
+const ProfileForm = ({ formData, onInputChange, onSubmit, loading, currentUsername }) => {
   const isMobile = window.innerWidth <= 768
   const isSmallMobile = window.innerWidth <= 480
   const [usernameStatus, setUsernameStatus] = useState({ checking: false, available: null, suggestions: [], error: null })
@@ -12,8 +12,9 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
     let mounted = true
     const username = (formData.username || '').trim()
 
-    // don't check empty usernames
-    if (!username) {
+    // Nothing to check for an empty name, or for the name this account already has (it would report its
+    // own name as taken and block saving).
+    if (!username || username.toLowerCase() === (currentUsername || '').trim().toLowerCase()) {
       setUsernameStatus({ checking: false, available: null, suggestions: [], error: null })
       return
     }
@@ -24,7 +25,8 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
       try {
         const res = await checkUsernameAvailability(username)
         if (!mounted) return
-        setUsernameStatus({ checking: false, available: !!res.available, suggestions: res.suggestions || [], error: res.error || null })
+        // A failed check (network, rate limit) is "unknown", not "taken": the server decides when saving.
+        setUsernameStatus({ checking: false, available: res.error ? null : !!res.available, suggestions: res.suggestions || [], error: res.error || null })
       } catch {
         if (!mounted) return
         setUsernameStatus({ checking: false, available: null, suggestions: [], error: 'Failed to check username' })
@@ -35,7 +37,7 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
       mounted = false
       clearTimeout(timeout)
     }
-  }, [formData.username])
+  }, [formData.username, currentUsername])
 
   const isUsernameTaken = usernameStatus.available === false
 
@@ -57,6 +59,9 @@ const ProfileForm = ({ formData, onInputChange, onSubmit, loading }) => {
           onChange={onInputChange}
           placeholder="Enter your username"
           required
+          error={isUsernameTaken
+            ? `That username is taken.${usernameStatus.suggestions.length ? ` Try: ${usernameStatus.suggestions.join(', ')}` : ''}`
+            : undefined}
         />
 
         <div className="group">

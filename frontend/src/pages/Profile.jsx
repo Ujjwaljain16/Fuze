@@ -314,6 +314,7 @@ const Profile = () => {
               formData={formData}
               onInputChange={handleInputChange}
               onSubmit={handleProfileUpdate}
+              currentUsername={user?.username}
               loading={loading}
             />
 
