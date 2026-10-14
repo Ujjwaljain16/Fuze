@@ -8,14 +8,14 @@ touches no database. Since run 4 each result also carries the server's own break
 
 ## Live API, p50 / p95 in milliseconds
 
-| Endpoint | 0 baseline | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
-|---|---|---|---|---|---|---|---|---|
-| Network floor, no DB | 314 / 421 | 311 / 333 | 297 / 617 | 311 / 423 | 277 / 415 | 305 / 384 | 307 / 509 | 282 / 356 |
-| Bookmark list (cached) | 317 / 1756 | 319 / 3604 | 359 / 1635 | 316 / 3573 | 263 / 1503 | 327 / 1231 | 1176 / 1474 (*) | 300 / 1521 |
-| Dashboard summary (cached) | 318 / 432 | 315 / 391 | 306 / 424 | 305 / 454 | 286 / 446 | 313 / 441 | 1869 / 2240 (*) | 297 / 483 |
-| Keyword search | 1239 / 1347 | 1031 / 3540 | 1032 / 3294 | 983 / 1320 | 991 / 1464 | 952 / 1185 | 948 / 3170 | 968 / 1352 |
-| **Semantic search** | **3026 / 3915** | 2104 / 2569 | 2154 / 2604 | 2209 / 2605 | 2167 / 4310 | 1833 / 2302 | **1661 / 2071** | **1686 / 2656** |
-| SQL statements per semantic search | about 7 + ping, BEGIN, ROLLBACK | 3 | 3 | 3 | 2 | 1 | 1 | 1 |
+| Endpoint | 0 baseline | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| Network floor, no DB | 314 / 421 | 311 / 333 | 297 / 617 | 311 / 423 | 277 / 415 | 305 / 384 | 307 / 509 | 282 / 356 | 411 / 619 |
+| Bookmark list (cached) | 317 / 1756 | 319 / 3604 | 359 / 1635 | 316 / 3573 | 263 / 1503 | 327 / 1231 | 1176 / 1474 (*) | 300 / 1521 | 516 / 3391 |
+| Dashboard summary (cached) | 318 / 432 | 315 / 391 | 306 / 424 | 305 / 454 | 286 / 446 | 313 / 441 | 1869 / 2240 (*) | 297 / 483 | 341 / 1658 |
+| Keyword search | 1239 / 1347 | 1031 / 3540 | 1032 / 3294 | 983 / 1320 | 991 / 1464 | 952 / 1185 | 948 / 3170 | 968 / 1352 | 1018 / 1474 |
+| **Semantic search** | **3026 / 3915** | 2104 / 2569 | 2154 / 2604 | 2209 / 2605 | 2167 / 4310 | 1833 / 2302 | **1661 / 2071** | **1686 / 2656** | **1663 / 1962** |
+| SQL statements per semantic search | about 7 + ping, BEGIN, ROLLBACK | 3 | 3 | 3 | 2 | 1 | 1 | 1 | 1 |
 
 What each run measured:
 
@@ -37,7 +37,15 @@ What each run measured:
   same single statement), so returning less text did **not** remove the time. Its server-side `other` column in
   that file is computed over cache-miss samples only for the cached endpoints (a script bug, fixed afterwards).
 
-Semantic search: p50 **-45%** (3026 to 1661 ms) and p95 **-47%** across the series.
+- **8** is the build deployed on 14 Oct (the semantic-search code is unchanged since run 5), run by the owner in
+  the evening on a slower connection: the network floor was 411 ms against 282 ms in run 7, so every absolute figure is shifted up by
+  about that much. Read it against its own floor: semantic search is 1663 ms, 1252 ms above the floor (run 7:
+  1404 above). The server's own breakdown is the same as run 7 (total 1314 ms, embedding 2.5 ms, database
+  1084 ms in one statement). The cached endpoints' 8 ms of server time (no database) is the other fixed point;
+  their p95 of 1.7-3.4 s is the occasional slow request on that connection, not the server.
+
+Semantic search: p50 **-45%** (3026 to 1661 ms) and p95 **-47%** across the series; run 8 gives 1663 / 1962 ms
+(p95 **-50%** from the baseline), so the result holds on the final build.
 
 ## Where the time goes
 

@@ -1,0 +1,74 @@
+{
+  "base": "https://ujjwaljain16-fuze-backend.hf.space",
+  "started": "2026-10-14T15:37:08.788634+00:00",
+  "samples_per_endpoint": 30,
+  "endpoints": {
+    "network floor: GET /health/liveness": {
+      "n": 30,
+      "min": 273,
+      "p50": 411,
+      "p95": 619,
+      "max": 715,
+      "mean": 422,
+      "server": {
+        "total": 0.3
+      }
+    },
+    "GET /api/bookmarks?per_page=20": {
+      "n": 30,
+      "min": 287,
+      "p50": 516,
+      "p95": 3391,
+      "max": 3493,
+      "mean": 857,
+      "server": {
+        "total": 7.9,
+        "db": 0.0,
+        "statements": 0.0
+      }
+    },
+    "GET /api/dashboard/summary": {
+      "n": 30,
+      "min": 281,
+      "p50": 341,
+      "p95": 1658,
+      "max": 2792,
+      "mean": 498,
+      "server": {
+        "total": 8.1,
+        "db": 0.0,
+        "statements": 0.0
+      }
+    },
+    "GET /api/search/text (keyword)": {
+      "n": 30,
+      "min": 926,
+      "p50": 1018,
+      "p95": 1474,
+      "max": 1591,
+      "mean": 1085,
+      "server": {
+        "total": 660.7,
+        "db": 437.4,
+        "statements": 1.0
+      }
+    },
+    "POST /api/search/semantic": {
+      "n": 30,
+      "min": 1570,
+      "p50": 1663,
+      "p95": 1962,
+      "max": 2029,
+      "mean": 1684,
+      "server": {
+        "total": 1313.7,
+        "embed": 2.5,
+        "db": 1083.7,
+        "statements": 1.0
+      }
+    }
+  },
+  "rate_limited": 0,
+  "errors": 0,
+  "finished": "2026-10-14T15:41:32.512470+00:00"
+}
