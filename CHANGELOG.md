@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Recommendations: "General" and "Surprise Me" sent a fixed sentence ("I want to learn and improve my skills"), so
+  the results were the user's bookmarks about learning resources and roadmaps. They now ask for the technology
+  interests saved on the profile (General: all of them; Surprise Me: one at random). With no interests saved the
+  old wording is used.
 - Profile page: "Member Since" showed N/A because the sign-in response, and sessions stored by older versions,
   don't carry the full profile; the page now fetches it when it opens. Saving the form failed with "an account
   already exists" whenever the username was left unchanged, and never saved the interests; it now uses
