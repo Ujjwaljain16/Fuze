@@ -12,9 +12,11 @@ listed as a known limitation in the README.
 | Upstash Redis (replicated near the Space) | 2-3.5 ms |
 
 Every SQL statement, plus `BEGIN`/`ROLLBACK`, pays that 215 ms. A semantic search made about 10 of them
-(2.7 s measured on the live Space); after the round-trip reduction in `hybrid_search.py` and
-`db_pool.py` it makes about 5. In the same region it would cost 5 x ~2 ms. The code can only halve the
-cost of distance; moving the database removes it.
+(3.0 s p50 measured on the live Space); after the round-trip reduction in `hybrid_search.py` and
+`db_pool.py` it makes **one** (1.7 s p50, `docs/perf/`). In the same region a round trip would cost about 2 ms.
+The code has removed what it can; moving the database removes the distance. Note that one statement still costs
+about 1.1 s on the Space against about 2 ms of Postgres time, so more than one round trip is being paid and the
+gain from moving is not yet predictable.
 
 **Target region: US East (N. Virginia), `us-east-1`.** HF does not document its Space region. 215 ms from
 Singapore is what US East looks like (US West would be ~170 ms, Europe ~160 ms), and the 294 ms from
@@ -59,7 +61,7 @@ Passwords and keys are passed to the copy script through environment variables, 
    python -m alembic -c alembic.ini upgrade head
    ```
 
-   It must end at revision `0014 (head)`.
+   It must end at revision `0018 (head)`.
 4. **Dry run** (reads the old database, changes nothing):
 
    ```
