@@ -573,20 +573,9 @@
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Gradient text effect */
-.bg-gradient-to-r {
-  background-image: linear-gradient(to right, var(--tw-gradient-stops));
-}
-
-.from-cyan-400 {
-  --tw-gradient-from: #4DD0E1;
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(77, 208, 225, 0));
-}
-
-.to-teal-500 {
-  --tw-gradient-to: #14B8A6;
-}
-
+/* Gradient text effect. The gradient classes themselves (bg-gradient-to-r, from-*, to-*) come from Tailwind. A copy
+   of them used to live here, written for Tailwind 3: under Tailwind 4 it overrode the real utility, left
+   --tw-gradient-stops undefined, and turned every gradient button without from-cyan-400 into one with no background. */
 .bg-clip-text {
   -webkit-background-clip: text;
   background-clip: text;

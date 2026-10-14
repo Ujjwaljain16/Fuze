@@ -33,3 +33,14 @@ describe('Button', () => {
   })
 })
 
+
+describe('Button variants', () => {
+  it('makes secondary look different from primary (Cancel used to look exactly like Save)', async () => {
+    const { render: r } = await import('@testing-library/react')
+    const { default: Btn } = await import('../../components/Button')
+    const primary = r(<Btn variant="primary">Save</Btn>).container.firstChild.className
+    const secondary = r(<Btn variant="secondary">Cancel</Btn>).container.firstChild.className
+    expect(primary).toMatch(/bg-gradient-to-r/)
+    expect(secondary).not.toMatch(/bg-gradient-to-r/)
+  })
+})
