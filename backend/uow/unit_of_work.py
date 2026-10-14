@@ -80,10 +80,6 @@ class UnitOfWork:
         self._events.append(event)
         logger.debug("event_recorded", extra={"event_type": type(event).__name__, "event_id": getattr(event, 'event_id', None)})
 
-    def add_event(self, event: Event):
-        """Alias for emit() — backwards-compatible hook registration."""
-        self.emit(event)
-
     def __enter__(self):
         return self
 

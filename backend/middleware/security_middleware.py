@@ -46,24 +46,6 @@ def get_current_user_id() -> int:
         raise ValueError(f"Invalid user identity: {str(err)}")
 
 
-def require_user_context(func):
-    """
-    Decorator that sets user context in Flask 'g' object.
-    Ensures user is authenticated and g.user_id is available throughout the request.
-    """
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            user_id = get_current_user_id()
-            g.user_id = user_id
-            return func(*args, **kwargs)
-        except Exception:
-            logger.exception("security_context_failed")
-            return error_response('authentication_failed', 'Authentication failed', 401)
-
-    return wrapper
-
-
 def validate_user_owns_resource(user_id: int, resource_user_id: int) -> bool:
     """
     Validate that the authenticated user owns the resource.
@@ -171,7 +153,7 @@ def sanitize_string(value: str) -> str:
 # REQUEST VALIDATION MIDDLEWARE
 # ============================================================================
 
-def validate_request_data(required_fields: Optional[List[str]] = None, optional_fields: Optional[List[str]] = None, field_rules: Optional[Dict[str, Any]] = None):
+def validate_request_data(required_fields: Optional[List[str]] = None, field_rules: Optional[Dict[str, Any]] = None):
     """
     Decorator to validate JSON request payloads and store sanitized result in Flask g.validated_data.
     """
@@ -208,18 +190,6 @@ def validate_request_data(required_fields: Optional[List[str]] = None, optional_
 
         return wrapper
     return decorator
-
-
-def get_client_identifier() -> str:
-    """Get unique identifier for client requests using JWT identity or remote IP."""
-    try:
-        identity = get_jwt_identity()
-        if identity:
-            return f"user:{identity}"
-    except (JWTExtendedException, RuntimeError):
-        pass
-
-    return f"ip:{request.remote_addr}"
 
 
 def add_security_headers(response):

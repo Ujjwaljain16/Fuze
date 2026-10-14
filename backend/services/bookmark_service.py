@@ -27,12 +27,6 @@ class BookmarkService:
             return None
         return self.uow.bookmarks.get_by_url(user_id, url.strip())
 
-    def get_bookmark_by_normalized_url(self, user_id: int, normalized_url: str) -> Optional[SavedContent]:
-        """Find normalized URL match for user"""
-        if not user_id or not normalized_url:
-            return None
-        return self.uow.bookmarks.get_by_normalized_url(user_id, normalized_url.strip())
-
     def search_bookmarks(self, user_id: int, query: str, limit: int = 10) -> List[SavedContent]:
         """Search bookmarks"""
         if not user_id or not query:

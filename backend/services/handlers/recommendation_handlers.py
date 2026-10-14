@@ -14,7 +14,7 @@ def handle_feedback_recorded(event: RecommendationFeedbackRecorded):
           are fetched on the next request.
 
     Explicitly NOT doing:
-        - Calling ML model weight updates (GeminiAnalysisTriggered path is BLOCKED).
+        - Calling ML model weight updates.
         - Calling BackgroundAnalysisService (scans all users — dangerous, blocked).
         - Any Gemini / embedding calls.
 
@@ -46,11 +46,6 @@ def handle_feedback_recorded(event: RecommendationFeedbackRecorded):
             error=str(e)
         )
 
-
-# GeminiAnalysisTriggered is intentionally NOT handled here.
-# The architecture-shift handler calls BackgroundAnalysisService().start_background_analysis()
-# which scans all users — not scoped to event.content_id — and is classified DANGEROUS.
-# This will be revisited in a dedicated recommendation job architecture phase.
 
 HANDLERS = {
     RecommendationFeedbackRecorded: [handle_feedback_recorded],

@@ -56,7 +56,7 @@ def _bucket(flag_name: str, user_id: Optional[int]) -> int:
     """
     Deterministic user bucket [0, 99].
     Stable across restarts — based only on flag_name + user_id.
-    Renaming a flag resets bucketing (document this in ADR-006).
+    Renaming a flag changes every user's bucket, so a percentage rollout reshuffles.
     """
     if user_id is None:
         return 0
@@ -204,15 +204,6 @@ def set_flag(
         return False
 
 
-def kill_switch(flag_name: str) -> bool:
-    """
-    Immediately disable a feature flag for all users.
-    Takes effect within FEATURE_FLAGS_CACHE_TTL seconds (default 5s).
-    """
-    logger.warning("feature_flag_kill_switch_activated", extra={"flag": flag_name})
-    return set_flag(flag_name, enabled=False, percentage=0, description="KILL SWITCH ACTIVATED")
-
-
 def get_flag_info(flag_name: str) -> Dict[str, Any]:
     """Return current flag state from Redis, or env-var default if Redis unavailable."""
     data = _read_from_redis(flag_name)
@@ -233,41 +224,6 @@ def get_flag_info(flag_name: str) -> Dict[str, Any]:
         "description": "env-var fallback",
         "updated_at": "",
     }
-
-
-def get_all_flags() -> Dict[str, Dict[str, Any]]:
-    """Return info for all known flags."""
-    return {name: get_flag_info(name) for name in _ENV_DEFAULTS}
-
-
-def add_user_to_flag(flag_name: str, user_id: int) -> bool:
-    """Explicitly target a user_id for a flag regardless of percentage."""
-    try:
-        r = _get_redis()
-        if r is None:
-            return False
-        user_key = f"{_REDIS_KEY_PREFIX}{flag_name}:users"
-        r.sadd(user_key, str(user_id))
-        _invalidate_local_cache(flag_name)
-        return True
-    except Exception as exc:
-        logger.error("feature_flag_add_user_error", extra={"flag": flag_name, "error": str(exc)})
-        return False
-
-
-def remove_user_from_flag(flag_name: str, user_id: int) -> bool:
-    """Remove explicit user targeting for a flag."""
-    try:
-        r = _get_redis()
-        if r is None:
-            return False
-        user_key = f"{_REDIS_KEY_PREFIX}{flag_name}:users"
-        r.srem(user_key, str(user_id))
-        _invalidate_local_cache(flag_name)
-        return True
-    except Exception as exc:
-        logger.error("feature_flag_remove_user_error", extra={"flag": flag_name, "error": str(exc)})
-        return False
 
 
 def _invalidate_local_cache(flag_name: str) -> None:

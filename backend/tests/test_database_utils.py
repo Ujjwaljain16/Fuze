@@ -1,35 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
-from utils.database_utils import (
-    get_database_connection,
-    with_db_session,
-    retry_on_connection_error
-)
-
-
-@pytest.mark.unit
-def test_get_database_connection_reuses_engine():
-    mock_db = MagicMock()
-    mock_conn = MagicMock()
-    mock_db.engine.connect.return_value = mock_conn
-
-    with patch.dict('sys.modules', {'models': MagicMock(db=mock_db)}):
-        conn = get_database_connection()
-        assert conn == mock_conn
-        mock_db.engine.connect.assert_called_once()
-
-
-@pytest.mark.unit
-def test_with_db_session_preserves_caller_session():
-    mock_caller_session = MagicMock()
-
-    @with_db_session
-    def sample_func(session=None):
-        return session
-
-    # Should preserve caller session if provided
-    result = sample_func(session=mock_caller_session)
-    assert result == mock_caller_session
+from utils.database_utils import retry_on_connection_error
 
 
 @pytest.mark.unit

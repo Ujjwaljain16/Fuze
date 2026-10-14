@@ -440,13 +440,5 @@ class BackgroundAnalysisService:
 background_service = BackgroundAnalysisService()
 
 
-def start_background_service():
-    background_service.start_background_analysis()
-
-
-def stop_background_service():
-    background_service.stop_background_analysis()
-
-
 def analyze_content(content_id: int, user_id: Optional[int] = None) -> Optional[Dict]:
     return background_service.analyze_content_immediately(content_id, user_id)

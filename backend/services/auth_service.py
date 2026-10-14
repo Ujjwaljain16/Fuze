@@ -98,12 +98,6 @@ class AuthService:
         """Pure persistence lookup for authentication workflows."""
         return self.uow.users.get_by_identifier(identifier)
 
-    def get_user_by_email(self, email: str) -> Optional[User]:
-        """Pure persistence lookup for OAuth identity matching."""
-        if not email:
-            return None
-        return self.uow.users.get_by_email(email.lower().strip())
-
     def authenticate(self, identifier: str, password: str) -> User:
         """
         Verify credentials and enforce account lockout policies.
@@ -165,29 +159,6 @@ class AuthService:
 
         user.password_hash = password_hash
         self.uow.users.add(user)
-
-    def create_oauth_user(
-        self,
-        username: str,
-        email: str,
-        provider_id: str,
-        provider_name: str = "google",
-        password_hash: Optional[str] = None,
-        metadata: Optional[dict] = None,
-    ) -> User:
-        """Pure persistence for OAuth user creation."""
-        user = User(
-            username=username.lower().strip(),
-            email=email.lower().strip(),
-            password_hash=password_hash,
-            user_metadata=metadata or {},
-            provider_name=provider_name,
-            provider_user_id=provider_id,
-        )
-        self.uow.users.add(user)
-        self.uow.flush()
-        self.uow.emit(UserRegistered(user_id=user.id, email=user.email))
-        return user
 
     def validate_password_strength(self, password: str) -> Tuple[bool, Optional[str]]:
         """Domain-level password complexity rules"""

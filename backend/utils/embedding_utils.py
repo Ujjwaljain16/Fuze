@@ -206,26 +206,6 @@ def calculate_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
         return 0.0
 
 
-def get_content_embedding(content) -> np.ndarray:
-    """Get embedding for content combining title, extracted text, and notes."""
-    try:
-        if not content:
-            return ZERO_EMBEDDING.copy()
-
-        title = getattr(content, 'title', '') or ''
-        text_val = getattr(content, 'extracted_text', '') or ''
-        notes = getattr(content, 'notes', '') or ''
-
-        combined_text = f"{title} {text_val} {notes}".strip()
-        return get_embedding(combined_text)
-    except Exception as e:
-        logger.error("error_getting_content_embedding", extra={"error": str(e)})
-        return ZERO_EMBEDDING.copy()
-
-
-
-
-
 def is_embedding_available() -> bool:
     """Check if proper embedding model is available (not fallback)."""
     try:
@@ -233,19 +213,3 @@ def is_embedding_available() -> bool:
         return model is not None and not getattr(model, 'is_fallback_model', False)
     except Exception:
         return False
-
-
-def get_embedding_model_info() -> str:
-    """Get description of active embedding model."""
-    try:
-        model = get_embedding_model()
-        if model is None:
-            return "No embedding model available"
-
-        if getattr(model, 'is_fallback_model', False):
-            return "Fallback embedding model (limited functionality)"
-
-        model_name = getattr(model, 'model_name', 'SentenceTransformer')
-        return f"Proper embedding model: {model_name}"
-    except Exception:
-        return "No embedding model available"

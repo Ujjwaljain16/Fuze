@@ -75,12 +75,6 @@ class RecommendationFeedbackRecorded(Event):
     feedback_type: Union[FeedbackType, str] = FeedbackType.HELPFUL
 
 
-@dataclass(frozen=True, kw_only=True)
-class GeminiAnalysisTriggered(Event):
-    user_id: int
-    content_id: int
-
-
 # --- Bookmark Domain Events ---
 
 @dataclass(frozen=True, kw_only=True)
@@ -99,13 +93,6 @@ class BookmarkDeleted(Event):
 
 
 # --- Content Acquisition / Scraping Lifecycle Events ---
-
-@dataclass(frozen=True, kw_only=True)
-class ScrapingStarted(Event):
-    bookmark_id: int
-    user_id: int
-    url: str
-
 
 @dataclass(frozen=True, kw_only=True)
 class FetchStarted(Event):
@@ -158,12 +145,3 @@ class ScrapingSkipped(Event):
     url: str
     content_hash: str
     reason: str = "content_hash_unchanged"
-
-
-@dataclass(frozen=True, kw_only=True)
-class ScrapingFailed(Event):
-    bookmark_id: int
-    user_id: int
-    url: str
-    error_reason: str
-

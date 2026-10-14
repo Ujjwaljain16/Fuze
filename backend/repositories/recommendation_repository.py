@@ -16,10 +16,6 @@ class RecommendationRepository:
             return self.session.query(SavedContent).filter_by(id=content_id, user_id=user_id).first()
         return self.session.get(SavedContent, content_id)
 
-    def get_analysis_by_content_id(self, content_id: int) -> Optional[ContentAnalysis]:
-        """Fetch analysis by content ID."""
-        return self.session.query(ContentAnalysis).filter_by(content_id=content_id).first()
-
     def add_bookmark(self, bookmark: SavedContent) -> SavedContent:
         """Persist a bookmark."""
         self.session.add(bookmark)
@@ -42,17 +38,6 @@ class RecommendationRepository:
             .filter_by(user_id=user_id)
             .order_by(SavedContent.saved_at.desc())
             .offset(offset)
-            .limit(limit)
-            .all()
-        )
-
-    def get_unanalyzed_bookmarks(self, user_id: int, limit: int = 10) -> List[SavedContent]:
-        """Find bookmarks that don't have a content analysis yet."""
-        limit = max(1, min(limit, 100))
-        return (
-            self.session.query(SavedContent)
-            .outerjoin(ContentAnalysis, SavedContent.id == ContentAnalysis.content_id)
-            .filter(SavedContent.user_id == user_id, ContentAnalysis.id.is_(None))
             .limit(limit)
             .all()
         )

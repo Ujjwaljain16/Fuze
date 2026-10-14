@@ -297,23 +297,3 @@ class GeminiAnalyzer:
         except Exception as e:
             logger.error("analyze_bookmark_content_failed", extra={"title": title, "error": str(e)})
             return None
-
-
-    def generate_batch_recommendation_reasoning(self, batch_context: Dict) -> List[str]:
-        """Generate recommendation reasoning for multiple items, supporting JSON arrays."""
-        try:
-            recommendations = batch_context.get('recommendations', [])
-            if not recommendations:
-                return []
-
-            prompt = f"Generate JSON array of {len(recommendations)} short reasons for recommendations: {json.dumps(recommendations)[:1500]}"
-            response_text = self._make_gemini_request(prompt)
-            if response_text:
-                res = self._extract_json_from_response(response_text)
-                if isinstance(res, list):
-                    return [str(r) for r in res]
-
-            return ["Relevant based on matching content topics and technologies." for _ in recommendations]
-        except Exception as e:
-            logger.error("batch_reasoning_failed", extra={"error": str(e)})
-            return ["Relevant content recommendation." for _ in batch_context.get('recommendations', [])]

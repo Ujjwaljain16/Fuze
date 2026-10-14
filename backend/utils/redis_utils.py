@@ -319,18 +319,6 @@ class RedisCache:
             logger.error("redis_get_cached_embedding_error", extra={"error": str(e)})
         return None
 
-    def check_rate_limit(self, key: str, limit: int, window: int) -> bool:
-        if not self._ensure_connected():
-            return True
-        try:
-            current = self.redis_client.incr(key)
-            if current == 1:
-                self.redis_client.expire(key, window)
-            return current <= limit
-        except Exception as e:
-            logger.error("redis_check_rate_limit_error", extra={"key": key, "error": str(e)})
-            return True
-
     def get_cache(self, key: str) -> Optional[Any]:
         if not self._ensure_connected():
             return None

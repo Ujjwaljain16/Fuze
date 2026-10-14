@@ -131,13 +131,6 @@ class BookmarkRepository:
             SavedContent.saved_at >= since_date
         ).count()
 
-    def get_count_before(self, user_id: int, before_date) -> int:
-        """Count bookmarks created before a specific date"""
-        return self._session.query(SavedContent).filter(
-            SavedContent.user_id == user_id,
-            SavedContent.saved_at <= before_date
-        ).count()
-
     def get_top_categories(self, user_id: int, limit: int = 5):
         """Get the top categories with counts for a user using isnot(None) syntax"""
         return self._session.query(
