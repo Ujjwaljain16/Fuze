@@ -30,6 +30,21 @@ _DEFAULT_API_KEY_STATUS = {
     'can_make_request': False
 }
 
+def stat_changes(saved_this_week: int, saved_last_week: int) -> dict:
+    """The change line under the Total Bookmarks and Weekly Saves cards. Empty means nothing to compare.
+
+    Total Bookmarks is an all-time count, so its line says how many were added this week. Weekly Saves compares
+    with the week before, and only when that week had saves: dividing by zero used to be shown as "+100%".
+    """
+    total = {'change': f'+{saved_this_week} this week', 'change_value': saved_this_week} if saved_this_week else         {'change': '', 'change_value': 0}
+    if saved_last_week > 0:
+        percent = (saved_this_week - saved_last_week) / saved_last_week * 100
+        weekly = {'change': f'{percent:+.0f}% vs last week', 'change_value': round(percent)}
+    else:
+        weekly = {'change': '', 'change_value': 0}
+    return {'total_bookmarks': total, 'weekly_saves': weekly}
+
+
 @dashboard_bp.route('/summary', methods=['GET'])
 @jwt_required()
 def get_dashboard_summary():
@@ -130,11 +145,6 @@ def get_dashboard_summary():
         bookmarks_last_week = int(stats_result.bookmarks_last_week or 0)
         successful_bookmarks = int(stats_result.successful_bookmarks or 0)
 
-        if bookmarks_last_week > 0:
-            bookmark_change = ((bookmarks_this_week - bookmarks_last_week) / bookmarks_last_week) * 100
-        else:
-            bookmark_change = 100 if bookmarks_this_week > 0 else 0
-
         success_rate = (successful_bookmarks / total_bookmarks * 100) if total_bookmarks > 0 else 0
 
         response_data['pipeline_stats'] = {
@@ -144,27 +154,12 @@ def get_dashboard_summary():
             'analyzed': int(stats_result.analyzed_count or 0)
         }
 
+        changes = stat_changes(bookmarks_this_week, bookmarks_last_week)
         response_data['stats'] = {
-            'total_bookmarks': {
-                'value': total_bookmarks,
-                'change': f"{bookmark_change:+.1f}%",
-                'change_value': int(bookmark_change)
-            },
-            'active_projects': {
-                'value': active_projects,
-                'change': '0',
-                'change_value': 0
-            },
-            'weekly_saves': {
-                'value': bookmarks_this_week,
-                'change': f"{bookmark_change:+.1f}%",
-                'change_value': int(bookmark_change)
-            },
-            'success_rate': {
-                'value': round(success_rate, 1),
-                'change': '0%',
-                'change_value': 0
-            }
+            'total_bookmarks': {'value': total_bookmarks, **changes['total_bookmarks']},
+            'active_projects': {'value': active_projects, 'change': '', 'change_value': 0},
+            'weekly_saves': {'value': bookmarks_this_week, **changes['weekly_saves']},
+            'success_rate': {'value': round(success_rate, 1), 'change': '', 'change_value': 0},
         }
 
         # 5. Recent Bookmarks (DO NOT select extracted_text blob; compute has_content in SQL)
