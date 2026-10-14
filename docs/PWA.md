@@ -41,14 +41,15 @@ frontend/
 ├── public/
 │   ├── manifest.json        # PWA manifest
 │   ├── sw.js                # Service worker
-│   └── logo1.svg            # Icon used by the manifest
+│   ├── logo1.svg            # The wordmark (in-app logo)
+│   └── icons/               # Square PNG icons (192, 512, maskable 512, apple-touch 180)
 ├── src/
 │   ├── main.jsx             # Service worker registration, install-prompt listeners
 │   └── pages/
 │       └── ShareHandler.jsx # /share page
 ├── vite.config.js           # Replaces __BUILD_HASH__ in dist/sw.js at build time
 ├── vercel.json              # Headers for /sw.js and /manifest.json
-└── index.html               # Manifest link, theme-color, apple-touch-icon
+└── index.html               # Manifest link, theme-color, apple-touch-icon (PNG)
 ```
 
 ### Manifest
@@ -66,12 +67,14 @@ frontend/
   "theme_color": "#4DD0E1",
   "orientation": "portrait-primary",
   "scope": "/",
+  "id": "/",
   "lang": "en",
   "categories": ["productivity", "education", "business"],
   "icons": [
-    { "src": "/logo1.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/logo1.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
-    { "src": "/logo1.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/logo1.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "share_target": {
     "action": "/share",
@@ -82,8 +85,12 @@ frontend/
 }
 ```
 
-All three icons are the same SVG (`/logo1.svg`); there are no PNG icons. `index.html` also
-sets `theme-color` to `#4DD0E1` and an `apple-touch-icon`.
+The icons are real PNGs, drawn from the lightning bolt in the logo by `scripts/make_pwa_icons.py` (`logo1.svg`
+is a wide wordmark and makes a poor square icon). Android Chrome needs PNGs at 192 and 512 before it installs the
+app as a WebAPK, and only an installed app is listed in the phone's share sheet, so this is what makes "share a
+LinkedIn post to Fuze" possible. The maskable icon has its own file with the bolt inside the safe zone, and each icon
+has one `purpose`. `index.html` also sets `theme-color` to `#4DD0E1` and a PNG `apple-touch-icon` (iOS ignores an
+SVG one). iOS does not support the Web Share Target at all, so a share from an iPhone cannot open the app.
 
 ### Service Worker
 
@@ -108,7 +115,10 @@ Other details:
   reachable, registers it, checks for an update every 60 seconds, and reloads the page
   when a new worker finishes installing while an old one controls the page.
 - **Headers** (`vercel.json`): `/sw.js` is served as JavaScript with
-  `Cache-Control: public, max-age=0, must-revalidate` and `Service-Worker-Allowed: /`.
+  `Cache-Control: public, max-age=0, must-revalidate` and `Service-Worker-Allowed: /`. Vercel applies every
+  matching rule and a later one overrides an earlier one, so the `/sw.js` and `/manifest.json` rules must stay
+  **after** the generic `*.js` and `*.json` rules; with them first, the "`*.js` is immutable for a year" rule won and
+  the worker was served as immutable. `src/tests/pwa.test.js` pins the order.
 
 ### Share Handler
 

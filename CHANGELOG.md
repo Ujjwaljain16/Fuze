@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- PWA: real PNG icons (192, 512, maskable, apple-touch), so Android installs the app and lists it in the share
+  sheet and iOS shows a proper home-screen icon; the service worker is no longer served as immutable for a year (a
+  later `*.js` header rule was overriding it); shared links are no longer stored in the service worker's cache.
 - LinkedIn posts a user saves (a share from the phone to the PWA, a pasted link) are read again: a LinkedIn adapter
   makes one plain request for the post's public page and reads its structured data. This is a deliberate, documented
   exception to the robots.txt rule, on by default, switchable with `LINKEDIN_PUBLIC_FETCH_ENABLED=false`, and
