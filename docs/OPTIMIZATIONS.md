@@ -20,8 +20,8 @@ removes round trips.
 
 A real search therefore sends **1** statement when the connection has the defaults and **2** (settings, then
 the query) when it does not; it sent 7, then 3, before these changes. Both counts are asserted against a
-real Postgres in `tests/test_ann_round_trips.py`. The effect of passage trimming on the Space has not been
-measured (`perf/README.md`).
+real Postgres in `tests/test_ann_round_trips.py`. Passage trimming was measured on the Space and made no difference (database time 1138 ms against
+1122 ms; `perf/README.md`, run 7): it is kept because it returns less data, not because it is faster.
 
 Measured on the deployed Space, 30 samples per endpoint, `POST /api/search/semantic` p50 / p95 in ms:
 

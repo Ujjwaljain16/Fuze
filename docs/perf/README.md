@@ -41,14 +41,25 @@ Semantic search: p50 **-45%** (3026 to 1661 ms) and p95 **-47%** across the seri
 
 ## Where the time goes
 
-For run 6 the server reports, per semantic search (medians): total 1358 ms, embedding 2 ms, database 1122 ms in
-one statement. Postgres runs that statement in about 2 ms (`EXPLAIN (ANALYZE, BUFFERS)`: HNSW index scan, about 1,000
-buffers), so the remaining ~1.1 s is distance and data transfer between the Space and the database, not query
-cost. The Space measures **213-228 ms** to the database (Supabase, Singapore) and **2-3.5 ms** to Redis
-(`GET /health/readiness?timing=1`). Each search returned 60-140 KB, about 90% of it passage text of which the
-result list shows 300 characters; the combined statement now returns the first 700 characters of each passage
-(41-54 KB), which has not been measured on the Space yet. Moving the database next to the backend is the larger
-fix: [../REGION_MOVE.md](../REGION_MOVE.md).
+Per semantic search (medians, run 7): server total 1388 ms, embedding 15 ms, database 1138 ms in **one** statement,
+about 235 ms of other request handling. Postgres runs that statement in about 2 ms (`EXPLAIN (ANALYZE, BUFFERS)`:
+HNSW index scan, about 1,000 buffers), and from a laptop the same statement takes about 60 ms end to end. The
+Space measures **213-228 ms** to the database (Supabase, Singapore; `GET /health/readiness?timing=1`, a trivial
+`SELECT 1`) and **2-3.5 ms** to Redis. So one statement costs about **900 ms more** than a trivial one, and that
+is not query execution.
+
+What the runs rule out and what they do not:
+
+- It is **not** the SQL statement count (already 1), the embedding (15 ms), or the amount of passage text:
+  returning 41-54 KB instead of 60-140 KB left the database time at 1138 ms against 1122 ms.
+- Statement cost grows with the statement: bookmark list about 340 ms per statement, keyword search 458 ms for one
+  small statement, the semantic search 1138 ms. Cost per statement is therefore not a constant round trip.
+- Not yet tested: whether the cost scales with result size at all on this path (time `SELECT repeat('x', n)` of
+  1, 10 and 50 KB from the Space), and whether it is spent in the pooler (Supavisor, session mode) or in the
+  network between regions.
+
+The likely fix either way is the one in [../REGION_MOVE.md](../REGION_MOVE.md): move the database next to the
+backend, which removes distance for every statement whatever the cause.
 
 ## Retrieval quality
 
