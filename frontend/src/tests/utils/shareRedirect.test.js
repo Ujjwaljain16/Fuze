@@ -56,3 +56,15 @@ describe('loginPathForShare', () => {
     expect(readBack(loginPathForShare({})).redirect).toBe('/share')
   })
 })
+
+describe('usableTitle', () => {
+  it("never lets the server's \"Untitled\" placeholder beat the title the share came with", async () => {
+    const { usableTitle } = await import('../../utils/shareRedirect')
+    for (const placeholder of ['Untitled', 'untitled', '  UNTITLED ', '', '   ', null, undefined]) {
+      expect(usableTitle(placeholder), String(placeholder)).toBe('')
+    }
+    expect(usableTitle('  Amazon OA  ')).toBe('Amazon OA')
+    expect(usableTitle('Untitled Bookmark')).toBe('Untitled Bookmark')     // a real title that merely starts with the word
+    expect(usableTitle('Amazon OA') || 'Shared title').toBe('Amazon OA')
+  })
+})

@@ -5,7 +5,7 @@ import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
 import { Share2, ExternalLink, Loader2, CheckCircle2, XCircle, Globe } from 'lucide-react'
 import Button from '../components/Button'
-import { loginPathForShare } from '../utils/shareRedirect'
+import { loginPathForShare, usableTitle } from '../utils/shareRedirect'
 
 const ShareHandler = () => {
   const [searchParams] = useSearchParams()
@@ -224,7 +224,7 @@ const ShareHandler = () => {
       
       if (response.data.success) {
         setPreviewData({
-          title: response.data.title || sharedTitle || 'Untitled',
+          title: usableTitle(response.data.title) || sharedTitle || 'Untitled',
           description: response.data.description || sharedText || '',
           url: url,
           quality_score: response.data.quality_score || 0
@@ -338,7 +338,7 @@ const ShareHandler = () => {
   }
 
   return (
-    <div className={`min-h-screen bg-[#0F0F1E] ${isMobile ? 'p-3' : 'p-4'}`}>
+    <div className={`min-h-screen bg-[#0F0F1E] ${isMobile ? 'p-3 pt-16' : 'p-4'}`}>
       <div className="max-w-2xl mx-auto">
         <div className={`bg-gradient-to-br from-[#1a1a2e] to-[#252540] rounded-2xl ${isMobile ? 'p-4' : 'p-6 md:p-8'} border border-cyan-500/20 shadow-2xl`}>
           {/* Header */}

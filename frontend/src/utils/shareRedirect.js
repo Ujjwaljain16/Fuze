@@ -22,3 +22,9 @@ export const buildSharePath = ({ url, title, text } = {}) => {
  * encoded whole: left raw, "&title=..." would be read as another parameter of the login page.
  */
 export const loginPathForShare = (shared) => `/login?redirect=${encodeURIComponent(buildSharePath(shared))}`
+
+/**
+ * A title worth using, or ''. The server answers "Untitled" when it could not read a page; that must not beat the
+ * title the share came with (a LinkedIn share carries one even though the page itself cannot be read).
+ */
+export const usableTitle = (title) => (title && title.trim() && title.trim().toLowerCase() !== 'untitled' ? title.trim() : '')
