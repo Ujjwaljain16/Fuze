@@ -61,6 +61,20 @@ describe('Login Page', () => {
     expect(emailInput || passwordInput).toBeTruthy()
   })
 
+  it('gives every field an accessible name', () => {
+    renderLogin()
+    // placeholders are not labels: a screen reader needs the <label> tied to the input
+    expect(screen.getByLabelText(/email or username/i).tagName).toBe('INPUT')
+    const password = screen.getByLabelText('Password')
+    expect(password.tagName).toBe('INPUT')
+    expect(password).toHaveAttribute('type', 'password')
+
+    const toggle = screen.getByRole('button', { name: /show password/i })
+    fireEvent.click(toggle)
+    expect(password).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: /hide password/i })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('switches between login and signup', () => {
     renderLogin()
     

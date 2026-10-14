@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 const Input = ({ 
   label, 
@@ -12,10 +12,14 @@ const Input = ({
   onChange,
   ...props 
 }) => {
+  // Connects the visible label to its input so screen readers announce it and a click on the label focuses it.
+  const generatedId = useId();
+  const inputId = props.id || generatedId;
+  const errorId = `${inputId}-error`;
   return (
     <div className="group">
       {label && (
-        <label className="block text-sm font-medium text-gray-300 mb-2">
+        <label htmlFor={inputId} className="block text-sm font-medium text-gray-300 mb-2">
           {label}
         </label>
       )}
@@ -24,6 +28,9 @@ const Input = ({
           <Icon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-cyan-400 transition-colors duration-300" />
         )}
         <input
+          id={inputId}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={error ? errorId : undefined}
           type={type}
           name={name}
           value={value}
@@ -50,7 +57,7 @@ const Input = ({
         />
       </div>
       {error && (
-        <p className="mt-2 text-sm text-red-400">{error}</p>
+        <p id={errorId} className="mt-2 text-sm text-red-400">{error}</p>
       )}
     </div>
   );

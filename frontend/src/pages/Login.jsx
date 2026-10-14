@@ -587,10 +587,11 @@ export default function FuzeAuth() {
               />
 
               <div className="group">
-                <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                <label htmlFor="auth-password" className="block text-sm font-medium text-gray-300 mb-2">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors duration-300 group-focus-within:text-cyan-400" />
                   <input
+                    id="auth-password"
                     type={showPassword ? "text" : "password"}
                     name="password"
                     value={formData.password}
@@ -615,6 +616,8 @@ export default function FuzeAuth() {
                   />
                   <button
                     type="button"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-cyan-400 transition-colors duration-300"
                   >
@@ -661,10 +664,11 @@ export default function FuzeAuth() {
 
               {!isLogin && (
                 <div className="group">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+                  <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
                   <div className="relative">
                     <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500 transition-colors duration-300 group-focus-within:text-cyan-400" />
                     <input
+                      id="auth-confirm-password"
                       type="password"
                       name="confirmPassword"
                       value={formData.confirmPassword}
