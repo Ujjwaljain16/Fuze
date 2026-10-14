@@ -102,7 +102,8 @@ def test_process_bookmark_content_task_flow(app):
         mock_bookmark = MagicMock()
         mock_bookmark.title = 'Untitled Bookmark'
         mock_bookmark.notes = 'Notes'
-        mock_uow.bookmarks.get_by_id.return_value = mock_bookmark
+        mock_bookmark.user_id = 10                      # the task refuses a bookmark that is not the job's user's
+        mock_bookmark.url = 'https://example.com'       # and always fetches the bookmark's own URL
         mock_uow.bookmarks.get_by_id.return_value = mock_bookmark
 
         mock_extract.return_value = {
