@@ -5,14 +5,18 @@ and its answers) without layout noise, and it uses documented, rate-limited acce
 
 "Official API" here means a documented public endpoint that needs no key: REST APIs, oEmbed
 (YouTube, Reddit, X), RSS (Medium) and Reddit's .json listings. No scraping tricks: an adapter
-that reads a page at all (YouTube's description) checks robots.txt first.
+that reads a page at all (YouTube's description) checks robots.txt first. The one exception is
+LinkedIn, below: a documented, switchable decision, not an API.
 
 Each adapter returns SourceContent or None (unknown URL shape / API error); the caller then
 falls back to the normal HTML pipeline.
 """
 
 import json
+import os
 import re
+import threading
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
@@ -435,6 +439,110 @@ def twitter(url: str) -> Optional[SourceContent]:
                          raw={"status_id": status_id, "user": user, "author_url": data.get("author_url")})
 
 
+# --- LinkedIn: a deliberate exception -------------------------------------------------------
+#
+# LinkedIn's robots.txt forbids every crawler but its own (`User-agent: *  Disallow: /`), so the normal pipeline
+# refuses a LinkedIn link (DISALLOWED), and the rest of this module only reads documented APIs. This adapter is
+# the one exception, added at the owner's decision for a personal bookmark manager: when the user saves a link to
+# a public LinkedIn post, ONE GET fetches that post's public page with an ordinary desktop browser identity and
+# reads its structured data (JSON-LD), the same text a logged-out visitor sees. It does not log in, send cookies,
+# rotate identities or addresses, retry, or read anything behind a login; redirects are SSRF-checked; and
+# requests are spaced out so a bulk import does not hammer the site.
+#
+# LinkedIn's terms prohibit automated access, so this is a risk the operator accepts. LINKEDIN_PUBLIC_FETCH_ENABLED
+# =false turns it off, and the link is DISALLOWED again, as before.
+
+_LINKEDIN_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36")
+_LINKEDIN_POST_PATHS = ("/posts/", "/pulse/", "/feed/update/")
+_LINKEDIN_WALL_PATHS = ("/authwall", "/login", "/uas/login", "/checkpoint")
+_LINKEDIN_MIN_SECONDS_BETWEEN_REQUESTS = 5.0
+_linkedin_lock = threading.Lock()
+_linkedin_last_request = 0.0
+
+
+def linkedin_fetch_enabled() -> bool:
+    """LINKEDIN_PUBLIC_FETCH_ENABLED (default on)."""
+    return os.environ.get("LINKEDIN_PUBLIC_FETCH_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _linkedin_wait_turn(now=time.monotonic, sleep=time.sleep) -> None:
+    """At most one request per interval from this process, however many bookmarks are waiting."""
+    global _linkedin_last_request
+    with _linkedin_lock:
+        wait = _linkedin_last_request + _LINKEDIN_MIN_SECONDS_BETWEEN_REQUESTS - now()
+        if wait > 0:
+            sleep(wait)
+        _linkedin_last_request = now()
+
+
+def _is_linkedin_host(host: str) -> bool:
+    host = host.lower()
+    return host == "linkedin.com" or host.endswith(".linkedin.com")
+
+
+def _linkedin_post_data(html: str) -> Optional[Dict]:
+    """The post's text, title, author and date from its public page, or None when the page has no post."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+
+    def meta(name: str) -> str:
+        tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
+        return (tag.get("content") or "").strip() if tag else ""
+
+    body = headline = author = published = ""
+    for block in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(block.string or "")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for item in (data if isinstance(data, list) else [data]):
+            if not isinstance(item, dict) or item.get("@type") not in ("SocialMediaPosting", "Article", "NewsArticle"):
+                continue
+            body = str(item.get("articleBody") or item.get("text") or "").strip()
+            headline = str(item.get("headline") or "").strip()
+            published = str(item.get("datePublished") or "").strip()
+            who = item.get("author")
+            author = str(who.get("name") or "").strip() if isinstance(who, dict) else ""
+            break
+        if body:
+            break
+    if len(body) < 30:
+        body = meta("og:description")        # same text in the page's link preview when there is no JSON-LD
+    if len(body) < 30:
+        return None
+    # og:title reads "Topic | Author posted on the topic | LinkedIn": the topic is the useful part.
+    title = (meta("og:title").split(" | ")[0] or headline).strip()
+    canonical = soup.find("link", rel="canonical")
+    return {"body": body, "title": title or headline, "author": author or None, "published": published or None,
+            "canonical": (canonical.get("href") if canonical else None)}
+
+
+def linkedin(url: str) -> Optional[SourceContent]:
+    if not linkedin_fetch_enabled():
+        return None
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    # lnkd.in short links hide the real path until they redirect, so they are checked after the fetch.
+    if _is_linkedin_host(host) and not any(p in parsed.path for p in _LINKEDIN_POST_PATHS):
+        return None
+    _linkedin_wait_turn()
+    resp = safe_get(url, headers={"User-Agent": _LINKEDIN_BROWSER_UA, "Accept": "text/html,application/xhtml+xml",
+                                  "Accept-Language": "en-US,en;q=0.9"},
+                    timeout=TIMEOUT, max_bytes=3 * 1024 * 1024)
+    final = urlparse(resp.url)
+    if resp.status_code != 200 or not _is_linkedin_host(final.netloc):
+        return None
+    if any(final.path.startswith(p) for p in _LINKEDIN_WALL_PATHS) or not any(p in final.path for p in _LINKEDIN_POST_PATHS):
+        return None                          # a login wall, or a profile/company page rather than a post
+    post = _linkedin_post_data(resp.content.decode("utf-8", errors="replace"))
+    if post is None:
+        return None
+    return SourceContent(source="linkedin", title=post["title"], text=post["body"], author=post["author"],
+                         published_at=post["published"], description=post["body"][:300],
+                         canonical_url=post["canonical"])
+
+
 # --- dispatch ----------------------------------------------------------------------------
 
 _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
@@ -447,6 +555,8 @@ _ADAPTERS: Dict[str, Callable[[str], Optional[SourceContent]]] = {
     "youtu.be": youtube,
     **{host: reddit for host in _REDDIT_HOSTS},
     **{host: twitter for host in _X_HOSTS},
+    "linkedin.com": linkedin,
+    "lnkd.in": linkedin,
 }
 
 
@@ -456,6 +566,8 @@ def adapter_for(url: str) -> Optional[Callable[[str], Optional[SourceContent]]]:
         return _ADAPTERS[host]
     if host.endswith(".wikipedia.org"):
         return wikipedia
+    if host.endswith(".linkedin.com"):
+        return linkedin
     if host == "medium.com" or host.endswith(".medium.com"):
         return medium
     if host in _SE_SITES or host.endswith(".stackexchange.com"):

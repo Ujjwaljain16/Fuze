@@ -386,3 +386,151 @@ def test_clean_body_separates_block_tags():
     from scrapers.text_cleanup import clean_body
     assert clean_body("<details open><summary>More</summary>Body</details>") == "More\nBody"
     assert clean_body('Read <a href="https://x">the docs</a> first') == "Read the docs first"
+
+
+# ---------------------------------------------------------------- LinkedIn (the documented exception)
+
+_POST_URL = "https://www.linkedin.com/posts/jane-doe_sample-topic-activity-123-abcd"
+_POST_BODY = "Sample post about a graph problem.\n\nI tried a greedy approach first and it failed on large inputs."
+
+
+def _linkedin_html(body=_POST_BODY, ld=True, og=True):
+    import json as _json
+    blocks = ""
+    if ld:
+        blocks = ('<script type="application/ld+json">' + _json.dumps({
+            "@context": "http://schema.org", "@type": "SocialMediaPosting", "headline": "Sample post",
+            "articleBody": body, "datePublished": "2026-10-01T10:00:00.000Z",
+            "author": {"@type": "Person", "name": "Jane Doe", "url": "https://www.linkedin.com/in/jane-doe"},
+            "comment": [{"text": "someone else's comment that must not be stored"}]}) + "</script>")
+    metas = ""
+    if og:
+        metas = ('<meta property="og:title" content="Graph problem | Jane Doe posted on the topic | LinkedIn">'
+                 f'<meta property="og:description" content="{body}">')
+    return (f'<html><head>{metas}<link rel="canonical" href="https://www.linkedin.com/posts/jane-doe_canonical">'
+            f'{blocks}</head><body>login wall text</body></html>').encode()
+
+
+def _page(url=_POST_URL, status=200, content=None):
+    r = MagicMock()
+    r.url, r.status_code = url, status
+    r.content = content if content is not None else _linkedin_html()
+    return r
+
+
+@pytest.fixture
+def linkedin_fetch(monkeypatch):
+    """Enabled, with no waiting between requests; returns the patched safe_get."""
+    monkeypatch.delenv("LINKEDIN_PUBLIC_FETCH_ENABLED", raising=False)
+    monkeypatch.setattr(sa, "_linkedin_wait_turn", lambda *a, **k: None)
+    with patch.object(sa, "safe_get") as get:
+        yield get
+
+
+@pytest.mark.parametrize("url", ["https://lnkd.in/p/abc123", "https://www.linkedin.com/posts/x", "https://uk.linkedin.com/posts/x"])
+def test_linkedin_links_route_to_the_linkedin_adapter(url):
+    assert sa.adapter_for(url) is sa.linkedin
+
+
+def test_a_public_post_gives_its_text_title_author_and_date_but_not_the_comments(linkedin_fetch):
+    linkedin_fetch.return_value = _page()
+    content = sa.fetch_from_source(_POST_URL)
+    assert content.source == "linkedin"
+    assert content.title == "Graph problem"                    # LinkedIn's topic line, not "... | LinkedIn"
+    assert "I tried a greedy approach first" in content.text
+    assert "someone else's comment" not in content.text
+    assert content.author == "Jane Doe" and content.published_at == "2026-10-01T10:00:00.000Z"
+    assert content.canonical_url == "https://www.linkedin.com/posts/jane-doe_canonical"
+
+
+def test_the_one_request_is_a_plain_get_with_no_cookies_or_login(linkedin_fetch):
+    linkedin_fetch.return_value = _page()
+    sa.fetch_from_source(_POST_URL)
+    assert linkedin_fetch.call_count == 1
+    headers = linkedin_fetch.call_args.kwargs["headers"]
+    assert set(headers) == {"User-Agent", "Accept", "Accept-Language"}          # nothing like Cookie or Authorization
+    assert headers["User-Agent"].startswith("Mozilla/5.0")
+
+
+def test_a_short_link_is_followed_and_read_when_it_lands_on_a_post(linkedin_fetch):
+    linkedin_fetch.return_value = _page(url=_POST_URL + "?utm_source=share")
+    content = sa.fetch_from_source("https://lnkd.in/p/abc123")
+    assert content is not None and content.title == "Graph problem"
+
+
+def test_the_link_preview_text_is_used_when_the_page_has_no_structured_data(linkedin_fetch):
+    linkedin_fetch.return_value = _page(content=_linkedin_html(ld=False))
+    content = sa.fetch_from_source(_POST_URL)
+    assert "I tried a greedy approach first" in content.text and content.author is None
+
+
+@pytest.mark.parametrize("landing", [
+    "https://www.linkedin.com/authwall?trk=x",                 # the login wall
+    "https://www.linkedin.com/uas/login?session_redirect=x",
+    "https://www.linkedin.com/in/jane-doe",                    # a profile, not a post
+    "https://example.com/posts/not-linkedin",                  # redirected off LinkedIn
+])
+def test_a_login_wall_a_profile_or_another_site_yields_nothing(linkedin_fetch, landing):
+    linkedin_fetch.return_value = _page(url=landing)
+    assert sa.fetch_from_source("https://lnkd.in/p/abc123") is None
+
+
+def test_an_error_status_or_a_page_without_a_post_yields_nothing(linkedin_fetch):
+    linkedin_fetch.return_value = _page(status=999)
+    assert sa.fetch_from_source(_POST_URL) is None
+    linkedin_fetch.return_value = _page(content=_linkedin_html(body="short", ld=True, og=False))
+    assert sa.fetch_from_source(_POST_URL) is None
+
+
+def test_a_profile_or_company_url_is_not_requested_at_all(linkedin_fetch):
+    assert sa.fetch_from_source("https://www.linkedin.com/in/jane-doe") is None
+    assert sa.fetch_from_source("https://www.linkedin.com/company/acme") is None
+    linkedin_fetch.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["false", "0", "no", "OFF"])
+def test_the_exception_can_be_switched_off(monkeypatch, value):
+    monkeypatch.setenv("LINKEDIN_PUBLIC_FETCH_ENABLED", value)
+    with patch.object(sa, "safe_get") as get:
+        assert sa.fetch_from_source(_POST_URL) is None
+    get.assert_not_called()
+
+
+def test_requests_are_spaced_out(monkeypatch):
+    clock = {"t": 100.0}
+    slept = []
+    monkeypatch.setattr(sa, "_linkedin_last_request", 0.0)
+
+    def fake_sleep(seconds):
+        slept.append(round(seconds, 3))
+        clock["t"] += seconds
+
+    now = lambda: clock["t"]
+    sa._linkedin_wait_turn(now=now, sleep=fake_sleep)            # first: nothing to wait for
+    clock["t"] += 1.0
+    sa._linkedin_wait_turn(now=now, sleep=fake_sleep)            # 1 s later: wait out the rest of the interval
+    clock["t"] += 60.0
+    sa._linkedin_wait_turn(now=now, sleep=fake_sleep)            # a minute later: no wait
+    assert slept == [sa._LINKEDIN_MIN_SECONDS_BETWEEN_REQUESTS - 1.0]
+
+
+def test_the_engine_reads_a_linkedin_post_instead_of_refusing_it_by_robots(linkedin_fetch):
+    """The adapter runs before the robots check, so a post is read (and stored) where it used to be DISALLOWED."""
+    from scrapers.acquisition_engine import ContentAcquisitionEngine
+    linkedin_fetch.return_value = _page()
+    engine = ContentAcquisitionEngine()
+    with patch("scrapers.acquisition_engine.is_safe_url", return_value=True), \
+         patch.object(engine.robots_manager, "can_fetch", return_value=False):
+        doc = engine.acquire_and_normalize(_POST_URL)
+    assert doc.fetch_metadata.strategy == "API:linkedin"
+    assert "I tried a greedy approach first" in doc.markdown_content
+
+
+def test_when_the_exception_is_off_the_engine_refuses_it_by_robots_again(monkeypatch):
+    from scrapers.acquisition_engine import ContentAcquisitionEngine
+    monkeypatch.setenv("LINKEDIN_PUBLIC_FETCH_ENABLED", "false")
+    engine = ContentAcquisitionEngine()
+    with patch("scrapers.acquisition_engine.is_safe_url", return_value=True), \
+         patch.object(engine.robots_manager, "can_fetch", return_value=False):
+        doc = engine.acquire_and_normalize(_POST_URL)
+    assert doc.fetch_metadata.strategy != "API:linkedin" and not doc.markdown_content.strip()
