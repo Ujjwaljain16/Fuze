@@ -262,6 +262,11 @@ export const handleApiError = (error, context = '') => {
     message = error.message || ERROR_MESSAGES[ERROR_TYPES.UNKNOWN];
   }
 
+  // The server's sentence is written for people ("Invalid credentials", "Email already registered"), so show
+  // it for errors the user can act on. Session, network and 5xx errors keep a fixed message: it must not
+  // leak internals, and "session expired" is the right thing to say for a stale token.
+  const showServerMessage = Boolean(error.response) && [ERROR_TYPES.VALIDATION, ERROR_TYPES.RATE_LIMIT, ERROR_TYPES.UNKNOWN].includes(errorType);
+
   return {
     type: errorType,
     code,
@@ -269,7 +274,7 @@ export const handleApiError = (error, context = '') => {
     statusCode,
     originalError: error,
     isRetryable: errorType === ERROR_TYPES.NETWORK || errorType === ERROR_TYPES.SERVER,
-    userMessage: ERROR_MESSAGES[errorType] || message
+    userMessage: showServerMessage ? message : (ERROR_MESSAGES[errorType] || message)
   };
 };
 

@@ -34,6 +34,27 @@ describe('API error envelope', () => {
     expect(expired.type).toBe(ERROR_TYPES.AUTH)
   })
 
+  it('shows the server sentence for errors the user can act on, and a fixed one for the rest', () => {
+    const wrongPassword = handleApiError(apiError(401, { error: 'invalid_credentials', message: 'Invalid credentials' }))
+    expect(wrongPassword.userMessage).toBe('Invalid credentials')   // was "Please check your input and try again."
+
+    const taken = handleApiError(apiError(409, { error: 'email_exists', message: 'Email already registered' }))
+    expect(taken.userMessage).toBe('Email already registered')
+
+    const limited = handleApiError(apiError(429, { error: 'rate_limit_exceeded', message: 'Too many requests. Please slow down.' }))
+    expect(limited.userMessage).toBe('Too many requests. Please slow down.')
+
+    const notFound = handleApiError(apiError(404, { error: 'project_not_found', message: 'Project not found' }))
+    expect(notFound.userMessage).toBe('Project not found')
+
+    // never expose a server error's text, and keep the session-expired wording for a stale token
+    expect(handleApiError(apiError(500, { error: 'internal_error', message: 'db password leaked' })).userMessage)
+      .toBe('Server error occurred. Please try again later.')
+    expect(handleApiError(apiError(401, { error: 'token_expired', message: 'Token has expired' })).userMessage)
+      .toBe('Your session has expired. Please log in again.')
+    expect(handleApiError({ request: {} }).userMessage).toMatch(/Network connection failed/)
+  })
+
   it('falls back when there is no response body', () => {
     expect(getApiErrorCode({ message: 'Network Error' })).toBeNull()
     expect(getApiErrorMessage({ message: 'Network Error' }, 'Offline')).toBe('Offline')
