@@ -233,7 +233,6 @@ def test_analysis_stays_pending_when_the_provider_is_unreachable(provider_on, ap
         db.session.commit()
         service = BackgroundAnalysisService.__new__(BackgroundAnalysisService)
         service.redis_cache = MagicMock()
-        service._local_failed_analyses = set()
         with patch('utils.llm_provider.requests.post', side_effect=rq.ConnectionError('getaddrinfo failed')), \
              patch('utils.gemini_utils.time.sleep'), \
              patch('utils.event_bus.publish_pipeline_event') as publish:
@@ -257,7 +256,6 @@ def test_a_reply_that_cannot_be_parsed_is_still_a_failed_analysis(provider_on, a
         db.session.commit()
         service = BackgroundAnalysisService.__new__(BackgroundAnalysisService)
         service.redis_cache = MagicMock()
-        service._local_failed_analyses = set()
         with patch('utils.llm_provider.requests.post', return_value=_ok('I cannot help with that.')), \
              patch('utils.gemini_utils.gemini_circuit_breaker') as breaker, \
              patch('utils.event_bus.publish_pipeline_event'):

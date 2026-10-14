@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-Background Analysis Service for Gemini Content Analysis
-Implements fair round-robin multi-tenant scheduling, Redis TTL failure tracking,
-NOT EXISTS query optimization, and cost-optimized single-pass summary generation.
+Content analysis for one bookmark: one LLM call produces the content profile that is stored and embedded.
+Run by the RQ job `analyze_bookmark_task` (see services/bookmark_processing_service.py); the pipeline
+reconciler decides which bookmarks are due, so nothing here loops or schedules.
 """
 
 import time
 import os
 import sys
-import threading
 from datetime import datetime
-from typing import Dict, List, Optional
-from sqlalchemy import exists
+from typing import Dict, Optional
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -25,7 +23,6 @@ from models import db, SavedContent, ContentAnalysis
 from core.job_timeout import JobTimeoutException
 from utils.gemini_utils import GeminiAnalyzer
 from utils.redis_utils import RedisCache
-from core.distributed_lock import DistributedLock
 
 _app_instance = None
 
@@ -60,165 +57,13 @@ def get_app():
 
 
 class BackgroundAnalysisService:
-    """Service to analyze content in the background with Redis failure tracking and fair scheduling."""
+    """Analyzes a single bookmark with the configured LLM and stores the result."""
 
     def __init__(self):
         self.redis_cache = RedisCache()
-        self.running = False
-        self.analysis_thread = None
-        self._local_failed_analyses = set()
-
-    @property
-    def failed_analyses(self):
-        """Backward compatible property access to local failed analyses set."""
-        return self._local_failed_analyses
-
-    def start_background_analysis(self):
-        """Start or restart the background analysis thread if dead."""
-        if self.running and self.analysis_thread and self.analysis_thread.is_alive():
-            logger.info("bg_analysis_service_already_running")
-            return
-
-        self.running = True
-        self.analysis_thread = threading.Thread(target=self._analysis_worker, daemon=True)
-        self.analysis_thread.start()
-        logger.info("bg_analysis_service_started")
-
-    def stop_background_analysis(self):
-        """Stop the background analysis thread."""
-        t_bg_0 = time.perf_counter()
-        logger.info("[BG ANALYSIS TIMING] Stopping background analysis thread...")
-        self.running = False
-        if self.analysis_thread:
-            self.analysis_thread.join(timeout=5)
-        t_bg_1 = time.perf_counter()
-        logger.info(f"[BG ANALYSIS TIMING] Stopped background analysis thread in {t_bg_1 - t_bg_0:.4f}s")
-
-    def _is_failed(self, content_id: int) -> bool:
-        """Check if content ID failed recently using Redis 24h TTL."""
-        if not self.redis_cache or not self.redis_cache.connected:
-            return content_id in self._local_failed_analyses
-
-        try:
-            return bool(self.redis_cache.get_cache(f"fuze:bg_analysis:failed:{content_id}"))
-        except Exception:
-            return content_id in self._local_failed_analyses
-
-    def _mark_failed(self, content_id: int):
-        """Mark content ID as failed in Redis with 24h TTL."""
-        if self.redis_cache and self.redis_cache.connected:
-            try:
-                self.redis_cache.set_cache(f"fuze:bg_analysis:failed:{content_id}", "1", ttl=86400)
-            except Exception:
-                self._local_failed_analyses.add(content_id)
-        else:
-            self._local_failed_analyses.add(content_id)
-
-    def _analysis_worker(self):
-        """Background worker that continuously checks for unanalyzed content."""
-        while self.running:
-            try:
-                flask_app = get_app()
-                with flask_app.app_context():
-                    lock = DistributedLock("background_analysis", ttl_ms=300000)
-                    if lock.acquire():
-                        try:
-                            self._process_unanalyzed_content()
-                        finally:
-                            lock.release()
-                    else:
-                        logger.debug("bg_analysis_worker_lock_skipped")
-            except Exception as e:
-                logger.error("bg_analysis_worker_exception", extra={"error": str(e)})
-            finally:
-                try:
-                    db.session.remove()
-                except Exception:
-                    pass
-                time.sleep(30 if self.running else 1)
-
-    def _process_unanalyzed_content(self):
-        """Process content that hasn't been analyzed yet with round-robin multi-user fairness."""
-        try:
-            try:
-                db.session.execute(db.text('SELECT 1'))
-            except Exception as conn_error:
-                logger.warning("bg_analysis_db_check_failed", extra={"error": str(conn_error)})
-                return
-
-            unanalyzed_content = self._get_unanalyzed_content()
-            if not unanalyzed_content:
-                return
-
-            logger.info("bg_analysis_items_found", extra={"count": len(unanalyzed_content)})
-
-            processed = 0
-            for content in unanalyzed_content:
-                try:
-                    if hasattr(content, 'user_id'):
-                        progress_key = f"analysis_progress:{content.user_id}"
-                        self.redis_cache.set_cache(progress_key, {
-                            'status': 'analyzing',
-                            'current_item': content.title[:50] if hasattr(content, 'title') else 'Unknown',
-                            'last_updated': datetime.now().isoformat()
-                        }, ttl=3600)
-
-                    self._analyze_single_content(content)
-                    processed += 1
-                    time.sleep(3.0)
-
-                except Exception as e:
-                    logger.error("bg_analysis_single_item_failed", extra={"content_id": content.id, "error": str(e)})
-                    db.session.rollback()
-                    self._mark_failed(content.id)
-
-        except Exception as e:
-            logger.error("bg_analysis_process_failed", extra={"error": str(e)})
-            db.session.rollback()
-
-    def _get_unanalyzed_content(self) -> List[SavedContent]:
-        """
-        Query unanalyzed content using an efficient SQL NOT EXISTS clause.
-        Groups content using fair round-robin scheduling across users.
-        """
-        try:
-            subq = exists().where(ContentAnalysis.content_id == SavedContent.id)
-            query = db.session.query(SavedContent).filter(
-                SavedContent.extracted_text.isnot(None),
-                SavedContent.extracted_text != '',
-                ~subq
-            ).order_by(SavedContent.saved_at.desc())
-
-            raw_unanalyzed = query.limit(50).all()
-            filtered = [c for c in raw_unanalyzed if not self._is_failed(c.id)]
-
-            if not filtered:
-                return []
-
-            # Round-robin scheduling across users
-            user_groups: Dict[int, List[SavedContent]] = {}
-            for content in filtered:
-                user_groups.setdefault(content.user_id, []).append(content)
-
-            fair_batch = []
-            max_per_user = 3
-            user_ids = list(user_groups.keys())
-
-            for i in range(max_per_user):
-                for uid in user_ids:
-                    if i < len(user_groups[uid]):
-                        fair_batch.append(user_groups[uid][i])
-
-            return fair_batch[:15]
-
-        except Exception as e:
-            logger.error("bg_analysis_get_unanalyzed_failed", extra={"error": str(e)})
-            db.session.rollback()
-            return []
 
     def _analyze_single_content(self, content: SavedContent, user_id: Optional[int] = None, pipeline_run_id: Optional[str] = None):
         """Analyze a single content item without mutating ORM fields or making duplicate LLM calls."""
-        from datetime import datetime
         from utils.event_bus import publish_pipeline_event, generate_pipeline_run_id
         run_id = pipeline_run_id or generate_pipeline_run_id()
         target_user_id = user_id or content.user_id
@@ -316,7 +161,6 @@ class BackgroundAnalysisService:
                 logger.warning("bg_analysis_empty_result", extra={"content_id": content.id})
                 content.analysis_status = 'FAILED'
                 db.session.commit()
-                self._mark_failed(content.id)
                 publish_pipeline_event(
                     event_type="bookmark.pipeline.analysis.failed",
                     bookmark_id=content.id,
@@ -372,7 +216,6 @@ class BackgroundAnalysisService:
 
         except JobTimeoutException:
             db.session.rollback()
-            self._mark_failed(content.id)
             if analysis_announced:
                 publish_pipeline_event(
                     event_type="bookmark.pipeline.analysis.failed",
@@ -386,7 +229,6 @@ class BackgroundAnalysisService:
         except Exception as e:
             logger.error("bg_analysis_single_content_exception", extra={"content_id": content.id, "error": str(e)})
             db.session.rollback()
-            self._mark_failed(content.id)
             if analysis_announced:
                 publish_pipeline_event(
                     event_type="bookmark.pipeline.analysis.failed",

@@ -84,7 +84,6 @@ def test_analysis_during_a_cooldown_stays_pending_and_is_not_a_failure(app, test
         db.session.commit()
         service = BackgroundAnalysisService.__new__(BackgroundAnalysisService)
         service.redis_cache = MagicMock()
-        service._local_failed_analyses = set()
         with patch('services.multi_user_api_manager.get_user_api_key', return_value='users-own-key'), \
              patch('services.multi_user_api_manager.check_user_rate_limit', return_value={'can_make_request': True}), \
              patch('services.background_analysis_service.GeminiAnalyzer') as analyzer_cls, \

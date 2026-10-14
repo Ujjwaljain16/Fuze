@@ -41,12 +41,6 @@ class BookmarkRepository:
             return None
         return self._session.query(SavedContent).filter_by(user_id=user_id, url=url).first()
 
-    def get_by_normalized_url(self, user_id: int, normalized_url: str) -> Optional[SavedContent]:
-        """Find normalized URL match for user"""
-        if not normalized_url:
-            return None
-        return self._session.query(SavedContent).filter_by(user_id=user_id, url=normalized_url).first()
-
     def get_similar_by_domain_path(self, user_id: int, safe_domain_path: str) -> List[SavedContent]:
         """Find bookmarks sharing the exact domain and path boundary (used to detect duplicates with different query params)"""
         if not safe_domain_path:
