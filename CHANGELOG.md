@@ -1,27 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Recommendations: "General" and "Surprise Me" sent a fixed sentence ("I want to learn and improve my skills"), so
-  the results were the user's bookmarks about learning resources and roadmaps. They now ask for the technology
-  interests saved on the profile. General searches each interest separately and interleaves the results (one
-  blended query matched none of the topics well: 6 of 10 results strong against 9 of 10 per interest on a real
-  library); Surprise Me searches one at random. With no interests saved the old wording is used.
-- Profile page: "Member Since" showed N/A because the sign-in response, and sessions stored by older versions,
-  don't carry the full profile; the page now fetches it when it opens. Saving the form failed with "an account
-  already exists" whenever the username was left unchanged, and never saved the interests; it now uses
-  `PUT /api/profile`, which treats your own username as available, checks usernames case-insensitively and
-  returns `created_at`. The form's live username check also reported your own name as taken, which disabled
-  the Update Profile button; it now skips your own name, treats a failed check as unknown, and says when a name
-  really is taken.
-- The thumbs up and down on a recommendation now show the saved rating and say if saving failed; before, a click
-  gave no sign, and repeated clicks stored the same rating again.
-- One current rating is kept per user, bookmark and project, enforced by a unique index (migration 0019). Rating
-  again replaces it; existing duplicates keep only the newest.
-- Removed the `feedback` table and its `/api/feedback` endpoint, which nothing called and which production never
-  filled; `user_feedback` replaced them. Also dropped `saved_content.published_at`, which no code ever wrote.
-  The account export no longer has a `feedback` key (`recommendation_feedback` is unchanged).
-
 ## 1.0.0 - 2026-10-14
 
 The first release that is documented, measured and deployed end to end: web app on Vercel, API and workers on a
@@ -39,13 +17,18 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
   stack was removed (ADR-007).
 - Results the cross-encoder does not tie to the project or task are marked `weak_match` and folded behind
   "Show N weaker matches". Order is unchanged; `RECOMMENDATION_CONFIDENCE_ENABLED=false` turns it off.
+- "General" searches each of the technology interests saved on the profile on its own and interleaves the lists,
+  judging every result against its own interest (one blended query matched none of the topics well: 6 of 10
+  results strong against 9 of 10 per interest on a real library). "Surprise Me" searches one interest at random.
+  With no interests saved a generic sentence is used.
 - Feedback (helpful, not relevant, clicked) is stored with the project it was judged for, and can be exported as a
-  BEIR-format evaluation set.
+  BEIR-format evaluation set. One current rating is kept per user, bookmark and project, enforced by a unique
+  index (migration 0019): rating again replaces it.
 
 ### Performance
 
-- Semantic search: p50 3026 to 1661 ms (-45%) and p95 -47% on the live Space; SQL statements per search about 10
-  to 1. HNSW settings are database/role defaults (migrations 0015-0018), related details are joined into the
+- Semantic search: p50 3026 to 1661 ms (-45%) and p95 -47% on the live Space (1663 / 1962 ms again on the deployed
+  build, `docs/perf/` run 8); SQL statements per search about 10 to 1. HNSW settings are database/role defaults (migrations 0015-0018), related details are joined into the
   passage query, and pooled connections are pinged only after sitting idle.
 - Opt-in `X-Server-Timing: 1` header (total, embedding, database, statement count) and `scripts/bench_live.py`.
 - Redis use fits the free Upstash plan: no RQ scheduler, one `MGET` per reconciler pass, 30-minute worker
@@ -71,11 +54,20 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
 - The dashboard counts bookmarks whose page could not be read ("Couldn't read"), so the pipeline stages add up to the
   total, and no longer shows +100% on both the total and weekly cards.
 - Form labels are tied to their inputs; server messages are shown for errors the user can act on.
+- The thumbs up and down on a recommendation show the saved rating and say if saving failed, and ignore clicks
+  while a rating is being sent.
+- Profile page: "Member Since" is fetched from the full profile when the page opens (the sign-in response does not
+  carry it). The form saves username and interests with one `PUT /api/profile`, which treats your own username as
+  available and checks usernames case-insensitively; the live username check no longer reports your own name, or a
+  check that failed, as taken, and says when a name really is taken.
 
 ### Removed
 
 - The earlier recommendation stack (domain model, strategy pipeline, shadow-mode rollout, ADR-001 to 006),
   unused modules, one-off scripts and 22 unused dependency pins.
+- The `feedback` table and its `/api/feedback` endpoint, which nothing called and production never filled
+  (`user_feedback` replaced them), and `saved_content.published_at`, which no code ever wrote (migration 0019).
+  The account export no longer has a `feedback` key; `recommendation_feedback` is unchanged.
 
 ### Known limitations
 
