@@ -8,14 +8,14 @@ touches no database. Since run 4 each result also carries the server's own break
 
 ## Live API, p50 / p95 in milliseconds
 
-| Endpoint | 0 baseline | 1 | 2 | 3 | 4 | 5 | 6 |
-|---|---|---|---|---|---|---|---|
-| Network floor, no DB | 314 / 421 | 311 / 333 | 297 / 617 | 311 / 423 | 277 / 415 | 305 / 384 | 307 / 509 |
-| Bookmark list (cached) | 317 / 1756 | 319 / 3604 | 359 / 1635 | 316 / 3573 | 263 / 1503 | 327 / 1231 | 1176 / 1474 (*) |
-| Dashboard summary (cached) | 318 / 432 | 315 / 391 | 306 / 424 | 305 / 454 | 286 / 446 | 313 / 441 | 1869 / 2240 (*) |
-| Keyword search | 1239 / 1347 | 1031 / 3540 | 1032 / 3294 | 983 / 1320 | 991 / 1464 | 952 / 1185 | 948 / 3170 |
-| **Semantic search** | **3026 / 3915** | 2104 / 2569 | 2154 / 2604 | 2209 / 2605 | 2167 / 4310 | 1833 / 2302 | **1661 / 2071** |
-| SQL statements per semantic search | about 7 + ping, BEGIN, ROLLBACK | 3 | 3 | 3 | 2 | 1 | 1 |
+| Endpoint | 0 baseline | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| Network floor, no DB | 314 / 421 | 311 / 333 | 297 / 617 | 311 / 423 | 277 / 415 | 305 / 384 | 307 / 509 | 282 / 356 |
+| Bookmark list (cached) | 317 / 1756 | 319 / 3604 | 359 / 1635 | 316 / 3573 | 263 / 1503 | 327 / 1231 | 1176 / 1474 (*) | 300 / 1521 |
+| Dashboard summary (cached) | 318 / 432 | 315 / 391 | 306 / 424 | 305 / 454 | 286 / 446 | 313 / 441 | 1869 / 2240 (*) | 297 / 483 |
+| Keyword search | 1239 / 1347 | 1031 / 3540 | 1032 / 3294 | 983 / 1320 | 991 / 1464 | 952 / 1185 | 948 / 3170 | 968 / 1352 |
+| **Semantic search** | **3026 / 3915** | 2104 / 2569 | 2154 / 2604 | 2209 / 2605 | 2167 / 4310 | 1833 / 2302 | **1661 / 2071** | **1686 / 2656** |
+| SQL statements per semantic search | about 7 + ping, BEGIN, ROLLBACK | 3 | 3 | 3 | 2 | 1 | 1 | 1 |
 
 What each run measured:
 
@@ -30,6 +30,12 @@ What each run measured:
 - **6** is the same code, but **(\*)** it ran while the Redis plan's monthly command quota was exhausted, so the
   cache layer was down and the "cached" endpoints went to the database. Ignore those two cells; they are not a
   regression of the cache.
+
+- **7** is after the Redis quota problem was fixed and the passage text was trimmed to 700 characters in SQL
+  (41-54 KB returned instead of 60-140 KB). The cached endpoints are back at the network floor (300 and 297 ms
+  against 282). Semantic search did not move (1686 against 1661 ms; database time 1138 against 1122 ms for the
+  same single statement), so returning less text did **not** remove the time. Its server-side `other` column in
+  that file is computed over cache-miss samples only for the cached endpoints (a script bug, fixed afterwards).
 
 Semantic search: p50 **-45%** (3026 to 1661 ms) and p95 **-47%** across the series.
 

@@ -104,8 +104,10 @@ class Bench:
         if not times:
             return None
         stats = summarize(times)
-        if server:  # median of each part the server reported, across the samples
-            stats["server"] = {key: round(statistics.median(s[key] for s in server if key in s), 1)
+        if server:  # median of each part across ALL samples; a part a response did not report counts as 0
+            # (a cached response runs no SQL: taking the median over only the cache misses made "db" larger
+            # than "total" and the "other" column negative)
+            stats["server"] = {key: round(statistics.median(s.get(key, 0) for s in server), 1)
                                for key in ("total", "embed", "db", "statements") if any(key in s for s in server)}
         return stats
 
