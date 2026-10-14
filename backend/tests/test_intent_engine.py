@@ -223,3 +223,48 @@ def test_document_candidates_enable_iterative_hnsw_scan_on_postgres():
     assert "hnsw.iterative_scan" in sql[0] and "hnsw.ef_search" in sql[0]  # both settings in one statement
     assert session.execute.call_args_list[0].args[1] == {"ef": "60"}
     assert "<=>" in sql[1]
+
+
+# ---------------------------------------------------------------- confidence check (weak matches)
+
+def _result(i):
+    return {"id": i, "metadata": {}}
+
+
+def test_a_result_scoring_below_the_floor_is_marked_weak_and_nothing_is_reordered():
+    from ml.intent_engine.engine import WEAK_MATCH_LOGIT, mark_weak_matches
+    results = [_result(1), _result(2), _result(3)]
+    weak = mark_weak_matches(results, ["a", "b", "c"], "q",
+                             score_fn=lambda q, p: [3.0, WEAK_MATCH_LOGIT - 0.1, WEAK_MATCH_LOGIT])
+    assert weak == 1
+    assert [r["weak_match"] for r in results] == [False, True, False]     # at the floor is not weak
+    assert [r["id"] for r in results] == [1, 2, 3]
+    assert results[0]["metadata"]["confidence_score"] == 3.0
+
+
+def test_when_the_model_is_unavailable_nothing_is_marked():
+    from ml.intent_engine.engine import mark_weak_matches
+    results = [_result(1), _result(2)]
+    assert mark_weak_matches(results, ["a", "b"], "q", score_fn=lambda q, p: None) == 0
+    assert all("weak_match" not in r for r in results)        # unknown, not "strong"
+
+    def boom(q, p):
+        raise RuntimeError("model crashed")
+    assert mark_weak_matches(results, ["a", "b"], "q", score_fn=boom) == 0
+    assert all("weak_match" not in r for r in results)
+
+
+def test_mismatched_inputs_are_ignored_not_guessed():
+    from ml.intent_engine.engine import mark_weak_matches
+    results = [_result(1), _result(2)]
+    assert mark_weak_matches(results, ["only one passage"], "q", score_fn=lambda q, p: [0.0]) == 0
+    assert mark_weak_matches([], [], "q", score_fn=lambda q, p: []) == 0
+
+
+def test_the_check_can_be_switched_off(monkeypatch):
+    from ml.intent_engine.engine import confidence_check_enabled
+    monkeypatch.delenv("RECOMMENDATION_CONFIDENCE_ENABLED", raising=False)
+    assert confidence_check_enabled() is True
+    for off in ("false", "0", "no", "OFF"):
+        monkeypatch.setenv("RECOMMENDATION_CONFIDENCE_ENABLED", off)
+        assert confidence_check_enabled() is False

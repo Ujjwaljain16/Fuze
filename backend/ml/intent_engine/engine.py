@@ -4,9 +4,10 @@ Intent × content recommendation engine.
   intent (user's own context + cached Gemini statement/needs)
     -> query vectors
     -> nearest passages/profiles over the user's content (pgvector)
-    -> cross-encoder rerank of (intent, best passage)       [optional]
+    -> cross-encoder rerank of (intent, best passage)       [optional, changes the order]
     -> MMR diversity
     -> results explained by the passage that matched
+    -> cross-encoder confidence check of the picked results [marks weak matches, never reorders]
 
 No keyword lists, rule-based boosts or query-independent multipliers.
 """
@@ -14,6 +15,7 @@ No keyword lists, rule-based boosts or query-independent multipliers.
 import hashlib
 import json
 import math
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +32,48 @@ RERANK_TOP_N = 30
 MMR_LAMBDA = 0.7
 CACHE_TTL = 600
 SNIPPET_CHARS = 240
+
+# Raw cross-encoder score (ms-marco-MiniLM-L-6-v2) of (intent, best passage) under which a picked result is
+# marked a weak match. Chosen by judging 15 requests (5 projects, 10 tasks, 150 results) on a real library of 238
+# bookmarks; the scores below are for the passage the engine itself passes in. Unfiltered, 60% of the results
+# were clearly useful. With a floor of -5, 89% of the irrelevant results and 45% of the loosely related ones
+# are marked weak, the strong list is 81% clearly useful, and 23% of the useful results are marked weak too
+# (mostly bookmarks with no readable page text, so the passage says little). Weak results are folded away, not
+# removed, so that cost is one click. Cosine similarity could not do this: irrelevant results reached 77%
+# while some useful ones sat at 66%, and its best floor kept 12% of the irrelevant at 21% loss of useful.
+WEAK_MATCH_LOGIT = -5.0
+
+
+def confidence_check_enabled() -> bool:
+    """RECOMMENDATION_CONFIDENCE_ENABLED (default on): mark weak matches with the cross-encoder."""
+    return os.environ.get("RECOMMENDATION_CONFIDENCE_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def mark_weak_matches(results: List[Dict[str, Any]], passages: List[str], query: str, score_fn=None) -> int:
+    """Flag results whose best passage the cross-encoder does not tie to `query`; returns how many are weak.
+
+    The order is left alone (similarity plus diversity ranked well: nDCG 0.97 on the judged requests); this
+    only says how sure the engine is. When the model is unavailable nothing is marked, which the page reads as
+    "unknown", not "strong".
+    """
+    if not results or len(results) != len(passages):
+        return 0
+    if score_fn is None:
+        from utils.reranker import rerank_passages as score_fn
+    try:
+        scores = score_fn(query, passages)
+    except Exception:
+        logger.warning("recommendation_confidence_check_failed", exc_info=True)
+        return 0
+    if scores is None:
+        return 0
+    weak = 0
+    for result, score in zip(results, scores):
+        score = float(score)
+        result["weak_match"] = score < WEAK_MATCH_LOGIT
+        result["metadata"]["confidence_score"] = round(score, 2)
+        weak += result["weak_match"]
+    return weak
 
 
 def _sigmoid(x: float) -> float:
@@ -157,7 +201,7 @@ def _load_items(session, user_id: int, ids: List[int]) -> Dict[int, Dict[str, An
 def _cache_key(intent: Intent, user_id: int, limit: int, rerank: bool) -> str:
     from utils.content_version import get_content_version
     from utils.embedding_utils import active_embedding_model_name
-    raw = (f"{user_id}|{intent.hash}|{bool(intent.statement)}|{limit}|{rerank}|"
+    raw = (f"{user_id}|{intent.hash}|{bool(intent.statement)}|{limit}|{rerank}|{confidence_check_enabled()}|"
            f"{active_embedding_model_name()}|v{get_content_version(user_id)}")
     return "intent_recs:" + hashlib.sha256(raw.encode()).hexdigest()[:32]
 
@@ -250,7 +294,10 @@ def recommend(session, user_id: int, query: str = "", project_id: Optional[int] 
             },
         })
 
-    payload = {"results": results, "intent": meta}
+    weak = 0
+    if confidence_check_enabled():
+        weak = mark_weak_matches(results, [c["passage"] for c in picked], intent.rerank_query)
+    payload = {"results": results, "intent": meta, "weak_matches": weak}
     latency_ms = round((time.perf_counter() - started) * 1000, 1)
     logger.info("intent_engine_recommendations", extra={
         "user_id": user_id, "candidates": len(candidates), "results": len(results),

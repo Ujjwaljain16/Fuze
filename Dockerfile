@@ -55,13 +55,14 @@ RUN pip install --no-cache-dir --no-index --no-deps /wheels/*.whl --root-user-ac
 # Created before the model download so the model files are owned by it in the same layer.
 RUN useradd --create-home --uid 1000 appuser
 
-# Bake the embedding model (DEFAULT_EMBEDDING_MODEL in backend/utils/embedding_utils.py) into
+# Bake the embedding model (DEFAULT_EMBEDDING_MODEL in backend/utils/embedding_utils.py) and the small
+# cross-encoder that marks weak recommendations (backend/utils/reranker.py, about 90 MB) into
 # the image. Otherwise every new container downloads it on first use: slow cold starts, and a
 # Hub outage means embeddings fail (EmbeddingUnavailable) until it recovers. This layer sits above the app code, so
 # code changes don't download it again; the chown in the same RUN avoids a second copy of the
 # model in a later layer.
 ENV HF_HOME=/app/.cache/huggingface
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')" && \
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('BAAI/bge-small-en-v1.5'); CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')" && \
     chown -R appuser:appuser /app/.cache
 
 # Copy application code
@@ -81,7 +82,7 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=wsgi:app
 ENV PORT=7860
 # Never reach out to the Hub at run time: the model baked in above is all production loads.
-# Changing EMBEDDING_MODEL_NAME or turning on SEARCH_RERANK_ENABLED needs another model: bake
+# Changing EMBEDDING_MODEL_NAME or SEARCH_RERANK_MODEL needs another model: bake
 # it in the same way (or run with HF_HUB_OFFLINE=0), or loading it fails and the app falls back.
 ENV HF_HUB_OFFLINE=1
 
