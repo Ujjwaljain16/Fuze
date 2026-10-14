@@ -1,39 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- LinkedIn posts: Unicode "bold" letters in a fetched post (`𝐆𝐢𝐭𝐇𝐮𝐛`) are turned into ordinary letters, so search and
-  the embedding read them as words. Extension 1.1.2 saves a social post under its own topic instead of the tab's
-  "Post | LinkedIn", unless the title was edited.
-- Phone layout, found by opening every page at 375px: the sidebar's desktop margin applied on phones too, so every
-  signed-in page was squeezed into a ~100px column (titles one letter per line); the navigation drawer started open
-  and covered the page for every new visitor; the project page's title, and its task buttons, were squeezed or ran
-  off the edge; page headers stacked into a column that took 40% of the first screen; and the bookmark, dashboard and
-  project action buttons that appear on hover never appeared on a phone. Stat tiles on the dashboard and profile are
-  now two columns. Desktop layout is unchanged.
-- Gradient buttons had no background anywhere in the app: a leftover Tailwind 3 copy of the gradient classes
-  overrode Tailwind 4's. Removed, so the primary buttons show their gradient. The secondary button (Cancel) was a
-  copy of the primary one and is now a quiet outline.
-- The share page showed "Untitled" instead of the title that came with a share, because the server's placeholder
-  beat it.
-- Sharing to the PWA while signed out: the shared title and text now survive the login (before, only the link did),
-  and the share page no longer redirects before it has read what was shared. Signing in with Google also returns to
-  the share instead of the dashboard, where it used to be lost entirely; the destination is checked as a same-app
-  path both when it is stored and when it is used.
-- PWA: real PNG icons (192, 512, maskable, apple-touch), so Android installs the app and lists it in the share
-  sheet and iOS shows a proper home-screen icon; the service worker is no longer served as immutable for a year (a
-  later `*.js` header rule was overriding it); shared links are no longer stored in the service worker's cache.
-- LinkedIn posts a user saves (a share from the phone to the PWA, a pasted link) are read again: a LinkedIn adapter
-  makes one plain request for the post's public page and reads its structured data. This is a deliberate, documented
-  exception to the robots.txt rule, on by default, switchable with `LINKEDIN_PUBLIC_FETCH_ENABLED=false`, and
-  untested from the hosted Space's address, where LinkedIn may refuse it.
-- Extension 1.1.1: a post the page publishes as structured data (a LinkedIn post, for example) is captured as that
-  post alone, without the replies and interface around it, so saving a LinkedIn post from the extension gives the
-  same clean text a server fetch would, read from your own browser.
-- A bookmark whose page could not be read now says why under its title: a site that forbids automated reading
-  (LinkedIn, which also covers `lnkd.in` short links) or a failed read, and what to do (save it with the extension
-  while viewing it, or paste the text into the notes). `GET /api/bookmarks` returns `scrape_status` for this.
-
 ## 1.0.0 - 2026-10-14
 
 The first release that is documented, measured and deployed end to end: web app on Vercel, API and workers on a
@@ -74,6 +40,16 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
   remote reader, then the Wayback Machine. Private addresses are refused and a robots.txt disallow stops every tier.
 - A reconciler re-queues stuck fetches, embeddings and analyses with backoff.
 - A processing job always fetches the bookmark's stored URL and refuses a bookmark that is not the job's user's.
+- LinkedIn posts a user saves (shared from the phone to the PWA, or a pasted link) are read by a LinkedIn adapter:
+  one plain request for the post's public page, reading its structured data (text, topic title, author, date; not the
+  replies). Unicode "bold" letters (`𝐆𝐢𝐭𝐇𝐮𝐛`) are turned into ordinary letters so search and the embedding read them as
+  words. This is a deliberate, documented exception to the robots.txt rule, on by default and switchable with
+  `LINKEDIN_PUBLIC_FETCH_ENABLED=false`. It has been checked from the hosted Space's own address.
+- The extension (1.1.2) captures a post the page publishes as structured data as that post alone, without the replies
+  and interface, and saves it under its own topic instead of the tab's "Post | LinkedIn" unless the title was edited.
+- A bookmark whose page could not be read says why under its title (a site that forbids automated reading, or a
+  failed read) and what to do instead (save it with the extension while viewing it, or paste the text into the
+  notes). `GET /api/bookmarks` returns `scrape_status` for this.
 
 ### Security and operations
 
@@ -82,6 +58,9 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
 - Database-writing evaluation scripts refuse any target except a throwaway local Postgres.
 - Runbooks for deployment, backups and restore, the Redis budget, and a database region move
   ([docs/](docs/README.md)).
+- The nightly encrypted database backup and the weekly restore drill both run end to end and pass (the drill restores
+  the newest backup into a scratch Postgres and checks the schema revision and the core tables). Getting there fixed
+  a missing passphrase secret, a verify step that broke gpg's pipe, and a restore that lacked the `pg_trgm` extension.
 
 ### Interface
 
@@ -94,6 +73,18 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
   carry it). The form saves username and interests with one `PUT /api/profile`, which treats your own username as
   available and checks usernames case-insensitively; the live username check no longer reports your own name, or a
   check that failed, as taken, and says when a name really is taken.
+- Phone layout, found by opening every page at 375px: the sidebar's desktop margin no longer applies on phones (every
+  signed-in page had been squeezed into a ~100px column), the navigation drawer starts closed, page headers stay a
+  row, stat tiles are two columns, the project page fits, and actions that appear on hover also show on touch screens.
+  Desktop layout is unchanged.
+- Gradient buttons now have their background: a leftover Tailwind 3 copy of the gradient classes had overridden
+  Tailwind 4's. The secondary button (Cancel) is a quiet outline instead of a copy of the primary one.
+- PWA: real PNG icons (192, 512, maskable, apple-touch), so Android installs the app and lists it in the share sheet;
+  the service worker is served uncached (a later header rule had made it immutable for a year); shared links are not
+  stored in its cache.
+- Sharing to the PWA: a share opened while signed out keeps its title and text through the login (and a Google
+  sign-in returns to it instead of the dashboard); the title that came with a share is not replaced by the server's
+  "Untitled".
 
 ### Removed
 
@@ -111,3 +102,6 @@ Measurements are in [docs/perf/](docs/perf/README.md) and [backend/eval/results/
 - Pages that need a login or a browser may come back with little or no text; they show as "Couldn't read".
 - Single container on free tiers; horizontal scaling is designed for (stateless web workers, queues) but not tested.
 - Feedback is recorded but does not change ranking.
+- The LinkedIn exception above goes against LinkedIn's terms and robots.txt, so it is a risk the operator accepts;
+  LinkedIn may refuse the hosted Space's address at any time, and the post then shows as "couldn't read".
+- iOS does not support the Web Share Target, so a share from an iPhone cannot open the installed app.
