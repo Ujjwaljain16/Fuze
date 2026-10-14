@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { splitByConfidence } from '../utils/recommendationConfidence'
 import { feedbackContext } from '../utils/feedbackContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
@@ -19,6 +20,8 @@ import Loader from '../components/Loader'
 const Recommendations = () => {
   const { isAuthenticated, user, logout } = useAuth()
   const [recommendations, setRecommendations] = useState([])
+  const [showWeak, setShowWeak] = useState(false)
+  const confidence = splitByConfidence(recommendations, showWeak)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [geminiAvailable, setGeminiAvailable] = useState(false)
@@ -167,6 +170,7 @@ const Recommendations = () => {
       
       if (response.data.recommendations) {
         setRecommendations(response.data.recommendations)
+        setShowWeak(false)
       } else {
         setRecommendations([])
       }
@@ -501,7 +505,7 @@ const Recommendations = () => {
               ) : recommendations.length > 0 ? (
                 /* Recommendations Grid */
                 <div className={`grid grid-cols-1 ${isMobile ? 'gap-4' : 'gap-6'}`}>
-                  {recommendations.map((rec) => (
+                  {confidence.visible.map((rec) => (
                     <RecommendationCard 
                       key={rec.id} 
                       recommendation={rec} 
@@ -511,6 +515,25 @@ const Recommendations = () => {
                       isSmallMobile={isSmallMobile}
                     />
                   ))}
+                  {confidence.weakCount > 0 ? (
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        data-testid="toggle-weak-matches"
+                        onClick={() => setShowWeak(!showWeak)}
+                        className="px-4 py-2 rounded-xl border border-gray-600 text-gray-300 hover:bg-white/5 transition-colors text-sm"
+                      >
+                        {showWeak
+                          ? 'Hide weaker matches'
+                          : `Show ${confidence.weakCount} weaker ${confidence.weakCount === 1 ? 'match' : 'matches'}`}
+                      </button>
+                      {!showWeak && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          These are close in topic, but the saved page does not clearly relate to this context.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 /* Empty State */
@@ -825,6 +848,9 @@ const RecommendationCard = ({ recommendation, onFeedback, selectedContext, isMob
                   {isSmartRecommendation && <TargetIcon className={`${isMobile ? 'w-2.5 h-2.5' : 'w-3 h-3'} inline ml-1`} />}
                   {isGeminiRecommendation && <Brain className={`${isMobile ? 'w-2.5 h-2.5' : 'w-3 h-3'} inline ml-1`} />}
                 </span>
+                {recommendation.weak_match === true && (
+                  <span className="text-xs text-amber-400/80 mt-1" data-testid="weak-match-tag">Weaker match</span>
+                )}
                 {isEnhancedRecommendation && (
                   <span className="text-xs text-gray-500 mt-1">
                     {recommendation.algorithm_used || recommendation.analysis?.algorithm_used || 'Enhanced'}
