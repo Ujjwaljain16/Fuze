@@ -9,15 +9,9 @@ import {
   Bookmark, Search, Plus, ExternalLink, Trash2, Filter, Sparkles, 
   Grid3X3, List, Star, Clock, Globe, MoreHorizontal, Zap, ArrowLeft, ArrowRight, X, LogOut
 } from 'lucide-react'
+import { FILTER_CATEGORIES } from '../utils/categories'
 
-const categoryOptions = [
-  { value: 'all', label: 'All Categories' },
-  { value: 'work', label: 'Work' },
-  { value: 'personal', label: 'Personal' },
-  { value: 'research', label: 'Research' },
-  { value: 'entertainment', label: 'Entertainment' },
-  { value: 'other', label: 'Other' },
-]
+const categoryOptions = FILTER_CATEGORIES
 
 const Bookmarks = () => {
   const { isAuthenticated, logout } = useAuth()

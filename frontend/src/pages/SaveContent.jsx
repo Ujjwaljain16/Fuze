@@ -4,6 +4,7 @@ import { useToast } from '../contexts/ToastContext'
 import { Link } from 'react-router'
 import api from '../services/api'
 import { getSafeHref } from '../utils/urlSafety'
+import { CATEGORIES } from '../utils/categories'
 import logo1 from '../assets/logo1.svg'
 import { 
   Bookmark, ExternalLink, Loader2, Plus, Tag, AlertTriangle, Eye, 
@@ -198,17 +199,9 @@ const SaveContent = () => {
     }
   }
 
-  const categoryOptions = [
-    { value: 'other', label: 'Other', icon: Globe },
-    { value: 'technology', label: 'Technology', icon: Zap },
-    { value: 'programming', label: 'Programming', icon: Sparkles },
-    { value: 'design', label: 'Design', icon: Star },
-    { value: 'business', label: 'Business', icon: CheckCircle },
-    { value: 'education', label: 'Education', icon: Bookmark },
-    { value: 'news', label: 'News', icon: Clock },
-    { value: 'tutorial', label: 'Tutorial', icon: Plus },
-    { value: 'research', label: 'Research', icon: Eye }
-  ]
+  const categoryIcons = { other: Globe, technology: Zap, programming: Sparkles, design: Star, business: CheckCircle,
+    education: Bookmark, news: Clock, tutorial: Plus, research: Eye }
+  const categoryOptions = CATEGORIES.map(c => ({ ...c, icon: categoryIcons[c.value] || Globe }))
 
   if (!isAuthenticated) {
     return (
