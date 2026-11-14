@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
+import re
 from models import db, User
 from utils.redis_utils import redis_cache
 from core.logging_config import get_logger
@@ -12,6 +13,7 @@ logger = get_logger(__name__)
 STATUS_CACHE_TTL = 300  # 5 minutes
 TEST_RATE_LIMIT_TTL = 60  # 1 minute
 TEST_MAX_CALLS_PER_MINUTE = 5
+_API_KEY_SHAPE = re.compile(r'[A-Za-z0-9._\-]{20,256}')
 
 
 def get_multi_user_api_manager():
@@ -78,10 +80,11 @@ def add_api_key():
 
         api_key = api_key.strip()
 
-        # Format validation
-        if len(api_key) < 20 or not api_key.startswith('AIzaSy'):
+        # Format validation. Google has issued more than one key shape ("AIzaSy..." and newer "AQ.…" keys), so
+        # check only that it is one token of plausible length and characters; a wrong key fails at first use.
+        if not _API_KEY_SHAPE.fullmatch(api_key):
             logger.warning("invalid_api_key_format", extra={"user_id": user_id})
-            return error_response('invalid_api_key_format', 'Invalid API key format. Must be a valid Gemini API key starting with AIzaSy.', 400)
+            return error_response('invalid_api_key_format', 'Invalid API key format. Paste the whole Gemini API key from Google AI Studio (letters, digits, "-", "_" and "." only, 20 to 256 characters).', 400)
 
         # Add API key for user
         success = add_user_api_key(user_id, api_key, api_key_name)

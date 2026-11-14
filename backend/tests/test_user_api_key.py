@@ -33,6 +33,29 @@ class TestUserAPIKey:
         
         assert response.status_code == 400
     
+    @pytest.mark.parametrize('key', [
+        'AQ.Ab8RN6FakeNewStyleKeyForTests_0123456789',   # the newer Google key shape (fake)
+        'AIzaSyFakeOldStyleKeyForTests0123456789',
+    ])
+    def test_both_google_key_shapes_are_accepted(self, client, auth_headers, key):
+        with patch('blueprints.user_api_key.get_multi_user_api_manager') as mock_manager:
+            add = MagicMock(return_value=True)
+            mock_manager.return_value = (add, None, None, None, MagicMock())
+            response = client.post('/api/user/api-key', json={'api_key': key}, headers=auth_headers)
+        assert response.status_code == 200
+        assert add.call_args.args[1] == key
+
+    @pytest.mark.parametrize('key', [
+        'AQ.too-short',
+        'AQ.has a space inside 0123456789',
+        'AQ.has\nnewline_0123456789abcdef',
+        'AQ.quote"and<angle>_0123456789',
+        'A' * 300,
+    ])
+    def test_a_key_that_is_not_one_plain_token_is_refused(self, client, auth_headers, key):
+        response = client.post('/api/user/api-key', json={'api_key': key}, headers=auth_headers)
+        assert response.status_code == 400
+
     def test_get_api_key_info(self, client, auth_headers, test_user, app):
         """Test getting API key info"""
         from models import db, User
