@@ -6,7 +6,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import event
-from sqlalchemy.orm import column_property, relationship
+from sqlalchemy.orm import backref, column_property, relationship
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -250,7 +250,10 @@ class ContentAnalysis(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
     # Relationship to SavedContent
-    content = relationship('SavedContent', backref='analyses')
+    # Deleting a bookmark deletes its analyses. Without this cascade SQLAlchemy set content_id to NULL instead,
+    # which violates NOT NULL (a 500 on DELETE /api/bookmarks). The ORM deletes them itself, so it also works
+    # where foreign keys are not enforced (SQLite).
+    content = relationship('SavedContent', backref=backref('analyses', cascade='all, delete-orphan'))
 
     # Production constraints
     __table_args__ = (
