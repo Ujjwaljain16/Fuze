@@ -294,3 +294,13 @@ def test_building_the_config_without_a_gemini_key_does_not_recurse(monkeypatch, 
             monkeypatch.setenv(name, value)
     config = UnifiedConfig()  # a fresh instance, as the first get_config() call builds it
     assert llm_provider.is_active(config.ai) is with_provider
+
+
+def test_the_gemini_output_budget_leaves_room_for_thinking_models(monkeypatch):
+    """1024 tokens cut analysis JSON and Ask answers off mid-reply: gemini-2.5 models spend hundreds of hidden
+    tokens thinking, and those count against the limit."""
+    from utils.unified_config import AIConfig
+    monkeypatch.delenv('GEMINI_MAX_TOKENS', raising=False)
+    assert AIConfig().gemini_max_tokens >= 4096
+    monkeypatch.setenv('GEMINI_MAX_TOKENS', '2048')
+    assert AIConfig().gemini_max_tokens == 2048  # still overridable

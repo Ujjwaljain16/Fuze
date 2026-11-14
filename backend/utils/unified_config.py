@@ -97,7 +97,9 @@ class AIConfig:
     gemini_model: str = field(default_factory=lambda: os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'))
     gemini_fallback_model: str = field(default_factory=lambda: os.getenv('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash-lite'))
     gemini_temperature: float = field(default_factory=lambda: float(os.getenv('GEMINI_TEMPERATURE', '0.7')))
-    gemini_max_tokens: int = field(default_factory=lambda: int(os.getenv('GEMINI_MAX_TOKENS', '1024')))
+    # Output budget per Gemini call. gemini-2.5 models think first and that hidden reasoning counts against it, so
+    # 1024 cut analysis JSON and Ask answers off mid-reply (3 of 6 pages failed to analyse). Only tokens used are billed.
+    gemini_max_tokens: int = field(default_factory=lambda: int(os.getenv('GEMINI_MAX_TOKENS', '4096')))
     gemini_timeout: int = field(default_factory=lambda: int(os.getenv('GEMINI_TIMEOUT', '30')))
     enable_gemini: bool = field(default_factory=lambda: os.getenv('ENABLE_GEMINI', 'true').lower() == 'true')
     # An OpenAI-compatible provider (CloseRouter, OpenRouter...) instead of Gemini for the whole

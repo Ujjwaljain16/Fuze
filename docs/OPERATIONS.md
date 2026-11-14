@@ -194,6 +194,7 @@ For a deployment that should not depend on per-user Gemini keys, set an OpenAI-c
 | `LLM_API_KEY` | the provider key; set it as a host secret, never in git |
 | `LLM_MODEL` / `LLM_FALLBACK_MODEL` | model ids as the provider names them; the fallback is tried on a 404 |
 | `LLM_JSON_MODE` | `true` sends `response_format: json_object` (not every model accepts it) |
+| `GEMINI_MAX_TOKENS` | the same budget for direct Gemini calls (no `LLM_PROVIDER`), default 4096; gemini-2.5 models also think first, and 1024 cut replies off |
 | `LLM_MAX_TOKENS` | output budget per call, default 4096. Models that think first spend 500-700 hidden tokens of it, so a limit near 1024 cuts replies off |
 
 With it on, all analysis, Ask, intent and explanation calls use it, users are not asked for a Gemini
