@@ -82,8 +82,9 @@ const Recommendations = () => {
     }
   }
 
-  const fetchRecommendations = async () => {
-    if (!isAuthenticated || !selectedContext) return
+  // The context is a parameter because handleContextSelect runs before the new state is visible to this closure.
+  const fetchRecommendations = async (context = selectedContext) => {
+    if (!isAuthenticated || !context) return
     
     setLoading(true)
     setError(null)
@@ -97,7 +98,7 @@ const Recommendations = () => {
       // Build request payload based on selected context
       let data = {}
       
-      if (selectedContext.type === 'general' || selectedContext.type === 'surprise') {
+      if (context.type === 'general' || context.type === 'surprise') {
         // Ask for what the user said they are into (profile technology interests), not a fixed sentence.
         let interests = []
         try {
@@ -106,8 +107,8 @@ const Recommendations = () => {
         } catch (profileError) {
           console.warn('Could not read technology interests; using a generic request', profileError)
         }
-        const { title, description, technologies, interests: searchEach } = generalRequest(selectedContext.type, interests)
-        const surprise = selectedContext.type === 'surprise'
+        const { title, description, technologies, interests: searchEach } = generalRequest(context.type, interests)
+        const surprise = context.type === 'surprise'
         data = {
           title,
           description,
@@ -120,12 +121,12 @@ const Recommendations = () => {
           include_global_content: true,
           enhance_with_gemini: geminiAvailable
         }
-      } else if (selectedContext.type === 'project') {
+      } else if (context.type === 'project') {
         data = {
-          title: selectedContext.title,
-          description: selectedContext.description || '',
-          technologies: selectedContext.technologies || '',
-          project_id: selectedContext.id,
+          title: context.title,
+          description: context.description || '',
+          technologies: context.technologies || '',
+          project_id: context.id,
           max_recommendations: 10,
           engine_preference: 'auto',
           diversity_weight: 0.3,
@@ -133,14 +134,14 @@ const Recommendations = () => {
           include_global_content: true,
           enhance_with_gemini: geminiAvailable
         }
-      } else if (selectedContext.type === 'task') {
+      } else if (context.type === 'task') {
         // Use unified orchestrator with task context for better recommendations
         data = {
-          title: selectedContext.title,
-          description: selectedContext.description || '',
-          technologies: selectedContext.technologies || '',
-          project_id: selectedContext.project_id,
-          task_id: selectedContext.id,
+          title: context.title,
+          description: context.description || '',
+          technologies: context.technologies || '',
+          project_id: context.project_id,
+          task_id: context.id,
           max_recommendations: 10,
           engine_preference: 'auto',
           diversity_weight: 0.3,
@@ -148,15 +149,15 @@ const Recommendations = () => {
           include_global_content: true,
           enhance_with_gemini: geminiAvailable
         }
-      } else if (selectedContext.type === 'subtask') {
+      } else if (context.type === 'subtask') {
         // Use unified orchestrator with subtask context for better recommendations
         data = {
-          title: selectedContext.title,
-          description: selectedContext.description || '',
-          technologies: selectedContext.technologies || '',
-          project_id: selectedContext.project_id,
-          task_id: selectedContext.task_id,
-          subtask_id: selectedContext.id,
+          title: context.title,
+          description: context.description || '',
+          technologies: context.technologies || '',
+          project_id: context.project_id,
+          task_id: context.task_id,
+          subtask_id: context.id,
           max_recommendations: 10,
           engine_preference: 'auto',
           diversity_weight: 0.3,
@@ -195,8 +196,7 @@ const Recommendations = () => {
   const handleContextSelect = async (context) => {
     setSelectedContext(context)
     setShowContextSelector(false)
-    // Fetch recommendations will be triggered by the context change
-    await fetchRecommendations()
+    await fetchRecommendations(context)
   }
 
   const handleFeedback = async (recommendationId, feedbackType) => {
