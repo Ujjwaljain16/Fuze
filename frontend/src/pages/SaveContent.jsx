@@ -17,15 +17,13 @@ const SaveContent = () => {
   const [extracting, setExtracting] = useState(false)
   const [checkingDuplicate, setCheckingDuplicate] = useState(false)
   const [duplicateInfo, setDuplicateInfo] = useState(null)
-  const [projects, setProjects] = useState([])
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [formData, setFormData] = useState({
     url: '',
     title: '',
     description: '',
     category: 'other',
-    tags: '',
-    project_id: ''
+    tags: ''
   })
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
   const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth <= 480)
@@ -55,10 +53,9 @@ const SaveContent = () => {
     return () => window.removeEventListener('resize', handleResize)
   }, []);
 
-  // Fetch projects and stats on component mount
+  // Fetch stats on component mount
   useEffect(() => {
     if (isAuthenticated) {
-      fetchProjects()
       fetchStats()
     }
   }, [isAuthenticated])
@@ -106,15 +103,6 @@ const SaveContent = () => {
     const timeoutId = setTimeout(checkDuplicate, 1000)
     return () => clearTimeout(timeoutId)
   }, [formData.url])
-
-  const fetchProjects = async () => {
-    try {
-      const response = await api.get('/api/projects')
-      setProjects(response.data.projects || [])
-    } catch (err) {
-      console.error('Error fetching projects:', err)
-    }
-  }
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -168,10 +156,6 @@ const SaveContent = () => {
         tags: formData.tags.trim()
       }
 
-      if (formData.project_id) {
-        bookmarkData.project_id = formData.project_id
-      }
-
       const response = await api.post('/api/bookmarks', bookmarkData)
       
       if (response.data) {
@@ -196,8 +180,7 @@ const SaveContent = () => {
           title: '',
           description: '',
           category: 'other',
-          tags: '',
-          project_id: ''
+          tags: ''
         })
         
         // Refresh stats after saving
@@ -521,32 +504,6 @@ const SaveContent = () => {
                       </div>
                     </div>
 
-                    {/* Project Association */}
-                    {projects.length > 0 && (
-                      <div className="space-y-2">
-                        <label htmlFor="project_id" className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-white`}>
-                          Associate with Project (Optional)
-                        </label>
-                        <div className="relative">
-                          <select
-                            id="project_id"
-                            name="project_id"
-                            value={formData.project_id}
-                            onChange={handleInputChange}
-                            className={`w-full ${isMobile ? 'px-3 py-2 text-sm' : 'px-4 py-3'} bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all duration-300 backdrop-blur-sm appearance-none cursor-pointer`}
-                          >
-                            <option value="" className="bg-gray-800">No Project</option>
-                            {projects.map(project => (
-                              <option key={project.id} value={project.id} className="bg-gray-800">
-                                {project.title}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/10 to-teal-500/10 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                        </div>
-                      </div>
-                    )}
-
                     {/* Duplicate Check Results */}
                     {checkingDuplicate && (
                       <div className={`bg-gradient-to-r from-yellow-600/20 to-orange-600/20 border border-yellow-500/30 rounded-xl ${isMobile ? 'p-3' : 'p-4'} flex items-center ${isSmallMobile ? 'gap-2' : 'space-x-3'}`}>
@@ -633,10 +590,6 @@ const SaveContent = () => {
                     <li className={`flex items-start ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}>
                       <div className={`${isMobile ? 'w-1 h-1' : 'w-1.5 h-1.5'} bg-teal-400 rounded-full ${isMobile ? 'mt-1.5' : 'mt-2'} flex-shrink-0`}></div>
                       <span>Add relevant tags to group similar content together</span>
-                    </li>
-                    <li className={`flex items-start ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}>
-                      <div className={`${isMobile ? 'w-1 h-1' : 'w-1.5 h-1.5'} bg-emerald-400 rounded-full ${isMobile ? 'mt-1.5' : 'mt-2'} flex-shrink-0`}></div>
-                      <span>Associate content with projects for better organization</span>
                     </li>
                     <li className={`flex items-start ${isSmallMobile ? 'gap-1.5' : 'space-x-2'}`}>
                       <div className={`${isMobile ? 'w-1 h-1' : 'w-1.5 h-1.5'} bg-orange-400 rounded-full ${isMobile ? 'mt-1.5' : 'mt-2'} flex-shrink-0`}></div>

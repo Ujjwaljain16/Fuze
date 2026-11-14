@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api, { getApiErrorMessage } from '../services/api'
-import { getSafeHref } from '../utils/urlSafety'
 import logo1 from '../assets/logo1.svg'
 import { 
   FolderOpen, 
@@ -30,7 +29,6 @@ const ProjectDetail = () => {
   const { success, error } = useToast()
   const [mousePos] = useState({ x: 0, y: 0 })
   const [project, setProject] = useState(null)
-  const [projectBookmarks, setProjectBookmarks] = useState([])
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [tasksLoading, setTasksLoading] = useState(false)
@@ -84,7 +82,6 @@ const ProjectDetail = () => {
       
       // The project data is directly in projectRes.data
       setProject(projectRes.data)
-      setProjectBookmarks(projectRes.data.bookmarks || [])
     } catch (err) {
       console.error('Error fetching project data:', err)
       setProject(null)
@@ -480,62 +477,11 @@ const ProjectDetail = () => {
                     <Edit size={16} />
                     <span>Edit Project</span>
                   </button>
-                  <button className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 transform hover:scale-105 flex items-center space-x-2">
-                    <Plus size={16} />
-                    <span>Add Content</span>
-                  </button>
                 </div>
               </div>
             </div>
 
             <div className="space-y-8">
-        {/* Project Bookmarks Section */}
-        <div className="section">
-          <div className="section-header">
-            <h2>Saved Content for This Project</h2>
-            <span className="bookmark-count">
-              {projectBookmarks.length} items
-            </span>
-          </div>
-          
-          {projectBookmarks.length > 0 ? (
-            <div className="bookmarks-grid">
-              {projectBookmarks.map((bookmark) => (
-                <div key={bookmark.id} className="bookmark-card">
-                  <div className="bookmark-content">
-                    <h4 className="bookmark-title">{bookmark.title}</h4>
-                    <p className="bookmark-url">{bookmark.url}</p>
-                    {bookmark.description && (
-                      <p className="bookmark-description">{bookmark.description}</p>
-                    )}
-                    {bookmark.category && (
-                      <span className="bookmark-category">{bookmark.category}</span>
-                    )}
-                  </div>
-                  <div className="bookmark-actions">
-                    <a 
-                      href={getSafeHref(bookmark.url)}
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="bookmark-link"
-                    >
-                      <ExternalLink size={16} />
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-16 bg-gradient-to-br from-gray-900/30 to-black/30 rounded-2xl border border-gray-800">
-              <div className="p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 rounded-full w-24 h-24 mx-auto mb-6">
-                <Bookmark className="w-12 h-12 text-green-400 mx-auto mt-3" />
-              </div>
-              <h3 className="text-2xl font-semibold text-white mb-4">No content saved to this project yet</h3>
-              <p className="text-gray-400 mb-8 max-w-md mx-auto">Start by adding content to your project to organize your bookmarks and resources.</p>
-            </div>
-          )}
-        </div>
-
         {/* Tasks Section */}
         <div className="bg-gradient-to-br from-gray-900/50 to-black/50 backdrop-blur-xl border border-gray-800 rounded-2xl p-4 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
