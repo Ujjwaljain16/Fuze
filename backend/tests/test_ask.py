@@ -292,3 +292,42 @@ def test_passage_retrieval_on_pgvector_caps_per_bookmark_and_stays_in_tenant(app
     assert [p.n for p in passages] == [1, 2, 3, 4]
     assert [p.bookmark_id for p in passages] == [long_page, long_page, short_page, unchunked]
     assert all(theirs != p.bookmark_id for p in passages)
+
+
+def test_a_google_quota_refusal_says_it_is_googles_and_when_it_clears(client, test_user, auth_headers, gemini):
+    from core import gemini_quota
+    gemini_quota.mark_exhausted('user-key', 'Quota exceeded. Please retry in 6h52m17.1s.')
+    try:
+        with _embeddings(), _access(allowance=False):
+            res = _ask(client, auth_headers)
+    finally:
+        gemini_quota.clear('user-key')
+    body = res.get_json()
+    assert res.status_code == 429 and body['error'] == 'gemini_quota_exceeded'
+    assert 'Google' in body['message'] and '6 h 52 min' in body['message']
+    assert 'usage limit' not in body['message']
+    assert 24000 < int(res.headers['Retry-After']) <= 24737
+
+
+def test_a_quota_hit_during_the_call_is_reported_as_googles_quota(app, client, test_user, auth_headers, gemini):
+    from core import gemini_quota
+    with app.app_context():
+        _bookmark(test_user['id'], 'Something', 'Some saved text.', NEAR)
+
+    def google_says_429():
+        gemini_quota.mark_exhausted('user-key', 'RESOURCE_EXHAUSTED. Please retry in 40m.')
+
+    gemini.reply, gemini.on_call = None, google_says_429
+    try:
+        with _embeddings(), _access():
+            res = _ask(client, auth_headers)
+    finally:
+        gemini_quota.clear('user-key')
+    assert res.status_code == 429 and 'Google' in res.get_json()['message'] and '40 min' in res.get_json()['message']
+
+
+def test_google_quota_message_wording():
+    from services.ask_service import google_quota_message
+    assert '2 h' in google_quota_message(7200) and 'min' not in google_quota_message(7200).split('about')[1].split('.')[0]
+    assert '5 min' in google_quota_message(300)
+    assert 'a minute' in google_quota_message(30)

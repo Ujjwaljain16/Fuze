@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import bindparam, text
 
+from core import gemini_quota
 from core.logging_config import get_logger
 from services import multi_user_api_manager as api_keys
 from services.search_service import SearchService
@@ -212,13 +213,31 @@ def parse_answer(raw: str, passages: List[Passage]) -> Tuple[str, List[Dict[str,
 
 # ------------------------------------------------------------------ the request
 
+def google_quota_message(seconds: int) -> str:
+    """Say it is Google's quota on the user's key (not a Fuze limit) and when it clears."""
+    if seconds >= 3600:
+        hours, minutes = divmod(seconds // 60, 60)
+        wait = f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    elif seconds >= 60:
+        wait = f"{(seconds + 59) // 60} min"
+    else:
+        wait = "a minute"
+    return (f"Google says the quota for your Gemini API key is used up (free-tier keys allow only a small number of "
+            f"requests per day). It should clear in about {wait}. Fuze's own limits are not the cause; you can also "
+            f"use another key or enable billing on this one in Google AI Studio.")
+
+
 def answer_question(user_id: int, question: str, limit: int = DEFAULT_PASSAGES) -> Dict[str, Any]:
     """Validate the user's Gemini access, retrieve, then call Gemini with no database session open."""
     # Cheap checks first, spending none of the shared allowance.
-    if not api_keys.get_user_api_key(user_id, for_use=False):
+    user_key = api_keys.get_user_api_key(user_id, for_use=False)
+    if not user_key:
         raise AskError(402, "gemini_key_required",
                        "Add your Gemini API key in Settings to ask questions about your bookmarks.")
     if not api_keys.has_gemini_allowance(user_id):
+        google_wait = gemini_quota.cooldown_seconds(user_key)
+        if google_wait > 0:
+            raise AskError(429, "gemini_quota_exceeded", google_quota_message(google_wait), retry_after=google_wait)
         raise AskError(429, "gemini_quota_exceeded",
                        "You've reached your AI usage limit for now. Try again later, or add your own "
                        "Gemini API key in Settings.", retry_after=60)
@@ -243,6 +262,9 @@ def answer_question(user_id: int, question: str, limit: int = DEFAULT_PASSAGES) 
     raw = GeminiAnalyzer(api_key=key)._make_gemini_request(build_prompt(question, passages))
     api_keys.record_user_request(user_id)
     if not raw:
+        google_wait = gemini_quota.cooldown_seconds(key)  # set by the call itself when Google answered 429
+        if google_wait > 0:
+            raise AskError(429, "gemini_quota_exceeded", google_quota_message(google_wait), retry_after=google_wait)
         raise AskError(503, "generation_failed", "The AI couldn't answer right now. Please try again shortly.")
 
     answer, citations = parse_answer(raw, passages)
