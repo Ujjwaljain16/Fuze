@@ -348,6 +348,22 @@ class MultiUserAPIManager:
             return ''
         return system_key
 
+    def gemini_fallback_key(self, user_id: int) -> Optional[str]:
+        """With LLM_PROVIDER on: the Gemini key to use when the provider fails, the user's own first,
+        then GEMINI_API_KEY; None if there is none or Google has it in a quota cooldown."""
+        from utils import llm_provider
+        from core import gemini_quota
+        if not llm_provider.is_active():
+            return None
+        try:
+            own, revoked = self._own_key(user_id)
+        except Exception:
+            own, revoked = None, False
+        for key in ((None if revoked else own), os.environ.get('GEMINI_API_KEY')):
+            if key and gemini_quota.cooldown_seconds(key) == 0:
+                return key
+        return None
+
     def has_gemini_allowance(self, user_id: int) -> bool:
         """Whether a Gemini call for this user would be allowed right now, without spending any of it.
 
@@ -361,7 +377,8 @@ class MultiUserAPIManager:
             return False
         from core import gemini_quota
         if gemini_quota.cooldown_seconds(key) > 0:
-            return False  # Google already said this key is out of quota until later
+            # Out of quota until later, unless Gemini can stand in for the deployment's provider
+            return self.gemini_fallback_key(user_id) is not None
         if key != os.environ.get('GEMINI_API_KEY'):
             return True  # their own key: only the rate limits above apply
         client = getattr(self.redis, 'redis_client', None)
@@ -598,6 +615,10 @@ def get_user_api_key(user_id: int, for_use: bool = True) -> Optional[str]:
 
 def check_user_rate_limit(user_id: int) -> Dict:
     return api_manager.check_user_rate_limit(user_id)
+
+
+def gemini_fallback_key(user_id: int) -> Optional[str]:
+    return api_manager.gemini_fallback_key(user_id)
 
 
 def has_gemini_allowance(user_id: int) -> bool:

@@ -43,9 +43,11 @@ class GeminiAnalyzer:
     user's key was configured last: one user's saved content billed to another user's key.
     """
 
-    def __init__(self, api_key: Optional[str] = None, provider: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, provider: Optional[str] = None,
+                 fallback_key: Optional[str] = None):
         """provider='gemini' forces Gemini (a user's own key is being checked or used as theirs);
-        by default a deployment configured with LLM_PROVIDER=openai_compat routes everything to it."""
+        by default a deployment configured with LLM_PROVIDER=openai_compat routes everything to it.
+        fallback_key is the Gemini key to try when that provider fails (default: GEMINI_API_KEY)."""
         from utils.unified_config import get_config
         config = get_config()
 
@@ -60,8 +62,10 @@ class GeminiAnalyzer:
         self.max_retries = 2
         self.retry_delay = 1.0
 
+        self._gemini_fallback_key: Optional[str] = None
         if provider != 'gemini' and llm_provider.is_active():
             self._init_external_provider(config.ai)
+            self._gemini_fallback_key = fallback_key or config.ai.gemini_api_key
             return
 
         # None means "the caller has no opinion": use the system key. An empty string means no key
@@ -149,7 +153,21 @@ class GeminiAnalyzer:
         return text or None
 
     def _make_gemini_request(self, prompt: str, json_mode: bool = False) -> Optional[str]:
-        """Make a request with backoff and circuit breaker isolation; None on failure."""
+        """Make a request with backoff and circuit breaker isolation; None on failure.
+
+        When the deployment's provider cannot serve it (no credit, over its limit, down, or it refused
+        the key), the same request goes to Gemini once, so a provider outage does not stop every AI feature.
+        """
+        text = self._request(prompt, json_mode)
+        if text or self._compat is None or self.last_failure == 'failed' or not self._gemini_fallback_key:
+            return text
+        logger.info("llm_provider_failed_using_gemini", extra={"reason": self.last_failure or 'client_error'})
+        fallback = GeminiAnalyzer(api_key=self._gemini_fallback_key, provider='gemini')
+        text = fallback._request(prompt, json_mode)
+        self.last_failure = None if text else (fallback.last_failure or self.last_failure)
+        return text
+
+    def _request(self, prompt: str, json_mode: bool) -> Optional[str]:
         from core.metrics import gemini_calls_total
 
         def count(status):

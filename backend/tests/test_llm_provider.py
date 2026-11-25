@@ -14,7 +14,9 @@ SECRET = 'closerouter_test_secret_value'
 def provider_on(monkeypatch):
     for name, value in {'LLM_PROVIDER': 'openai_compat', 'LLM_BASE_URL': 'https://api.example.test/v1',
                         'LLM_API_KEY': SECRET, 'LLM_MODEL': 'vendor/model-a',
-                        'LLM_FALLBACK_MODEL': 'vendor/model-b'}.items():
+                        'LLM_FALLBACK_MODEL': 'vendor/model-b',
+                        # No Gemini to fall back to unless a test sets one: a real key here would be called.
+                        'GEMINI_API_KEY': ''}.items():
         monkeypatch.setenv(name, value)
     from utils.unified_config import reload_config
     reload_config()
@@ -304,3 +306,63 @@ def test_the_gemini_output_budget_leaves_room_for_thinking_models(monkeypatch):
     assert AIConfig().gemini_max_tokens >= 4096
     monkeypatch.setenv('GEMINI_MAX_TOKENS', '2048')
     assert AIConfig().gemini_max_tokens == 2048  # still overridable
+
+
+def _google_replying(text):
+    client = MagicMock()
+    client.models.generate_content.return_value = MagicMock(text=text)
+    return client
+
+
+@pytest.mark.parametrize('status', [402, 429, 401])
+def test_when_the_provider_cannot_serve_a_request_gemini_answers_it(provider_on, status):
+    """The provider account ran out of credit and every AI feature stopped, although a Gemini key was there."""
+    with patch('utils.llm_provider.requests.post', return_value=_response(status, {}, {})), \
+         patch('utils.gemini_utils.genai.Client', return_value=_google_replying('from gemini')) as google, \
+         patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+        breaker.allow_request.return_value = True
+        analyzer = GeminiAnalyzer(fallback_key='gemini-own-key')
+        assert analyzer._make_gemini_request('hi') == 'from gemini'
+        assert analyzer.last_failure is None
+    assert google.call_args.kwargs['api_key'] == 'gemini-own-key'
+
+
+def test_an_unusable_provider_answer_is_not_sent_again_to_gemini(provider_on):
+    with patch('utils.llm_provider.requests.post', return_value=_ok('')), \
+         patch('utils.gemini_utils.genai.Client') as google, \
+         patch('utils.gemini_utils.time.sleep'), \
+         patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+        breaker.allow_request.return_value = True
+        analyzer = GeminiAnalyzer(fallback_key='gemini-own-key')
+        assert analyzer._make_gemini_request('hi') is None and analyzer.last_failure == 'failed'
+    google.assert_not_called()
+
+
+def test_the_server_gemini_key_is_the_default_fallback(provider_on, monkeypatch):
+    from utils.unified_config import reload_config
+    monkeypatch.setenv('GEMINI_API_KEY', 'server-gemini-key')
+    reload_config()
+    with patch('utils.llm_provider.requests.post', return_value=_response(402, {}, {})), \
+         patch('utils.gemini_utils.genai.Client', return_value=_google_replying('ok')) as google, \
+         patch('utils.gemini_utils.gemini_circuit_breaker') as breaker:
+        breaker.allow_request.return_value = True
+        assert GeminiAnalyzer()._make_gemini_request('hi') == 'ok'
+    assert google.call_args.kwargs['api_key'] == 'server-gemini-key'
+
+
+def test_a_provider_cooldown_does_not_stop_a_user_who_has_a_gemini_key(provider_on, app, test_user):
+    """has_gemini_allowance said no to everyone while the provider was out of credit, so the reconciler
+    stopped retrying analyses and Ask refused before trying anything."""
+    from core import gemini_quota
+    from services.multi_user_api_manager import api_manager
+    with app.app_context():
+        gemini_quota.mark_exhausted(SECRET, 'insufficient balance')
+        try:
+            with patch.object(api_manager, '_own_key', return_value=(None, False)), \
+                 patch.dict('os.environ', {'GEMINI_API_KEY': ''}):
+                assert api_manager.has_gemini_allowance(test_user['id']) is False
+            with patch.object(api_manager, '_own_key', return_value=('own-gemini-key', False)):
+                assert api_manager.has_gemini_allowance(test_user['id']) is True
+                assert api_manager.gemini_fallback_key(test_user['id']) == 'own-gemini-key'
+        finally:
+            gemini_quota.clear(SECRET)

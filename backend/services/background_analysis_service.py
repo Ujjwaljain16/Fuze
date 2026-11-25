@@ -75,6 +75,7 @@ class BackgroundAnalysisService:
             start_time = time.time()
             text_to_analyze = content.extracted_text or content.title or content.url or "Untitled content"
             api_key = None
+            fallback_key = None
 
             if target_user_id:
                 try:
@@ -98,8 +99,10 @@ class BackgroundAnalysisService:
                         logger.info("bg_analysis_deferred_no_key_allowance", extra={"user_id": target_user_id})
                         return
                     from core import gemini_quota
+                    from services.multi_user_api_manager import gemini_fallback_key
+                    fallback_key = gemini_fallback_key(target_user_id)
                     wait = gemini_quota.cooldown_seconds(api_key or os.environ.get('GEMINI_API_KEY'))
-                    if wait > 0:
+                    if wait > 0 and not fallback_key:
                         # Google said this key is out of quota until later: leave it PENDING (not
                         # FAILED, not a try) and let the reconciler come back after the reset.
                         logger.info("bg_analysis_deferred_quota_cooldown", extra={"user_id": target_user_id, "wait_seconds": wait})
@@ -118,7 +121,7 @@ class BackgroundAnalysisService:
             )
             analysis_announced = True
 
-            gemini_analyzer = GeminiAnalyzer(api_key=api_key)
+            gemini_analyzer = GeminiAnalyzer(api_key=api_key, fallback_key=fallback_key)
 
             # Single Gemini call: structured content profile (no heuristic fallback)
             from services.content_profile import generate_profile
