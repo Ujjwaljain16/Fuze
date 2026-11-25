@@ -2,7 +2,6 @@ from typing import Optional
 from flask import Blueprint, request, jsonify
 from core.http_errors import error_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
-import os
 import re
 from models import db, User
 from utils.redis_utils import redis_cache
