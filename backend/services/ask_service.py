@@ -222,6 +222,12 @@ def google_quota_message(seconds: int) -> str:
         wait = f"{(seconds + 59) // 60} min"
     else:
         wait = "a minute"
+    from utils import llm_provider
+    if llm_provider.is_active():
+        # Every call goes through the deployment's provider, not the user's key: a failure there (no credit,
+        # over its limit) is the server's problem and the user's key would not help.
+        return (f"The AI service this server uses is unavailable right now (its account is out of credit or over "
+                f"its limit). This is not your key. It will be tried again in about {wait}.")
     return (f"Google says the quota for your Gemini API key is used up (free-tier keys allow only a small number of "
             f"requests per day). It should clear in about {wait}. Fuze's own limits are not the cause; you can also "
             f"use another key or enable billing on this one in Google AI Studio.")
@@ -229,38 +235,60 @@ def google_quota_message(seconds: int) -> str:
 
 def answer_question(user_id: int, question: str, limit: int = DEFAULT_PASSAGES) -> Dict[str, Any]:
     """Validate the user's Gemini access, retrieve, then call Gemini with no database session open."""
+    from utils import llm_provider
+    # A key the user saved is theirs to spend, so it is used before the server's shared provider
+    # (LLM_PROVIDER), which then only covers users without one, or a call their key could not make.
+    own_key = api_keys.get_own_api_key(user_id) if llm_provider.is_active() else None
+    if own_key and gemini_quota.cooldown_seconds(own_key) > 0:
+        own_key = None  # Google already said this key is out of quota; let the provider try
+    if own_key and not api_keys.check_user_rate_limit(user_id).get('can_make_request', True):
+        raise AskError(429, "gemini_quota_exceeded", "You're asking too quickly. Try again in a minute.",
+                       retry_after=60)
+
     # Cheap checks first, spending none of the shared allowance.
-    user_key = api_keys.get_user_api_key(user_id, for_use=False)
-    if not user_key:
-        raise AskError(402, "gemini_key_required",
-                       "Add your Gemini API key in Settings to ask questions about your bookmarks.")
-    if not api_keys.has_gemini_allowance(user_id):
-        google_wait = gemini_quota.cooldown_seconds(user_key)
-        if google_wait > 0:
-            raise AskError(429, "gemini_quota_exceeded", google_quota_message(google_wait), retry_after=google_wait)
-        raise AskError(429, "gemini_quota_exceeded",
-                       "You've reached your AI usage limit for now. Try again later, or add your own "
-                       "Gemini API key in Settings.", retry_after=60)
+    if not own_key:
+        user_key = api_keys.get_user_api_key(user_id, for_use=False)
+        if not user_key:
+            raise AskError(402, "gemini_key_required",
+                           "Add your Gemini API key in Settings to ask questions about your bookmarks.")
+        if not api_keys.has_gemini_allowance(user_id):
+            google_wait = gemini_quota.cooldown_seconds(user_key)
+            if google_wait > 0:
+                raise AskError(429, "gemini_quota_exceeded", google_quota_message(google_wait), retry_after=google_wait)
+            raise AskError(429, "gemini_quota_exceeded",
+                           "You've reached your AI usage limit for now. Try again later, or add your own "
+                           "Gemini API key in Settings.", retry_after=60)
 
     with UnitOfWork() as uow:
         passages = gather_passages(uow.session, user_id, question, limit)
         # Spend the allowance only when there is something to answer from. Fetched inside the unit
         # of work so its own read is committed and the connection released before the Gemini call.
-        key = api_keys.get_user_api_key(user_id) if passages else None
+        key = api_keys.get_user_api_key(user_id) if passages and not own_key else None
 
     if not passages:
         return {"answer": NOT_FOUND_ANSWER, "citations": [], "used_passages": 0}
-    if key == "":
-        raise AskError(429, "gemini_quota_exceeded",
-                       "You've used today's share of the shared AI key. Add your own Gemini API key "
-                       "in Settings to keep asking.", retry_after=3600)
-    if not key:
-        raise AskError(402, "gemini_key_required",
-                       "Add your Gemini API key in Settings to ask questions about your bookmarks.")
 
     # Gemini takes seconds: no session or transaction is held from here on (see commit 07772d2).
-    raw = GeminiAnalyzer(api_key=key)._make_gemini_request(build_prompt(question, passages))
-    api_keys.record_user_request(user_id)
+    prompt = build_prompt(question, passages)
+    raw = None
+    if own_key:
+        raw = GeminiAnalyzer(api_key=own_key, provider='gemini')._make_gemini_request(prompt)
+        api_keys.record_user_request(user_id)
+        if raw:
+            key = own_key
+        else:
+            logger.info("ask_own_key_failed_using_provider", extra={"user_id": user_id})
+            key = api_keys.get_user_api_key(user_id)
+    if not raw:
+        if key == "":
+            raise AskError(429, "gemini_quota_exceeded",
+                           "You've used today's share of the shared AI key. Add your own Gemini API key "
+                           "in Settings to keep asking.", retry_after=3600)
+        if not key:
+            raise AskError(402, "gemini_key_required",
+                           "Add your Gemini API key in Settings to ask questions about your bookmarks.")
+        raw = GeminiAnalyzer(api_key=key)._make_gemini_request(prompt)
+        api_keys.record_user_request(user_id)
     if not raw:
         google_wait = gemini_quota.cooldown_seconds(key)  # set by the call itself when Google answered 429
         if google_wait > 0:

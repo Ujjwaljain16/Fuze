@@ -29,10 +29,12 @@ class FakeGemini:
     prompts = []
     reply = "From your notes [1]."
     keys = []
+    providers = []
     on_call = None
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, provider=None):
         FakeGemini.keys.append(api_key)
+        FakeGemini.providers.append(provider)
 
     def _make_gemini_request(self, prompt, json_mode=False):
         FakeGemini.prompts.append(prompt)
@@ -44,6 +46,7 @@ class FakeGemini:
 @pytest.fixture
 def gemini():
     FakeGemini.prompts, FakeGemini.keys, FakeGemini.reply, FakeGemini.on_call = [], [], "From your notes [1].", None
+    FakeGemini.providers = []
     with patch('services.ask_service.GeminiAnalyzer', FakeGemini):
         yield FakeGemini
 
@@ -331,3 +334,67 @@ def test_google_quota_message_wording():
     assert '2 h' in google_quota_message(7200) and 'min' not in google_quota_message(7200).split('about')[1].split('.')[0]
     assert '5 min' in google_quota_message(300)
     assert 'a minute' in google_quota_message(30)
+
+
+def test_a_provider_outage_is_not_blamed_on_google_or_the_users_key(monkeypatch):
+    """With LLM_PROVIDER on, a cooldown comes from the provider (e.g. no credit), not from Google's quota."""
+    from services.ask_service import google_quota_message
+    from utils.unified_config import reload_config
+    for name, value in {'LLM_PROVIDER': 'openai_compat', 'LLM_BASE_URL': 'https://api.example.test/v1',
+                        'LLM_API_KEY': 'k-provider', 'LLM_MODEL': 'vendor/model-a'}.items():
+        monkeypatch.setenv(name, value)
+    reload_config()
+    try:
+        message = google_quota_message(900)
+    finally:
+        monkeypatch.undo()
+        reload_config()
+    assert 'Google' not in message and 'not your key' in message and '15 min' in message
+
+
+@pytest.fixture
+def provider_on(monkeypatch):
+    from utils.unified_config import reload_config
+    for name, value in {'LLM_PROVIDER': 'openai_compat', 'LLM_BASE_URL': 'https://api.example.test/v1',
+                        'LLM_API_KEY': 'k-provider', 'LLM_MODEL': 'vendor/model-a'}.items():
+        monkeypatch.setenv(name, value)
+    reload_config()
+    yield
+    monkeypatch.undo()
+    reload_config()
+
+
+def test_with_a_provider_the_users_own_key_answers_first(app, client, test_user, auth_headers, gemini, provider_on):
+    """The deployment's provider ran out of credit and every Ask failed, although the user had saved a
+    working Gemini key: their own key is now tried first."""
+    with app.app_context():
+        _bookmark(test_user['id'], 'Indexes', 'HNSW indexes trade memory for speed.', NEAR)
+    with _embeddings(), _access(key='k-provider'),          patch('services.multi_user_api_manager.get_own_api_key', return_value='own-gemini-key'):
+        res = _ask(client, auth_headers)
+    assert res.status_code == 200, res.get_json()
+    assert gemini.keys == ['own-gemini-key'] and gemini.providers == ['gemini']
+
+
+def test_with_a_provider_a_failing_own_key_falls_back_to_the_provider(app, client, test_user, auth_headers, gemini,
+                                                                      provider_on):
+    with app.app_context():
+        _bookmark(test_user['id'], 'Indexes', 'HNSW indexes trade memory for speed.', NEAR)
+    replies = iter([None, "From your notes [1]."])
+
+    class OneFailure(FakeGemini):
+        def _make_gemini_request(self, prompt, json_mode=False):
+            FakeGemini.prompts.append(prompt)
+            return next(replies)
+
+    with _embeddings(), _access(key='k-provider'), patch('services.ask_service.GeminiAnalyzer', OneFailure),          patch('services.multi_user_api_manager.get_own_api_key', return_value='own-gemini-key'):
+        res = _ask(client, auth_headers)
+    assert res.status_code == 200, res.get_json()
+    assert gemini.keys == ['own-gemini-key', 'k-provider'] and gemini.providers == ['gemini', None]
+
+
+def test_with_a_provider_and_no_own_key_the_provider_answers(app, client, test_user, auth_headers, gemini, provider_on):
+    with app.app_context():
+        _bookmark(test_user['id'], 'Indexes', 'HNSW indexes trade memory for speed.', NEAR)
+    with _embeddings(), _access(key='k-provider'),          patch('services.multi_user_api_manager.get_own_api_key', return_value=None):
+        res = _ask(client, auth_headers)
+    assert res.status_code == 200 and gemini.keys == ['k-provider'] and gemini.providers == [None]
