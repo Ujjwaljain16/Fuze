@@ -122,3 +122,68 @@ def test_no_saved_key_is_still_reported_as_none(app, client, auth_headers, test_
         api_manager.user_api_keys.pop(test_user['id'], None)
     status = client.get('/api/user/api-key/status', headers=auth_headers)
     assert status.status_code == 200 and status.json['has_api_key'] is False
+
+
+OWN_KEY = 'AQ.Ab8RN6FakeOwnKeyForTests_0123456789abcdef'
+PROVIDER_KEY = 'sk-provider-key-not-for-google-0123456789'
+
+
+@pytest.fixture
+def provider_on(monkeypatch):
+    for name, value in {'LLM_PROVIDER': 'openai_compat', 'LLM_BASE_URL': 'https://api.example.test/v1',
+                        'LLM_API_KEY': PROVIDER_KEY, 'LLM_MODEL': 'vendor/model-a'}.items():
+        monkeypatch.setenv(name, value)
+    from utils.unified_config import reload_config
+    reload_config()
+    yield
+    monkeypatch.undo()
+    reload_config()
+
+
+class _FakeAnalyzer:
+    tested = []
+
+    def __init__(self, api_key=None, provider=None):
+        _FakeAnalyzer.tested.append((api_key, provider))
+
+    def validate_key(self):
+        return True
+
+
+def _save_own_key(app, user_id):
+    from services.multi_user_api_manager import api_manager
+    with app.app_context():
+        assert api_manager.add_user_api_key(user_id, OWN_KEY)
+
+
+def test_the_key_test_checks_the_users_own_key_when_a_provider_serves_the_deployment(app, client, auth_headers,
+                                                                                     test_user, provider_on):
+    """With LLM_PROVIDER on, get_user_api_key returns the provider's key; the test sent that to Google, which
+    rejected it as an invalid API key, so every saved key looked broken."""
+    _save_own_key(app, test_user['id'])
+    _FakeAnalyzer.tested = []
+    with patch('utils.gemini_utils.GeminiAnalyzer', _FakeAnalyzer):
+        res = client.post('/api/user/api-key/test', headers=auth_headers)
+    assert res.status_code == 200 and res.json['valid'] is True
+    assert _FakeAnalyzer.tested == [(OWN_KEY, 'gemini')]
+    assert 'not used' in res.json['message']
+
+
+def test_the_key_test_checks_the_users_own_key_without_a_provider(app, client, auth_headers, test_user):
+    _save_own_key(app, test_user['id'])
+    _FakeAnalyzer.tested = []
+    with patch('utils.gemini_utils.GeminiAnalyzer', _FakeAnalyzer):
+        res = client.post('/api/user/api-key/test', headers=auth_headers)
+    assert res.json['valid'] is True and _FakeAnalyzer.tested == [(OWN_KEY, 'gemini')]
+    assert res.json['message'] == 'API key is valid and working'
+
+
+def test_the_key_test_says_so_when_no_key_is_saved(app, client, auth_headers, test_user, provider_on):
+    from services.multi_user_api_manager import api_manager
+    with api_manager.lock:
+        api_manager.user_api_keys.pop(test_user['id'], None)
+    _FakeAnalyzer.tested = []
+    with patch('utils.gemini_utils.GeminiAnalyzer', _FakeAnalyzer):
+        res = client.post('/api/user/api-key/test', headers=auth_headers)
+    assert res.json['valid'] is False and 'No API key saved' in res.json['message']
+    assert _FakeAnalyzer.tested == []  # the provider's key is never sent to Google

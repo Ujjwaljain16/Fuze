@@ -279,41 +279,27 @@ def test_api_key():
             logger.warning("api_key_test_rate_limit_check_failed", extra={"user_id": user_id, "error": str(rate_err)})
 
     try:
-        _, _, _, get_user_api_key, api_manager = get_multi_user_api_manager()
-
-        api_key = get_user_api_key(user_id, for_use=False)
-
-        if not api_key or api_key == os.environ.get('GEMINI_API_KEY'):
-            user = db.session.query(User).filter_by(id=user_id).first()
-            if user:
-                metadata = user.user_metadata or {}
-                api_key_info = metadata.get('api_key', {})
-                if not api_key_info:
-                    return jsonify({
-                        'valid': False,
-                        'message': 'No API key configured. Using default key.'
-                    }), 200
+        # Test the key the user saved. get_user_api_key would hand back the shared system key or, when the
+        # deployment routes AI calls through LLM_PROVIDER, that provider's key, which Google then rejects.
+        from services.multi_user_api_manager import get_own_api_key
+        from utils import llm_provider
+        api_key = get_own_api_key(user_id)
+        if not api_key:
+            return jsonify({'valid': False, 'message': 'No API key saved yet. Add your Gemini API key first.'}), 200
 
         try:
             from utils.gemini_utils import GeminiAnalyzer
 
-            if not api_key:
+            if not GeminiAnalyzer(api_key=api_key, provider='gemini').validate_key():
                 return jsonify({
                     'valid': False,
-                    'message': 'API key not found'
+                    'message': 'Google did not accept this key. Check that you copied all of it from Google AI Studio.'
                 }), 200
-
-            if GeminiAnalyzer(api_key=api_key, provider='gemini').validate_key():
-                return jsonify({
-                    'valid': True,
-                    'message': 'API key is valid and working',
-                    'is_user_key': user_id in api_manager.user_api_keys
-                }), 200
-            else:
-                return jsonify({
-                    'valid': False,
-                    'message': 'API key validation failed'
-                }), 200
+            message = 'API key is valid and working'
+            if llm_provider.is_active():
+                message = ('Your key is valid. This server currently sends AI requests through its own provider, '
+                           'so your key is not used for them.')
+            return jsonify({'valid': True, 'message': message, 'is_user_key': True}), 200
 
         except Exception as test_error:
             logger.warning("api_key_test_validation_failed", extra={"user_id": user_id, "error": str(test_error)})

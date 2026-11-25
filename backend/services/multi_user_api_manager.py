@@ -244,6 +244,63 @@ class MultiUserAPIManager:
             logger.error("api_key_add_failed", extra={"user_id": user_id, "error": str(e)})
             return False
 
+    def _own_key(self, user_id: int) -> "tuple[Optional[str], bool]":
+        """The key this user saved, decrypted, and whether it has been revoked."""
+        from services.api_key_revocation_manager import get_revocation_manager
+        revocation_manager = get_revocation_manager()
+
+        # 1. Check in-memory cache
+        with self.lock:
+            user_api_key = self.user_api_keys.get(user_id)
+
+        if user_api_key and user_api_key.status == APIKeyStatus.ACTIVE and user_api_key.encrypted_key:
+            decrypted = self.decrypt_api_key(user_api_key.encrypted_key)
+            if decrypted:
+                if revocation_manager.is_api_key_revoked(decrypted):
+                    logger.warning("cached_api_key_revoked", extra={"user_id": user_id})
+                    with self.lock:
+                        self.user_api_keys.pop(user_id, None)
+                    return None, True
+                return decrypted, False
+
+        # 2. Database on-demand lookup
+        user = db.session.query(User).filter_by(id=user_id).first()
+        if user and user.user_metadata:
+            api_key_info = user.user_metadata.get('api_key', {})
+            if api_key_info and api_key_info.get('encrypted'):
+                decrypted, used_legacy_key = self._decrypt_with_source(api_key_info['encrypted'])
+                if decrypted:
+                    if revocation_manager.is_api_key_revoked(decrypted):
+                        logger.warning("db_api_key_revoked", extra={"user_id": user_id})
+                        return None, True
+
+                    current_encrypted = api_key_info['encrypted']
+                    if used_legacy_key:
+                        # Opportunistic migration: re-encrypt onto the current key
+                        # (API_KEY_ENCRYPTION_KEY, else SECRET_KEY's HKDF key) now that
+                        # we have the plaintext, so it stops depending on the older key.
+                        try:
+                            current_encrypted = self._reencrypt_stored_key(user, decrypted)
+                            db.session.commit()
+                            logger.info("api_key_migrated_to_current_key", extra={"user_id": user_id})
+                        except Exception as e:
+                            db.session.rollback()
+                            logger.warning("api_key_migration_failed", extra={"user_id": user_id, "error": str(e)})
+                            current_encrypted = api_key_info['encrypted']
+
+                    cached_key = UserAPIKey(
+                        user_id=user_id,
+                        api_key_hash=api_key_info.get('hash', ''),
+                        api_key_name=api_key_info.get('name', ''),
+                        status=APIKeyStatus(api_key_info.get('status', 'active')),
+                        encrypted_key=current_encrypted
+                    )
+                    with self.lock:
+                        self.user_api_keys[user_id] = cached_key
+                    return decrypted, False
+
+        return None, False
+
     def get_user_api_key(self, user_id: int, for_use: bool = True) -> Optional[str]:
         """Get decrypted API key for user. Does NOT return system key if revoked.
 
@@ -259,58 +316,11 @@ class MultiUserAPIManager:
         if llm_provider.is_active():
             return llm_provider.active_key()
         try:
-            from services.api_key_revocation_manager import get_revocation_manager
-            revocation_manager = get_revocation_manager()
-
-            # 1. Check in-memory cache
-            with self.lock:
-                user_api_key = self.user_api_keys.get(user_id)
-
-            if user_api_key and user_api_key.status == APIKeyStatus.ACTIVE and user_api_key.encrypted_key:
-                decrypted = self.decrypt_api_key(user_api_key.encrypted_key)
-                if decrypted:
-                    if revocation_manager.is_api_key_revoked(decrypted):
-                        logger.warning("cached_api_key_revoked", extra={"user_id": user_id})
-                        with self.lock:
-                            self.user_api_keys.pop(user_id, None)
-                        return None
-                    return decrypted
-
-            # 2. Database on-demand lookup
-            user = db.session.query(User).filter_by(id=user_id).first()
-            if user and user.user_metadata:
-                api_key_info = user.user_metadata.get('api_key', {})
-                if api_key_info and api_key_info.get('encrypted'):
-                    decrypted, used_legacy_key = self._decrypt_with_source(api_key_info['encrypted'])
-                    if decrypted:
-                        if revocation_manager.is_api_key_revoked(decrypted):
-                            logger.warning("db_api_key_revoked", extra={"user_id": user_id})
-                            return None
-
-                        current_encrypted = api_key_info['encrypted']
-                        if used_legacy_key:
-                            # Opportunistic migration: re-encrypt onto the current key
-                            # (API_KEY_ENCRYPTION_KEY, else SECRET_KEY's HKDF key) now that
-                            # we have the plaintext, so it stops depending on the older key.
-                            try:
-                                current_encrypted = self._reencrypt_stored_key(user, decrypted)
-                                db.session.commit()
-                                logger.info("api_key_migrated_to_current_key", extra={"user_id": user_id})
-                            except Exception as e:
-                                db.session.rollback()
-                                logger.warning("api_key_migration_failed", extra={"user_id": user_id, "error": str(e)})
-                                current_encrypted = api_key_info['encrypted']
-
-                        cached_key = UserAPIKey(
-                            user_id=user_id,
-                            api_key_hash=api_key_info.get('hash', ''),
-                            api_key_name=api_key_info.get('name', ''),
-                            status=APIKeyStatus(api_key_info.get('status', 'active')),
-                            encrypted_key=current_encrypted
-                        )
-                        with self.lock:
-                            self.user_api_keys[user_id] = cached_key
-                        return decrypted
+            own, revoked = self._own_key(user_id)
+            if revoked:
+                return None
+            if own:
+                return own
 
             # 3. Fallback to the shared system key, within the per-user daily allowance
             return self._system_key_for(user_id, for_use)
@@ -570,6 +580,16 @@ def init_api_manager():
 
 def add_user_api_key(user_id: int, api_key: str, api_key_name: Optional[str] = None) -> bool:
     return api_manager.add_user_api_key(user_id, api_key, api_key_name)
+
+
+def get_own_api_key(user_id: int) -> Optional[str]:
+    """Only the key the user saved: never the shared system key or the deployment's LLM provider key."""
+    try:
+        own, revoked = api_manager._own_key(user_id)
+    except Exception as e:
+        logger.error("get_own_api_key_failed", extra={"user_id": user_id, "error": str(e)})
+        return None
+    return None if revoked else own
 
 
 def get_user_api_key(user_id: int, for_use: bool = True) -> Optional[str]:
