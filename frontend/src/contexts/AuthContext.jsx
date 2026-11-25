@@ -190,12 +190,18 @@ export const AuthProvider = ({ children }) => {
     if (isLoggingOut.current) return
     isLoggingOut.current = true
 
+    // Read before clearing: the request interceptor takes the token from storage, so once it is gone
+    // the logout went out with no token and the server never revoked the session. The refresh token
+    // still works after the access token has expired.
+    const { refresh_token: refreshToken, token, access_token: accessToken } = storedSessionTokens()
+    const sessionToken = refreshToken || token || accessToken
+
     setUser(null)
     userRef.current = null
     localStorage.removeItem('user')
-    
+
     // Call logout endpoint to clear cookies without triggering recursive retries
-    api.post('/api/auth/logout')
+    api.post('/api/auth/logout', {}, sessionToken ? { headers: { Authorization: `Bearer ${sessionToken}` } } : undefined)
       .catch(() => {})
       .finally(() => {
         isLoggingOut.current = false

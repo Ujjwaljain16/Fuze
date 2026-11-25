@@ -140,5 +140,18 @@ describe('AuthContext', () => {
     
     expect(localStorage.getItem('user')).toBeFalsy()
   })
-})
 
+  it('sends the stored refresh token with logout, read before the session is cleared', async () => {
+    // The token used to be cleared first, so logout went out with no token and the server never
+    // revoked the session.
+    localStorage.setItem('user', JSON.stringify({ id: 1, username: 'test', token: 'a1', refresh_token: 'r1' }))
+    api.post.mockResolvedValueOnce({ data: {} })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    result.current.logout()
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/api/auth/logout', {}, { headers: { Authorization: 'Bearer r1' } }))
+    expect(localStorage.getItem('user')).toBeFalsy()
+  })
+})

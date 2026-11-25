@@ -610,9 +610,11 @@ def fork_session():
 
 
 @auth_bp.route('/logout', methods=['POST'])
-@jwt_required()
+# Either token: after the access token has expired (an hour) the refresh token is the only way to
+# end the session, and its family must still be revoked.
+@jwt_required(verify_type=False)
 def logout():
-    """Logout: blacklist current access token JTI + revoke token family."""
+    """Logout: blacklist the presented token's JTI + revoke its token family."""
     try:
         jwt_data  = get_jwt()
         jti       = jwt_data['jti']

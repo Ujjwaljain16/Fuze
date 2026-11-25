@@ -83,3 +83,17 @@ def test_without_the_client_throttle_the_account_locks_after_five(client, test_u
         for _ in range(5):
             _attempt(client, test_user, 'wrong-password', '203.0.113.9')
         assert _attempt(client, test_user, test_user['password'], '198.51.100.7').status_code == 401
+
+
+def test_logout_with_the_refresh_token_ends_the_session(client, test_user):
+    """Once the access token has expired the client can only present its refresh token; logout
+    refused it (401) and the session's refresh token stayed usable."""
+    session = _login(client, test_user)
+    refresh_headers = {'Authorization': f"Bearer {session['refresh_token']}"}
+
+    assert client.post('/api/auth/logout', headers=refresh_headers).status_code == 200
+    assert client.post('/api/auth/refresh', headers=refresh_headers).status_code == 401
+
+
+def test_logout_without_a_token_is_still_refused(client):
+    assert client.post('/api/auth/logout').status_code == 401
