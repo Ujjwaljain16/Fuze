@@ -97,8 +97,10 @@ const executeTokenRefresh = async () => {
       const refreshToken = readStoredUser()?.refresh_token
       // Without a stored refresh token (sessions from before this change) fall back to the cookie,
       // which works when the app and API share a site (local dev, same-domain deploys).
+      // With one, send no credentials: the Hugging Face proxy answers CORS preflights itself without
+      // Access-Control-Allow-Credentials, so the browser would block a credentialed refresh.
       const headers = refreshToken ? { Authorization: `Bearer ${refreshToken}` } : {}
-      const response = await axios.post(`${baseURL}/api/auth/refresh`, {}, { withCredentials: true, headers })
+      const response = await axios.post(`${baseURL}/api/auth/refresh`, {}, { withCredentials: !refreshToken, headers })
       // Refresh tokens rotate: the old one is now spent, so the new pair must be saved together.
       storeTokens(response.data?.access_token, response.data?.refresh_token)
       return response

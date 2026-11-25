@@ -29,6 +29,8 @@ describe('token refresh', () => {
     expect(post).toHaveBeenCalledTimes(1)
     expect(post.mock.calls[0][0]).toMatch(/\/api\/auth\/refresh$/)
     expect(post.mock.calls[0][2].headers).toEqual({ Authorization: 'Bearer r1' })
+    // Credentialed, it is blocked at the CORS preflight on Hugging Face and never sent.
+    expect(post.mock.calls[0][2].withCredentials).toBe(false)
     const stored = JSON.parse(localStorage.getItem('user'))
     expect(stored).toMatchObject({ id: 1, token: 'a2', access_token: 'a2', refresh_token: 'r2' })
   })
